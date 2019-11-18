@@ -170,7 +170,7 @@ call msg("Compile-time WHOAMI: %(WHOAMI)s")
         for dir in [os.path.join(directory,'..','build'), directory]:
           try:
             with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir ).stdout as inf:
-                diff_f90.write("call msg(\"Output of svn diff at "+dir+"\")\n")
+                diff_f90.write("call msg(\"Output of " + svncmd + " "+dir+"\")\n")
                 for l in inf:
                     l=re.sub("\r","",l[:-1])
                     l=re.sub("'","' // \"'\" // '",l)
