@@ -1,0 +1,131 @@
+#
+!
+! This file contains a table connecting shortName,cfName and SILAM internal variables.
+# new paramID can be found from https://apps.ecmwf.int/codes/grib/param-db/
+# shortName is used for warnings only when shortName does not match the parameter ID
+#  Single nametable for all
+
+!
+
+#factor to convert GRIB standard units to SILAM units
+#
+#
+#
+##Directory with local definitions for eccodes, where shortNames are defined
+local_definition_path = ^eccodes/definitions
+#### FIRST hit wins  ---> more detailed definition goes first
+
+
+
+#    var  =        shortName             cfName                    silam_quantity         silam_sp  factor
+var     =     10u                     *                                            u_10m                      undefined   HEIGHT_FROM_SURF     10    1
+var     =     10v                     *                                            v_10m                      undefined   HEIGHT_FROM_SURF     10    1
+var     =     2d                      *                                            dew_point_temp_2m          undefined   HEIGHT_FROM_SURF     2     1
+var     =     2q                      *                                            specific_humidity_2m       undefined   HEIGHT_FROM_SURF     2     1
+var     =     2t                      *                                            temperature_2m             undefined   HEIGHT_FROM_SURF     2    1
+var     =     al                      *                                            albedo                     undefined   SURFACE_LEVEL       -1  0.01 # percent to fraction
+var     =     blh                     *                                            nwp_abl_height_m           undefined   SURFACE_LEVEL       -1     1
+var     =     cc                      *                                            cloud_cover                undefined   XXX                 -1     1       ## cc as fraction
+var     =     ciwc                    *                                            cloud_ice                  undefined   XXX                 -1     1
+var     =     clwc                    *                                            cloud_water                undefined   XXX                 -1     1
+var     =     cp            lwe_thickness_of_convective_precipitation_amount       convective_accum_rain      undefined   SURFACE_LEVEL       -1   1e3       # CMWF creature
+var     =     cp                      *                                            convective_accum_rain      undefined   SURFACE_LEVEL       -1     1       #
+var     =     fal                     *                                            albedo                     undefined   SURFACE_LEVEL       -1     1
+var     =     fsr                     *                                            surface_roughness_met      undefined   SURFACE_LEVEL       -1     1
+var     =     lai                     *                                            lai                        undefined   SURFACE_LEVEL       -1     1
+var     =     lai_hv                  *                                            lai_hv                     undefined   SURFACE_LEVEL       -1     1
+var     =     lai_lv                  *                                            lai_lv                     undefined   SURFACE_LEVEL       -1     1
+var     =     landfr                  *                                            fraction_of_land           undefined   SURFACE_LEVEL       -1     1
+var     =     lcc                     *                                            cloud_cover                undefined   XXX                 -1     1
+var     =     lnsp                    *                                            log_ground_pressure        undefined   SURFACE_LEVEL       -1     1
+var     =     lsm                     *                                            fraction_of_land           undefined   SURFACE_LEVEL       -1     1
+var     =     lsp           lwe_thickness_of_stratiform_precipitation_amount       large_scale_accum_rain     undefined   SURFACE_LEVEL       -1   1e3       # ECMWF creature
+var     =     lsp                     *                                            large_scale_accum_rain     undefined   SURFACE_LEVEL       -1     1       #
+var     =     msl                     *                                            msl_pressure               undefined   SURFACE_LEVEL       -1     1
+var     =     pres                    *                                            pressure                   undefined   XXX                 -1     1
+var     =     q                       *                                            specific_humidity          undefined   XXX                 -1     1
+var     =     sde            lwe_thickness_of_surface_snow_amount                  weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## icon
+var     =     sd            lwe_thickness_of_surface_snow_amount                   weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## ecmwf
+var     =     skt                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1       ## skin temperature, ground temperature is not used in SILAM
+var     =     slhf                    *                                            nwp_latent_heatflux        undefined   SURFACE_LEVEL       -1     1
+var     =     sp                      *                                            ground_pressure            undefined   SURFACE_LEVEL       -1     1
+var     =     sshf                    *                                            nwp_sensible_heatflux      undefined   SURFACE_LEVEL       -1     1
+var     =     sst                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1
+var     =     t                       *                                            temperature                undefined   XXX                 -1     1
+var     =     tcc                     *                                            total_cloud_cover          undefined   SURFACE_LEVEL       -1  0.01       ##cc in %
+var     =     tke                     *                                            turb_kinetic_energy_NWP    undefined   XXX                 -1     1
+var     =     tp                      *                                            total_precipitation        undefined   SURFACE_LEVEL       -1     1       #
+var     =     u                       *                                            u                          undefined   XXX                 -1     1
+var     =     v                       *                                            v                          undefined   XXX                 -1     1
+var     =     z                       *                                            relief_height              undefined   SURFACE_LEVEL       -1 0.102       #from geopotential
+var     =     frac_hv                 *                                            frac_hv                    undefined   SURFACE_LEVEL       -1     1
+var     =     frac_lv                 *                                            frac_lv                    undefined   SURFACE_LEVEL       -1     1
+var     =     cvh                     *                                            frac_hv                    undefined   SURFACE_LEVEL       -1     1
+var     =     cvl                     *                                            frac_lv                    undefined   SURFACE_LEVEL       -1     1
+var     =     swvl1                   *                                         soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
+#     var     =     mtdch                   *                                            mtdch                      undefined   SURFACE_LEVEL       -1     1
+
+#     var     =     cape                    *                                            cape                       undefined   SURFACE_LEVEL       -1     1
+
+#     var     =      flsr     undefined   SURFACE_LEVEL       -1                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0   # Forecast logarithm of surface roughness for heat
+#     var     =     ACSNOW     weq_snow_depth             SURFACE_LEVEL       -1      undefined   SURFACE_LEVEL       -1     -1     -1     1e-3     0
+#     var     =     SMOIS      soil_moisture_content      SURFACE_LEVEL       -1      undefined   SURFACE_LEVEL       -1     -1     -1     1     0
+
+#ICON Ground temperature (temperature at sfc-atm interface)
+var     =     HSURF                   *                                            relief_height              undefined   SURFACE_LEVEL       -1     1
+var     =     T_G                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1
+var     =     W_SO_UPPERLAYER         *                                         soil_moisture_content         undefined   SURFACE_LEVEL       -1   100  ##From kg/m2 in upper cm to m3/m3
+var     =     ICON_COND_WATER_FROM_CC *                                            cloud_cond_water                undefined   XXX                 -1     4e-3       ## Fake cloudwater from cc
+var     =     CLCT                     *                                           total_cloud_cover         undefined   SURFACE_LEVEL       -1    0.01 ##Percent to fraction
+var     =     FR_LAND                  *                                            fraction_of_land           undefined   SURFACE_LEVEL       -1     1
+
+
+#
+#  Copy of C_IFS netcdf_ametable
+#
+#
+#
+
+
+var = go3       * volume_mixing_ratio O3_gas      XXX    -1  0.6035
+var = co        * volume_mixing_ratio CO_gas      XXX    -1  1.0346
+var = hcho      * volume_mixing_ratio HCHO_gas    XXX    -1  0.9657
+var = no        * volume_mixing_ratio NO_gas      XXX    -1  0.9657
+var = no2       * volume_mixing_ratio NO2_gas     XXX    -1  0.6298
+var = hno3      * volume_mixing_ratio HNO3_gas    XXX    -1  0.4598
+var = pan       * volume_mixing_ratio PAN_gas     XXX    -1  0.2394
+var = ch4       * volume_mixing_ratio CH4_gas     XXX    -1  1.8106
+var = n2o5      * volume_mixing_ratio N2O5_gas    XXX    -1  0.26852
+var = c2h6      * volume_mixing_ratio C2H6_gas    XXX    -1  0.9657
+var = c5h8      * volume_mixing_ratio C5H8_gas    XXX    -1  0.4260
+var = so2       * volume_mixing_ratio SO2_gas     XXX    -1  0.4527
+
+# Aerosol boundaries. Include dust, SO4 , OC, BC.  Here only
+# conversion to "volume mixing ratio" (see above). Mode projection is
+# in boundary header. Here the mode value is the *lower boundary*. It
+# will be restated in the boundary header, so here I'll just just use
+# values that are easy to write.
+
+var = aerlrg    * volume_mixing_ratio PM_m10      XXX    -1  28.97e-3  #"Aerosol large mode mixing ratio"
+var = aermr01   * volume_mixing_ratio sslt_m_03   XXX    -1  28.97e-3  #"Sea Salt Aerosol (0.03 - 0.5 um) Mixing Ratio"
+var = aermr02   * volume_mixing_ratio sslt_m_50   XXX    -1  28.97e-3  #"Sea Salt Aerosol (0.5 - 5 um) Mixing Ratio"
+var = aermr03   * volume_mixing_ratio sslt_m5_0   XXX    -1  28.97e-3  #"Sea Salt Aerosol (5 - 20 um) Mixing Ratio"
+
+# dust, 3 bins
+var = aermr04   * volume_mixing_ratio dust_m_03   XXX    -1  28.97e-3
+var = aermr05   * volume_mixing_ratio dust_m_55   XXX    -1  28.97e-3
+var = aermr06   * volume_mixing_ratio dust_m9_0   XXX    -1  28.97e-3
+
+# Hydrophobic Organic Matter
+var = aermr07   * volume_mixing_ratio OC_m_50     XXX    -1  28.97e-3
+# Hydrophilic Organic Matter
+var = aermr08   * volume_mixing_ratio OC_m_60     XXX    -1  28.97e-3   #Just make it different from above
+# Hydrophobic Black Carbon
+var = aermr09   * volume_mixing_ratio BC_m_50     XXX    -1  28.97e-3
+# Hydrophilic Black Carbon
+var = aermr10   * volume_mixing_ratio BC_m_60     XXX    -1  28.97e-3  #Same
+# Sulphate (converted to mol/m3 in boundary header)
+var = aermr11   * volume_mixing_ratio SO4_m_30    XXX    -1  28.97e-3
+
+
+

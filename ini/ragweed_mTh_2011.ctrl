@@ -1,0 +1,115 @@
+
+# Control file for SILAM v4.5 operational run
+
+CONTROL_V4_7
+LIST = general_parameters  
+   case_name = ragweed_mTh_cdNrm_i0
+   system_setup =  e:\!project\ragweed\ini\pollen_v6\nonstandard_eulerian.setup
+   direction_in_time = FORWARD 
+   start_time = 2011 3 20 0 0 0.0 
+   #start_time = 2011 7 20 0 0 0.0 
+   end_time = 2011 10 30 23 0 0.0 
+   #computed_period = 120 hr
+   time_step = 15 min
+   nbr_of_particles = 100 
+   nbr_of_out_trajectories = 0 
+   #progress_file_name = $OUTPUTDIR/progress
+   cut_area_source_if_outside_meteo_grid = YES
+   computation_accuracy = 10
+ END_LIST = general_parameters 
+
+ LIST = dispersion_parameters
+   grid_method = OUTPUT_GRID
+   vertical_method = OUTPUT_LEVELS    # METEO_LEVELS / OUTPUT_LEVELS / CUSTOM_LEVELS
+ END_LIST = dispersion_parameters
+
+ LIST = meteo_parameters
+
+#   dynamic_meteo_file = GRIB n:\EC_OPER\2005\ec%ay4%am2%ad2+%ah2+%f2*
+#   dynamic_meteo_file = GRIB e:\data\meteo\EC_OPER\2006\vert_91_levs\ec%ay4%am2%ad2+%ah2+%f2*
+#   dynamic_meteo_file = GRIB e:\data\meteo\EC_OPER\2007\ec%ay4%am2%ad2+%ah2+%f2*
+#   dynamic_meteo_file = GRIB e:\data\meteo\EC_OPER\%ay4\ecmwf%ay4%am2%ad2%ah2+%f2*
+   dynamic_meteo_file = GRIB n:\EC_OPER\2011\ec125_%ay4%am2%ad2%ah2+%f3*
+   static_meteo_file = GRIB e:\data\meteo\EC_OPER\ec_land_use_global.sfc
+   meteo_time_step = 3 hr 
+   if_wait_for_data = NO
+   abl_parameterization_method = DRY_ABL    # DRY_ABL, FULL_PARAM 
+   number_of_precipitation_fields = 2
+ END_LIST = meteo_parameters
+
+ LIST = emission_parameters    ######################################################################
+ 
+   emission_source = POLLEN  e:\!project\ragweed\ini\pollen_v6\ragweed_source.v6
+ #  emission_source = POLLEN  e:\!project\ragweed\ini\src_pollen_ragweed_bioDay.ini
+   cut_area_source_if_outside_meteo_grid = YES
+   if_technical_source_dump = NONE   # NONE / ORIGINAL_GRID / DISPERSION_GRID
+
+ END_LIST = emission_parameters  ######################################################################
+
+  LIST = transformation_parameters
+
+   dry_deposition_scheme = GRAVITATIONAL_AND_FULL_DIFFUSION
+   wet_deposition_scheme = STANDARD_3D_SCAVENGING
+    
+   if_actual_humidity_for_particle_size = NO
+   default_relative_humidity = 0.8
+   compute_thermodiffusion = NO
+   mass_low_threshold = STANDARD_ACCURACY  # CRUDE_ACCURACY, STANDARD_ACCURACY, HIGH_ACCURACY
+
+ END_LIST = transformation_parameters
+
+ LIST = initial_and_boundary_conditions
+#    #initialize_quantity = concentration   ! if no such line, initial conditions are void
+#    initialize_quantity = heatsum
+#    #initialize_quantity = pollen_amt_m2
+#    #initialize_quantity = pollen_rdy_to_fly
+#    ##initialize_quantity = allergen_rdy_to_fly
+#    initialize_quantity = daily_mean_temperature_2m
+#    initialize_quantity = temperature_2m_acc
+   # initialization_file = GRADS e:\!project\ragweed\ragweed_mTh_cd_i0_%y4\ragweed_mTh_cd_i0_%y41030.grads.super_ctl
+    initialization_file = GRADS e:\!project\ragweed\ragweed_mTh_cdNrm_i0_2011\ragweed_mTh_cdNrm_i0_20110826.grads.super_ctl
+
+    boundary_type =  ZERO        ! ZERO / DIRICHLET   
+    if_lateral_boundary = YES         ! YES/NO 
+    if_top_boundary =  YES             ! YES/NO 
+    if_bottom_boundary =  NO          ! YES/NO 
+    boundary_time_step =  3 hr        ! timestep unit 
+    ! Boundary file names, as many lines as necessary 
+    boundary_header_filename = /lustre/apps/silam/oper/air_quality/europe//boundary_GEMS_Mozart.header
+ END_LIST = initial_and_boundary_conditions
+
+ LIST = output_parameters
+   source_id = NO_SOURCE_SPLIT  # SOURCE_NAME  SOURCE_SECTOR  SOURCE_NAME_AND_SECTOR 
+   vertical_method = CUSTOM_LAYERS
+   level_type = HEIGHT_FROM_SURFACE 
+   layer_thickness = 30. 50. 100. 200. 500. 1000. 2000. 3000   # output levels [m]/[pa]/[hybrid_nbr], reals
+   output_time_step = 1 hr 
+   #dump_time_step = 12 hr
+   output_times = REGULAR 
+   file_types = GRIB_NO TRAJECTORY_NO GRADS_YES ENSEMBLE_NO 
+   time_split = DAILY_NEW_FILE 
+   template =  e:\!project\ragweed\%case_%y4\%case_%y4%m2%d2
+   variable_list = e:\!project\ragweed\ini\pollen_v6\output_config.ini
+
+   grid_method = CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = GEMS output grid
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+   lon_start = -17.
+   lat_start = 30.
+   lon_end = 45.0
+   lat_end = 73.0
+   dx = 0.2 
+   dy = 0.2 
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+
+ END_LIST = output_parameters
+
+END_CONTROL_V4_7

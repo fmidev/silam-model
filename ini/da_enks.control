@@ -1,0 +1,257 @@
+# Control file for SILAM v4.0 operational run
+
+CONTROL_v4_7
+LIST = general_parameters  
+   case_name = $CASE
+   system_setup =  $SETUPFILE # ${SILAMDEV}/common/air_quality.setup
+   direction_in_time = FORWARD 
+   start_time = $START_TIME
+   #end_time = $END_TIME
+   computed_period = 348 hr
+   #computed_period =  24 hr
+   time_step = 15 min
+   computation_accuracy = 10  # [0.10]
+ END_LIST = general_parameters 
+
+ LIST = mpi_parallel_parameters
+   periodic = NO
+   decomposition_method = manual
+   #io_tasks = 0
+   x_divisions = 1
+   y_divisions = 1
+   ensemble_tasks = automatic
+   max_wind_speed = 100 # [m/s]
+ END_LIST = mpi_parallel_parameters
+ 
+ LIST = emission_parameters    ######################################################################
+   emission_source = $BASEDIR/emis/$EMISSION
+   cut_area_source_if_outside_meteo_grid = YES
+   #source_dump_time_step = 15 min
+   #source_dump_time_split = ALL_IN_ONE
+#   if_technical_source_dump = ORIGINAL_GRID   # NONE / ORIGINAL_GRID / DISPERSION_GRID
+
+ END_LIST = emission_parameters  ######################################################################
+ 
+ LIST = dispersion_parameters
+   grid_method = OUTPUT_GRID  #CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = GEMS output grid
+
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+   #nx = 150
+   #ny = 100 
+   lon_start = -15.
+   lat_start = 33.
+   lon_end = 45.
+   lat_end = 75
+   dx = 0.5
+   dy = 0.5
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+   vertical_method = OUTPUT_LEVELS    # METEO_LEVELS / OUTPUT_LEVELS / CUSTOM_LEVELS
+   !
+   ! If CUSTOM_LEVELS - fill-in the below two lines
+   !
+   level_type = HEIGHT_FROM_SURFACE    # PRESSURE, HEIGHT_FROM_SURFACE, ALTITUDE_FROM_SEA, HYBRID
+   layer_thickness = 100. 500. 1400. 4000.   # output levels [m]/[pa]/[hybrid_nbr], reals
+ END_LIST = dispersion_parameters
+
+ LIST = meteo_parameters
+   dynamic_meteo_file = GRIB /lustre/tmp/vira/vast/lag_met/NH05lag/%task/ec_nh_%ay4%am2%ad2%ah2+%f2.ml.shifted
+   dynamic_meteo_file = GRIB /lustre/tmp/vira/vast/lag_met/NH05lag/%task/ec_nh_%ay4%am2%ad2%ah2+%f2.sfc.shifted
+   dynamic_meteo_file = GRIB /lustre/tmp/vira/vast/lag_met/NH05lag/%task/ec_nh_%ay4%am2%ad2%ah2+%f2.sfc2.shifted
+
+   #dynamic_meteo_file = GRIB $BASEDIR/meteo/NH05/ec_nh_%ay4%am2%ad2%ah2+%f2.ml
+   #dynamic_meteo_file = GRIB $BASEDIR/meteo/NH05/ec_nh_%ay4%am2%ad2%ah2+%f2.sfc
+   #dynamic_meteo_file = GRIB $BASEDIR/meteo/NH05/ec_nh_%ay4%am2%ad2%ah2+%f2.sfc2
+   #dynamic_meteo_file = GRIB $BASEDIR/meteo/2011/ec125_%ay4%am2%ad2%ah2+%f3   
+   static_meteo_file = GRIB $BASEDIR/physio/ec_land_use_global.sfc
+   static_meteo_file = GRIB $BASEDIR/physio/EC_orography_2012.fixed
+   #static_meteo_file = ASCII_V1 ${SILAM_ROOT}/land_use/salinity_map.fld
+#   static_meteo_file = -
+
+   meteo_time_step = $MET_STEP hr 
+   if_wait_for_data = NO
+   abl_parameterization_method = DRY_ABL    # DRY_ABL, FULL_PARAM 
+   number_of_precipitation_fields = 2
+ END_LIST = meteo_parameters
+
+ LIST = transformation_parameters
+#   transformation = PASSIVE
+#   transformation = PM_GENERAL
+#   transformation = SO2_DECAY
+   transformation = DMAT_SULPHUR
+#    transformation = CB4
+#   transformation = POP_GENERAL
+#   transformation = ACID_BASIC
+#   transformation = RADIOACTIVE
+
+   aerosol_dynamics = SIMPLE
+   
+   #dry_deposition_scheme = GRAVITATIONAL_AND_FULL_DIFFUSION
+   wet_deposition_scheme = STANDARD_3D_SCAVENGING
+   dry_deposition_scheme = KS2011_TF
+       
+   if_actual_humidity_for_particle_size = YES
+   default_relative_humidity = 0.8
+   compute_thermodiffusion = NO
+   if_full_acid_chemistry = YES
+   
+   passive_subst_ref_lifetime = 1 day
+   passive_subst_ref_tempr = 288
+   passive_subst_dLifeTime_dT = -1 min/K
+   
+   ADB_if_compute_nucleation = YES
+   ADB_nucleation_scheme = KINETIC    !BINARY, TERNARY, KINETIC, ACTIVATION
+   ADB_if_compute_coagulation = YES
+   ADB_if_compute_condensation = YES
+   ADB_if_compute_cloud_activation = NO
+   ADB_if_recalc_wet_d = YES
+   oh_param_method = CLIMATOLOGY
+
+ END_LIST = transformation_parameters
+
+# LIST = initial_and_boundary_conditions
+# initialize_quantity = temperature_2m_acc          ! if no such line, initial conditions are void
+# initialize_quantity = daily_mean_temperature_2m   ! if no such line, initial conditions are void
+# initialize_quantity = degree_day   ! if no such line, initial conditions are void
+# initialize_quantity = concentration               ! if no such line, initial conditions are void
+# initialization_file = GRADS ${SILAM_ROOT}/cb4_lores.super_ctl
+
+# boundary_type =  DIRICHLET             ! ZERO / DIRICHLET   
+# if_lateral_boundary = YES         ! YES/NO 
+# if_top_boundary =  YES             ! YES/NO 
+# if_bottom_boundary =  NO          ! YES/NO 
+# boundary_time_step =  12 hr        ! timestep unit 
+# boundary_header_filename = ${SILAM_ROOT}/boundary_cb4_meanfld.ini
+# END_LIST = initial_and_boundary_conditions
+ 
+ LIST = optical_density_parameters ##########################################################################
+   optical_coefficients_depend_on_relative_humidity = YES
+   optical_coefficients_depend_on_temperature = YES
+   if_split_aerosol_modes = YES            ! doesn't work yet
+   if_narrow_wave_bands = YES              ! doesn't work yet
+ END_LIST = optical_density_parameters
+ 
+ LIST = output_parameters
+   source_id = NO_SOURCE_SPLIT  # SOURCE_NAME  SOURCE_SECTOR  SOURCE_NAME_AND_SECTOR 
+   vertical_method = CUSTOM_LAYERS
+   level_type = HEIGHT_FROM_SURFACE 
+   #layer_thickness = 50. 100. 150. 300. 600. 800. 1200. 1500. 1500. 1500. 1500. 1500. 1500. 2000. 2000. 2000. 2000.
+   #                 50 150 300 500 1250 2000 2750 3500 4250 5000 5750 6500 7250 8000 8725 9500 10250 11000 11750 12500 13250 14000 14750 15500 16250  17000 17750 18500 19250 20000
+   layer_thickness = 50 100 150 200 750  750  750  750  750  750  750  750  750  750  750  750  750   750   750   750   750   750   750   750   750    750   750   750   750   750
+
+   output_time_step = 1 hr 
+   output_times = REGULAR 
+   dump_time_step = #2 hr
+   file_types = GRIB_NO TRAJECTORY_NO GRADS_NO ENSEMBLE_NO NETCDF_NO NETCDF4_YES
+   time_split = ALL_IN_ONE#DAILY_NEW_FILE 
+   template =  $OUTPUTDIR/%case/%task/%case
+   variable_list = $BASEDIR/ini/output_config_inst.ini
+   
+   $GRID
+
+ END_LIST = output_parameters
+
+LIST = DATA_ASSIMILATION
+
+method = ENKS
+# For ensemble assimilation either ENKF or ENKS. ENKF is the initial implementation based
+# on the 3D-Var scheme. Observations within the assimilation window are taken to be valid
+# at the analysis time. ENKS is the newer version which can be run as a ensemble Kalman
+# smoother but does not have to. The ENKS scheme assimilates observations asynchronously,
+# which means that observations within an assimilation window are evaluated at their
+# respective valid times and used to update the state vector at some other (later or
+# earlier) times.
+
+$OBS_SPEC
+
+# directory for iteration files and analysis files
+output_level = none
+output_directory = %main_output_dir/iteration
+
+# In Enkf, we distinguish control and perturbation variables. Control variables are the
+# variables for which the analysis is evaluated. Perturb variables are those for which
+# some stochastic perturbations are applied. 
+# 
+# A control variable, if prognostic, does not need to be perturbed explicitly.
+# Non-prognostic control variables (parameter estimation) must be perturbed if analysed.
+# A run might not have any perturb_variables, if randomness is introduced only by input
+# quantities.
+
+control_variable = initial_state
+perturb_variable = emission_volc
+
+assimilation_window = 60 min
+assimilation_interval = 60 min
+last_analysis_time = $LAST_ANALYSIS_TIME
+
+localisation_distance = 800 km
+loc_type = gaspari_cohn
+# Flavor: enkf = EnKF with perturbed observations, denkf = DEnkF of Sakov and Oke.
+enkf_flavor = denkf
+# "Moderation factor". Used for inflation, see the code.
+rfactor = 1.0
+
+#
+# Paremeters for the stochastic volcano emissions
+# 
+
+# assumptions for scaling from mass flux:
+# assume SO2 similar order of magnitude as fine ash
+# assume fine ash ~1% of total
+# then
+# mol(SO2) = total_volume * 2500 kg/m3 * 0.01 / (64e-3 kg/mol) 
+volc_massflux_scaling = 390
+# (de-)correlation time for logarithm of volume flux
+volc_volflux_corr_time = 24 hr
+
+# standard deviation of the logarithm of total volume flux
+volc_volflux_sigma = 1.0 #0.301
+# the mode of the lognormal distribution for total volume flux, m3/s
+# ~ 2000 for VEI 4 over 24 hours
+volc_volflux_mode = 2000.0
+
+# parametrization with mastin & umbrella
+
+# flat:
+# scale and exponent in the mastin-type power law for computing eruption height
+volc_height_exp = 0.241
+volc_height_scaling = 2.0e3 # to meters, mastin has km
+# sigma (meters) for eruption height deviation of the Mastin fit
+volc_height_sigma = 0.0
+# fraction of mass emitted to the top of eruption embrella
+volc_fract_mass_top = 0.75
+# fraction of height covered by the top
+volc_fract_height_top = 0.25
+
+# flat distribution
+#volc_height_exp = 0.0
+#volc_height_scaling = 20e3
+#volc_fract_mass_top = 1.0
+#volc_fract_height_top = 1.0
+
+# Analysis substance. If not given, all species will be always updated.
+analysis_substance = SO2
+
+# Settings for the smoother.  Example: smoother_step = 1 hr, smoother_output_step = 24 ->
+# The state vector for analysis consists of model states on the 24 steps.  A smoother
+# output file will be produced with hourly timestep. Observations up to 24 hours later
+# will be used. Multiple smoother_output_steps will produce multiple smoother output files.
+
+# Currently only field-like control variables can be output with the smoother.
+
+smoother_step = 1 hr
+#smoother_output_step = 0
+#smoother_output_step = 12
+#smoother_output_step = 24
+
+END_LIST = DATA_ASSIMILATION
+
+END_CONTROL_v4_7

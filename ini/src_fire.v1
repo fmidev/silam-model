@@ -1,0 +1,35 @@
+#
+# This is a source term of wild-land fire obtained from satellites and based on FRP considerations
+# The term describes the intensity of the fire energy release and a series of supplementary parameters
+# One fire observation is one line of information, field order is fixed
+# There can be several observations of each fire, their lines have same fire number
+#
+# Fields:
+# - fire number:                            unique fire ID within this file
+# - year, month, day, hour, minute, second: time of observation, UTC
+# - lon, lat, dx, dy, d_unit:               coordinates of the pixel centre and its size with unit
+# - FRP, FRP_unit:                          FRP with unit
+# - TA                                      temperature anomaly, K
+# - T_4, T_4_b, T_11, T_11b:                4um and 11um temperature of the pixel and background, K
+# - MCE:                                    modiufied combustion efficiency
+# - area:                                   burning pixel area fraction
+#
+# Addresss questions to Mikhail Sofiev, <firstname>.<lastname>@fmi.fi
+#
+FIRE_SOURCE_V1
+  source_name = fire20100501
+  source_sector_name = fire
+  number_of_fires = 5  ! different fires
+  max_number_of_same_fire_observations = 2
+  fire_metadata_file = d:\data\emission\fires\fire_metadata_ecodata_Acagi_PM_v5_5.ini 
+  mode_distribution_type = FIXED_DIAMETER   ! later also: GAMMA_FUNCTION 
+
+  aerosol_mode = 1  0.01 0.1  0.05 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+  aerosol_mode = 2  0.1  1.5   0.5  mkm
+  aerosol_mode = 3  1.5   6.  3  mkm
+  aerosol_mode = 4  6.  15.  9.   mkm
+  aerosol_mode = 5  15.  30.  20.  mkm 
+
+  frp_dataset = d:\public\2018\ozone_depletion_Finland\Fire_MOD_MYD_coll_6__FRP_fake_from_20160330.fs1
+
+END_FIRE_SOURCE_V1

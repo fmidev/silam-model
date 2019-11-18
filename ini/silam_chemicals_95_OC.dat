@@ -1,0 +1,5117 @@
+#
+# This is the core data file containing the chemical information for the species available in SILAM
+#
+# The file has a SILAM-namelist format. One substance is described by a single namelist. 
+# Names of the fields are prescribed, as well the format of each field. Order of the fields
+# is arbitrary and those fields that are not used must be left blank or skipped. Do NOT put 
+# missing values in such fields.
+#
+# All units are SI - STRICTLY
+#
+# The information can be modified only by experts and must NOT be touched by users 
+# in any circumstances.
+#
+# Questions should be addressed to M.Sofiev, Finnish Meteorological Insitute 
+#
+#
+# SILAM-namelist format:
+# <field_title> = <field_value>, spaces around "=" are mandatory, field_title must not contain spaces
+# Exclamation character starts the comment, which continues until the end of the line. 
+# So does the exclamation mark if it is preceeded by space: " !"
+#
+#
+# A note on molar masses: the emitted CB4 species like PAR or ALD2 have a defined molar mass
+# even though they do not formally represent single molecule. While arbitrary, the given 
+# masses are embedded in the VOC cocktail fractions in the cocktails file, and they must match.
+# For non-emitted species (like XO2N, etc.) the masses are not used for anything. 
+# 
+# Another note on molar masses: if a positive molar mass is given, the native mass unit of
+# that substance is taken to be mole! This will give surprising or incorrect output with
+# species like PM, so better not define it for those.
+#
+#
+# GRIB2_constituent_type according to table 4.230 (aka 4.233 for aerosols)
+
+LIST = substance
+
+  chemical_name = SO2
+  GRIB2_constituent_type = 8
+  molar_mass = 64 g/mole
+  low_concentration_threshold = 0.001 ng/m3  #R.H. Decreased by factor of 1000 (SO2)
+ 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = NO
+  can_be_gas = YES
+  !
+  ! Reaction rates are presented via: k = alpha * T**beta * exp(-Eact/(RT))
+  ! where T is temperature, and alpha, beta and Eact are to be given.
+  ! For second- and third- order reaction, the name of the other agent(s) of the reaction
+  ! are to be given:
+  ! reaction_first_order  = <alpha> <beta> <Eact>
+  ! reaction_second_order = <agent1> <alpha> <beta> <Eact>
+  ! reaction_third_order  = <agent1> <agent2> <alpha> <beta> <Eact>
+  !
+#  reaction_first_order = 
+#  reaction_second_order = 
+#  reaction_third_order = 
+
+  !
+  ! Dry deposition follows resistance scheme, with surface resistance for gaseous species taken
+  ! either from default values or from more sophisticated approaches:
+  !  2-film scheme over water
+  !  multi-resistance over land
+  ! ALWAYS provide the default values unless the substance is aerosol-bound or non-depositing
+  !
+
+  gas_surf_resistance_over_water = 0.5
+  gas_surf_resistance_land_default = 100.
+
+#  gas_surf_resistance_bare_land  = 
+#  gas_surf_resistance_over_urban = 
+#  gas_surf_resistance_over_mountain    = 
+#  gas_surf_resistance_over_agriculture = 
+#  gas_surf_resistance_over_range_land  = 
+#  gas_surf_resistance_over_range_and_agriculture = 
+#  gas_surf_resistance_over_deciduous_forest  = 
+#  gas_surf_resistance_over_coniferous_forest = 
+#  gas_surf_resistance_over_mixed_forest = 
+#  gas_surf_resistance_over_wetland      = 
+
+  gas_molecular_diffusivity_in_air   = 1.089e-5 #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+
+  ! Solubility is treated via Henri's law constant: H(T)=H_at_298K * exp (H_Tempr_dep * ((1/T)-(1/298)) )
+  ! where T is temperature. 
+  !  Note the sign of H_Tempr_dep is opposite to one used in Seinfeld&Pandis (2006) and the same as in
+  ! Sander (2015), Atmos. Chem. Phys., 15, 4399-4981, 2015
+  !  http://www.atmos-chem-phys.net/15/4399/2015/
+  ! doi:10.5194/acp-15-4399-2015
+  !
+  ! Dimension of Henry constant is  is Mole/(kg Pa) 
+  ! factor 1e-5 should be applied to values usually 
+  ! mentioned in tables in [(Mol/l)/bar]
+  !For v5_3_1 and before: UNLIKE for other species, the true SO2 Henry constant should be here, not the "effective" one.
+  !For v5_4 and later -- effective one. The Textbook const is hardcoded  in Wet depo. 
+  !For v5_7 and later: Negative Henry constant implies no scavenging/deposition in new schemes that use Henry constant.
+  !                    If Henry constant is not known a value -777. is currently used, otherwise deposition is turned
+  !                    off by adding an extra negative sign to the real Henry constant. 
+  ! The dissociation is accounted for in wet deposition.
+
+  # Henry_constant_at_298K    =  1.2e-5 # Textbook Henry constant #Mol/kg/Pa
+  Henry_constant_at_298K    =  1.2e5 # Effective #Mol/kg/Pa 
+  ! Dimension -- Degrees Kelvin
+  Henry_constant_T_dependence_exponent_scale = 3000.  # K
+  Dissoc_coeff = 1.3e-2 # Mol/kg
+
+  Wesely_f0 = 0. 
+
+  ! SILAM possesses a standard washout coefficient suitable for moderately hydrophobic species and 
+  ! "typical" anthropogenic primary aerosol in the troposphere. It is computed for in- and below- cloud 
+  ! scavenging, distinguishes between snow and rain. 
+  ! Below ratio is the simplest and the crudest way to describe scavenging of a substance: relate it
+  ! to the standard coefficient. A hint: SO2 scavenging is 2-3 times the standard one, sulphates' one
+  ! is 1,5-2 times stronger, so as the one of sea salt.
+  !
+  washout_coef_rain_ratio_to_SILAM_standard = 3.0
+  washout_coef_snow_ratio_to_SILAM_standard = 3.0
+  !
+  ! Special type of substance: allergenic pollen. So far (June 2007) the only allowed type is BIRCH
+  ! Leave empty or skip for non-pollen species
+  !
+#  pollen_type = 
+#  fraction_of_full_grains =
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = SO2
+  fractions_of_ref_subst_in_mixture = 1 
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = SO4
+  GRIB2_constituent_type = 22
+  
+  molar_mass = 96.  g/mole
+  low_concentration_threshold = 0.001 ng/m3  #R.H. Decreased by factor of 200, from 0.2 -> 0.001 ng/m3: SO4
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = sulfates
+  fractions_of_ref_subst_in_mixture = 1
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.4
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = SOX
+  molar_mass = 66.   g/mole ! SOx is assumed to be 95-5% for SO2-SO4
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  washout_coef_rain_ratio_to_SILAM_standard = 3.0
+  washout_coef_snow_ratio_to_SILAM_standard = 3.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = H2SO4
+# No code for H2SO4
+  GRIB2_constituent_type = 9004 #FIXME Local
+
+  molar_mass = 98. g/mole
+  low_concentration_threshold = 0.1 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = sulfates
+  fractions_of_ref_subst_in_mixture = 1
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = YES
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.2
+  humidity_growth_curvature_beta = 1.35
+  deliquescence_humidity_0_to_1 = 0.5
+
+  gas_surf_resistance_over_water = 10.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Ammonia
+  chemical_name = NH3
+  GRIB2_constituent_type = 9
+  molar_mass = 17. g/mole
+  low_concentration_threshold = 0.01 ng/m3  #R.H. Decreased by factor of 100: NH3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  
+  # Weseley -- 0.2;  EMEP -- 1.0
+  # In emep Weseley_ml.f90 comment
+  # ! followed CEH recommendation and set H* NH3 equal to sulphur
+  # ! (actually, CEH would have set it much higher than SO2!)
+  # Sander et al, ACP 2015 review showed 6e-4 mol/kg/Pa, so effective(???) H here
+  Henry_constant_at_298K    =  1.0    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 4200.  #Dimension -- Degrees Kelvin
+  # Henry_constant_at_298K    =  6.0e-4    # mol/kg/pa #RH2017: update NOTE! LARGE CHANGE! JPL: 1.2e-4 and 3780K
+  # Henry_constant_T_dependence_exponent_scale = 4000  #Dimension -- Degrees Kelvin #RH2017: update
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  
+  gas_surf_resistance_over_water = 10.
+  gas_surf_resistance_land_default = 600.
+  gas_molecular_diffusivity_in_air   = 1.978e-5 #Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 3.0
+  washout_coef_snow_ratio_to_SILAM_standard = 3.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Ammonium
+  chemical_name = NH4
+  GRIB2_constituent_type = 10
+  molar_mass = 18. g/mole
+  low_concentration_threshold = 0.1 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soluble
+  fractions_of_ref_subst_in_mixture = 1
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1769
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.4
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NH415SO4
+  GRIB2_constituent_type = 9001 #FIXME Local
+  molar_mass = 123. g/mole
+  low_concentration_threshold = 0.01 ng/m3 #R.H. Decreased by factor of 100: NH415SO4
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soluble
+  fractions_of_ref_subst_in_mixture = 1
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1769
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NH4NO3
+  GRIB2_constituent_type = 9002 #FIXME Local
+  molar_mass = 80. g/mole
+  low_concentration_threshold = 1 pg/m3 #R.H. Decreased by factor of 1000: NH4NO3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soluble
+  fractions_of_ref_subst_in_mixture = 1
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1725
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NO3_c
+  molar_mass = 62. g/mole
+  low_concentration_threshold = 1 pg/m3 #R.H. Decreased by factor of 100: NO3_c
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soluble
+  fractions_of_ref_subst_in_mixture = 1
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NO
+  GRIB2_constituent_type = 11 
+  molar_mass = 30. g/mole
+  low_concentration_threshold = 1 pg/m3 #R.H. Decreased by factor of 1000: NO
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = NO
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+  
+  Henry_constant_at_298K    =  1.9e-8    # mol/kg/pa  #RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 1600.  #Dimension -- Degrees Kelvin #RH2017: update
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  
+  gas_surf_resistance_over_water =  33300.  #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: -1
+  gas_surf_resistance_land_default = 6250.  #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: -1
+  gas_molecular_diffusivity_in_air   = 1.802e-5 #Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+  END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NO2
+  GRIB2_constituent_type = 5 
+  molar_mass = 46. g/mole
+  low_concentration_threshold = 0.01 ng/m3 #R.H. Decreased by factor of 100: NO2
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = NO2
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+  
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2500.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0.4 # Slightly reduces winter nighttime NO2, does not affect NO2 otherwise
+#  Wesely_f0 = 0.1  # Originally in Wesely scheme
+ 
+  gas_surf_resistance_over_water = 5000.0     #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: 2000.0
+  gas_surf_resistance_land_default = 1000.0
+#  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_air   = 1.361e-5 #Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 0.5
+
+END_LIST = substance
+
+!***********************************************************************
+
+LIST = substance
+  chemical_name = NOX
+  molar_mass = 46.  g/mole ! as NO2
+  low_concentration_threshold = 0.01 ng/m3 #R.H. Decreased by factor of 100: NOX
+  can_be_aerosol = NO
+  can_be_gas = YES
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 0.5
+
+  # As NO2 
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2500.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.1  # Originally
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NO3rad
+  GRIB2_constituent_type = 13 
+  molar_mass = 62. g/mole
+  low_concentration_threshold = 1.0 pg/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = NO3
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+  
+  Henry_constant_at_298K    =  3.8e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2000.  #Dimension -- Degrees Kelvin
+
+  gas_surf_resistance_over_water = -10.
+  gas_surf_resistance_land_default = -10.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -10.0
+  washout_coef_snow_ratio_to_SILAM_standard = -10.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = HNO3
+  GRIB2_constituent_type = 17
+  molar_mass = 63. g/mole
+  low_concentration_threshold = 0.1 pg/m3 #R.H. Decreased by factor of 1000: HNO3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soluble
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = YES
+  can_be_gas = YES
+  
+  # Use the effective Henry constant which is the standard Henry constant times (1+10^(pH-pKa)) 
+  # where pKa=-log(Ka) and Ka is the the acid constant Ka = K_eq*[H20]=[H+][NO3-]/[HNO3]. For HNO3, kPa = -1.37.
+  # Using pH = 8.1 (for seawater), one obtains a multiplication factor of about 3.0e9
+  # Henry_constant_at_298K    =  2.1    # mol/kg/pa
+  Henry_constant_at_298K    =  6.2e9    # mol/kg/pa #effective one
+  Henry_constant_T_dependence_exponent_scale = 8700.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  
+  gas_surf_resistance_over_water = 100.   #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: 25.
+  gas_surf_resistance_land_default = 25.
+  gas_molecular_diffusivity_in_air   = 1.16e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.87 = 2.178e-5/1.87
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0
+
+  dry_particle_density_kg_per_m3 = 1512.9      #RH2017: update. Wikipedia etc. Old value 1350. was NAT density.
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PAN             ! Peroxyacetyl nitrate CH3C(O)O2NO2
+  GRIB2_constituent_type = 10013
+  molar_mass = 121.049 g/mole
+  low_concentration_threshold = 0.01 ng/m3  #R.H. Decreased by factor of 100: PAN
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = PAN
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.8e-5    # mol/kg/Pa  #RH2017: update, used to be 3.6e-5 
+  Henry_constant_T_dependence_exponent_scale = 5700.  #Dimension -- Degrees Kelvin #RH2017: update, used to be 5900.
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0.1  #Seinfeld and Pandis: Atm. Chem. & Phys.
+  #Wesely_f0 = 1.0 #CHECK! RH2019: GEOS-Chem seems to use f0=1. They refer to Karl et al., Science 2010, but cannot find PAN in Karl's list.
+  
+  gas_surf_resistance_over_water = 2000.0
+  gas_surf_resistance_land_default = 1000.0
+  gas_molecular_diffusivity_in_air   = 8.41e-6 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/2.59 = 2.178e-5/2.59
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.1
+  washout_coef_snow_ratio_to_SILAM_standard = 0.1
+  
+END_LIST = substance
+
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PANrad          ! Peroxyacetyl radical CH2C(O)O2
+  molar_mass = 75. g/mole
+  low_concentration_threshold = 0.1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  9.9e-7    # mol/kg/Pa  #Sander et al. RH2017: addition. NOTE: upper limit!
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.
+
+  gas_surf_resistance_over_water = -25.
+  gas_surf_resistance_land_default = -50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -10.0
+  washout_coef_snow_ratio_to_SILAM_standard = -10.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH3OOH #NOTE: actually methyl hydroperoxide / methanol oxide. Formic acid is commonly used for HCOOH!
+  GRIB2_constituent_type = 10005 # Total aerosol
+  molar_mass = 48.041 g/mole
+  low_concentration_threshold = 0.1 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = CH3OOH
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.e-3    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 5300.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.3 #RH2018: addition. Seinfeld and Pandis: Atm. Chem. & Phys.
+
+  gas_surf_resistance_over_water = 50.    #Back to the old value 50. RH2018: Hauglustaine JGR 1994: 400.
+  gas_surf_resistance_land_default = 50.  #Back to the old value 50. RH2018: Hauglustaine JGR 1994: 1000.
+  gas_molecular_diffusivity_in_air   = 1.36e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.6 = 2.178e-5/1.6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Formaldehyde / methanal
+  chemical_name = HCHO
+  GRIB2_constituent_type = 7
+  molar_mass = 30. g/mole
+  low_concentration_threshold = 0.1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  #Henry_constant_at_298K    =  6.e-2    # mol/kg/pa
+  Henry_constant_at_298K    =  3.2e-2    # mol/kg/pa   #RH2017: update. JLP: 3.23e-2 and 7100 K (Effective, includes the hydration)
+  Henry_constant_T_dependence_exponent_scale = 7100.  #Dimension -- Degrees Kelvin #RH2017: update, CHECK
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  #Wesely_f0 = 1.0 #CHECK! RH2019: Karl et al., Science 2010.
+  
+  gas_surf_resistance_over_water = 1500.0
+  gas_surf_resistance_land_default = 300.
+  gas_molecular_diffusivity_in_air   = 1.688e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.29 = 2.178e-5/1.29
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = O3
+  molar_mass = 48. g/mole
+  low_concentration_threshold = 10 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = O3
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin #Sander et al 2006 & 2011. #RH2017: update. JPL: 1.03e-7 and 2830 K
+  Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 1. 
+  
+  gas_surf_resistance_over_water = 2000.0
+  #gas_surf_resistance_land_default = 250.0
+  gas_surf_resistance_land_default = 1000.0
+  gas_molecular_diffusivity_in_air   = 1.444e-5 #Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.01
+  washout_coef_snow_ratio_to_SILAM_standard = 0.01
+  
+END_LIST = substance
+
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NOP   ! NOx Partitioner: a faked ozone in acid-basic
+  molar_mass = 48. g/mole
+  low_concentration_threshold = 10 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = O3
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin
+  Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 1. 
+  
+  gas_surf_resistance_over_water = 2000.0
+  #gas_surf_resistance_land_default = 250.0
+  gas_surf_resistance_land_default = 1500.0
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.01
+  washout_coef_snow_ratio_to_SILAM_standard = 0.01
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CO
+  GRIB2_constituent_type = 4
+  molar_mass = 28. g/mole
+  low_concentration_threshold = 100 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  #Henry_constant_at_298K    =  1.e-8    # mol/kg/pa
+  Henry_constant_at_298K    =  9.7e-9    # mol/kg/pa #RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 1300.  #Dimension -- Degrees Kelvin
+  #Soils are sinks for CO and should consume yearly 100-600 Tg of CO (Conrad and Seiler, 1985, J. Geophys. Res. 90, 5699–5709). 
+  #The above Henry value is not enough to explain this. The standard dry deposition with 
+  #gas_surf_resistance_land_default = 3300 gives a reasonable deposition of order 200 Tg/year (globe). 
+  Wesely_f0 = 0.0 #RH TEST: In order to get some more dry-deposition increase this to some small value like 0.001! 
+
+  gas_surf_resistance_over_water = 100000.       #RH2018: Take the value used by ECMWF for depositions. Old value: -1
+  gas_surf_resistance_land_default = 3300        #RH2018: update. Dry dep. velocity is about 0.3 mm/s, Table 19.1 in Seinfeld and Pandis: Atm. Chem. & Phys. OLD value: -1
+  gas_molecular_diffusivity_in_air   = 1.807e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.000001
+  washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = H2O2
+  GRIB2_constituent_type = 19
+  molar_mass = 34. g/mole
+  low_concentration_threshold = 0.01 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e0    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 7000.  #Dimension -- Degrees Kelvin #RH2017: update from Sander. JPL: 8.7e-1 and 7290 K
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 1.0 
+  
+  gas_surf_resistance_over_water = 100.   #RH2018: update. OLD value: 80
+  gas_surf_resistance_land_default = 200. #RH2018: update. OLD value: 80
+  gas_molecular_diffusivity_in_air   = 1.59e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.37 = 2.178e-5/1.37
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 30.0
+  washout_coef_snow_ratio_to_SILAM_standard = 30.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Methyl Peroxy Radical
+  chemical_name = CH3O2
+  GRIB2_constituent_type = 10001
+  molar_mass = 47. g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.5e-4    # mol/kg/Pa #1.5e-4 and 3700 K by Leriche et al 2000, Lelieveld and Crutzen 1991; 5.9e-5 and 5600 K by Jacob 1986. #RH2017: estimates!!
+  Henry_constant_T_dependence_exponent_scale = 3700.  #Dimension -- Degrees Kelvin #RH2017: estimate
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 1000.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 30.0
+  washout_coef_snow_ratio_to_SILAM_standard = 30.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Isoprene
+  chemical_name = C5H8
+  GRIB2_constituent_type = 10017
+  molar_mass = 68. g/mole
+  low_concentration_threshold = 0.01 ng/m3  #R.H. Decreased by factor of 100: C5H8
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # From EMEP (again effective???):
+  # Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  # Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  # From Sander et al, ACP 2015
+  # Henry_constant_at_298K    =  1.3e-7    # mol/kg/Pa #Mackay and Shiu (1981)   
+  Henry_constant_at_298K    =  3.1e-7    # mol/kg/Pa  #RH2017: Average of Leng et al (2013) and Karl et al (2013)      
+  Henry_constant_T_dependence_exponent_scale = 4400.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 500.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-1
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-1
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # alpha-pinene
+  chemical_name = C5H8_2
+  molar_mass = 136. g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # From EMEP (again effective?????)
+  # Henry_constant_at_298K    =  7.4e-5    # mol/kg/pa     # a-pinene
+  # Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  # From Sander et al ACP 2015 (Copolovici and Niinemets, 2005)
+  Henry_constant_at_298K    =  7.4e-8    # mol/kg/pa     # a-pinene
+  Henry_constant_T_dependence_exponent_scale = 4400.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  #Nitrous Acid
+  chemical_name = HONO
+  GRIB2_constituent_type = 16
+  molar_mass = 47. g/mole
+  low_concentration_threshold = 0.01 pg/m3  #R.H. Decreased by factor of 100: HONO
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = HONO
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  4.8e-4    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 4800.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.1 #RH2018: addition. Seinfeld and Pandis: Atm. Chem. & Phys.  
+
+  gas_surf_resistance_over_water = 1000.
+  gas_surf_resistance_land_default = 200.
+  gas_molecular_diffusivity_in_air   = 1.344e-5  #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.62 = 2.178e-5/1.62
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 30.0
+  washout_coef_snow_ratio_to_SILAM_standard = 30.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  #hydroxyl radical
+  chemical_name = OH
+  molar_mass = 17. g/mole
+  GRIB2_constituent_type = 10000
+  low_concentration_threshold = 0.01 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.8e-4    # mol/kg/Pa
+  Henry_constant_T_dependence_exponent_scale = 4300.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1000.
+  gas_surf_resistance_land_default = -1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -300.0
+  washout_coef_snow_ratio_to_SILAM_standard = -300.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  #Hydroperoxyl Radical
+  chemical_name = HO2
+  GRIB2_constituent_type = 14
+  molar_mass = 33. g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  6.8e-3    # mol/kg/Pa
+  Henry_constant_T_dependence_exponent_scale = 5900.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -500.
+  gas_surf_resistance_land_default = -500.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -300.0
+  washout_coef_snow_ratio_to_SILAM_standard = -300.0
+  
+END_LIST = substance
+
+#**********************************************************************************
+# CBM specific chemicals
+#**********************************************************************************
+
+# ***********************************************************************
+LIST = substance
+  chemical_name = NO3
+  molar_mass = 62 g/mole
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 1000: NO3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.8e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -2000.
+  gas_surf_resistance_land_default = -2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Dinitrogen pentoxide
+  chemical_name = N2O5
+  GRIB2_constituent_type = 15
+  molar_mass = 108 g/mole
+  low_concentration_threshold = 0.01 ng/m3  #R.H. Decreased by factor of 10: N2O5
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 500.
+  gas_surf_resistance_land_default = 500.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+ 
+# Should be deposited as HNO3 
+  Henry_constant_at_298K    =  100 # Effective #Mol/kg/Pa 
+  Henry_constant_T_dependence_exponent_scale = 0.0  # K
+  Wesely_f0 = 0. 
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Peroxynitric acid HO2NO2 (pernitric acid)
+  chemical_name = PNA
+  molar_mass = 79 g/mole
+  low_concentration_threshold = 0.001 ng/m3  #R.H. Decreased by factor of 100: HO2NO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.9e-4    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 8400.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. #RH2018: addition. Seinfeld and Pandis: Atm. Chem. & Phys.
+
+  gas_surf_resistance_over_water = 500.
+  gas_surf_resistance_land_default = 500.
+  gas_molecular_diffusivity_in_air   = 1.042e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/2.09 = 2.178e-5/2.09
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+  Henry_constant_at_298K    =  0.1 # Effective #Mol/kg/Pa 
+  Henry_constant_T_dependence_exponent_scale = 8000  # K
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Atomic oxygen, ground state
+  chemical_name = O
+  GRIB2_constituent_type = 12 
+  molar_mass = 16 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa                                #CHECK: Using O3 values for Henry and Wesely_f0 (as GEOS-chem)
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 1. 
+
+  gas_surf_resistance_over_water = -2000.
+  gas_surf_resistance_land_default = -2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -10.0
+  washout_coef_snow_ratio_to_SILAM_standard = -10.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Atomic oxygen, first singlet state
+  chemical_name = O1D
+  GRIB2_constituent_type = 9003 #FIXME Local O1D 
+  molar_mass = 16 g/mole
+  low_concentration_threshold = 1e-5 pg/m3  #R.H. Decreased by factor of 1e3 (orig 0.01 pg/m3): O1D
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa                                #CHECK: Using O3 values for Henry and Wesely_f0 (as GEOS-chem)
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 1. 
+
+  gas_surf_resistance_over_water = -2000.
+  gas_surf_resistance_land_default = -2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -10.0
+  washout_coef_snow_ratio_to_SILAM_standard = -10.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "High molecular weight aldehydes" molar mass and Henry constants for ethanal/acetaldehyde CH3CHO
+  chemical_name = ALD2
+  GRIB2_constituent_type = 10400 #FIXME Local code
+  molar_mass = 44.053 g/mole
+  low_concentration_threshold = 0.01 ng/m3  #R.H. Decreased by factor of 100: ALD2
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.3e-4    # mol/kg/Pa  #RH2019: Update
+  Henry_constant_T_dependence_exponent_scale = 5900.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  #Wesely_f0 = 1.0 #CHECK! RH2019: Karl et al., Science 2010.
+  
+  gas_surf_resistance_over_water = 1000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 1.396e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.56 = 2.178e-5/1.56
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # peroxyacetyl radical CH3C(O)OO
+  chemical_name = C2O3
+  GRIB2_constituent_type = 10401 #FIXME Local code
+  molar_mass = 75.0 g/mole #RH2018: update from 72.
+  low_concentration_threshold = 0.001 pg/m3  #R.H. Decreased by factor of 1e5 (orig 0.1 ng/m3): C2O3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  9.9e-7    # mol/kg/pa #RH2018: Upper limit, Sander (2011)
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1000.
+  gas_surf_resistance_land_default = -1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # parafin carbon bond (C-C)
+  chemical_name = PAR4
+  GRIB2_constituent_type = 60009 #Lumped alkanes
+  molar_mass = 30.0 g/mole
+  # Note that the threshold for PAR needs to be smaller or equal than the threshold for OLE! Therefore, 1 ng/m3 changed to
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 10000 (orig 1 ng/m3): PAR
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # As alkanes
+  #Henry_constant_at_298K    =  1.e-8    # mol/kg/pa
+  #Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Henry_constant_at_298K    =  1.9e-8    # mol/kg/pa                               #RH2017: update. Data for ethane.
+  Henry_constant_T_dependence_exponent_scale = 2400.  #Dimension -- Degrees Kelvin #RH2017: update. Data for ethane.
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-3
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-3
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "secondary organic oxy radical"
+  chemical_name = ROR4
+  GRIB2_constituent_type = 10403 #FIXME Local code
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 1e-8 pg/m3    #R.H. Decreased by factor 1e5 (orig 0.001 pg/m3): ROR
+#  low_concentration_threshold = 1 ng/m3 !Was so
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0    # mol/kg/pa #set non-depositing 
+  Henry_constant_T_dependence_exponent_scale = 0.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1000.
+  gas_surf_resistance_land_default = -1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Olefin carbon bond (C=C) in CB04 and terminal olefin carbon bond (R-C==C) in CB05
+  chemical_name = OLE4
+  GRIB2_constituent_type = 60010 #Lumped Alkenes
+  molar_mass = 42.0 g/mole                        #NOTE: molar_mass is for propene/propylene C3H6
+  # Note that the threshold for PAR needs to be smaller or equal than the threshold for OLE!
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 10000: OLE
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # As ethylene
+  #Henry_constant_at_298K    =  5e-6    # mol/kg/pa
+  #Henry_constant_T_dependence_exponent_scale = 1800.  #Dimension -- Degrees Kelvin
+  Henry_constant_at_298K    =  5.9e-8    # mol/kg/pa                                #RH2017: update. Data for ethene/ethylene.
+  Henry_constant_T_dependence_exponent_scale = 2200.  #Dimension -- Degrees Kelvin  #RH2017: update. Data for ethene/ethylene.
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-3
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-3
+  
+END_LIST = substance
+
+# ***********************************************************************
+# ***********************************************************************
+
+LIST = substance
+  # parafin carbon bond (C-C)
+  chemical_name = PAR
+  GRIB2_constituent_type = 60009 #Lumped alkanes
+  molar_mass = 30.0 g/mole
+  # Note that the threshold for PAR needs to be smaller or equal than the threshold for OLE! Therefore, 1 ng/m3 changed to
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 10000 (orig 1 ng/m3): PAR
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # As alkanes
+  #Henry_constant_at_298K    =  1.e-8    # mol/kg/pa
+  #Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Henry_constant_at_298K    =  1.9e-8    # mol/kg/pa                               #RH2017: update. Data for ethane.
+  Henry_constant_T_dependence_exponent_scale = 2400.  #Dimension -- Degrees Kelvin #RH2017: update. Data for ethane.
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-3
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-3
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "secondary organic oxy radical"
+  chemical_name = ROR
+  GRIB2_constituent_type = 10403 #FIXME Local code
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 1e-8 pg/m3    #R.H. Decreased by factor 1e5 (orig 0.001 pg/m3): ROR
+#  low_concentration_threshold = 1 ng/m3 !Was so
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0    # mol/kg/pa #set non-depositing 
+  Henry_constant_T_dependence_exponent_scale = 0.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1000.
+  gas_surf_resistance_land_default = -1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Olefin carbon bond (C=C) in CB04 and terminal olefin carbon bond (R-C==C) in CB05
+  chemical_name = OLE
+  GRIB2_constituent_type = 60010 #Lumped Alkenes
+  molar_mass = 42.0 g/mole                        #NOTE: molar_mass is for propene/propylene C3H6
+  # Note that the threshold for PAR needs to be smaller or equal than the threshold for OLE!
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 10000: OLE
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # As ethylene
+  #Henry_constant_at_298K    =  5e-6    # mol/kg/pa
+  #Henry_constant_T_dependence_exponent_scale = 1800.  #Dimension -- Degrees Kelvin
+  Henry_constant_at_298K    =  5.9e-8    # mol/kg/pa                                #RH2017: update. Data for ethene/ethylene.
+  Henry_constant_T_dependence_exponent_scale = 2200.  #Dimension -- Degrees Kelvin  #RH2017: update. Data for ethene/ethylene.
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-3
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-3
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # ethene CH2=CH2
+  chemical_name = ETH
+  GRIB2_constituent_type = 10009
+  molar_mass = 28 g/mole
+  low_concentration_threshold = 0.01 ng/m3  #R.H. Decreased by factor of 100: ETH
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  #Henry_constant_at_298K    =  4.7e-8    # mol/kg/pa
+  #Henry_constant_T_dependence_exponent_scale = 1800.  #Dimension -- Degrees Kelvin
+  Henry_constant_at_298K    =  5.9e-8    # mol/kg/pa                                #RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 2200.  #Dimension -- Degrees Kelvin  #RH2017: update
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-2
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-2
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # toluene C6H5-CH3 (methylbenzene)
+  chemical_name = TOL
+  GRIB2_constituent_type = 10022
+  molar_mass =  92.141 g/mole
+  low_concentration_threshold = 1 pg/m3  #R.H. Decreased by factor of 1000: TOL
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.5e-6    # mol/kg/Pa  #RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 4300.  #Dimension -- Degrees Kelvin #RH2017: update
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-2
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-2
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "cresol and h.m.w. phenols"
+  chemical_name = CRES
+  GRIB2_constituent_type = 10406 # FIXME Local table
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 1e4: CRES
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-2    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 7200.  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 1009.
+  gas_surf_resistance_land_default = 1009.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.1
+  washout_coef_snow_ratio_to_SILAM_standard = 0.1
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "toluene-hyrdoxyl radical adduct"
+  chemical_name = TO2
+  GRIB2_constituent_type = 10407 # FIXME Local table
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 1e-8 pg/m3  #R.H. Decreased by factor of 1e7 (orig 0.1 pg/m3): TO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0    # mol/kg/Pa                            #MISSING VALUE
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin #MISSING VALUE
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -2000.
+  gas_surf_resistance_land_default = -2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "methylphenoxy radical"
+  chemical_name = CRO
+  GRIB2_constituent_type = 10408 # FIXME Local table
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 1 pg/m3  #R.H. Decreased by factor of 1000: CRO
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0    # mol/kg/Pa                               #MISSING VALUE
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin #MISSING VALUE
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -2000.
+  gas_surf_resistance_land_default = -2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "h.m.w. aromatic oxidation ring fragment"
+  chemical_name = OPEN
+  GRIB2_constituent_type = 10409 # FIXME Local table
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 0.01 pg/m3  #R.H. Decreased by factor of 100000: OPEN
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # as double-bone hydrocarbons...
+  Henry_constant_at_298K    =  2.e-8    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # xylene C6H4-(CH3)2
+  chemical_name = XYL
+  GRIB2_constituent_type = 10023
+  molar_mass = 106 g/mole
+  low_concentration_threshold = 0.1 pg/m3  #R.H. Decreased by factor of 10000: XYL 
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 8000.
+  gas_surf_resistance_land_default = 800.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+# Does not deposit
+  Henry_constant_at_298K    =  1.e-6 # Effective #Mol/kg/Pa
+  Henry_constant_T_dependence_exponent_scale = 5000  # K
+  Wesely_f0 = 0. 
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # CH3C(O)C(O)H methylglyoxal / propanonal
+  chemical_name = MGLY
+  GRIB2_constituent_type = 10410 # FIXME Local table
+  molar_mass = 72 g/mole
+  low_concentration_threshold = 1 pg/m3  #R.H. Decreased by factor of 1000: MGLY
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.4e-2    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 7500.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  #Wesely_f0 = 1.0 #CHECK! RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "NO-to-NO2 operation"
+  chemical_name = XO2
+  GRIB2_constituent_type = 10411 # FIXME Local table
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 1 pg/m3  #R.H. Decreased by factor of 1000: XO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0    # mol/kg/Pa                            #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin #MISSING VALUE
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1.0
+  gas_surf_resistance_land_default = -1.0
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # "NO-to-nitrate operation"
+  chemical_name = XO2N
+  GRIB2_constituent_type = 10412 # FIXME Local table
+  molar_mass = 999999999 g/mole
+  low_concentration_threshold = 0.1 ng/m3  #R.H. Decreased by factor of 10: XO2N
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0    # mol/kg/Pa                            #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin #MISSING VALUE
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1.0
+  gas_surf_resistance_land_default = -1.0
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# **************************************************************************
+
+LIST = substance
+
+  chemical_name = NMVOC
+  molar_mass = -1. g/mole
+
+  material_type = species_passive
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+END_LIST = substance
+
+
+# **************************************************************************
+
+# These substances are needed so silam can read stuff from resulets of make_total_pm NetCDF
+LIST = substance
+  chemical_name = PM2_5
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM10
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = abf  ## anthropogenic biogenic fine -- 
+                       ## ICAP name for everything except for dust, fires and salt
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = gas
+  material_type = species_passive
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 ng/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  0.0 #Mol/kg/Pa #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0.  # K
+  Wesely_f0 = 0. 
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = part
+  material_type = species_passive
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 ng/m3
+
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM
+  molar_mass = -1. g/mole
+  GRIB2_constituent_type = 62000 # Total aerosol
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_GFAS
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 pg/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_FRP_GRASS
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_FRP_FOREST
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_FRP_PIT 
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_FRP_MIXED
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM2_5_10
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_TA
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_FRP
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = SOOT_ESA
+  molar_mass = 12. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.9 0.05 0.05
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = SOOT_OTHERS
+  molar_mass = 12. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.9 0.0 0.05
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+# *************************************************************************
+
+LIST = substance
+  chemical_name = ALUM_ESA
+  molar_mass = 102. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2
+  names_of_ref_subst_in_mixture = soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.1 0.9
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = ALUM_OTHERS
+  molar_mass = 102. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2
+  names_of_ref_subst_in_mixture = soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.1 0.9
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = sslt
+  GRIB2_constituent_type = 62008 
+  material_type = species_seasalt
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = seasalt
+  fractions_of_ref_subst_in_mixture = 1.
+  low_concentration_threshold = 1 pg/m3  #R.H. Decreased by factor of 1000: sslt
+  molar_mass = -58.5    g/mole   ! NaCl 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 2200
+  humidity_growth_scale_alpha = 1.081
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+END_LIST = substance
+  
+# ***********************************************************************
+  
+LIST = substance
+  chemical_name = NaCl
+#  GRIB2_constituent_type = 62008 
+  material_type = species_seasalt
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = seasalt
+  fractions_of_ref_subst_in_mixture = 1.
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -58.5    g/mole   ! NaCl 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 2200
+  humidity_growth_scale_alpha = 1.081
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = OC
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.65 0.35
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -18.   g/mole    # Putaud ea,(2004), from organic carbon to organic matter coef 1.2-1.7, took 1.5
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1300  # Kuwata ea,(2012)Environ.Sci.Technol.46,787-794
+  humidity_growth_scale_alpha = 1.4
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+# ***********************************************************************
+
+
+LIST = substance
+  chemical_name = OC_ws # hydrophilic
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1
+  names_of_ref_subst_in_mixture =  soluble 
+  fractions_of_ref_subst_in_mixture = 1.0
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1200
+  humidity_growth_scale_alpha = 1.4
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+# ***********************************************************************
+
+
+LIST = substance
+  chemical_name = OC_ns  # hydrophobic
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture =  insoluble
+  fractions_of_ref_subst_in_mixture = 1.0
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1200
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95   # no growth
+
+
+END_LIST = substance
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = OC_nv
+
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.  g/mole      ! no idea
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+
+END_LIST = substance
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = OC_sv
+
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100. g/mole      ! no idea
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = OC_fire
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.65 0.35
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -18.   g/mole    # Putaud ea,(2004), from organic carbon to organic matter coef 1.2-1.7, took 1.5
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1300  # Kuwata ea,(2012)Environ.Sci.Technol.46,787-794
+  humidity_growth_scale_alpha = 1.4
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BC
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soot
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = -12. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BC_ws # hydrophilic
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soot
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = -12. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 700
+  humidity_growth_scale_alpha = 1.081
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BC_ns # hydrophobic
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soot
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = -12. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BC_fire
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soot
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = -12. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = EC
+  molar_mass = -12. g/mole   
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = soot
+  fractions_of_ref_subst_in_mixture = 1.
+  low_concentration_threshold = 1 ng/m3 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO  
+  dry_particle_density_kg_per_m3 = 1200  # not pure carbon (1800) but closer to soot, (300-1200)
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = TC
+  molar_mass = -1. g/mole 
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.1 0.7 0.2
+  low_concentration_threshold = 1 ng/m3 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO  
+  dry_particle_density_kg_per_m3 = 2000
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+#***********************************************************************
+
+LIST = substance
+  chemical_name = dust
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = mineral
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = -60. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 2600
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = SiO2
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = mineral
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = 40. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Pb
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = mineral
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = 207. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Zn
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = mineral
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = 65. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Cr2O3
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = mineral
+  fractions_of_ref_subst_in_mixture = 1.0
+  molar_mass = 152. g/mole
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1700
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = passive
+  material_type = species_passive
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 ng/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  0.0              # Mol/kg/Pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0.  # K
+  Wesely_f0 = 0. 
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+!  number_of_reference_subst_in_mixture = 1 
+!  names_of_ref_subst_in_mixture = VOID
+!  fractions_of_ref_subst_in_mixture = 1 
+
+END_LIST = substance
+
+#***********************************************************************
+
+LIST = substance
+  chemical_name = probability
+  material_type = species_passive
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 ng/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  0.0              # Mol/kg/Pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0.  # K
+  Wesely_f0 = 0. 
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+
+#**********************************************************************************
+#	
+# POLLEN
+#
+#**********************************************************************************
+
+#***********************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_BIRCH
+  GRIB2_constituent_type = 64000 
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = BIRCH 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+  potency_change_rate = 0.1 pg/hr    # allowed to be also negative      
+  pollen_break_rate = 1.0 %/hr
+  pollen_break_RH_threshold = 90.0 % 
+  pollen_break_RH_rate = 1.0         # [fraction_broken/(RH_above_threshold[fraction]*sec)]
+  pollen_break_reaction = O3  1.0    # [fraction_broken/(cnc[basic_unit]*sec)]
+  pollen_break_reaction = NO2 1.0    # [fraction_broken/(cnc[basic_unit]*sec)]
+  pollen_break_reaction = EC  1.0    # [fraction_broken/(cnc[basic_unit]*sec)]
+  
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Bet_v1_pollen
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = BIRCH 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Bet_v1_free
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = BIRCH 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_RAGWEED
+  GRIB2_constituent_type = 64003
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = RAGWEED 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Amb_a1_pollen
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = RAGWEED 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Amb_a1_free
+
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = RAGWEED 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_OLIVE
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = OLIVE 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+  GRIB2_constituent_type = 64002 
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Ole_e1_pollen
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = OLIVE 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Ole_e1_free
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = OLIVE 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_GRASS
+  GRIB2_constituent_type = 64001 
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = GRASS 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Phl_p5_pollen
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = GRASS 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = Phl_p5_free
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = GRASS 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+# **********************************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_ALDER
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6  number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = ALDER
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_MUGWORT
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = MUGWORT 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+
+
+#**********************************************************************************
+#	
+# Mozart chemicals
+#
+#**********************************************************************************
+# As of SILAM 5.0 the molar mass needs to be positive in order to mark a species 
+# transported in moles. However, it is not needed for conversion since the boundary
+# data comes in VMR. For many species, it is undefined anyway. 
+
+LIST = substance
+  # pernitric acid / peroxynitric acid / hydroxy nitrate
+  # NOTE: copy of PNA, which is used in chemistry. However, some values differ?!?!
+  chemical_name = HO2NO2
+  molar_mass = 999999999 g/mole  # 79.011 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  4.8e-4    # mol/kg/Pa  #RH2017: addition
+  Henry_constant_T_dependence_exponent_scale = 4800.  #Dimension -- Degrees Kelvin #RH2017: addition
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # methane
+  chemical_name = CH4
+  molar_mass = 16 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.4e-8    # mol/kg/Pa  #RH2017: addition
+  Henry_constant_T_dependence_exponent_scale = 1600.  #Dimension -- Degrees Kelvin #RH2017: addition
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 1.952e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # ethanal / acetaldehyde #For 5.7: unified values with ALD2
+  chemical_name = CH3CHO
+  molar_mass = 44.053 g/mole #Old value: 99999999999 g/mole
+  low_concentration_threshold = 0.01 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.3e-4    # mol/kg/Pa  #RH2017: addition
+  Henry_constant_T_dependence_exponent_scale = 5900.  #Dimension -- Degrees Kelvin #RH2017: addition
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 1000.   #Old value: 100.
+  gas_surf_resistance_land_default = 1000. #Old value: 100.
+  gas_molecular_diffusivity_in_air   = 1.396e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.56 = 2.178e-5/1.56
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # ethane, C2H6. However, note that CB05 uses ETHA for ethane. 
+  chemical_name = C2H6
+  molar_mass = 30.07 g/mole #RH2018Nov: Old value: 99999999999 
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.9e-8    # mol/kg/Pa  #RH2017: addition
+  Henry_constant_T_dependence_exponent_scale = 2400.  #Dimension -- Degrees Kelvin #RH2017: addition
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # propane
+  chemical_name = C3H8
+  molar_mass = 44.097 g/mole #OLD value: 99999999999 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.5e-8    # mol/kg/Pa  #RH2017: addition
+  Henry_constant_T_dependence_exponent_scale = 2700.  #Dimension -- Degrees Kelvin #RH2017: addition
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # toluene C6H5CH3 #For 5.7: values copied from TOL
+  chemical_name = TOLUENE
+  molar_mass = 92.141 g/mole #OLD value: 99999999999 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.5e-6    # mol/kg/Pa  #RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 4300.  #Dimension -- Degrees Kelvin #RH2017: update
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 2000.
+  gas_surf_resistance_land_default = 1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-2
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-2
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BIG_ENE
+  molar_mass = 99999999999 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.0e-2              # Mol/kg/Pa   #FIXME: Actual value unknown!
+  Henry_constant_T_dependence_exponent_scale = 0.  # K
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+LIST = substance
+  chemical_name = BIG_ALK
+  molar_mass = 99999999999 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.0e-2              # Mol/kg/Pa   #FIXME: Actual value unknown!
+  Henry_constant_T_dependence_exponent_scale = 0.  # K
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = SIA
+  molar_mass = -1. g/mole   
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture = soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.625 0.375
+  low_concentration_threshold = 1 ng/m3 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO  
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = ash
+  low_concentration_threshold = 1 ng/m3
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3
+  names_of_ref_subst_in_mixture = mineral insoluble soluble
+  fractions_of_ref_subst_in_mixture = 0.33334 0.33333 0.33333
+  molar_mass = -1. g/mole
+  can_be_gas = NO
+  can_be_aerosol = YES
+  
+  ! Aerosol features
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.4
+  deliquescence_humidity_0_to_1 = 0.5
+  dry_particle_density_kg_per_m3 = 1500
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = mineral
+  low_concentration_threshold = 1 ng/m3
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3
+  names_of_ref_subst_in_mixture = mineral insoluble soluble
+  fractions_of_ref_subst_in_mixture = 0.33334 0.33333 0.33333
+  molar_mass = -1. g/mole
+  can_be_gas = NO
+  can_be_aerosol = YES
+  
+  ! Aerosol features
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.4
+  deliquescence_humidity_0_to_1 = 0.5
+  dry_particle_density_kg_per_m3 = 2600
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = nonBC
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole     ! no idea
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1200
+  humidity_growth_scale_alpha = 1.081
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5
+
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = OM_s  ! EMAC boundaries, hydrophilic organic matter
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole     ! no idea
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1200
+  humidity_growth_scale_alpha = 1.081
+  humidity_growth_curvature_beta = 2
+  deliquescence_humidity_0_to_1 = 0.5  
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = OM_i  ! EMAC boundaries, hydrophobic organic matter
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole     ! no idea
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1200
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+
+  chemical_name = BaP
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 1
+  names_of_ref_subst_in_mixture = insoluble
+  fractions_of_ref_subst_in_mixture = 1.0
+  low_concentration_threshold = 0.01 pg/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+
+#*********************************************************************************
+#
+# Stratospheric chemicals
+#
+#**********************************************************************************
+
+LIST = substance
+  # Atomic hydrogen. Dry & wet deposition irrelevant.
+  chemical_name = H
+  molar_mass = 1.008 g/mole
+  low_concentration_threshold = 0.01 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  2.6e-9  # mol/kg/Pa #RH2017: update; JPL: 2.6e-9
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH3
+  molar_mass = 15.0345 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1e-6    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # formyl radical / formyl / oxomethyl
+  chemical_name = HCO
+  molar_mass = 29.018 g/mole
+  low_concentration_threshold = 0.001 pg/m3  #R.H. Decreased by factor of 1e6: HCO
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1e-6    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 1.36e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.6 = 2.178e-5/1.6 (Data for Formic acid, HCOOH)
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Cl2O2
+  molar_mass = 102.9 g/mole
+  low_concentration_threshold = 0.0001 pg/m3 #R.H. Decreased by factor of 1000: Cl2O2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3500.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = ClNO2
+  molar_mass = 81.45 g/mole
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 1000: ClNO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  3.6e-7    # mol/kg/Pa #average of Frenzel et al 1998, Behnke et al 1997, Roberts et al 2008. RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = ClONO2
+  molar_mass = 97.45 g/mole
+  low_concentration_threshold = 0.1 pg/m3 #R.H. Decreased by factor of 10: ClONO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  #Henry_constant_at_298K    =  1e-6    # mol/kg/pa
+  Henry_constant_at_298K    =  1e20    # mol/kg/Pa #Sander and Crutzen 1996. RH2017: update. Note: Estimated as infinite! CHECK: increase by factor 1e26!
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 50       #RH update 2019: Old value -2000
+  gas_surf_resistance_land_default = 200    #RH update 2019: Old value -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0 #RH update 2019: Old value -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0 #RH update 2019: Old value -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = HCl
+  molar_mass = 36.45 g/mole
+  low_concentration_threshold = 0.01 ng/m3 #R.H. Decreased by factor of 10: HCl
+  can_be_aerosol = NO
+  can_be_gas = YES
+  #Henry_constant_at_298K    =  0.19    # mol/kg/pa # Dean 1992 via NIST [RH2017 NOTE: Actually Dean value should be 1.9e-4]
+  #Henry_constant_at_298K    =  1.5e-2   # mol/kg/Pa #Chen et al 1979. RH2017: update
+  # seems small, actually dissociates...do this how?
+  # Use the effective Henry constant which is the standard Henry constant times (1+10^(pH-pKa)) 
+  # where pKa=-log(Ka) and Ka is the the acid constant Ka = K_eq*[H20]=[H+][Cl-]/[HCl]. For HCl, kPa = -7 (approximately).
+  # Using pH = 8.1 (for seawater), one obtains a multiplication factor of about 1e15
+  Henry_constant_at_298K    =  1.5e13   # mol/kg/Pa  
+  Henry_constant_T_dependence_exponent_scale = 2000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 50
+  gas_surf_resistance_land_default = 50
+  gas_molecular_diffusivity_in_air   = 1.534e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.42 = 2.178e-5/1.42
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Cl2
+  molar_mass = 70.9 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. Decreased by factor of 100: Cl2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  9.2e-7   # mol/kg/Pa #Dean 1992, Sander et al 2016 & 2011 and few others. RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 2200.  #Dimension -- Degrees Kelvin #RH2017: added, average of the above refs. 
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 2000
+  gas_surf_resistance_land_default = 2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.1
+  washout_coef_snow_ratio_to_SILAM_standard = 0.1
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = HOCl
+  molar_mass = 52.45 g/mole
+  low_concentration_threshold = 0.001 ng/m3 #R.H. Decreased by factor of 100: HOCl
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  6.5e-3   # mol/kg/Pa   #Sander et al 2006 & 2011, Huthwelker et al 1995. RH2017: update. JPL: 6.6e-3 and 5880 K
+  Henry_constant_T_dependence_exponent_scale = 5900.  #Dimension -- Degrees Kelvin #RH2017: added, average of the above refs. 
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 200
+  gas_surf_resistance_land_default = 200
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  #clorine dioxide
+  chemical_name = OClO
+  molar_mass = 67.453 g/mole
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 100: OClO
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.0e-5   # mol/kg/Pa  #Sander et al 2006 & 2011, Wilhelm et al 1977, Young 1983. RH2017: update. JPL: 1.01e-5 and 3470 K
+  Henry_constant_T_dependence_exponent_scale = 3500. #Dimension -- Degrees Kelvin  #RH2017: added. Sander et al 2006 & 2011 
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 2000
+  gas_surf_resistance_land_default = 2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance #RH2017 note: Is this same chemical than OClO set above? The stratospheric equations are typically for OClO.
+  chemical_name = ClO2
+  molar_mass = 67.453 g/mole
+  low_concentration_threshold = 0.1 ng/m3 #R.H. Decreased by factor of 10: ClO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.0e-5   # mol/kg/Pa  #Sander et al 2006 & 2011, Wilhelm et al 1977, Young 1983. RH2017: update. JPL: 1.01e-5 and 3470 K
+  Henry_constant_T_dependence_exponent_scale = 3500. #Dimension -- Degrees Kelvin  #RH2017: added. Sander et al 2006 & 2011 
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = ClO
+  molar_mass = 51.45 g/mole
+  low_concentration_threshold = 0.1 pg/m3 #R.H. Decreased by factor of 10: ClO
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  7.0e-6   # mol/kg/Pa # Sander et al 2006 & 2011. RH2017: update. JPL: 7.1e-6
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 2000
+  gas_surf_resistance_land_default = 2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Cl
+  molar_mass = 35.45 g/mole
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 1000: Cl
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  2.3e-5 # mol/kg/Pa # Sander et al 2006 & 2011. RH2017: update. JPL: 2.3e-5
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH3Cl #methyl chloride = chloromethane
+  molar_mass = 50.4875 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CH3Cl
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.3e-6 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018
+  Henry_constant_T_dependence_exponent_scale = 3300.  #Dimension -- Degrees
+  Wesely_f0 = 0.0  #RH2019: TEST: Set small nonzero value to decrease the concentration if needed. 
+  gas_surf_resistance_over_water = 2000
+  gas_surf_resistance_land_default = 2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = CH2Cl2 #methylene chloride = dichloromethane
+#  molar_mass = 84.9326 g/mole
+#  low_concentration_threshold = 0.01 pg/m3 #R.H. CH2Cl2
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  3.6e-6 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018
+#  Henry_constant_T_dependence_exponent_scale = 4100.  #Dimension -- Degrees
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = 2000
+#  gas_surf_resistance_land_default = 2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = CHCl3 #chloroform = trichloromethane
+#  molar_mass = 119.3776 g/mole
+#  low_concentration_threshold = 0.01 pg/m3 #R.H. CHCl3
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  2.5e-6 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018
+#  Henry_constant_T_dependence_exponent_scale = 4500.  #Dimension -- Degrees
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = 2000
+#  gas_surf_resistance_land_default = 2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CCl4 #carbontetrachloride = tetrachloromethane
+  molar_mass = 153.8227 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CCl4
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -3.4e-7 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018 #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 4200.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH3CCl3 #methylchloroform, MCF = 1,1,1-trichloroethane
+  molar_mass = 133.4042 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CH3CCl3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -6.0e-7 # mol/kg/Pa # Warneck (2007) #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 3700.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = C2Cl4 #tetrachloroethene = tetrachloroethylene
+#  molar_mass = 165.8334 g/mole
+#  low_concentration_threshold = 0.01 pg/m3 #R.H. C2Cl4
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  6.2e-7 # mol/kg/Pa # Warneck (2007)
+#  Henry_constant_T_dependence_exponent_scale = 4500.  #Dimension -- Degrees
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = -2000
+#  gas_surf_resistance_land_default = -2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = C2HCl3 # ?= CHClCCl2 = trichloroethene = trichloroethylene
+#  molar_mass = 131.3883 g/mole
+#  low_concentration_threshold = 0.01 pg/m3 #R.H. C2HCl3
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  1.1e-6 # mol/kg/Pa # Warneck (2007)
+#  Henry_constant_T_dependence_exponent_scale = 4300.  #Dimension -- Degrees
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = -2000
+#  gas_surf_resistance_land_default = -2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CCl3F #CFC-11
+  molar_mass = 137.3681 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CCl3F = CFC-11
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -1.1e-7 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018 #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 3300.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CCl2F2 #CFC-12
+  molar_mass = 120.9135 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CCl2F2 = CFC-12
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -3.0e-8 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018 #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 3500.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+
+# ***********************************************************************
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# 4Sep2017 by R.H. Added bromine species
+# Currently only molar mass and Henry constant are updated,
+# other data is copied from corresponding clorine compounds.
+# Henry's law constants are, if awailable, taken from 
+# Sander, R.: Compilation of Henry's law constants (version 4.0) for water as solvent,
+# Atmos. Chem. Phys., 15, 4399-4981, https://doi.org/10.5194/acp-15-4399-2015, 2015
+# TODO: ONLY MOLAR MASSES ARE UPDATED, OTHER DATA IS NOT CORRECT!!!!!
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+LIST = substance
+  # Needed for heterogeneous reaction 13:  N2O5+HBr-> BrNO2+HNO3
+  chemical_name = BrNO2
+  molar_mass = 125.9095 g/mole
+  low_concentration_threshold = 1e-6 pg/m3 #R.H. Decreased by factor of 1e5: BrNO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  3e-6     # mol/kg/pa #Frenzel et al 1998; NOTE: ESTIMATE
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BrONO2
+  molar_mass = 141.9089 g/mole
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 1000: BrONO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.0e20    # mol/kg/pa  #Sander and Crutzen 1996; NOTE: Estimated as infinite!
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 50     #RH update 2019: Old value: -2000
+  gas_surf_resistance_land_default = 200  #RH update 2019: Old value: -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0 #RH update 2019: Old value: -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0 #RH update 2019: Old value: -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = HBr
+  molar_mass = 80.91194 g/mole
+  low_concentration_threshold = 0.1 pg/m3 #R.H. Decreased by factor of 1000: HBr
+  can_be_aerosol = NO
+  can_be_gas = YES
+  # Henry_constant_at_298K    =  2.4e-4    # mol/kg/Pa # Dean 1992
+  # Henry_constant_T_dependence_exponent_scale = 370.  #Dimension -- Degrees Kelvin
+  # Schweitzer 2000 [Taken from Parrella et al, Atmos. Chem. Phys. 12, 6723 (2012).] Henry constants: 7.5e-5 mol/kg/Pa 
+  # Use the effective Henry constant which is the standard Henry constant times (1+10^(pH-pKa)) 
+  # where pKa=-log(Ka) and Ka is the the acid constant Ka = K_eq*[H20]=[H+][Br-]/[HBr]. For HBr, kPa = -9.
+  # Using pH = 8.1 (for seawater), one obtains a multiplication factor of about 1e16
+  Henry_constant_at_298K    =  7.5e11    # mol/kg/Pa 
+  Henry_constant_T_dependence_exponent_scale = 10200.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 200   # Yang et al JGRA2005: deposition velocity over oceans 0.005 m/s      #OLD value 50
+  gas_surf_resistance_land_default = 100 # Yang et al JGRA2005: deposition velocity over forest/grass 0.01 m/s #OLD value 50
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Needed for heterogeneous reactions, 11: BrONO2+HBr->Br2+HNO3 and 12: HOBr+HBr->Br2+H2O
+  chemical_name = Br2
+  molar_mass = 159.808 g/mole
+  low_concentration_threshold = 1e-6 pg/m3 #R.H. Decreased by factor of 1e6: Br2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  7.2e-6   # mol/kg/pa  # Sander et al 2006 & 2011. JPL: 7.25e-6 and 4390 K
+  Henry_constant_T_dependence_exponent_scale = 4400. #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 2000
+  gas_surf_resistance_land_default = 2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.1
+  washout_coef_snow_ratio_to_SILAM_standard = 0.1
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = HOBr
+  molar_mass = 96.91134 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. Decreased by factor of 10000: HOBr
+  can_be_aerosol = NO
+  can_be_gas = YES
+  # NOTE the bug in pdf which gives 0.1 times smaller walue (see http://www.henrys-law.org/).
+  # Henry_constant_at_298K    =  1.3e-2  # mol/kg/pa #Lower limit, Sander et al 2006 & 2011. JPL: > 1.3e-2
+  # Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  # Henry low constant for HOBr seems to be poorly known. Using somewhat bigger value in order to deposite more bromine.
+  Henry_constant_at_298K    =  6.1e-2  # mol/kg/pa    #Frenzel et al 1998 [Taken from Parrella et al, Atmos. Chem. Phys. 12, 6723 (2012).] 
+  Henry_constant_T_dependence_exponent_scale = 6010.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 500   # Yang et al JGRA2005: deposition velocity over oceans 0.002 m/s      #OLD value 200
+  gas_surf_resistance_land_default = 200 # Yang et al JGRA2005: deposition velocity over forest/grass 0.005 m/s
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BrO
+  molar_mass = 95.9034 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. Decreased by factor of 100: BrO
+  can_be_aerosol = NO
+  can_be_gas = YES
+  #Henry law constant for BrO is some estimate, as for ClO! 
+  Henry_constant_at_298K    =  7.0e-6   # mol/kg/pa #Frenzel et al 1998 [Taken from Parrella et al, Atmos. Chem. Phys. 12, 6723 (2012).] 
+  Henry_constant_T_dependence_exponent_scale = 0. #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = 2000
+  gas_surf_resistance_land_default = 2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = Br
+  molar_mass = 79.904 g/mole
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 1000: Br
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.2e-5  # mol/kg/pa #Mozurkewich 1986; Uncertain, especially the temperature dependence.
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BrCl #NOTE: Other data copied from Cl-data.
+  molar_mass = 115.357 g/mole
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 1000: BrCl
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  9.7e-6   # mol/kg/pa   #Sander et al 2006 & 20011. JPL: 9.8e-6 and 5630 K
+  Henry_constant_T_dependence_exponent_scale = 5600.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = OBrO #RH2017 CURRENTLY NOT NEEDED, only molar mass is updated
+#  molar_mass = 111.9028 g/mole
+#  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 100
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  1e-6   # mol/kg/pa  #RH2017: Value not updated yet!
+#  Henry_constant_T_dependence_exponent_scale = 0. #Dimension -- Degrees Kelvin
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = 2000
+#  gas_surf_resistance_land_default = 2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = BrO2 #RH2017: CURRENTLY NOT NEEDED (also COPY of OBrO??), only molar mass is updated
+#  molar_mass = 111.9028 g/mole
+#  low_concentration_threshold = 0.01 ng/m3 #R.H. Decreased by factor of 100
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  1e-6    # mol/kg/pa  #RH2017: Value not updated yet!
+#  #Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+#  #Dissoc_coeff = 0. # Mol/kg
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = -2000
+#  gas_surf_resistance_land_default = -2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+#LIST = substance
+#  chemical_name = Br2O2 #RH2017: CURRENTLY NOT NEEDED, only molar mass is updated
+#  molar_mass = 191.8068 g/mole
+#  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 100
+#  can_be_aerosol = NO
+#  can_be_gas = YES
+#  Henry_constant_at_298K    =  1e-6    # mol/kg/pa  #RH2017: Value not updated yet!
+#  #Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+#  Wesely_f0 = 0. 
+#  gas_surf_resistance_over_water = -2000
+#  gas_surf_resistance_land_default = -2000
+#  gas_molecular_diffusivity_in_air   = 8e-6
+#  gas_molecular_diffusivity_in_water = 6e-10
+#  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+#  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+#END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH3Br #methyl bromide = bromomethane
+  molar_mass = 94.9385 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CH3Br
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.7e-6 # mol/kg/Pa # Sander et al 2006 & 2011. RH2018
+  Henry_constant_T_dependence_exponent_scale = 3100.  #Dimension -- Degrees
+  Wesely_f0 = 0.0  #RH2019: TEST: Set small nonzero value to decrease the concentration if needed. 
+  gas_surf_resistance_over_water = 2000    %NOTE by R.H.: CHECK and FIXME 
+  gas_surf_resistance_land_default = 2000  %NOTE by R.H.: CHECK and FIXME
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH2Br #bromomethyl
+  molar_mass = 93.9306 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CH2Br
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  0.0 # mol/kg/Pa # Missing value: RH2018
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CH2BrO2 #(Chloromethyl)dioxidanyl
+  molar_mass = 125.9294 g/mole
+  low_concentration_threshold = 0.01 pg/m3 #R.H. CH2BrO2
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  0.0 # mol/kg/Pa # Missing value: RH2018
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# 1Sep2017 by R.H. End of bromine species
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = N #Atomic nitrogen
+  molar_mass = 14.007 g/mole
+  low_concentration_threshold = 1e-6 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  1.0e-8  # mol/kg/pa #FIXME, value not found
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = N2O
+  molar_mass = 44.013 g/mole
+  low_concentration_threshold = 0.01 ng/m3 #R.H. Decreased by factor of 100: N2O
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -2.4e-7   # mol/kg/pa # Warneck and Williams 2012, Sander et al 2006 & 2011, Wilhelm et al 1977,... #RH2017: update #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 2600.  #Dimension -- Degrees Kelvin #RH2017: update
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 1.436e-5 #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = H2O
+  molar_mass = 18.0153 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = YES
+  can_be_gas = YES
+  #Henry_constant_at_298K    =  1e-6   # mol/kg/pa # Dean 1992 via NIST
+  Henry_constant_at_298K    =  1000   # mol/kg/pa # Dean 1992 via NIST
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  gas_surf_resistance_over_water = -2000
+  gas_surf_resistance_land_default = -2000
+  gas_molecular_diffusivity_in_air   = 2.178e-5 #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  ! Aerosol features
+  dry_particle_density_kg_per_m3 = 917.
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.0  ! enough to exclude growth
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = NAT
+  molar_mass = 117.06 g/mole    ! HNO3 + 3*H2O !RH2017 corrected: 114 -> 117
+  low_concentration_threshold = 0.001 pg/m3 #R.H. Decreased by factor of 1000: NAT
+  can_be_aerosol = YES
+  can_be_gas = NO
+  ! Values are copied from HNO3...
+  Henry_constant_at_298K    =  2.1    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 8700.  #Dimension -- Degrees Kelvin
+  #Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 0. 
+  
+  gas_surf_resistance_over_water = 100.   #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: 25.
+  gas_surf_resistance_land_default = 25.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 10.0
+  washout_coef_snow_ratio_to_SILAM_standard = 10.0
+  ! Aerosol features
+  dry_particle_density_kg_per_m3 = 1350.
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM_ESA
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ************************************************************************************
+
+LIST = substance 
+  # Dimethyl sulfide C2H6S
+  chemical_name = DMS
+  GRIB2_constituent_type = -1
+  molar_mass = 62.134 g/mole
+  low_concentration_threshold = 100 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  5.3e-6   # mol/kg/Pa  #RH2017: update
+  Henry_constant_T_dependence_exponent_scale = 3500.0  #Dimension -- Degrees Kelvin #RH2017: update
+  Wesely_f0 = 0. 
+ 
+  gas_surf_resistance_over_water = -1.
+  gas_surf_resistance_land_default = -1
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+END_LIST = substance
+
+
+# ==============================================================Crazy CO2 cocktails
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CO2
+  GRIB2_constituent_type = -1
+  molar_mass = 44.01 g/mole #RH2017: corrected from 46 to 44
+  low_concentration_threshold = 100 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+#No scavenging for now
+  Henry_constant_at_298K    =  3.3e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2300  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+ 
+  gas_surf_resistance_over_water = -1.
+  gas_surf_resistance_land_default = -1
+  gas_molecular_diffusivity_in_air   = 1.381e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.000001
+  washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CO2nplus
+  GRIB2_constituent_type = -1
+  molar_mass = 44.01 g/mole #RH2017: corrected from 46 to 44
+  low_concentration_threshold = 100 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+#No scavenging for now
+  Henry_constant_at_298K    =  -777.              # mol/kg/pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1.
+  gas_surf_resistance_land_default = -1
+  gas_molecular_diffusivity_in_air   = 1.381e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.000001
+  washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+
+  chemical_name = CO2nminus
+  GRIB2_constituent_type = -1
+  molar_mass = 44.01 g/mole #RH2017: corrected from 46 to 44
+  low_concentration_threshold = 100 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+#No scavenging for now
+  Henry_constant_at_298K    =  -777.              # mol/kg/pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1.
+  gas_surf_resistance_land_default = -1
+  gas_molecular_diffusivity_in_air   = 1.381e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.000001
+  washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = CO2bg
+  GRIB2_constituent_type = -1
+  molar_mass = 44.01 g/mole
+  low_concentration_threshold = 100 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+#No scavenging for now
+  Henry_constant_at_298K    =  -777.              # mol/kg/pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1.
+  gas_surf_resistance_land_default = -1
+  gas_molecular_diffusivity_in_air   = 1.381e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.000001
+  washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  
+END_LIST = substance
+
+#==============================================================Crazy CO2 cocktails END
+# *********************************************************************
+
+LIST = substance
+  chemical_name = timetag
+  material_type = species_passive
+  molar_mass = 1. kg/mole
+  low_concentration_threshold = 1 ng/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -777.              # mol/kg/pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# *********************************************************************
+
+LIST = substance
+  chemical_name = ones
+  material_type = species_passive
+  molar_mass = 1. kg/mole
+  low_concentration_threshold = 1 ng/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+  Henry_constant_at_298K    =  -777.              # mol/kg/pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# *********************************************************************
+
+LIST = substance
+  # sulfur hexafluoride
+  chemical_name = SF6
+  material_type = species_passive
+  molar_mass =  146.055 g/mole
+  low_concentration_threshold = 0.001 pg/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.4e-9    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  #1. Marrero, T. R., and Mason, E. A., J. Phys. Chem. Ref. Data, 1, 1, 1972.
+  #2. Kestin, J., et al., J. Phys. Chem. Ref. Data, 13, 229, 1984.
+  # http://www2.bren.ucsb.edu/~dturney/WebResources_13/GasInWaterProperties_files/BinaryDiffusionOfGases.pdf
+  gas_molecular_diffusivity_in_air   = 6e-5
+  gas_surf_resistance_over_water = 1e9 # Must be positive so diffusivity is accepted
+  gas_surf_resistance_land_default = 1e9
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# *********************************************************************
+
+LIST = substance
+# Same but with no diffusivity -- no grav separation and no destruction
+# passive thing
+  chemical_name = SF6p
+  material_type = species_passive
+  molar_mass =  146.055 g/mole
+  low_concentration_threshold = 0.001 pg/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.4e-9    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+# Same but with no diffusivity -- no grav separation, with destruction by chemistry 
+# Here -- exactly same as SF6p
+  chemical_name = SF6ng
+  material_type = species_passive
+  molar_mass =  146.055 g/mole
+  low_concentration_threshold = 0.001 pg/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.4e-9    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+# *********************************************************************
+
+LIST = substance
+# grav separation but no destruction by chemistry
+# Here same as SF6
+  chemical_name = SF6nc
+  material_type = species_passive
+  molar_mass =  146.055 g/mole
+  low_concentration_threshold = 0.001 pg/m3
+
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.4e-9    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_molecular_diffusivity_in_air   = 6e-5
+  gas_surf_resistance_over_water = 1e9 # Must be positive so diffusivity is accepted
+  gas_surf_resistance_land_default = 1e9
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+
+END_LIST = substance
+
+
+# ***********************************************************************
+# SOA
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB0
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e0
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e1
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e2
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e3
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e4
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e5
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = AVB1e6
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BVB0
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BVB1e0
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BVB1e1
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BVB1e2
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = BVB1e3
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture =  soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.6 0.4
+  low_concentration_threshold = 1 ng/m3
+  molar_mass = -100.   g/mole
+  
+  Henry_constant_at_298K    =  1.3e-5    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 3000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+  
+  can_be_aerosol = YES
+  can_be_gas = YES
+
+  gas_surf_resistance_over_water = 2500.
+  gas_surf_resistance_land_default = 50.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+  dry_particle_density_kg_per_m3 = 1500
+  humidity_growth_scale_alpha = 1.1 
+  humidity_growth_curvature_beta = 1.2
+  deliquescence_humidity_0_to_1 = 0.5
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+
+  chemical_name = O3_lo
+  molar_mass = 48. g/mole
+  low_concentration_threshold = 10 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = O3
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin
+  Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 1. 
+  
+  gas_surf_resistance_over_water = 2000.0
+  #gas_surf_resistance_land_default = 250.0
+  gas_surf_resistance_land_default = 1500.0
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.01
+  washout_coef_snow_ratio_to_SILAM_standard = 0.01
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+
+  chemical_name = O3_mid
+  molar_mass = 48. g/mole
+  low_concentration_threshold = 10 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = O3
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin
+  Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 1. 
+  
+  gas_surf_resistance_over_water = 2000.0
+  #gas_surf_resistance_land_default = 250.0
+  gas_surf_resistance_land_default = 1500.0
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.01
+  washout_coef_snow_ratio_to_SILAM_standard = 0.01
+  
+END_LIST = substance
+
+# ***********************************************************************
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = O3_hi
+  molar_mass = 48. g/mole
+  low_concentration_threshold = 10 ng/m3
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = O3
+  fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.e-7    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 2800.  #Dimension -- Degrees Kelvin
+  Dissoc_coeff = 0. # Mol/kg
+  Wesely_f0 = 1. 
+  
+  gas_surf_resistance_over_water = 2000.0
+  #gas_surf_resistance_land_default = 250.0
+  gas_surf_resistance_land_default = 1500.0
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.01
+  washout_coef_snow_ratio_to_SILAM_standard = 0.01
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Assimilated PM
+  chemical_name = PMAS
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # assimilated PM, negative
+  chemical_name = PMAS__NEG__
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Assimilated PM coarse
+  chemical_name = PMCAS
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # assimilated PM, negative
+  chemical_name = PMCAS__NEG__
+  molar_mass = -1. g/mole
+
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 3 
+  names_of_ref_subst_in_mixture = soot soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.05 0.6 0.35
+  low_concentration_threshold = 1 ng/m3
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+
+END_LIST = substance
+
+# ***********************************************************************
+
+
+# ########################################################################
+#  Species added for CB05 reactions. RH: October 2018
+#  NOTE: Some species exist already above but with different name,
+#        e.g. ETHA below equals C2H6 above
+# ########################################################################
+
+# ***********************************************************************
+
+LIST = substance
+  # Formic acid: HCOOH
+  chemical_name = FACD
+  molar_mass = 46.03 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  8.8e-2    # mol/kg/pa                                #Sander et al (2011)
+  Henry_constant_T_dependence_exponent_scale = 6100.  #Dimension -- Degrees Kelvin  #Sander et al (2011)
+  Wesely_f0 = 0.0 #RH2018: addition. Seinfeld and Pandis: Atm. Chem. & Phys.
+
+  gas_surf_resistance_over_water = 125.     #Khare et al., Rev. Geophys. 1999: vd=0.6..1.1 cm/s, take 0.8 cm/s
+  gas_surf_resistance_land_default = 200.   #Khare et al., Rev. Geophys. 1999: vd=0.5..1cm/s, take 0.5 cm/s
+  #gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_air   = 1.361e-5 #RH2018: Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.6 = 2.178e-5/1.6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Acetic acid: CH3COOH
+  chemical_name = AACD
+  molar_mass = 60.05 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  4.0e-2    # mol/kg/pa                                 #Sander et al (2011)
+  Henry_constant_T_dependence_exponent_scale = 6200.  #Dimension -- Degrees Kelvin   #Sabder et al (2011)
+  #Wesely_f0 = 0.0 #RH2018: addition. Seinfeld and Pandis: Atm. Chem. & Phys.
+  Wesely_f0 = 1.0 #RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 200.    #Khare et al., Rev. Geophys. 1999: vd=0.42..0.68 cm/s, take 0.5 cm/s
+  gas_surf_resistance_land_default = 200.  #Khare et al., Rev. Geophys. 1999: vd=0.5..1cm/s, take 0.5 cm/s
+  #gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_air   = 1.190e-5 #RH2019: Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.83 = 2.178e-5/1.83
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Peroxyacetic CH3C(O)OOH and higher peroxycarboxylic acids
+  chemical_name = PACD
+  molar_mass = 76.05 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  8.3e-3    # mol/kg/Pa                                  #Sander et al (2011)
+  Henry_constant_T_dependence_exponent_scale = 5300.  #Dimension -- Degrees Kelvin    #Sander et al (2011)
+  #Wesely_f0 = 0.1 #RH2019: Jacobson: Fund. Atm. Modeling: Table B.12
+  Wesely_f0 = 1.0 #RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 200.    #CHECK! Using the Wesely 1989 estimation of v_d ~ 1 cm/s for organic acids. Khare et al. Rev. Geophys. 1999. 
+  gas_surf_resistance_land_default = 200.  #CHECK!
+  gas_molecular_diffusivity_in_air   = 1.089e-5 #RH2019: Jacobson: Fund. Atm. Modeling: Table B.12: D=D_H2O/2.0 = 2.178e-5/2.0
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Organic nitrates (e.g. 1-butyl nitrate, C4H9ONO2, and 2-butyl nitrate)
+  chemical_name = NTR
+  molar_mass = 119.1 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.0e-5    # mol/kg/Pa  #Data for 1-butyl nitrate
+  Henry_constant_T_dependence_exponent_scale = 5800.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = 600.    #TEST VALUE: was 2000 (TOL copy)!
+  gas_surf_resistance_land_default = 300.  #TEST VALUE: was 1000 (TOL copy)!
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.1  #TEST VALUE: was 1.0e-2 (TOL copy)!
+  washout_coef_snow_ratio_to_SILAM_standard = 0.1  #TEST VALUE: was 1.0e-2 (TOL copy)!
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Higher organic peroxide, e.g. ethyl hydroperoxide, C2H6O2
+  chemical_name = ROOH
+  molar_mass = 62.06 g/mole  #NOTE: CB6 uses C4H9O2 with Mw=89.1 
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.3e-3    # mol/kg/Pa  #Data for ethyl hydroperoxide
+  Henry_constant_T_dependence_exponent_scale = 6000.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 50.     #CHECK, copy of MEPX/CH3OOH
+  gas_surf_resistance_land_default = 50.   #CHECK, copy of MEPX/CH3OOH
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Propionaldehyde, C2H5CHO, and higher aldehydes
+  chemical_name = ALDX
+  molar_mass = 58.08 g/mole #propionaldehyde, C2H5CHO
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  9.9e-5    # mol/kg/Pa  #Data for propionaldehyde, C2H5CHO
+  Henry_constant_T_dependence_exponent_scale = 4300.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.0 #RH2019: addition. Seinfeld and Pandis: Atm. Chem. & Phys.
+  #Wesely_f0 = 1.0 #CHECK! RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 1000.    #CHECK, copy of ALD2
+  gas_surf_resistance_land_default = 1000.  #CHECK, copy of ALD2
+  gas_molecular_diffusivity_in_air   = 1.21e-5 #RH2019: Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.83 = 2.178e-5/1.8
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of ALD2
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of ALD2
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Methanol, CH3OH
+  chemical_name = MEOH
+  molar_mass = 32.04 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.0e-3    # mol/kg/Pa
+  Henry_constant_T_dependence_exponent_scale = 5600.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 1.0 #RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 500.    #G. Wohlfahrt et al., Atmos Chem Phys. 2015 Jan 27; 15(2): 2577–2613 doi:10.5194/acp-15-7413-2015
+  gas_surf_resistance_land_default = 500.  #deposition velocity is of orer 0.1..0.4 cm/s. Take 0.2cm/s for both land and water.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-1  #CHECK
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-1  #CHECK
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Methyl Peroxy Radical, CH3O2 (values taken from CH3O2 above)
+  chemical_name = MEO2
+  GRIB2_constituent_type = 10001
+  molar_mass = 47. g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.5e-4    # mol/kg/Pa #1.5e-4 and 3700 K by Leriche et al 2000, Lelieveld and Crutzen 1991; 5.9e-5 and 5600 K by Jacob 1986. #RH2017: estimates!!
+  Henry_constant_T_dependence_exponent_scale = 3700.  #Dimension -- Degrees Kelvin #RH2017: estimate
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 1000.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 30.0
+  washout_coef_snow_ratio_to_SILAM_standard = 30.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # methyl hydroperoxide / methanol oxide. NOTE: Copy of CH3OOH, with some ripping of options here (commented)
+  chemical_name = MEPX
+  GRIB2_constituent_type = 10005 # Total aerosol
+  molar_mass = 48.041 g/mole
+  low_concentration_threshold = 1 pg/m3
+  # number_of_reference_subst_in_mixture = 1 
+  # names_of_ref_subst_in_mixture = CH3OOH
+  # fractions_of_ref_subst_in_mixture = 1
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  3.e-3    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 5300.  #Dimension -- Degrees Kelvin
+  #Wesely_f0 = 0.3 #RH2018: addition. Seinfeld and Pandis: Atm. Chem. & Phys.
+  Wesely_f0 = 1.0 #RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 50.    #Back to the old value 50. RH2018: Hauglustaine JGR 1994: 400.
+  gas_surf_resistance_land_default = 50.  #Back to the old value 50. RH2018: Hauglustaine JGR 1994: 1000.
+  gas_molecular_diffusivity_in_air   = 1.36e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.6 = 2.178e-5/1.6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Ethanol, C2H5OH
+  chemical_name = ETOH
+  molar_mass = 46.07 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.9e-3    # mol/kg/Pa
+  Henry_constant_T_dependence_exponent_scale = 6400.  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 1.0 #RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 500.    #CHECK, copy of MEOH
+  gas_surf_resistance_land_default = 500.  #CHECK, copy of MEOH
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-1  #CHECK
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-1  #CHECK
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # ethane, C2H6. Copy of C2H6. 
+  chemical_name = ETHA
+  molar_mass = 30.07 g/mole #RH2018Nov: Old value: 99999999999 
+  low_concentration_threshold = 0.1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.9e-8    # mol/kg/Pa  #RH2017: addition
+  Henry_constant_T_dependence_exponent_scale = 2400.  #Dimension -- Degrees Kelvin #RH2017: addition
+  Wesely_f0 = 0.0
+
+  gas_surf_resistance_over_water = 100.
+  gas_surf_resistance_land_default = 100.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # bicarbonate ion (in CB6 report: adduct from HO2 plus formaldehyde) 
+  chemical_name = HCO3
+  molar_mass = 61.016 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.0e-1    # mol/kg/Pa     #FIXME: Likely some large value #MISSING VALUE
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin   #MISSING VALUE
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 100.    #CHECK
+  gas_surf_resistance_land_default = 100.  #CHECK
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of MEPX/CH3OOH
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # C3 and higher acylperoxy radicals 
+  chemical_name = CXO3
+  molar_mass = 89.07 g/mole  #C3H5O3
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  9.9e-7    # mol/kg/pa #RH2018: Data for C2O3: Upper limit, Sander (2011)
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = -1000.    #copy of C2O3
+  gas_surf_resistance_land_default = -1000.  #copy of C2O3
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0  #copy of C2O3
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0  #copy of C2O3
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # C3 and higher acylperoxy nitrates, data for peroxypropionyl nitrate, C2H5COOONO2
+  chemical_name = PANX
+  molar_mass = 135.08 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  2.9e-5    # mol/kg/Pa #Kames and Schurath (1995)
+  Henry_constant_T_dependence_exponent_scale = 0.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.1  #Copy of PAN
+  #Wesely_f0 = 1.0 #CHECK! RH2019: GEOS-Chem seems to use f0=1. They refer to Karl et al., Science 2010, but cannot find PAN in Karl's list.
+
+  gas_surf_resistance_over_water = 2000.    #copy of PAN
+  gas_surf_resistance_land_default = 1000.  #copy of PAN
+  gas_molecular_diffusivity_in_air   = 8.41e-6 #copy of PAN
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.1  #copy of PAN
+  washout_coef_snow_ratio_to_SILAM_standard = 0.1  #copy of PAN
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Internal olefin carbon bond in CB05 (R-C=C-R)
+  chemical_name = IOLE
+  molar_mass = 56.1 g/mole #For cis-2-butene and trans-2-butene
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  5.2e-8    # mol/kg/Pa  #Mean of cis- and trans-2-buten values by Irmann (1965) 
+  Henry_constant_T_dependence_exponent_scale = 0.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 2000.    #copy of OLE
+  gas_surf_resistance_land_default = 1000.  #copy of OLE
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-3  #copy of OLE
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-3  #copy of OLE
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Isoprene products (methacrolein C4H6O, methyl vinyl ketone, etc)
+  chemical_name = ISPD
+  molar_mass = 70.09 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  # Henry for methacrolein      : 4.8e-5 mol/kg/Pa and 4300 K, Ji and Evans (2007) 
+  # Henry for methyl viny ketone: 2.6e-4 mol/kg/Pa and 4800 K, Ji and Evans (2007) 
+  Henry_constant_at_298K    =  4.8e-5    # mol/kg/Pa   #methacrolein
+  Henry_constant_T_dependence_exponent_scale = 4300.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 1.0 #RH2019: Karl et al., Science 2010.
+
+  gas_surf_resistance_over_water = 2500.    #CHECK, copy of C5H8 (isoprene)
+  gas_surf_resistance_land_default = 500.  #CHECK, copy of C5H8 (isoprene)
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-1  #CHECK, copy of C5H8
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-1  #CHECK, copy of C5H8
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # Sesquiterpenes
+  chemical_name = SESQ
+  molar_mass = 204.35 g/mole #Using basic formula C15H24, Simplest C15H24O with 220.35
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  4.0e-7    # mol/kg/Pa  #CHECK, SOME ESTIMATE (some isoprenes)
+  Henry_constant_T_dependence_exponent_scale = 0.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 2500.    #CHECK, copy of C5H8_2 (monoterpine)
+  gas_surf_resistance_land_default = 50.    #CHECK, copy of C5H8_2 (monoterpine)
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of C5H8_2 (monoterpine)
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of C5H8_2 (monoterpine)
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # benzene C6H6
+  chemical_name = BENZENE
+  molar_mass = 78.11 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  1.7e-6    # mol/kg/Pa  #Staudinger and Roberts (2001)
+  Henry_constant_T_dependence_exponent_scale = 4200.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 2000.    #CHECK, copy of TOL
+  gas_surf_resistance_land_default = 1000.  #CHECK, copy of TOL
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0e-2  #CHECK, copy of TOL
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0e-2  #CHECK, copy of TOL
+  
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  # name Formyl chloride HCOCl
+  chemical_name = FMCL
+  molar_mass = 64.468 g/mole
+  low_concentration_threshold = 1 pg/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  7.3e-4    # mol/kg/Pa  # FIXME: Value from CHBrO
+  Henry_constant_T_dependence_exponent_scale = 0.0  #Dimension -- Degrees Kelvin
+  Wesely_f0 = 0.0 
+
+  gas_surf_resistance_over_water = 200.    #CHECK, copy of HOCl
+  gas_surf_resistance_land_default = 200.  #CHECK, copy of HOCl
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 1.0  #CHECK, copy of HOCl
+  washout_coef_snow_ratio_to_SILAM_standard = 1.0  #CHECK, copy of HOCl
+  
+END_LIST = substance
+

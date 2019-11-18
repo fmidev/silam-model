@@ -1,0 +1,14 @@
+export
+full : 
+	cd ../build && $(MAKE)
+silam : 
+	cd ../build && $(MAKE) silam
+debug : 
+	cd ../build && $(MAKE) SETUP=gnu_debug
+box : 
+	cd ../build && $(MAKE) box
+tags : *.f90
+	etags --ignore-case-regex='/ *interface *.*/' --ignore-case-regex='/ *integer,.*public.*/' --ignore-case-regex='/ *real,.*public.*/' \
+--ignore-case-regex='/ *type [a-z_]*/' *.f90
+up : 
+	cd ../build/ && $(MAKE) up

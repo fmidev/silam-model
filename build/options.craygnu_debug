@@ -1,0 +1,31 @@
+# Build platform
+ARCH = linux_gnu
+
+# The compiler
+F90C = ftn
+# Flags for optimization, etc.
+#OPTIMIZATION = -O3 -fopenmp
+OPTIMIZATION = -O0 -fopenmp 
+# There used to be an option for using -openmp only for modules that include
+# omp_lib. But that doesn't work, so it is no longer here.
+DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 # -DDEBUG
+FIXED = -ffixed-form
+PREPROCESS = -x f95-cpp-input  -D WITH_NF90_NETCDF4 -DVOIMA_GNU_BUG -DWITH_BZIP2
+# Include flags
+INCLUDE = -I$(OBJDIR) #-I/lustre/apps/silam/include #/opt/fmi/eccodes/2.3.0-1/include
+
+FFLAGS =  $(OPTIMIZATION) $(DEBUG) $(INCLUDE) -ffree-line-length-none $(PREPROCESS)  -march=sandybridge 
+
+# netcdf install directory
+#NCDIR = $(LIBDIR)
+# grib api install directory
+#GRDIR = $(LIBDIR)
+# default directory with libraries
+LIBDIR = /lustre/apps/silam
+
+# Libraries passed to ifort
+#SILAM_LIBS =
+# Libraries given as linker options
+LFLAGS =  -fopenmp  -static -L $(LIBDIR)/lib -lbz2
+#LFLAGS =  -lgrib_api_f90 -lgrib_api -ljasper
+

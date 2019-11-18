@@ -1,0 +1,14 @@
+MODULE $KPP_ROOT_Global
+  
+  !$use omp_lib
+  USE $KPP_ROOT_Parameters, ONLY: sp, NSPEC, NVAR, NFIX, NREACT
+  PUBLIC
+  SAVE
+
+  REAL(kind=sp) :: FIX(NFIX)
+  !$OMP THREADPRIVATE(FIX)
+  REAL(kind=sp) :: RCONST(NREACT)
+  !$OMP THREADPRIVATE(RCONST)
+  
+END MODULE $KPP_ROOT_Global
+

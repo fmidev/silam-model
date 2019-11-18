@@ -1,0 +1,373 @@
+# Control file for SILAM v4.0 operational run
+
+CONTROL_v5_3
+ LIST = general_parameters  
+  case_name = batman_Fin_5km_emis_0_9_NOx_ps
+  direction_in_time = FORWARD
+  start_time = 2014 12 24 00 00 0.0
+  end_time = 2015 12 31 23 59 59.0
+  time_step = 450 sec
+  computation_accuracy = 10
+  simulation_type = EULERIAN  
+ END_LIST = general_parameters 
+ 
+
+ LIST = MPI_PARALLEL_PARAMETERS
+  x_divisions = 1
+  y_divisions = 10
+  use_mpiio = YES
+  use_mpiio_netcdf = YES
+ END_LIST = MPI_PARALLEL_PARAMETERS
+ 
+ LIST = emission_parameters    ######################################################################
+ 
+   emission_source = EULERIAN e:\data\emission\SYKE_BATMAN_20170501_silam\bc_01-SYKE_Batman.ps5
+#   emission_source = VOID_SOURCE
+   
+   cut_area_source_if_outside_meteo_grid = YES
+
+   source_dump_time_step = #########1 hr
+   # source_dump_start_time
+   # source_dump_end_time
+   # source_dump_period
+   source_dump_time_split = DAILY_NEW_FILE  # ALL_IN_ONE / HOURLY_NEW_FILE / DAILY_NEW_FILE / MONTHLY_NEW_FILE / YEARLY_NEW_FILE
+
+#   if_technical_source_dump = ORIGINAL_GRID   # NONE / ORIGINAL_GRID / DISPERSION_GRID
+
+ END_LIST = emission_parameters  ######################################################################
+ 
+ LIST = dispersion_parameters
+   grid_method = OUTPUT_GRID  #CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = GEMS output grid
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+   nx = 150
+   ny = 100 
+   lon_start = -10.
+   lat_start = 35.
+   dx = 0.4
+   dy = 0.3
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+   vertical_method = OUTPUT_LEVELS    # METEO_LEVELS / OUTPUT_LEVELS / CUSTOM_LEVELS
+   !
+   ! If CUSTOM_LEVELS - fill-in the below two lines
+   !
+   level_type = HEIGHT_FROM_SURFACE    # PRESSURE, HEIGHT_FROM_SURFACE, ALTITUDE_FROM_SEA, HYBRID
+   layer_thickness = 100. 500. 1400. 4000.   # output levels [m]/[pa]/[hybrid_nbr], reals
+ END_LIST = dispersion_parameters
+
+ LIST = meteo_parameters
+!   dynamic_meteo_file = NETCDF d:\!project\ncdf\nc_stuff\WRF_OUT\wrfout_d01
+!  dynamic_meteo_file = GRIB s:\data\meteo\BaltAn65\%ay4\fc%ay4%am2%ad2_%ah2+%f3
+!  dynamic_meteo_file = GRIB s:\data\meteo\BaltAn65\%ay4\fc%ay4%am2%ad2_%ah2+%f3md_edit
+  dynamic_meteo_file = GRIB d:\data\meteo\ERA_interim\%ay4\era_interim_%ay4%am2%ad2%ah2+%f2.ml
+!  dynamic_meteo_file = GRIB s:\data\meteo\ERA_interim\%ay4\era_interim_%ay4%am2%ad2%ah2+%f2.ml_str
+  dynamic_meteo_file = GRIB d:\data\meteo\ERA_interim\%ay4\era_interim_%ay4%am2%ad2%ah2+%f2.sfc
+!   dynamic_meteo_file = GRIB b:\data\meteo\ec_oper\%ay4\ecmwf%ay4%am2%ad2%ah2+%f2
+!   dynamic_meteo_file = GRIB e:\data\meteo\ec_oper\%ay4\ec%ay4%am2%ad2+%ah2+%f2.sfc
+!   dynamic_meteo_file = GRIB e:\data\meteo\EC_OPER\2003\ec%ay4%am2%ad2+%ah2+%f2*
+!   dynamic_meteo_file = GRIB d:\tmp\2007\ec%ay4%am2%ad2+%ah2+%f2*
+!   dynamic_meteo_file = GRIB D:\data\meteo\EC_OPER\%ay4\ec%ay4%am2%ad2+%ah2+%f2*
+!   dynamic_meteo_file = GRIB d:\data\meteo\hirlam\%ay4\fc%ay4%am2%ad2_%ah2+%f3
+!   dynamic_meteo_file = GRIB d:\data\meteo\hirlam\%ay4\fc%ay4%am2%ad2_%ah2+%f3md
+   
+  static_meteo_file = GRIB d:\data\meteo\EC_orography_2012.fixed
+!   static_meteo_file = GRIB d:\data\meteo\hirlam\2006\fc20060419_18+006
+!   static_meteo_file = ASCII_V1 e:\data\emission\4SILAM\salinity_map.fld
+!   static_meteo_file = GRADS f:\data\emission\4SILAM\v5\sand_mass_fraction.super_ctl
+!   static_meteo_file = GRADS f:\data\emission\4SILAM\v5\clay_mass_fraction.super_ctl
+!   static_meteo_file = GRADS d:\data\emission\4SILAM\v5\roughness_ERS_forced.super_ctl
+  ! static_meteo_file = GRADS /lustre/apps/silam/input/emis/v5/salinity_map_global_1deg.fld_water_salinity.grads.super_ctl
+  ! static_meteo_file = GRIB /lustre/apps/silam/input/physiography/EC_vegfrac_glob_2012.sfc
+  ! static_meteo_file = NETCDF:TZ_index /lustre/apps/silam/input/physiography/tz_index_02deg.nc4 !   static_meteo_file = -
+
+   meteo_time_step = 3 hr 
+   if_wait_for_data = NO
+   abl_parameterization_method = FULL_PARAM    # DRY_ABL, FULL_PARAM 
+   number_of_precipitation_fields = 2
+ END_LIST = meteo_parameters
+
+ LIST = transformation_parameters
+   transformation = PASSIVE EULERIAN
+!   transformation = PM_GENERAL
+!   transformation = DMAT_SULPHUR
+!   transformation = CB4
+!   transformation = POP_GENERAL
+!   transformation = ACID_BASIC
+!   transformation = RADIOACTIVE
+
+!   aerosol_dynamics = SIMPLE
+   
+!   dry_deposition_scheme = KS2011_TF
+!   wet_deposition_scheme = STANDARD_3D_SCAVENGING
+    
+   dry_deposition_scheme = KS2011_TF
+   wet_deposition_scheme = NEW2011_SCAVENGING  #NEW2011_SCAVENGING_FAKECLOUD  # STANDARD_3D_SCAVENGING
+   surface_resistance_method = STANDARD  #STANDARD #WES2013
+
+   if_actual_humidity_for_particle_size = YES
+   default_relative_humidity = 0.8
+   compute_thermodiffusion = NO
+   if_full_acid_chemistry = YES
+   
+   passive_subst_ref_lifetime = 1 day
+   passive_subst_ref_tempr = 288
+   passive_subst_dLifeTime_dT = -1 min/K
+   
+   passive_time_tracer = YES
+   
+   ADB_if_compute_nucleation = YES
+   ADB_nucleation_scheme = KINETIC    !BINARY, TERNARY, KINETIC, ACTIVATION
+   ADB_if_compute_coagulation = YES
+   ADB_if_compute_condensation = YES
+   ADB_if_compute_cloud_activation = NO
+   ADB_if_recalc_wet_d = YES
+
+ END_LIST = transformation_parameters
+
+ LIST = initial_and_boundary_conditions
+# initialize_quantity = temperature_2m_acc          ! if no such line, initial conditions are void
+# initialize_quantity = daily_mean_temperature_2m   ! if no such line, initial conditions are void
+# initialize_quantity = degree_day   ! if no such line, initial conditions are void
+ #initialize_quantity = concentration               ! if no such line, initial conditions are void
+ #initialization_file = GRADS f:\!model\2011\silam_v5_0\output\tst_acid_adv_v2\tst_acid_adv_v2_ALL_SRCS_20070829.grads.super_ctl
+
+   boundary_type =  ZERO             ! ZERO / DIRICHLET   
+   if_lateral_boundary = YES         ! YES/NO 
+   if_top_boundary =  NO             ! YES/NO 
+   if_bottom_boundary =  NO          ! YES/NO 
+   boundary_time_step =  1 hr        ! timestep unit 
+   boundary_header_filename = d:\!model\2009\silam_v4_5_6\ini\boundary.ini
+ END_LIST = initial_and_boundary_conditions
+
+
+! LIST = DATA_ASSIMILATION
+!
+!# settings for 4D & 3D
+!method = 4D # 3D/4D
+!# in situ observations. Single file for 4d, for 3d templates allowed.
+!station_list =  d:\data\measurements\EMEP_meas\stations_basic_2009_SILAM.lst
+!obs_data = cnc mkg d:\data\measurements\EMEP_meas\MMAS_basic\pm25_with_stdev.cnc_pm2_5
+!# directory for iteration files and analysis files
+!output_directory = f:\!model\silam_v5_6\output\tst_4dvar\iteration
+!# write only analysis, or each iteration
+!full_output = NO
+!
+!# iteration parameters
+!search_method = steepest_descent
+!#search_method = m1qn3
+!#search_method = l_bfgs_b
+!max_iterations = 25
+!minimum_decrease = 0.01
+!
+!# parameters for 4D-Var
+!control_variable = emission_correction  # initial_state / emission_and_initial_state
+!
+!# # when emission included:
+!# emission_background_file = 
+!
+!# # when initial state included
+!# initial_state_background_file = 
+!
+!#cov_setup_initial = d:\!model\silam_v5_6\ini\cov_diag.ini
+!cov_setup_emission = d:\!model\silam_v5_6\ini\cov_diag.ini
+!
+!# parameters for 3D-Var
+!analysis_substance = PM # for each analysed
+!#analysis_substance =  # for each analysed
+!
+!assimilation_window = 1 hr
+!
+!END_LIST = DATA_ASSIMILATION
+
+ 
+ LIST = optical_density_parameters ##########################################################################
+   optical_coefficients_depend_on_relative_humidity = YES
+   optical_coefficients_depend_on_temperature = YES
+   if_split_aerosol_modes = YES            ! doesn't work yet
+   if_narrow_wave_bands = YES              ! doesn't work yet
+ END_LIST = optical_density_parameters
+ 
+ LIST = output_parameters
+   source_id = NO_SOURCE_SPLIT  # SOURCE_NAME  SOURCE_SECTOR  SOURCE_NAME_AND_SECTOR 
+   vertical_method = CUSTOM_LAYERS
+!   level_type = HEIGHT_FROM_SURFACE 
+!   layer_thickness = 50. 100. 200. 300. 400. 500. 500. 500. 500. 500. 500. 500.   # output levels [m]/[pa]/[hybrid_nbr], reals
+  level_type = HYBRID
+#  hybrid_coefficients_bottom = 1 0.000000 1.000000
+#  hybrid_coefficients_bottom = 2     30.39   0.9916786
+#  hybrid_coefficients_bottom = 3    456.54   0.9682366
+#  hybrid_coefficients_bottom = 4   1541.26   0.9264040
+#  hybrid_coefficients_bottom = 5   3376.81   0.8632344
+#  hybrid_coefficients_bottom = 6   5888.36   0.7800322
+#  hybrid_coefficients_bottom = 7   8880.74   0.6805786
+#  hybrid_coefficients_bottom = 8  12075.78   0.5703878
+#  hybrid_coefficients_bottom = 9  15149.61   0.4559614
+#  hybrid_coefficients_domain_top = 17763.45   0.3442660
+hybrid_coefficients_bottom = 1               0       1
+hybrid_coefficients_bottom = 2               0  0.99763
+hybrid_coefficients_bottom = 3        7.367743  0.994019
+hybrid_coefficients_bottom = 4        65.88924  0.98827
+hybrid_coefficients_bottom = 5        210.3939  0.979663
+hybrid_coefficients_bottom = 6        467.3336  0.967645
+hybrid_coefficients_bottom = 7        855.3618  0.951822
+hybrid_coefficients_bottom = 8        1385.913  0.93194
+hybrid_coefficients_bottom = 9         2063.78  0.907884
+hybrid_coefficients_bottom = 10        2887.697  0.879657
+hybrid_coefficients_bottom = 11        3850.913  0.847375
+hybrid_coefficients_bottom = 12        4941.778  0.811253
+hybrid_coefficients_bottom = 13        6144.315  0.771597
+hybrid_coefficients_bottom = 14        7438.803  0.728786
+hybrid_coefficients_bottom = 15        8802.356  0.683269
+hybrid_coefficients_bottom = 16         10209.5  0.635547
+#hybrid_coefficients_bottom = 17        11632.76  0.586168
+#hybrid_coefficients_bottom = 18        13043.22  0.53571
+#hybrid_coefficients_bottom = 19        14411.12  0.484772
+#hybrid_coefficients_bottom = 20        15706.45  0.433963
+#hybrid_coefficients_bottom = 21        16899.47  0.383892
+#hybrid_coefficients_bottom = 22        17961.36  0.335155
+#hybrid_coefficients_bottom = 23        18864.75  0.288323
+#hybrid_coefficients_bottom = 24        19584.33  0.243933
+#hybrid_coefficients_bottom = 25         20097.4  0.202476
+#hybrid_coefficients_bottom = 26        20384.48  0.164384
+#hybrid_coefficients_bottom = 27        20429.86  0.130023
+#hybrid_coefficients_bottom = 28        20222.21  0.099675
+#hybrid_coefficients_bottom = 29        19755.11  0.073534
+#hybrid_coefficients_bottom = 30         19027.7  0.05169
+#hybrid_coefficients_bottom = 31        18045.18  0.034121
+#hybrid_coefficients_bottom = 32        16819.47  0.020678
+#hybrid_coefficients_bottom = 33        15379.81  0.011143
+#hybrid_coefficients_bottom = 34        13775.33  0.005081
+#hybrid_coefficients_bottom = 35        12077.45  0.001815
+#hybrid_coefficients_bottom = 36        10376.13  0.000461
+#hybrid_coefficients_bottom = 37        8765.054  7.58E-05
+#hybrid_coefficients_bottom = 38        7306.631       0
+#hybrid_coefficients_bottom = 39         6018.02       0
+#hybrid_coefficients_bottom = 40        4906.708       0
+#hybrid_coefficients_bottom = 41        3960.292       0
+#hybrid_coefficients_bottom = 42        3196.422       0
+#hybrid_coefficients_bottom = 43        2579.889       0
+#hybrid_coefficients_bottom = 44        2082.274       0
+#hybrid_coefficients_bottom = 45         1680.64       0
+#hybrid_coefficients_bottom = 46        1356.475       0
+#hybrid_coefficients_bottom = 47        1094.835       0
+#hybrid_coefficients_bottom = 48        883.6605       0
+#hybrid_coefficients_bottom = 49        713.2181       0
+#hybrid_coefficients_bottom = 50         575.651       0
+#hybrid_coefficients_bottom = 51        464.6181       0
+#hybrid_coefficients_bottom = 52        373.9719       0
+#hybrid_coefficients_bottom = 53        298.4958       0
+#hybrid_coefficients_bottom = 54        234.7791       0
+#hybrid_coefficients_bottom = 55        180.5844       0
+#hybrid_coefficients_bottom = 56        134.4833       0
+#hybrid_coefficients_bottom = 57        95.63696       0
+#hybrid_coefficients_bottom = 58         63.6478       0
+#hybrid_coefficients_bottom = 59        38.42534       0
+#hybrid_coefficients_bottom = 60              20       0
+#hybrid_coefficients_domain_top = 10.5 0.000000 
+
+hybrid_coefficients_domain_top = 11632.76  0.586168
+   output_time_step = 1 hr
+   output_times = REGULAR 
+   dump_time_step = #1 hr
+!   file_types = GRIB_YES
+!   output_format = GRIB 1  # Allowed formats: GRIB 1/2, GRADS, NETCDF 3, TRAJECTORY
+   output_format = GRADS
+!   output_format = NETCDF 3
+!   output_format = TRAJECTORY
+   time_split = DAILY_NEW_FILE 
+   template = e:\model\silam_v5_6\output\%case\%case_%y4%m2%d2   # %source
+   variable_list = d:\model\silam_v5_6\ini\output_config_tst.ini
+   
+   grid_method =  CUSTOM_GRID  # AREA_BASED
+
+   # If AREA_BASED grid then:
+   area_borders =  20. 70. -20. 30 # south, north, west, east; North positive, east positive
+   area_title = out_area
+   resolution = 40. km    # horizontal gridsize of output grid, [km]/[m]/[deg], real
+
+   # This is for CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = GEMS output grid
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+# BaltAn case
+#lon_start = 0.6
+#lat_start = -6.4
+#dx = 0.1
+#dy = 0.1
+#nx = 204
+#ny = 204
+#lat_s_pole = -30.
+#lon_s_pole = 0.
+
+#nx = 125
+#ny = 124
+#lon_start = -178.56  #-179.28
+#lat_start = -88.56
+#dx = 2.88
+#dy = 1.44 
+
+   nx = 360
+   ny = 177
+   lon_start = -179.5
+   lat_start = -88
+   dx = 1.0
+   dy = 1.0
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+ END_LIST = output_parameters
+
+ LIST = STANDARD_SETUP
+
+  advection_method_eulerian = EULERIAN_V5
+  kz_profile_method = SILAM_ABL_EC_FT_KZ                     # ZERO_KZ / SILAM_KZ_EMULATOR / SILAM_OLD_KZ / KZ
+  advection_method_lagrangian = LAGRANGIAN_WIND_ENDPOINT_3D  # LAGRANGIAN_WIND_MID(END)POINT_3D(2D)
+  random_walk_method = FULLY_MIXED    # Random-walk method [IDIOT_SIMPLE, FULLY_MIXED, BULK_GAUSSIAN]
+  advection_method_default = EULERIAN
+  mass_distributor = TRIANGLE_SLAB
+  abl_height_method = COMBINATION     # [HIRLAM_ABL, CONSTANT, COMBINATION, RICHARDSON, PARCEL, TURBULENT_ENERGY]
+  continuity_equation = anelastic_v2  # anelastic_v2  #test_wind 3  # incompressible / incompressible_v2 / anelastic_v2 / nwp_omega / test_wind / hybrid_top_down
+  wind_diagnostics = opentop          # opentop / hardtop / none
+
+  horizontal_interpolation = LINEAR   # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+  vertical_interpolation = LINEAR     # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+  time_interpolation = LINEAR         # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+
+  nuclide_database_fnm = ^silam_nuclides.dat
+  chemical_database_fnm = ^silam_chemicals.dat
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\standard_aerosols_cocktails.ini
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\standard_auxillary_cocktails.ini
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\standard_chemistry_cocktails.ini
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\standard_fires_cocktails.ini
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\standard_radioactive_cocktails.ini
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\standard_SOA_cocktails.ini
+  standard_cocktail_fnm = d:\model\silam_v5_6\ini\cocktails_BATMAN.ini
+  grib_code_table_fnm = ^grib_code_table_v5.silam
+  netcdf_name_table_fnm = ^netcdf_name_table.silam
+  land_use_data_meta_file = ^land_use_features_USGS_Eurasia.dat
+  optical_properties_meta_data_file = ^optical_properties.dat
+  photolysis_data_file = ^photolysis_finrose.dat
+  timezone_list_fnm = ^tzindex.dat
+
+  allow_zero_forecast_length = NO      # Whether zero-long forecasts may be used in the simulations
+                                       # Beware of zero-valued accumulated fields
+  precipitation_low_limit = 0.1 mm/hr  # Cut-off limit for precipitation rate (separate for large-sc and conv)
+  print_debug_info = DEBUG_INFO_YES    # DEBUG_INFO_YES, DEBUG_INFO_NO
+  cloud_report_interval = 1
+  disregard_meteo_data_sources = YES
+END_LIST = STANDARD_SETUP
+
+END_CONTROL_v5_3

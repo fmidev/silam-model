@@ -1,0 +1,33 @@
+# Build platform
+ARCH = linux_intel
+
+# The compiler
+F90C = ftn
+# Flags for optimization, etc.
+OPTIMIZATION = -openmp -O3 #-xT -ip
+# There used to be an option for using -openmp only for modules that include
+# omp_lib. But that doesn't work, so it is no longer here.
+DEBUG = -traceback
+FIXED = -fixed
+PREPROCESS = -cpp
+# Include flags
+INCLUDE = -I$(OBJDIR) # -I/opt/fmi/eccodes/2.3.0-1/include
+
+FFLAGS = -auto  -assume byterecl  $(OPTIMIZATION) $(DEBUG) $(INCLUDE) -diag-disable 8291 -fp-model precise -fp-model source -fimf-arch-consistency=true
+
+# netcdf install directory
+NCDIR = $(LIBDIR)
+# grib api install directory
+GRDIR = $(LIBDIR)
+# default directory with libraries
+LIBDIR = #/lustre/apps/silam/lib/lib/
+
+# Libraries passed to ifort
+SILAM_LIBS =
+# Libraries given as linker options
+#LFLAGS =  -L $(LIBDIR) -lgrib_api_f90 -lgrib_api -L/usr/lib64 -ljasper
+LFLAGS =   -openmp -static # -leccodes_f90 -leccodes
+#LFLAGS =  -lgrib_api_f90 -lgrib_api -ljasper
+
+# MPI option passed to config.pl
+MPI_CHOICE = mpi

@@ -1,0 +1,35 @@
+# Build platform
+ARCH = linux_intel
+
+# The compiler
+F90C = ifort
+# Flags for optimization, etc.
+OPTIMIZATION = -O3 -openmp #-vec-report2
+OPENMP = 
+DEBUG = -traceback -diag-disable 8291 #-g -check all 
+FIXED = -fixed
+PREPROCESS = -cpp
+# Include flags
+INCLUDE = -I$(OBJDIR) -I$(NCDIR)/include -I$(GRDIR)/include
+
+FFLAGS = -assume byterecl  -static $(OPTIMIZATION) $(DEBUG) $(INCLUDE)
+
+# netcdf install directory
+NCDIR = /opt/intel-libs/
+# grib api install directory
+GRDIR = /opt/intel-libs/
+# default directory with libraries
+LIBDIR = /home/vira/silam/lib/
+
+# Libraries passed to ifort
+MKLROOT = /opt/intel/mkl/
+# intel mkl -- oh!
+MKL = -Wl,--start-group  $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_sequential.a $(MKLROOT)/lib/intel64/libmkl_core.a -Wl,--end-group -lpthread
+SILAM_LIBS = $(LIBDIR)libfish.a  -L$(NCDIR)/lib -L$(GRDIR)/lib \
+-lnetcdff -lnetcdf -lhdf5_hl -lhdf5 -lgrib_api_f90  -lgrib_api -ljasper -lblas $(MKL) -lz -openmp
+
+#SILAM_LIBS = $(LIBDIR)libfish.a  -L$(NCDIR)/lib -L$(GRDIR)/lib \
+#-lnetcdff -lnetcdf -lhdf5_hl -lhdf5 -lgrib_api_f90  -lgrib_api -ljasper -lz -llapack -lblas 
+# Libraries given as linker options 
+#LFLAGS = 
+

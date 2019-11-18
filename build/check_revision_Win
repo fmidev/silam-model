@@ -1,0 +1,183 @@
+#!/usr/bin/env python
+import subprocess, sys
+import os
+#import pwd
+import socket
+import re
+import datetime as dt
+import argparse
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('directory', help='Directory with source code')
+argparser.add_argument('--distr', action='store_true', default=False, help='Generate notice about non-svn distribution')
+argparser.add_argument('--svn-bin', default='/usr/bin/svn', help='Path to SVN binary')
+
+args = argparser.parse_args()
+directory = args.directory
+ifDistr = args.distr
+svnbin = args.svn_bin
+
+class RevisionError(Exception):
+    pass
+
+silamversion="SILAM v5_6"
+
+# Compilation should pass
+revision = None
+revno="0"
+try:
+    #Get latest of revisions of  and see diff from it
+    for d in [directory, os.path.join(directory, '..', 'build')]:
+        svn = subprocess.Popen((svnbin, 'info'), cwd=d, stdout=subprocess.PIPE)
+        for line in svn.stdout:
+            if line.startswith('Last Changed Rev:'):
+                myrevno=line.split()[-1]
+                if int(myrevno) > int(revno):
+                    revno=myrevno
+                    revision = "%s (r%s)"%(silamversion, revno)
+        print 'Current revision of %s : %s' %(d, revision)
+        if svn.wait():
+            raise RevisionError('SVN returned nonzero')
+
+    if revision is None:
+        raise RevisionError('Failed to read revision')
+except:
+    pass
+
+try:
+    if revision is None: # Try last revision
+        print "Trying "+directory+"/../build/last.revision"
+        with open(os.path.join(directory,'..','build','last.revision'), "r") as svn:
+            for line in svn:
+                if line.startswith('Last Changed Rev:'):
+                    revno = (line.split()[-1])
+                    revision = "Unknown, > "+revno+" (svn error)."
+                    break
+except:     
+    revision = "Unknown (svn error, no last revision)."
+
+old_revision = None
+
+revision_f90_filename = os.path.join(directory, 'revision.mod.f90.tmp')
+revision_f90_real_filename = os.path.join(directory, 'revision.mod.f90')
+#try:
+#    os.unlink(revision_f90_real_filename)
+#except:
+#    pass
+
+if os.path.exists(revision_f90_real_filename):
+    # Read the previous revision from the first line of the f90 file.
+    revision_f90_old = open(revision_f90_real_filename, 'r')
+    try:
+        old_revision = revision_f90_old.readline().split()[-1]
+    except (IndexError, ValueError):
+        print 'Failed to get the previous revision'
+    else:
+        print 'Previously compiled revision: %s' % old_revision
+
+    revision_f90_old.close()
+    
+revision_is_valid = old_revision is not None and old_revision == revision.split()[-1]
+if not revision_is_valid:
+    with open(revision_f90_filename, 'w') as revision_f90:
+        revision_f90.write("""! %(REV)s
+        ! automatically generated, by check_revision script. Will be overwritten at next recompile.
+        module revision
+
+        use globals
+
+        implicit none
+
+        private
+
+
+        character(len=*), public, parameter :: revision_str = '%(REV)s'
+        contains
+        end module revision
+        """ % dict(REV=revision, REVLEN=len(revision)+10))
+    if os.path.exists(revision_f90_real_filename): os.unlink(revision_f90_real_filename)
+    os.rename(revision_f90_filename, revision_f90_real_filename)
+
+diff_f90_filename = os.path.join(directory, 'svndiff.mod.f90.tmp')
+diff_f90_real_filename = diff_f90_filename.replace('.tmp','')
+
+# Split the revision module in two: the revision.mod.f90 can be used lower down in the
+# code, while svndiff.mod.f90 is updated each time something is changed and should be used
+# only from top level.
+
+with open(diff_f90_filename, 'w') as diff_f90:
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    host =  socket.gethostname()
+    cwd = os.getcwd()
+    try:
+        whoami = subprocess.check_output("who am i".split())
+    except:
+       whoami = None
+
+    if not whoami:
+         whoami = "No info"
+
+    if ifDistr:
+        revision="non-SVN version forked from  "+revision
+
+
+
+    pardict = dict(REV=revision, REVLEN=len(revision)+10, HOST=host, DATE=now, CWD=cwd, WHOAMI=whoami[:-1])     
+    diff_f90.write("""
+    ! automatically generated, by check_revision script. Will be overwritten at next recompile.
+    module svndiff
+
+    use globals
+    
+    implicit none
+
+    private
+    public print_svn_diff
+
+    contains
+        ! Output of svn diff and some other relevant info...
+        subroutine  print_svn_diff()
+            implicit none
+
+    """ % pardict)
+
+    if ifDistr:
+       diff_f90.write("""
+            call msg("The distro generated at %(HOST)s  on  %(DATE)s")
+            call msg("Distro-time CWD: %(CWD)s")
+            call msg("Distro-time WHOAMI: %(WHOAMI)s")
+        """ % pardict)
+    else:
+       diff_f90.write("""
+            call msg("The binary was compiled at %(HOST)s  on  %(DATE)s")
+            call msg("Compile-time CWD: %(CWD)s")
+            call msg("Compile-time WHOAMI: %(WHOAMI)s")
+
+        """ % pardict)
+       
+
+    svncmd=svnbin+" diff -r"+revno
+    for dir in [os.path.join(directory,'..','build'), directory]:
+      try:
+        with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir ).stdout as inf:
+            diff_f90.write("call msg(\"Output of svn diff at "+dir+"\")\n")
+            for l in inf:
+                l=re.sub("\r","",l[:-1])
+                l=re.sub("'","' // \"'\" // '",l)
+                diff_f90.write("call msg('"+l+"')\n")
+
+        diff_f90.write("                                           call msg('')\n")
+        diff_f90.write("                                           call msg('')\n")
+        diff_f90.write("                                           call msg('')\n")
+        diff_f90.write("                                           call msg('')\n")
+      except subprocess.CalledProcessError:
+        diff_f90.write("call msg('No diff info: Error running \""+svncmd+"\" in "+dir+"')\n")
+
+    diff_f90.write("""
+            end  subroutine  print_svn_diff
+        end module svndiff
+""")
+if os.path.exists(diff_f90_real_filename): os.unlink(diff_f90_real_filename)
+os.rename(diff_f90_filename, diff_f90_real_filename)
+    
+    

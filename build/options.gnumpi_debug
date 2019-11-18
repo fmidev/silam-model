@@ -1,0 +1,23 @@
+ARCH = linux_gnu
+
+F90C = mpif90
+OPTIMIZATION = -O0 -fopenmp # -Wall
+#OPTIMIZATION = -O3 -fopenmp 
+OPENMP = 
+DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888  -DDEBUG
+#DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG -DDEBUG_V5 ##-ffpe-trap causes trouble
+FIXED = -ffixed-form
+PREPROCESS = -x f95-cpp-input -D WITH_NF90_NETCDF4  -D WITH_PNETCDF -DSILAM_MPI -DWITH_BZIP
+FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none -mno-avx
+INCLUDE = -I$(OBJDIR) -I/usr/include
+
+# netcdf install directory
+NCDIR = 
+# grib api install directory
+GRDIR = 
+
+# Libraries passed to ifort
+SILAM_LIBS = 
+# Libraries given as linker options
+
+LFLAGS = -fopenmp -ljasper -llapack -ljasper -lblas -llapack -leccodes -leccodes_f90  -lnetcdff -lnetcdf -lpnetcdf -lbz2

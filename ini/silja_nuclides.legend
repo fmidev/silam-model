@@ -1,0 +1,175 @@
+! The SILJA nuclide database, file 'silja_nuclides.dat', consists of 
+! one-nuclide blocks, where all data of the nuclide is contained within the
+! block. Neither the absolute position nor the mutual ordering of the 
+! nuclides have any meaning, so any number of arbitrary nuclides may be added
+! at any position. Current (29.1.96) ordering is first alphabetical, then by
+! increasing mass number. Between nuclide blocks, there may be any number of
+! non-block lines, each of which is either a comment line (starting with an 
+! exclamation mark, !) or an empty line.
+!
+! Edited by Sebastian Heinonen (13.7.17): Added gamma radiation energy (keV)
+! for nuclides and corresponding emission probability (fraction) per decay 
+! into each nuclide. If probability of decay is smaller than 0.01 (1%) then
+! it is not listed. If gamma radiation for given nuclide doesn't exist they
+! are both marked as -1.0. The variable is 'energy_and_decay_prob' and is
+! listed as: x_1 y_1 x_2 y_2 and so on, so that x is the energy and y is the
+! probability and x_1 > x_2. Values are recommended values not covering all
+! nuclides from:
+! https://www-nds.iaea.org/xgamma_standards/genergies1.htm. The IAEA table
+! was called: 'Recommended gamma-ray energies and emission probabilities
+! ordered by radionuclide'.
+!
+! The contents of the lines in a nuclide block are defined in the following:
+!
+! Line 1:  Name of the nuclide (consists of chemical symbol and mass number),
+! (3)      indeces of the nuclide in Kocher files and ARANO/TRADOS block 
+!          data. The indeces are not used and are meant for the human reader
+!          only.
+!
+! Line 2:  Half-life of the nuclide. Symbols: H = hours, D = days, Y = years.
+! (1)
+!
+! Line 3:  The decay chain to which the nuclide belongs. The three-nuclide
+! (1)      decay scheme of ARANO/TRADOS is used. The chain may have one, two
+!          or three nuclides (types x, x-y and x-y-z, respectively). Nuclides
+!          in the chain are separated by arrow symbols (->). Values after
+!          daughters indicate their probabilities to be produced as their 
+!          mother decays.
+!
+! Line 4:  On this line, the dose and dose-rate conversion factors for the
+! (4)      nuclide begin. Line 4 contains the following external dose-rate
+!          conversion factors, which are readily compatible with the SUBINH
+!          (air) and FALDOS (ground) calculation methods:
+!
+!          EXP. MODE   RAD. TYPE      TARGET
+!      1   air         gamma          approximately marrow
+!      2   ground      gamma          red marrow
+!      3   ground      beta + gamma   skin
+!      4   air         beta + gamma   skin
+!
+! Line 5:  Combined alpha + beta + gamma dose conversion factors (50 years'
+! (7)      dose), for inhalation of contaminated air, readily compatible with
+!          the SUBINH calculation method, for the following organs:
+!          gonads, breast, bone marrow, lungs, thyroid, bone surface, 
+!          and effective dose
+!
+! Line 6:  Combined alpha + beta + gamma dose conversion factors (50 years'
+! (6)      dose), which are directly compatible with the AGRID calculation
+!          method, for ingestion of contaminated food:
+!
+!          FOODSTUFF GROUP   TARGET
+!      1   milk              thyroid
+!      2   milk              effective dose
+!      3   meat              effective dose
+!      4   vegetables        effective dose
+!      5   grain             effective dose
+!      6   roots             effective dose
+!
+! Line 7:  External GAMMA dose-rate conversion factors for immersion in
+! (8)      contaminated AIR given by Kocher for the following organs:
+!          adrenals, bladder, brain, breast, heart, small intestine, upper
+!          large intestine, lower large intestine
+!
+! Line 8:  External GAMMA dose-rate conversion factors for immersion in
+! (8)      contaminated AIR given by Kocher for the following organs:
+!          kidneys, liver, lungs, marrow, red marrow, ovaries, pancreas,
+!          skeleton
+!
+! Line 9:  External GAMMA dose-rate conversion factors for immersion in
+! (8)      contaminated AIR given by Kocher for the following organs (and
+!          effective dose-rate without skin):
+!          skin, spleen, stomach, testes, thymus, thyroid, uterus, effective
+!          without skin
+!
+! Line 10: External GAMMA dose-rate conversion factors for immersion in
+! (8)      contaminated WATER given by Kocher for the following organs:
+!          adrenals, bladder, brain, breast, heart, small intestine, upper
+!          large intestine, lower large intestine
+!
+! Line 11: External GAMMA dose-rate conversion factors for immersion in
+! (8)      contaminated WATER given by Kocher for the following organs:
+!          kidneys, liver, lungs, marrow, red marrow, ovaries, pancreas,
+!          skeleton
+!
+! Line 12: External GAMMA dose-rate conversion factors for immersion in
+! (8)      contaminated WATER given by Kocher for the following organs (and
+!          effective dose-rate without skin):
+!          skin, spleen, stomach, testes, thymus, thyroid, uterus, effective
+!          without skin
+!
+! Line 13: External GAMMA dose-rate conversion factors for standing on
+! (8)      contaminated GROUND surface given by Kocher for the following 
+!          organs:
+!          adrenals, bladder, brain, breast, heart, small intestine, upper
+!          large intestine, lower large intestine
+!
+! Line 14: External GAMMA dose-rate conversion factors for standing on
+! (8)      contaminated GROUND surface given by Kocher for the following 
+!          organs:
+!          kidneys, liver, lungs, marrow, red marrow, ovaries, pancreas,
+!          skeleton
+!
+! Line 15: External GAMMA dose-rate conversion factors for standing on
+! (8)      contaminated GROUND surface given by Kocher for the following 
+!          organs (and effective dose-rate without skin):
+!          skin, spleen, stomach, testes, thymus, thyroid, uterus, effective
+!          without skin
+! 
+! Line 16: External BETA dose-rate conversion factors for immersion in 
+! (4)      contaminated AIR given by Kocher for four different depths in 
+!          skin:
+!
+! Line 17: External BETA dose-rate conversion factors for immersion in 
+! (4)      contaminated WATER given by Kocher for four different depths in 
+!          skin:
+!
+! Line 18: External BETA dose-rate conversion factors for standing on
+! (4)      contaminated GROUND surface given by Kocher for four different 
+!          depths in skin:
+!
+! Line 19: Combined alpha + beta + gamma effective dose conversion factors
+! (8)      for inhalation of contaminated air given by NRPB for the following
+!          integration time spans:
+!          1 d, 7 d, 30 d, 1 y, 5 y, 10 y, 20 y, 30 y
+!
+! Line 20: Combined alpha + beta + gamma effective dose conversion factors
+! (1)      for inhalation of contaminated air given by NRPB for the following
+!          integration time span:
+!          50 y
+!       
+! Line 21: Combined alpha + beta + gamma dose conversion factors (50 years' 
+! (8)      dose) for inhalation of contaminated air given by NRPB for the 
+!          following organs:
+!          bone surface, breast, lower large intestine, liver, lungs,
+!          red bone marrow, ovaries, testes
+!
+! Line 22: Combined alpha + beta + gamma dose conversion factors (50 years' 
+! (2)      dose) for inhalation of contaminated air given by NRPB for the 
+!          following organs:
+!          thyroid, skin
+!
+! Line 23: Combined alpha + beta + gamma effective dose conversion factors
+! (8)      for ingestion of contaminated food given by NRPB for the following
+!          integration time spans:
+!          1 d, 7 d, 30 d, 1 y, 5 y, 10 y, 20 y, 30 y
+!
+! Line 24: Combined alpha + beta + gamma effective dose conversion factors
+! (1)      for ingestion of contaminated food given by NRPB for the following
+!          integration time span:
+!          50 y
+!       
+! Line 25: Combined alpha + beta + gamma dose conversion factors (50 years' 
+! (8)      dose) for ingestion of contaminated food given by NRPB for the 
+!          following organs:
+!          bone surface, breast, lower large intestine, liver, lungs,
+!          red bone marrow, ovaries, testes
+!
+! Line 26: Combined alpha + beta + gamma dose conversion factors (50 years' 
+! (2)      dose) for ingestion of contaminated food given by NRPB for the 
+!          following organs:
+!          thyroid, skin
+!       
+! Note: Dimension for AIR        = (Sv/s)/(Bq/m**3)
+!       Dimension for GROUND     = (Sv/s)/(Bq/m**2)
+!       Dimension for INHALATION = Sv/Bq
+!       Dimension for INGESTION  = Sv/Bq
