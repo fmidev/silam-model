@@ -107,6 +107,7 @@ module chemistry_manager
     character(len=fnlen) :: filename_photo_lut = char_missing
     logical :: need_photo_lut = .false.
     logical :: useDynamicAlbedo = .false.        ! By default use static albedo for photolysis
+    logical :: useFakeCloud = .false.        ! By default use static albedo for photolysis
     real :: defaultStaticAlbedo = 0.3            ! Some default value   
     logical :: ifPhotoAOD  = .false.             ! Use AOD to calculate photlysis
     real :: photoAODwavelength = real_missing    ! Wavelength to use for photolysis attenuation bu AOD
@@ -765,7 +766,7 @@ end do
     !
     if (chemRules%need_photo_lut) then
       iMetInput = iMetInput +1
-      call photolysis_input_needs(chemRules%useDynamicAlbedo, pMeteo_input_local(iMetInput))
+      call photolysis_input_needs(chemRules%useDynamicAlbedo, chemRules%useFakeCloud, pMeteo_input_local(iMetInput))
 
       if (chemRules%ifPhotoAOD) then
         iMetInput = iMetInput +1
@@ -2624,6 +2625,12 @@ end do
       rulesChemistry%filename_photo_lut &
            & = fu_process_filepath(rulesChemistry%filename_photo_lut, must_exist=.true.)
     end if
+
+    if (fu_str_u_case(fu_content(nlTransf,'photolysis_use_fake_cloud')) == 'YES') then
+       rulesChemistry%useFakeCloud = .true.
+       call msg('Photolysis rates will be calculated using fake cloud!')
+     endif
+
     !Check if one requires a dynamic albedo or a static one
     if (fu_str_u_case(fu_content(nlTransf,'use_dynamic_albedo')) == 'YES') then
        rulesChemistry%useDynamicAlbedo = .true.

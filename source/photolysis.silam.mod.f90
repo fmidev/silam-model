@@ -453,6 +453,7 @@ contains
     real, dimension(max_levels) :: col_press, col_cwcabove !! column meteo input
     real, dimension(max_levels) :: cwc_cloud  ! Cloudy-area cwc
     real :: albedo_aer, albedo_cld    ! Effective albedo of surface without/with clouds
+    logical :: ifFakeCloud
 
     real, parameter :: min_cc = 0.02 !! MInimum cloud cover to calculate the attenuateon
     character (len=*), parameter :: sub_name = "get_photorates_column"
@@ -475,12 +476,16 @@ contains
       alb_sfc = alb_sfc_fixed
     endif
 
-    col_cwcabove(1:num_levs) = metdat_col(imet_cwc3d, 1:num_levs)
     col_press(1:num_levs) = metdat_col(imet_press, 1:num_levs)
-    cwc_totcol = metdat_col(imet_cwcol, 1)
     fCloudCover = metdat_col(imet_tcc, 1)
-
-
+    if (associated(imet_cwc3d)) then
+        col_cwcabove(1:num_levs) = metdat_col(imet_cwc3d, 1:num_levs)
+        cwc_totcol = metdat_col(imet_cwcol, 1)
+        ifFakeCloud = .True.
+    else
+        ifFakeCloud = .False.
+    endif
+    
 
     
 
@@ -492,9 +497,16 @@ contains
     !call msg('Risto test albedo = ',albedo)
      
     if (fCloudCover > min_cc) then
-      cwc_cloud(1:num_levs) = col_cwcabove(1:num_levs)/fCloudCover
-      fTmp = cwc_totcol/fCloudCover   
-      call effective_albedo_cld(cwc_cloud, fTmp, alb_sfc, zenith_cos, num_levs, cld_att, albedo_cld)
+      if (ifFakeCloud) then
+        !!! No science here. Clouds assumed in 900-700hPa
+        albedo_cld = 0.9
+        fTmp = (alb_sfc*alb_sfc + 1.) * 0.5  !! attenuation under the cloud
+        cld_att(1:num_levs) = fTmp + (1.-fTmp)*max(0.,min(1., (90000.-col_press(1:num_levs))/(20000.)))
+      else
+        cwc_cloud(1:num_levs) = col_cwcabove(1:num_levs)/fCloudCover
+        fTmp = cwc_totcol/fCloudCover   
+        call effective_albedo_cld(cwc_cloud, fTmp, alb_sfc, zenith_cos, num_levs, cld_att, albedo_cld)
+      endif
     else
       albedo_cld = alb_sfc  !!! Actually, should not be used 
     endif
@@ -950,14 +962,14 @@ contains
 
   !************************************************************************************
 
-  subroutine photolysis_input_needs(ifDynamicAlbedo,  meteo_input_local)
+  subroutine photolysis_input_needs(ifDynamicAlbedo, ifFakeCloud,  meteo_input_local)
     !
     ! Fills meteo input for in-transformation 
     !
     implicit none
 
     ! Imported parameters
-    logical, intent(in) :: ifDynamicAlbedo
+    logical, intent(in) :: ifDynamicAlbedo, ifFakeCloud
     type(Tmeteo_input),  intent(out), target :: meteo_input_local
     character(len=*), parameter :: subname="photolysis_input_needs"
 
@@ -965,29 +977,35 @@ contains
     integer :: iQ, iTmp, nq
     
     meteo_input_local = meteo_input_empty
+    nq = 0
 
-    nq = 1
+    nq = nq + 1
     meteo_input_local%quantity(nq) = latitude_flag
     meteo_input_local%q_type(nq) = meteo_single_time_flag
     imet_lat => meteo_input_local%idx(nq) 
 
-    nq = 2
+    nq = nq + 1
     meteo_input_local%quantity(nq) = pressure_flag
     meteo_input_local%q_type(nq) = meteo_dynamic_flag
     imet_press => meteo_input_local%idx(nq) 
 
-    nq = 3
 
-    meteo_input_local%quantity(nq) = cwcabove_3d_flag
-    meteo_input_local%q_type(nq) = meteo_dynamic_flag
-    imet_cwc3d => meteo_input_local%idx(nq) 
+    imet_cwc3d => null()
+    imet_cwcol => null()
+    if (.not. ifFakeCloud) then
 
-    nq = 4
-    meteo_input_local%quantity(nq) = cwcolumn_flag
-    meteo_input_local%q_type(nq) = meteo_dynamic_flag
-    imet_cwcol => meteo_input_local%idx(nq) 
+      nq = nq + 1
+      meteo_input_local%quantity(nq) = cwcabove_3d_flag
+      meteo_input_local%q_type(nq) = meteo_dynamic_flag
+      imet_cwc3d => meteo_input_local%idx(nq) 
 
-    nq = 5
+      nq = nq + 1
+      meteo_input_local%quantity(nq) = cwcolumn_flag
+      meteo_input_local%q_type(nq) = meteo_dynamic_flag
+      imet_cwcol => meteo_input_local%idx(nq) 
+    endif
+
+    nq = nq + 1
     meteo_input_local%quantity(nq) = total_cloud_cover_flag
     meteo_input_local%q_type(nq) = meteo_dynamic_flag
     imet_tcc => meteo_input_local%idx(nq) 
