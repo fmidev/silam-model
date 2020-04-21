@@ -1,0 +1,116 @@
+!-------------------------------------------------------------------------------------------
+!
+! This is the initialisation file for a pollen source term for SILAM v.5.2 and higher
+! This file contains a complete description of one pollen source
+! There can be several such files, which will then define several source terms
+!
+POLLEN_SOURCE_V6
+
+  ! Source 
+  source_name = pollen_ragweed_source
+  source_sector_name = natural_emission
+
+  ! Only 1 aerosol mode is allowed for pollen, allergen in pollen and free allergen
+  ! pollen grains and pollen allergen must have same mode
+  ! Allergen cannot be emitted without pollen
+  ! Other materials are allowed, standard pollen emission value will be emitted for them
+  emitted_material = 1 POLLEN_RAGWEED
+#  emitted_material = 1 Amb_a1_pollen
+#  emitted_material = 2 Amb_a1_free
+#  emitted_material = 0 PASSIVE                           ! mode 0 in gas phase
+  aerosol_mode = 1  18. 18. 18.  mkm  800 kg/m3        # ragweed: 18–22 um 
+#  aerosol mode = 2  0.01  1.0  0.2  mkm  800 kg/m3       # free allergen
+  mode_distribution_type = FIXED_DIAMETER 
+  
+  ! total pollen amount
+  climate_pollen_amt_per_m2   = 1.7e7
+  uncertainty_of_total_pollen_amt = 25 %  #  end uncertainty for linear releases (not used for normal)
+  ! if dynamic meteo dependent total pollen amount 
+  ! preseason_heatsum_soilmoisture requires start heatsum threshold to be given!!
+  source_area_mask = ASCII_V1  e:\!project\ragweed\ini\pollen_v6\ragweed_20120405_ss-16.0_sm0.88.src
+#  source_area_mask = ASCII_V1  e:\!project\ragweed\ini\pollen_v6\ragweed_20120405_noQ.src
+  #supplementary_file = ASCII_V1  e:\!project\ragweed\ini\pollen_v6\ragweed_20120405.q
+#  supplementary_file = TEST_FIELD clim_corr_tot_POLLEN_RAGWEED_m18  SURFACE_LEVEL 1.0  
+  supplementary_file = ASCII_V1 e:\!project\ragweed\ini\pollen_v6\ragweed_mdl_obs_diff_Qs16m088_noG_i0_g10_cd25km_sum.txt
+#  supplementary_file = ASCII_V1 e:\!project\ragweed\ini\pollen_v6\ragweed_mdl_obs_diff_Qno_GHS-SW_i0_g10_cd25km_sum.txt
+  
+ # ! allergen emission
+ # potency_growth_rate_basic = 0.1 pg/hr 
+ # free_allergen_per_pollen = 1 pg
+ # supplementary_file = TEST_FIELD pollen_potency_POLLEN_RAGWEED_m18  SURFACE_LEVEL 3.0 
+ 
+  ! Flowering thresholds
+  flowering_thresholds = start_heatsum start_calendar_day end_calendar_day instant_temperature daily_temperature # soilwater # end_heatsum  # none
+  ###! 2005-2011 mid 242.5; sigma 10
+  ###supplementary_file = TEST_FIELD start_calday_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL 222.5  ! 2.5% == 2sigma
+  ###supplementary_file = TEST_FIELD end_calday_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL 262.5    ! 97.5% == 2sigma
+  ###! 1974-2011  mid 241; sigma 11.5
+  ###supplementary_file = TEST_FIELD start_calday_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL 218.0  ! 2.5% == 2sigma
+  ###supplementary_file = TEST_FIELD end_calday_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL 264.0    ! 97.5% == 2sigma
+  ! Maps based on photoperiod (14.5h for start; 12.4h for end)
+  supplementary_file = ASCII_V1 e:\!project\ragweed\ini\pollen_v6\dayLen12.4_thresDate.asc
+  supplementary_file = ASCII_V1 e:\!project\ragweed\ini\pollen_v6\dayLen14.5_thresDate.asc
+  
+  supplementary_file = TEST_FIELD  start_hsum_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL  25.0      ! Deen et al 1998
+  # supplementary_file = TEST_FIELD  start_hsum_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL  59.0    ! 2005-2011
+  supplementary_file = TEST_FIELD  temp_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL         273.15  #0C  ! Deen et al 1998
+  supplementary_file = TEST_FIELD  daily_t_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL      280.65  #7.5C  ! Deen et al 1998  
+  # supplementary_file = TEST_FIELD  end_hsum_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL  34         ! Deen et al 1998
+#  supplementary_file = TEST_FIELD  soilmoist_th_POLLEN_RAGWEED_m18  SURFACE_LEVEL 0.175   ! only before the season starts
+  
+  ! calendar day
+  flowering_map_shift = 0 day   
+  uncertainty_of_calendar_day_threshold = 30 day   # start uncertainty for calday linear release; no emission at start/end threshold -/+ this for normal
+
+  !Heatsum 
+  heatsum_type = bioday          # bioday_linear, bioday_beta, degree_day, degree_hour
+  uncertainty_of_heat_sum_threshold = 10 %  # start uncertainty for heatsum linear release; no emission at start/end threshold -/+ this for normal
+  heatsum_scale_2_second = 86400. 
+  supplementary_file = TEST_FIELD  growth_start_dy_POLLEN_RAGWEED_m18  SURFACE_LEVEL  79.0 
+  
+  ! Degree_day & degree_hour
+  #supplementary_file = TEST_FIELD  hsum_cutoff_t_POLLEN_RAGWEED_m18  SURFACE_LEVEL  273.15
+
+  ! Bioday - requires photoperiod and cardinal temperatures
+  photoperiod = 14.5 hr
+###  temperature_function = beta  #(Yan & Hunt, 1999 fit to data from Shestra et al 1999, Deen et al, 1998)
+###  LoTemp = 273.15  #0C
+###  HiTemp = 316.15   #43C
+###  OptTemp = 305.15        #32C
+  temperature_response_function = linear  #(Deen et al, 1998)
+  loTemp = 274.05  #0.9C
+  hiTemp = 313.15   #40C
+  optTemp = 304.85        #31.7C
+  
+  ! Pre-season plant growth
+  plant_growth = none #heatsum soilwater 
+  soilwater_mid = 0.35
+  soilwater_sigma = -8.0
+  
+  ! Pollen ripening
+  ! For linear release start & end uncertainties are used. 
+  ! For normal release, mean and sigma are taken from start and end thresholds assuming 2.5% and 97.5% -> 2 sigma. 
+  ! Uncertainties allow the emission before/after the start/end 2 sigma thresholds.
+  ripening_method = calday_normal_diurnal     #heatsum_linear, calday_linear, heatsum_normal, calday_normal, calday_normal_diurnal
+  ! Martin et al 2010
+  diurnal_peak1 = 135 min   # after sunrise
+  diurnal_peak2 = 285 min
+  diurnal_sigma1 = 15 min
+  diurnal_sigma2 = 100 min
+  diurnal_fraction1 = 40 %   # in the first peak
+  
+  ! Pollen release
+  release_type = instant   # exponential, limited, instant
+ # max_relative_release_rate =  0.1 fraction/hr   #  for limited - fraction of climate_pollen_amt_per_m2
+ # shortest_full_release_period = 1 hr       # for exponential - to release the whole buffer  
+  
+  low_humidity_threshold      = 50 %        # full emission up to it
+  high_humidity_threshold     = 90 %        # no emission above it
+  precipitation_threshold     = 0.5 mm/hr   # no emission above it
+  wind_speed_saturation_level = 5 m/sec     # impact grows up to this speed
+  wind_speed_max_impact       = 1.5         # scales emission from (a-1) up to a    
+
+  lowest_emission_injection_height = 1 m
+  highest_emission_injection_height = 50 m    # 30 m / BLH
+  
+END_POLLEN_SOURCE_V6

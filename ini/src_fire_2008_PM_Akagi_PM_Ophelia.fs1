@@ -1,0 +1,50 @@
+FIRE_SOURCE_V1
+source_name = fire_Ophelia
+source_sector_name = fire_PM
+####fire_metadata_file = g:\data\emis\fires\fire_metadata_ecodata_Acagi_CO_v5_6.ini   
+fire_metadata_file = d:\data\emission\fires\fire_metadata_ecodata_Acagi_PM_v5_5.ini
+#                                        fire_metadata_ecodata_Acagi_PM_calibr_2008_v5_6.ini
+
+mode_distribution_type = FIXED_DIAMETER   ! later also: GAMMA_FUNCTION
+
+aerosol_mode = 1  0.01 0.1  0.05 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+aerosol_mode = 2  0.1  1.5   0.5  mkm
+aerosol_mode = 3  1.5   6.  3  mkm
+aerosol_mode = 4  6.  15.  9.   mkm
+aerosol_mode = 5  15.  30.  20.  mkm
+
+!aerosol_mode = 1  0.01 0.02  0.015 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+!aerosol_mode = 2  0.02 0.04  0.03  mkm
+!aerosol_mode = 3  0.04  0.06  0.05  mkm
+!aerosol_mode = 4  0.06  0.1  0.07  mkm
+!aerosol_mode = 5  0.1  0.2  0.15   mkm
+!aerosol_mode = 6  0.2  0.5  0.3  mkm
+!aerosol_mode = 7  0.5  1.  0.7 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+!aerosol_mode = 8  1.   2.   1.5  mkm
+!aerosol_mode = 9  2.   4.   3.  mkm
+!aerosol_mode = 10  4.   7.   5.5   mkm
+!aerosol_mode = 11  7.   10.  8.5  mkm
+!aerosol_mode = 12  10.  30. 15.   mkm  ! mode_number Dmin, Dmax, Daver D_unit
+
+frp_dataset = d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171004.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171005.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171006.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171007.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171008.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171009.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171010.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171011.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171012.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171013.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171014.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171015.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171016.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171017.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171018.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171019.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171020.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171021.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171022.dat
+frp_dataset =  d:\data\emission\fires\Ophelia_SEVIRI_fires\SEVIRI_fires_20171023.dat
+
+END_FIRE_SOURCE_V1

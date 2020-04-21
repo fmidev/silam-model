@@ -1,0 +1,22 @@
+ARCH = linux_gnu
+
+F90C = gfortran
+# Flags for optimization, etc.
+OPTIMIZATION = -O3 -fopenmp
+OPENMP = 
+DEBUG = -g 
+#DEBUG = -g -fbounds-check
+FIXED = -ffixed-form
+PREPROCESS = -x f95-cpp-input -cpp
+FFLAGS = $(OPTIMIZATION) $(DEBUG) $(PREPROCESS) $(INCLUDE) -ffree-line-length-none
+INCLUDE = -I$(OBJDIR) -I/usr/include -I/usr/lib64/gfortran/modules/
+
+# netcdf install directory
+NCDIR =
+# grib api install directory
+GRDIR = 
+
+# Libraries passed to ifort
+SILAM_LIBS = #/usr/lib64/atlas/libf77blas.so.3 /usr/lib64/atlas/libatlas.so.3
+# Libraries given as linker options
+LFLAGS =  -lblas -llapack -fopenmp -ljasper -ljasper -lgrib_api_f90 -lgrib_api -lnetcdff -lnetcdf

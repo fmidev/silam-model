@@ -1,0 +1,75 @@
+#
+# This is a file describing a point source for SILAM version 5
+#
+# 1. The source may have time-varying strength and composition.
+# 2. There is an option enabling buoyant plume rise computation.
+# 3. Each new point source v.5 begins with the word POINTSOURCE_5, in uppercase letters.
+# 4. It must end with END_POINTSOURCE_5 in upper case letters
+#
+# Give positive values to all timesteps/intervals, even for adjoint computations
+# All lines beginning with # or ! are comment lines, as well as empty ones.
+# Also inside a line everything from a # to line's end is considered to
+# to be a comment.
+#
+# Mikhail Sofiev, October 2001
+#
+# Here are the input parameters:
+
+#############################################################################
+#
+#   The first source
+#
+POINT_SOURCE_5 # First point-source starts
+
+source_name = ETEX
+source_sector_name =         # source sector name, e.g. SNAP_10. May be empty
+
+#
+# ETEX-1 source coordinates:
+#
+source_longitude = 25.5         # start geograph. lat., degrees and decimals, N positive
+source_latitude = 58.5          # start geograph. lon., degrees and decimals, E positive
+
+# Plume characteristics: horizontal size, gas vertical velocity and temperature
+# Used only if plume rise routine is activated and ignored otherwise.
+# Above source height boundaries are also involved in the plume rise computation
+
+release_rate_unit = g/sec  # Unit of the release rate: <mass>/<time> 
+                           # [kg][g][t][bq][mole] - mass(radioactivity);
+                           # [yr][mon][day][hr][min][sec] - time units
+vertical_unit = m  #hpa   # unit of the vertical release boundaries [hpa] or [m]
+vertical_distribution = PLUME_RISE # SINGLE_LEVEL_DYNAMIC, MULTI_LEVEL_FIXED, PLUME_RISE
+stack_height = 80. m
+
+# Time-strength-composition data. 
+# Arbitrary number of lines. The last line determines the end of the release
+# If there is only one line, it may be just: 
+# NOW  <duration [min]> <rate> <xy_size> <bottom> <top> <z-velocity> <tempr> <cocktail_name>
+# Otherwise each line contains: 
+#  y4 m2 d2 h2 m2 sec(real)  <xy_size> <bottom> <top> <z-velocity> <tempr> <cocktail_name1><rate1>...
+
+#1900 1 2 12 0 0
+#2100 1 2 12 5 0
+par_str_point = 2008 3 15 0 0 0.    1.    800. 1010.   6.4   450.  PASSIVE_COCKTAIL 2.  #TEST_COCKTAIL 1.  AEROSOL_2_5_COCKTAIL  1. 
+par_str_point = 2008 3 15 1 0 0.    1.    800. 1010.   6.4   450.  PASSIVE_COCKTAIL 3.  #TEST_COCKTAIL 5.  AEROSOL_2_5_COCKTAIL  1.  
+
+#
+# ETEX source timing:
+#
+#par_str = 1994 10 23 16 00 0.   1.    8. 50.  0.   273.   PASSIVE_COCKTAIL  7.98   
+#par_str = 1994 10 24 03 50 0.   1.    8. 50.  0.   273.   PASSIVE_COCKTAIL  7.98  
+
+#
+# Extra rate adjustment is possible: hour_in_day, day_in_week, month_in_year 
+#
+# 24 hours in day: duirnal relative intensity
+# 7 days in week: week-day relative intensity
+# 12 months in year: monthly relative intensity
+#
+# Time variation indices - separate set for every cocktail
+hour_in_day_index = PASSIVE_COCKTAIL 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.  1. 1. 1. 
+day_in_week_index = PASSIVE_COCKTAIL 1. 1. 1. 1. 1. 1. 1.
+month_in_year_index = PASSIVE_COCKTAIL 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+
+END_POINT_SOURCE_5   # MANDATORY 
+

@@ -1,0 +1,272 @@
+
+LIST = substance
+  chemical_name = POLLEN_BIRCH
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = BIRCH 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+  potency_change_rate = 0.1 pg/hr    # allowed to be also negative      
+  pollen_break_rate = 1.0 %/hr
+  pollen_break_RH_threshold = 90.0 % 
+  pollen_break_RH_rate = 1.0         # [fraction_broken/(RH_above_threshold[fraction]*sec)]
+  pollen_break_reaction = O3  1.0    # [fraction_broken/(cnc[basic_unit]*sec)]
+  pollen_break_reaction = NO2 1.0    # [fraction_broken/(cnc[basic_unit]*sec)]
+  pollen_break_reaction = EC  1.0    # [fraction_broken/(cnc[basic_unit]*sec)]
+  
+END_LIST = substance
+
+LIST = substance
+  chemical_name = Bet_v1_pollen
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = BIRCH 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+LIST = substance
+
+  chemical_name = Bet_v1_free
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = BIRCH 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+
+LIST = substance
+  chemical_name = POLLEN_RAGWEED
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = RAGWEED 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+LIST = substance
+  chemical_name = Amb_a1_pollen
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = RAGWEED 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+LIST = substance
+
+  chemical_name = Amb_a1_free
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = RAGWEED 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+LIST = substance
+  chemical_name = POLLEN_OLIVE
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = OLIVE 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+LIST = substance
+  chemical_name = Ole_e1_pollen
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = OLIVE 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+LIST = substance
+
+  chemical_name = Ole_e1_free
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = OLIVE 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+LIST = substance
+  chemical_name = POLLEN_GRASS
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = GRASS 
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+#  potency_change_rate = 0.1 pg/hr   # allowed to be also negative      
+#  pollen_break_rate = 1.0 %/hr
+#  pollen_break_RH_threshold = 90.0 % 
+#  pollen_break_RH_rate = 1.0        # [fraction_broken/(RH_fraction*sec)]
+#  pollen_break_reaction = O3  1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = NO2 1.0   # [fraction_broken/(basic_unit*sec)]
+#  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
+  
+END_LIST = substance
+
+LIST = substance
+  chemical_name = Phl_p5_pollen
+  
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = GRASS 
+  pollen_material_type = POLLEN_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+LIST = substance
+
+  chemical_name = Phl_p5_free
+  molar_mass = 1. g/mole
+  low_concentration_threshold = 1 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.0
+  humidity_growth_curvature_beta = 1.0
+  deliquescence_humidity_0_to_1 = 1.  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = GRASS 
+  pollen_material_type = FREE_ALLERGEN  ! POLLEN_GRAINS, FREE_ALLERGEN
+
+END_LIST = substance
+
+
+

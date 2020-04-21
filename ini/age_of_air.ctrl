@@ -1,0 +1,215 @@
+# Control file for SILAM v4.0 operational run
+
+CONTROL_v5_3
+LIST = general_parameters  
+   case_name = age_of_air_timetag_rectslab
+   direction_in_time = FORWARD 
+   start_time = 1980 1 1 0 0 0.
+#   start_time = 1990 9 5 0 0 0.
+#   end_time = 2014 12 31 23 50 0.
+   computed_period = 20 day
+   time_step = 45 min
+   simulation_type = EULERIAN
+   computation_accuracy = 5   # [0..10]
+#   progress_file_name = /scratch/tmp/silam2/out_air_quality/GEMS_cb4/progress 
+ END_LIST = general_parameters 
+
+ 
+ LIST = emission_parameters    ######################################################################
+ 
+   emission_source = INVENTORY EULERIAN d:\model\silam_v5_7\ini\CO_passive_MACCcity_glob_2008_ext_inf.sa
+   emission_source = INVENTORY EULERIAN d:\model\silam_v5_7\ini\src_new_air.as3
+   
+   cut_area_source_if_outside_meteo_grid = YES
+   
+#   if_technical_source_dump = ORIGINAL_GRID   # NONE / ORIGINAL_GRID / DISPERSION_GRID
+
+ END_LIST = emission_parameters  ######################################################################
+ 
+ LIST = dispersion_parameters
+   grid_method = OUTPUT_GRID  #CUSTOM_GRID
+   vertical_method = OUTPUT_LEVELS    # METEO_LEVELS / OUTPUT_LEVELS / CUSTOM_LEVELS
+ END_LIST = dispersion_parameters
+
+ LIST = meteo_parameters
+   dynamic_meteo_file = GRIB f:/data/meteo/ERA_interim/%ay4/era_interim_%ay4%am2%ad2%ah2+%f2.ml
+   dynamic_meteo_file = GRIB f:/data/meteo/ERA_interim/%ay4/era_interim_%ay4%am2%ad2%ah2+%f2.ml_str
+   dynamic_meteo_file = GRIB f:/data/meteo/ERA_interim/%ay4/era_interim_%ay4%am2%ad2%ah2+%f2.sfc
+   
+   static_meteo_file = GRIB f:/data/meteo/EC_orography_2012.fixed
+
+   meteo_time_step = 3 hr 
+   if_wait_for_data = NO
+   abl_parameterization_method = FULL_PARAM    # DRY_ABL, FULL_PARAM 
+   number_of_precipitation_fields = 2
+ END_LIST = meteo_parameters
+
+ LIST = transformation_parameters
+   transformation = PASSIVE EULERIAN
+!   transformation = PM_GENERAL
+!   transformation = DMAT_SULPHUR
+!   transformation = CB4
+!   transformation = POP_GENERAL
+!   transformation = ACID_BASIC
+   transformation = RADIOACTIVE EULERIAN
+
+!   aerosol_dynamics = SIMPLE
+   
+   dry_deposition_scheme = NO_DD
+   wet_deposition_scheme = NO_SCAVENGING  #
+    
+   if_actual_humidity_for_particle_size = YES
+   default_relative_humidity = 0.8
+   compute_thermodiffusion = NO
+   if_full_acid_chemistry = YES
+   
+   passive_subst_ref_lifetime = 1000000 day
+   passive_subst_ref_tempr = 288
+   passive_subst_dLifeTime_dT = 0 min/K
+   
+   passive_time_tracer = YES
+   
+   ADB_if_compute_nucleation = YES
+   ADB_nucleation_scheme = KINETIC    !BINARY, TERNARY, KINETIC, ACTIVATION
+   ADB_if_compute_coagulation = YES
+   ADB_if_compute_condensation = YES
+   ADB_if_compute_cloud_activation = NO
+   ADB_if_recalc_wet_d = YES
+
+ END_LIST = transformation_parameters
+
+ LIST = initial_and_boundary_conditions
+# initialize_quantity = temperature_2m_acc          ! if no such line, initial conditions are void
+# initialize_quantity = daily_mean_temperature_2m   ! if no such line, initial conditions are void
+# initialize_quantity = degree_day   ! if no such line, initial conditions are void
+ #initialize_quantity = concentration               ! if no such line, initial conditions are void
+ #initialization_file = GRADS f:\!model\2011\silam_v5_0\output\tst_acid_adv_v2\tst_acid_adv_v2_ALL_SRCS_20070829.grads.super_ctl
+
+ boundary_type =  ZERO             ! ZERO / DIRICHLET   
+ if_lateral_boundary = YES         ! YES/NO 
+ if_top_boundary =  NO             ! YES/NO 
+ if_bottom_boundary =  NO          ! YES/NO 
+ boundary_time_step =  1 hr        ! timestep unit 
+ boundary_header_filename = d:\!model\2009\silam_v5_7\ini\boundary.ini
+ END_LIST = initial_and_boundary_conditions
+ 
+ LIST = optical_density_parameters ##########################################################################
+   optical_coefficients_depend_on_relative_humidity = YES
+   optical_coefficients_depend_on_temperature = YES
+   if_split_aerosol_modes = YES            ! doesn't work yet
+   if_narrow_wave_bands = YES              ! doesn't work yet
+ END_LIST = optical_density_parameters
+ 
+ LIST = output_parameters
+   source_id = NO_SOURCE_SPLIT  # SOURCE_NAME  SOURCE_SECTOR  SOURCE_NAME_AND_SECTOR 
+   vertical_method = CUSTOM_LAYERS
+#   level_type = HEIGHT_FROM_SURFACE 
+#   layer_thickness = 500. 1000. 2000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000. 3000.  # output levels [m]/[pa]/[hybrid_nbr], reals
+   level_type = HYBRID
+#   number_of_levels = 32
+   hybrid_coefficients_bottom = 1 0.000000 1.000000
+   hybrid_coefficients_bottom = 2     30.39   0.9916786
+   hybrid_coefficients_bottom = 3    456.54   0.9682366
+   hybrid_coefficients_bottom = 4   1541.26   0.9264040
+   hybrid_coefficients_bottom = 5   3376.81   0.8632344
+   hybrid_coefficients_bottom = 6   5888.36   0.7800322
+   hybrid_coefficients_bottom = 7   8880.74   0.6805786
+   hybrid_coefficients_bottom = 8  12075.78   0.5703878
+   hybrid_coefficients_bottom = 9  15149.61   0.4559614
+   hybrid_coefficients_bottom = 10  17763.45   0.3442660
+   hybrid_coefficients_bottom = 11  19567.07   0.2444347
+   hybrid_coefficients_bottom = 12  20372.62   0.1645123
+   hybrid_coefficients_bottom = 13  20262.16   0.1044715
+   hybrid_coefficients_bottom = 14  19386.03   0.0613952
+   hybrid_coefficients_bottom = 15  17902.16   0.0324186
+   hybrid_coefficients_bottom = 16  15983.81   0.0146839
+   hybrid_coefficients_bottom = 17  13822.62   0.0052946
+   hybrid_coefficients_bottom = 18  11622.57   0.0013506
+   hybrid_coefficients_bottom = 19   9540.93   0.0002051
+   hybrid_coefficients_bottom = 20   7642.20   0.0000071
+   hybrid_coefficients_bottom = 21   5931.50   0.0000000
+   hybrid_coefficients_bottom = 22   4433.10   0.0000000
+   hybrid_coefficients_bottom = 23   3167.36   0.0000000
+   hybrid_coefficients_bottom = 24   2141.02   0.0000000
+   hybrid_coefficients_bottom = 25   1350.37   0.0000000
+   hybrid_coefficients_bottom = 26    779.88   0.0000000
+   hybrid_coefficients_bottom = 27    401.76   0.0000000
+   hybrid_coefficients_bottom = 28    177.81   0.0000000
+   hybrid_coefficients_bottom = 29     63.96   0.0000000
+   hybrid_coefficients_bottom = 30     42.85   0.0000000
+   hybrid_coefficients_domain_top = 27.68 0.000000
+
+   output_time_step = 6 hr
+   output_times = REGULAR 
+   dump_time_step = #2 hr
+!   file_types = GRIB_YES
+!   output_format = GRIB 1  # Allowed formats: GRIB 1/2, GRADS, NETCDF 3, TRAJECTORY
+   output_format = GRADS
+!   output_format = NETCDF 3
+!   output_format = TRAJECTORY
+   time_split = DAILY_NEW_FILE 
+   template =  d:\model\silam_v5_7\output\%case\%case_%y4%m2%d2   # %source
+   variable_list = d:\model\silam_v5_7\ini\output_config.ini
+   
+   grid_method =  CUSTOM_GRID  # AREA_BASED
+
+   # If AREA_BASED grid then:
+   area_borders =  20. 70. -20. 30 # south, north, west, east; North positive, east positive
+   area_title = out_area
+   resolution = 40. km    # horizontal gridsize of output grid, [km]/[m]/[deg], real
+
+   # This is for CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = GEMS output grid
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+   nx = 250
+   ny = 124
+   lon_start = -179.28
+   lat_start = -88.56
+   dx = 1.44
+   dy = 1.44
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+ END_LIST = output_parameters
+
+LIST = STANDARD_SETUP
+
+  advection_method_eulerian = EULERIAN_V5   # EULERIAN_HORIZ_V2, EULERIAN_HORIZ_V3, EULERIAN_3D_BULK
+  kz_profile_method = SILAM_ABL_EC_FT_KZ                     # ZERO_KZ / SILAM_KZ_EMULATOR / SILAM_OLD_KZ / KZ
+  advection_method_lagrangian = LAGRANGIAN_WIND_ENDPOINT_3D  # LAGRANGIAN_WIND_MID(END)POINT_3D(2D)
+  random_walk_method = FULLY_MIXED    # Random-walk method [IDIOT_SIMPLE, FULLY_MIXED, BULK_GAUSSIAN]
+  advection_method_default = EULERIAN
+
+  abl_height_method = COMBINATION     # [HIRLAM_ABL, CONSTANT, COMBINATION, RICHARDSON, PARCEL, TURBULENT_ENERGY]
+  continuity_equation = anelastic_v2  # anelastic_v2  #test_wind 3  # incompressible / incompressible_v2 / anelastic_v2 / nwp_omega / test_wind / hybrid_top_down
+  wind_diagnostics = hardtop_weighted          # opentop / hardtop / none
+
+  horizontal_interpolation = LINEAR   # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+  vertical_interpolation = LINEAR     # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+  time_interpolation = LINEAR         # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+
+  nuclide_database_fnm = ^silam_nuclides.dat
+  chemical_database_fnm = ^silam_chemicals.dat
+  standard_cocktail_fnm = ^standard.cocktails
+  grib_code_table_fnm = ^grib_code_table_v5.silam
+  netcdf_name_table_fnm = ^netcdf_name_table.silam
+  land_use_data_meta_file = ^land_use_features_USGS_Eurasia.dat
+  optical_properties_meta_data_file = ^optical_properties.dat
+  photolysis_data_file = ^photolysis_finrose.dat
+  timezone_list_fnm = ^tzindex.dat
+
+  allow_zero_forecast_length = NO      # Whether zero-long forecasts may be used in the simulations
+                                       # Beware of zero-valued accumulated fields
+  precipitation_low_limit = 0.1 mm/hr  # Cut-off limit for precipitation rate (separate for large-sc and conv)
+  print_debug_info = DEBUG_INFO_YES    # DEBUG_INFO_YES, DEBUG_INFO_NO
+  cloud_report_interval = 1
+  disregard_meteo_data_sources = YES
+END_LIST = STANDARD_SETUP
+
+END_CONTROL_v5_3

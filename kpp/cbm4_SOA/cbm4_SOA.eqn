@@ -1,0 +1,370 @@
+#EQUATIONS {of the CBM-IV mechanism}
+
+{NOTE on 4March2019: Here we have redefined OLE4=OLE+PAR, ROR4=ROR+2.143*PAR, in order to make   }
+{                    the equations more stable. So, we removed the negative r.h.s. which may     }
+{                    cause that PAR concentration may in some cases try to go negative when      }
+{                    the OLE/ROR concentrations are higher than PAR cnc and they drop fast!      }
+{                    Additionally, since the PAR's have somewhat different meaning after this,   }
+{                    we denote PAR as PAR4 "free parafin bond after variable changes in CBM4".   }
+
+{Notes on rates}
+{The rates are computed using a number of different expressions, most of which defined in kpp_interface}
+{There is an ambiguity between including fixed species (O2, N2, H2O, M) into the rates or not}
+{Generally, I prefer them as reactants, however, for the falloff type rates this is not possible}
+{and effect of [M] is built into the rate constant. Sometimes this needs to be made also}
+{for [H2O] (the water factor in R33-34.}
+
+{the k3rd arguments: (k0_300, n, kinf_300, m)}
+
+{ 1.} NO2 + hv =  NO + O              :  photoarr(pd_no2) ;
+
+{R2: note 3-body reaction. IUPAC gives values 5.6 and 6.0 for N2, O2 respectively. }
+{We take average, include O2 in the reaction and leave M to the rate constant.}
+{ 2.} O + O2 {+ M} = O3               :  k0_pow(5.7d-34, 2.6d0) {ARR2(1.4E+3, 1175.0)} ;
+{ 3.} O3 + NO = NO2                   :  ARRZ(1.4d-12,1310.0d0) {ARR2(1.8E-12, -1370.0)} ;
+{ 4.} O + NO2 = NO                    :  ARRZ(5.5d-12,-188.0d0) {9.3E-12} ;
+
+{R5, R6: IUPAC}
+{ 5.} O + NO2 {+ M}  = NO3            :  k3rd_iup_pow(1.3d-31, 1.5d0, 2.3d-11, -0.24d0, 0.6d0) {ARR2(1.6E-13, 687.0)} ;
+{ 6.} O + NO  {+ M}  =  NO2           :  k0_pow(1.0d-31, 1.6d0) {ARR2(2.2E-13, 602.0)} ; 
+
+
+{ 7.} O3 + NO2 =  NO3                 :  ARRZ(1.4d-13,2470.0d0) {ARR2(1.2E-13, -2450.0)} ;
+
+{ 8.} O3 + hv = O                     :  photoarr(pd_o3) ;
+{ 9.} O3 + hv = O1D                   :  photoarr(pd_o3_o1d) ;
+
+{R10: JPL, + M added *** important rate, note the N2 and O2 weights in rates. Including the last 1% into N2.}
+{10.} O1D + M  = O                    :  
+{IUPAC, put M in reaction} arrz(0.79*2.0d-11, -130.0d0) + arrz(0.21*3.2d-11, -67.0d0) ;
+{JPL, keep M} {arrz(0.79*2.15d-11, -110.0d0) + arrz(0.21*3.3d-11, -55.0d0) ;}
+{CB4 original, remove M} {ARR2(1.9E+8, 390.0)}  ;
+
+{11.} O1D + H2O = 2OH                 :  2.14E-10 {2.2E-10} ;
+{12.} O3 + OH = HO2                   :  ARRZ(1.7d-12,940.0d0) {ARR2(1.6E-12, -940.0)} ;
+
+{R13: IUPAC, can't use k0 because M not involved!}
+{13.} O3 + HO2 = OH                   :  2.03d-16 * (temp_dp/300.0d0)**4.57 * exp(693.0d0/temp_dp) ;
+{ARR2(1.4E-14, -580.0) ;}
+
+{original cb4 branching: 0.89 NO2 + 0.89 O + 0.11 NO}
+{14a.} NO3 + hv = NO2 + O : photoarr(pd_no3_no2_o) ;
+{14b.} NO3 + hv = NO {+ O2} : photoarr(pd_no3_no_o2) ;
+
+{15.} NO3 + NO = 2 NO2                :  ARRZ(1.8d-11,-110.0d0) {ARR2(1.3E-11, 250.0)} ;
+{R16: JPL notes that this reaction is not "firmly established", maybe rather thru N2O5}
+{IUPAC doesn't list}
+{16.} NO3 + NO2 = NO + NO2            :  ARRZ(4.5d-14,1260.0d0) {ARR2(2.5E-14, -1230.0)} ;
+
+{R17: IUPAC}
+{17.} NO3 + NO2 {+ M}   =  N2O5       :   
+{IUPAC} k3rd_iup_pow(3.6d-30, 4.1d0, 1.9d-12, 0.2d0, 0.35d0) ;
+{JPL} {k3rd_jpl_pow(2.0d-30, 4.4d0, 1.4d-12, 0.7d0) ;}
+
+{R18 after IUPAC recommendation (not recommend to include, but give an upper limit), R19 IUPAC}
+{18.} N2O5 + H2O = 2 HNO3             :  1.0E-22 {1.3E-21} ;
+
+{19.} N2O5 {+ M}  =  NO3 + NO2        :  k3rd_iup_exp(1.3d-3, 3.5d0, 11000.0d0, 9.7d14, -0.1d0, 11080.0d0,0.35d0);
+
+{20.} 2 NO + O2 =  2 NO2              :  ARRZ(3.3d-39,-530.0d0) {ARR2(1.8E-20, 530.0)} ;
+{added + O2 to R20, keep it, O2 is not in the rate!}
+
+{21.} NO + NO2 + H2O = 2 HONO         :  4.41E-40 ;
+{R22 differs ~30% from cb4 original}
+{22.} OH + NO {+ M}  =  HONO          :  k3rd_iup_pow(7.4d-31, 2.4d0, 3.3d-11, 0.3d0, 0.81d0) {ARR2(4.5E-13, 806.0)} ;
+
+{23.} HONO + hv =  OH + NO            :  photoarr(pd_hono) ; {1.511e-03*cos_theta*cloud_att ;}
+
+{24.} OH + HONO =  NO2                :  ARRZ(2.5d-12,-260.0d0) {6.6E-12} ;
+{25.} 2 HONO = NO + NO2               :  1.0E-20 ;
+
+{R26: ** important reaction, all below sensitive}
+{26.} OH + NO2 {+ M}   =  HNO3     :  
+{IUPAC } k3rd_iup_pow(3.3d-30, 3.0d0, 6.0d-11, 0.0d0, 0.4d0) ;
+{JPL} {k3rd_jpl_pow(1.8d-30, 3.0d0, 2.8d-11, 0.0d0) ;}
+{CB4 Original} { ARR2(1.0E-12, 713.0) ; } 
+
+{R27 - IUPAC, some sensitivity}
+{27.} OH + HNO3 {+ M}   =  NO3        :  ksum(2.4d-14, -460.0d0, 6.5d-34, -1335.0d0, 2.7d-17, -2199.0d0) ;
+{ARR2(5.1E-15, 1000.0) ; }
+{constant value from IUPAC: 1.5d-13}
+
+{28.} HO2 + NO = OH + NO2             :  ARRZ(3.45d-12,-270.0d0) {ARR2(3.7E-12, 240.0)} ;
+
+{R29, R30 IUPAC}
+{29.} HO2 + NO2 {+ M}   =  PNA        :  k3rd_iup_pow(1.3d-31, 3.1d0, 4.0d-12, 0.0d0, 0.6d0) {ARR2(1.2e-13, 749.0)} ;
+{R30 powers are 0.0, only exponents give temperature dependency}
+{30.} PNA {+ M}   = HO2 + NO2         :  k3rd_iup_exp(4.1d-5, 0.0d0, 10650.0d0, 4.8d15, 0.0d0, 11170.0d0, 0.5d0);
+{ARR2(4.8E+13, -10121.0) ;}
+
+{31.} OH + PNA = NO2                  :  ARRZ(3.2d-13,-690.0d0) {ARR2(1.3E-12, 380.0)} ;
+
+{R32, R33:: Has two channels, one bimolecular, other termolecular. Depends on H2O.}
+{the effect of H2O included thru "water factor", see function kwtf()}
+{ we could later combine 32 + 33 to one reaction! }
+{ fairly sensitive reactions! }
+{32.} 2 HO2 = H2O2                    :  kwtf(2.2d-13, -600.0d0, 1.4d-21, -2200.0d0) {ARR2(5.9E-14, 1150.0) } ;
+{R33 has a bit messy rate: as above, but [M] has to go in}
+{33.} HO2 + HO2 + M = H2O2 {+O2 + M}  :  kwtf(1.9d-33, -980.0d0, 1.4d-21, -2200.0d0) ;  
+
+{34.} H2O2 + hv = 2 OH                :  photoarr(pd_h2o2) ;
+
+{35.} OH + H2O2 = HO2                 :  ARRZ(2.9d-12,160.0d0) {ARR2(3.1E-12, -187.0)} ;
+
+{R36, IUPAC/MCM not far from CB4 in standard conditions; JPL appears different }
+//{36.} OH + CO {+ O2}  = HO2           :  
+//{IUPAC 2005, MCM} 1.44d-13 * (1.0d0 + real(cAir, dp) / 4.2d19) ;
+{CB4 original} {2.2E-13 ;} 
+{JPL reaction rate which is somewhat larger:}
+{36.} OH + CO {+ O2}  = HO2 {+CO2} : 1.5E-13 + k3rd_jpl_pow(5.9d-33, 1.0d0, 1.1d-12, -1.3d0) ;
+
+//{37.} HCHO + OH  =  HO2 + CO          :  ARRZ(5.4d-12,-135.0d0) {1.0E-11} ;
+{37.} HCHO + OH {+O2} = HO2 + CO {+H20} : ARRZ(5.5d-12,-125.0d0);    {JPL}
+
+{38.} HCHO + hv {+ 2 O2} = 2 HO2 + CO :  photoarr(pd_hcho_2h) ;
+{39.} HCHO +  hv = CO                 :  photoarr(pd_hcho_h2) ;
+
+{40.} HCHO + O = OH + HO2 + CO        :  ARRZ(3.4d-11,1600.0d0) {ARR2(3.0E-11, -1550.0)} ;
+
+{41.} HCHO + NO3  = HNO3 + HO2 + CO    :  5.5E-16 ;
+
+{42.} ALD2 + O  =  C2O3 + OH          :  ARRZ(1.8d-11,1100.0d0) {ARR2(1.2E-11, -986.0)} ;
+{43.} ALD2 + OH = C2O3                :  ARRZ(4.7d-12,-345.0d0) {ARR2(7.0E-12, 250.0)} ;
+{44.} ALD2 + NO3  = C2O3 + HNO3       :  ARRZ(1.4d-12,1860.0d0) {2.5E-15 } ;
+{45.} ALD2 + hv {+ 2 O2} = HCHO + XO2 + CO + 2 HO2 :  photoarr(pd_ald2) ;
+
+{46.} C2O3 + NO  = HCHO + XO2 
+                       + HO2 + NO2    :  ARRZ(7.5d-12,-290.0d0) {ARR2(3.51e-11, -180.0)} ;
+{R46: the original "CB4.1" by Dodge (1989):}{arrz(3.5d-11, 180.0d0)}
+
+{47.} C2O3 + NO2 {+ M} = PAN          :  k3rd_iup_pow(2.7d-28, 7.1d0, 1.2d-11, 0.9d0, 0.3d0){ARR2(2.62e-12, 380.0)} ;
+{48.} PAN {+ M} = C2O3 + NO2          :  k3rd_iup_exp(4.9d-3, 0.0d0, 12100.0d0, 5.4d16, 0.0d0, 13830.0d0, 0.3d0);
+{ARR2(2.0e16, -13500.0) ;}
+
+{R49: changed almost by factor of 10 from previous!}        
+{This is from IUPAC}
+{49.} 2 C2O3 = 2 HCHO + 2 XO2 + 2 HO2 :  ARRZ(2.9d-12,-500.0d0) {2.0E-12 } ;
+
+{R50 about twice the old cb4 value}
+{50.} C2O3 + HO2 = 0.79 HCHO 
+   + 0.79 XO2 + 0.79 HO2 + 0.79 OH    :  ARRZ(5.2d-13,-980.0d0) {6.5E-12} ;
+
+{R51 is CH4 oxidation} {***disabled for strato}
+{51.} {OH = HCHO + XO2 + HO2           :  ARRZ(1.1d+2,1710.0d0) {ARR2(1.1E+2, -1710.0)} ;}
+
+{Explicit CH4, rate from IUPAC for CH4 + OH -> CH3 + H2O}
+//{51.} OH + CH4 = HCHO + XO2 + HO2      : ARRZ(1.85d-12, 1690.0d0) ;
+{51.} OH + CH4 = HCHO + XO2 + HO2      : ARRZ(2.45d-12, 1775.0d0) ; {JPL}
+
+{NOTE: We allow negative r.h.s. for PAR since also on the l.h.s. there is PAR: Small split in time step is enough to get convergence.}
+//{52.} PAR + OH = 0.87 XO2 + 0.13 XO2N + 0.11 HO2 + 0.11 ALD2 + 0.76 ROR - 0.11 PAR  :  ARRZ(6.9d-12,1000.0d0) {8.1E-13} ;
+{52.} PAR4 + OH = 0.87 XO2 + 0.13 XO2N + 0.11 HO2 + 0.11 ALD2 + 0.76 ROR4 - 1.739 PAR4  :  ARRZ(6.9d-12,1000.0d0) {8.1E-13}; {NOTE: PAR-tweaked eqn}
+{** R52 is IUPAC rate for ethane, about 4x smaller than the cb4 constant}
+
+{NOTE: In order to remove the negative PAR on r.h.s. we redefine ROR4 = ROR + (2.10/0.98)*PAR = ROR + 2.143*PAR}
+//{53.} ROR = 1.1 ALD2 + 0.96 XO2 + 0.94 HO2 + 0.04 XO2N + 0.02 ROR - 2.10 PAR  :  ARRZ(1.0d+15, 8000.0d0) {ARR2(1.0E+15, -8000.0)} ;
+{53.} ROR4 = 1.1 ALD2 + 0.96 XO2 + 0.94 HO2 + 0.04 XO2N + 0.02 ROR4  :  ARRZ(1.0d+15, 8000.0d0) {ARR2(1.0E+15, -8000.0)}; {NOTE: PAR-tweaked eqn}
+
+//{54.} ROR = HO2                       :  1.6E+03 ;
+{54.} ROR4 = HO2 + 2.143*PAR4             :  1.6E+03; {NOTE: PAR-tweaked eqn}
+
+//{55.} ROR + NO2 =  PROD               :  1.5E-11  ;
+{55.} ROR4 + NO2 = NTR + 2.143*PAR4             :  1.5E-11; {NOTE: PAR-tweaked eqn}
+
+//{56.} O + OLE = 0.63 ALD2 + 0.38 HO2 + 0.28 XO2 + 0.3 CO + 0.2 HCHO + 0.02 XO2N + 0.22 PAR + 0.2 OH : ARRZ(1.0d-11,280.0d0); {ARR2(1.2E-11,-324.0)}
+{56.} O + OLE4 = 0.63 ALD2 + 0.38 HO2 + 0.28 XO2 + 0.3 CO + 0.2 HCHO + 0.02 XO2N + 1.22 PAR4 + 0.2 OH : ARRZ(1.0d-11,280.0d0); {NOTE: PAR-tweaked eqn}
+
+//{57.} OH + OLE = HCHO + ALD2 + XO2 + HO2 - PAR          :  ARRZ(5.2d-12,-504.0d0) {ARR2(5.2E-12, 504.0)} ;
+{57.} OH + OLE4 = HCHO + ALD2 + XO2 + HO2                  :  ARRZ(5.2d-12,-504.0d0) {ARR2(5.2E-12, 504.0)} ; {NOTE: PAR-tweaked eqn}
+
+//{58.} O3 + OLE = 0.5 ALD2 + 0.74 HCHO + 0.33 CO + 0.44 HO2 + 0.22 XO2 + 0.1 OH - PAR
+{58.} O3 + OLE4 = 0.5 ALD2 + 0.74 HCHO + 0.33 CO + 0.44 HO2 + 0.22 XO2 + 0.1 OH           {NOTE: PAR-tweaked eqn}
+                                      :  ARRZ(1.4d-14,2105.0d0) {ARR2(1.4E-14, -2105.0) } ;
+				      
+//{59.} NO3 + OLE = 0.91 XO2 + HCHO + ALD2 + 0.09 XO2N + NO2 - PAR         :  7.7E-15 ;
+{59.} NO3 + OLE4 = 0.91 XO2 + HCHO + ALD2 + 0.09 XO2N + NO2         :  7.7E-15 ; {NOTE: PAR-tweaked eqn}
+
+{60.} O + ETH = HCHO + 0.7 XO2 + CO
+                + 1.7 HO2 + 0.3 OH    :  ARRZ(1.0d-11,792.0d0) {ARR2(1.0E-11, -792.0)} ;
+
+{61.} OH + ETH = XO2 + 1.56 HCHO + HO2 + 0.22 ALD2      :  k3rd_iup_pow(8.6d-29, 3.1d0, 9.0d-12, 0.85d0, 0.48d0) ;
+{ARR2(2.0E-12, 411.0); }
+{62.} O3 + ETH = HCHO + 0.42 CO + 0.12 HO2                :  ARRZ(9.1d-15,2580.0d0) {ARR2(1.3E-14, -2633.0)} ;
+{63.} OH + TOL = 0.08 XO2 + 0.36 CRES 
+                 + 0.44 HO2 + 0.56 TO2                    :  ARRZ(1.8d-12,-340.0d0) {ARR2(2.1E-12, 322.0)} ;
+{64.} TO2 + NO =  0.9 NO2 + 0.9 OPEN + 0.9 HO2 + 0.1 NTR  :  8.1E-12 ;
+{65.} TO2 = HO2 + CRES                                    :  4.20 ;
+{66.} OH + CRES = 0.4 CRO + 0.6 XO2 + 0.6 HO2 + 0.3 OPEN  :  4.1E-11  ;
+{67.} NO3 + CRES = CRO + HNO3                             :  2.2E-11 ;
+{68.} CRO + NO2 = NTR                                     :  1.4E-11 ;
+{69.} OH + XYL = 0.7 HO2 + 0.5 XO2 + 0.2 CRES + 0.8 MGLY
+                 + 1.10 PAR4 + 0.3 TO2                     :  ARRZ(1.7d-11,-116.0d0) {ARR2(1.7E-11, 116.0)} ;
+{70.} OH + OPEN = XO2 + C2O3 + 2 HO2 + 2 CO + HCHO        :  3.0E-11 ;
+
+{71.} OPEN + hv = C2O3 + CO + HO2                         :  photoarr(pd_open) ; {6.0E-3*RCONST(1);}
+{72.} O3 + OPEN = 0.03 ALD2 + 0.62 C2O3 
+                  + 0.7 HCHO + 0.03 XO2 + 0.69 CO 
+                  + 0.08 OH + 0.76 HO2 + 0.2 MGLY         :  ARRZ(5.4d-17,500.0d0) {ARR2(5.4E-17, -500.0) } ;
+{73.} OH + MGLY =  XO2 + C2O3                             :  ARRZ(1.9d-12,-575.0d0) {1.70E-11} ;
+{74.} MGLY + hv = C2O3 + CO + HO2                         :  photoarr(pd_mgly) ; {1.86E-2*RCONST(1);}
+
+//{75.} O + C5H8 =  0.6 HO2 + 0.8 ALD2 + 0.55 OLE + 0.5 XO2 + 0.5 CO + 0.45 ETH + 0.9 PAR    :  3.60E-11 {1.80E-11 } ;
+//{75.} O + C5H8 =  0.6 HO2 + 0.8 ALD2 + 0.55 OLE4 + 0.5 XO2 + 0.5 CO + 0.45 ETH + 0.35 PAR4 :  3.60E-11; {1.80E-11;} {NOTE: PAR-tweaked eqn}
+//{76.} OH + C5H8 = HCHO + XO2 + 0.67 HO2 + 0.4 MGLY + 0.2 C2O3 + ETH + 0.2 ALD2 + 0.13 XO2N :  ARRZ(2.7d-11,-390.0d0) {9.6E-11 } ;
+//{77.} O3 + C5H8 = HCHO + 0.4 ALD2 + 0.55 ETH + 0.2 MGLY + 0.06 CO + 0.1 PAR4 + 0.44 HO2 + 0.1 OH :  ARRZ(1.03d-14,1995.0d0) {1.2E-17} ;
+//{78.} NO3 + C5H8 =  XO2N                                  :  ARRZ(3.15d-12,450.0d0) {3.2E-13} ;
+
+// {More recent (CB4-OTAG) version of the above 4 isoprene reactions, which contain single ISPD product for oxidation (like in CB05):}
+{75.} O + C5H8 = 0.75*ISPD + 0.50*HCHO + 0.25*XO2 + 0.25*HO2 + 0.25*C2O3 + 0.25*PAR4 : 3.6E-11;
+
+{76.} OH + C5H8 = 0.912*ISPD + 0.629*HCHO + 0.991*XO2 + 0.912*HO2 + 0.088*XO2N : ARRZ(2.7d-11,-390.0d0); {IUPAC} {Original CB05 rate ARRZ(2.54d-11,-407.6d0);}
+
+{77.} O3 + C5H8 = 0.65*ISPD + 0.6*HCHO + 0.2*XO2 + 0.066*HO2 + 0.266*OH + 0.2*C2O3 + 0.15*ALD2 + 0.35*PAR4 + 0.066*CO : ARRZ(1.05d-14, 2000.0d0); {RH2018: IUPAC} {Original CB05 rate = ARRZ(7.86E-15,1912.0d0);}
+
+{78.} NO3 + C5H8 = 0.2*ISPD + 0.8*NTR + XO2 + 0.8*HO2 + 0.2*NO2 + 0.8*ALD2 + 2.4*PAR4 : ARRZ(2.95d-12,450.0d0); {RH2018: IUPAC} {Original CB05 rate = ARRZ(3.03d-12,448.0d0);}
+// {End of updated isoprene reactions}
+
+{79.} XO2 + NO = NO2                                      :  ARRZ(2.6d-12,-365.0d0) {8.1E-12} ;
+{80.*} 2 XO2 =  PROD                                      :  6.8E-14 {ARR2(1.7E-14, 1300.0)} ;
+{81.} XO2N + NO =  NTR                                    :  ARRZ(2.6d-12,-365.0d0) {6.8E-13} ;
+ 
+{81a.} {XO2 + HO2 = PROD                                  :  ARR2(7.737e-14, 1300.0);}
+
+// {Added remaining CB4-OTAG equations (especially the equations related to ISPD which return OH).}
+
+{121} OH + ISPD = 1.565*PAR4 + 0.167*HCHO + 0.713*XO2 + 0.503*HO2 + 0.334*CO + 0.168*MGLY + 0.273*ALD2 + 0.498*C2O3  : 3.36E-11;
+
+{122} O3 + ISPD = 0.114*C2O3 + 0.15*HCHO + 0.85*MGLY + 0.154*HO2 + 0.268*OH + 0.064*XO2 + 0.02*ALD2 + 0.36*PAR4 + 0.225*CO : 7.1E-18;
+
+{123} NO3 + ISPD = 0.357*ALD2 + 0.282*HCHO + 1.282*PAR4 + 0.925*HO2 + 0.643*CO + 0.85*NTR + 0.075*C2O3 + 0.075*XO2 + 0.15*HNO3 : 1.0E-15;
+
+//RH NOTE on R148: Photolysis: CB05 report states that it is 0.0036 times the rate for acrolein:
+{123} ISPD + hv = 0.333*CO + 0.067*ALD2+ 0.9*HCHO + 0.832*PAR4 + 1.033*HO2 + 0.7*XO2+ 0.967*C2O3 : 0.0036*photoarr(pd_ch2chcho); // New PHODIS tables have this!
+
+{124} NO2 + C5H8 = 0.2*ISPD + 0.8*NTR + XO2 + 0.8*HO2 + 0.2*NO + 0.8*ALD2 + 2.4*PAR4 : 1.5E-19;
+
+{125} XO2 + HO2 = PROD       : ARRZ(7.5d-13,-700.0d0) ;
+
+{126} XO2N + HO2 = PROD      : ARRZ(7.5d-13,-700.0d0);
+
+{127} XO2N + XO2N = PROD     : 6.8E-14 ;
+
+{128} XO2 + XO2N = PROD      : 6.8E-14 ;
+
+{129} OH + MEOH = HCHO + HO2 : ARRZ(7.3d-12,620.0d0);
+
+{130} OH + ETOH = HO2 + ALD2 : ARRZ(3.0d-12,-20.0d0); {RH2018: IUPAC} {Orig CB05: ARRZ(6.9d-12,230.0d0)}
+
+{131} OH + HO2 = PROD {H2O + O2}      : ARRZ(4.8d-11, -250d0) ; {IUPAC,JPL} {NOTE: This included since we have no strato eqns.!}
+
+{One might also add CRO = PROD reaction.}
+
+// {End of remaining CB4-OTAG reactions.}
+
+
+//TEST O2 photolysis (only tiny effect on ozone for altitudes below about 10 km)
+//{jo2} O2 + hv = 2*O : photoarr(pd_o2);
+//END TEST O2 photolysis
+
+
+{Monoterpenes oxydation}
+{82} C5H8_2 + O = 0.15 ALD2 + 5.12 PAR4                    : 3.60E-11*ifMTprods ;
+{83} C5H8_2 + OH = 0.75 HO2 + 1.25 XO2 + 0.25 XO2N +
+                   0.28 HCHO + 0.47 ALD2 + 1.66 PAR4       : ARRZ(1.5d-11,-449.0d0)*ifMTprods ;
+{84} C5H8_2 + O3 = 0.57 OH + 0.07 HO2 + 0.76 XO2 +
+                   0.18 XO2N + 0.24 HCHO +
+                   7.00 PAR4 + 0.21 ALD2 + 0.001 CO        : ARRZ(1.2d-15,821.0d0)*ifMTprods ;
+{85} C5H8_2 + NO3 = 0.47 NO2 + 0.28 HO2 + 1.03 XO2 +
+                    0.25 XO2N + 0.47 ALD2                 : ARRZ(3.7d-12,-175.0d0)*ifMTprods ; 
+
+{86} C5H8_2 + O = O                                       : 3.60E-11*(1.0-ifMTprods) ;
+{87} C5H8_2 + OH = OH                                     : ARRZ(1.5d-11,-449.0d0)*(1.0-ifMTprods) ;
+{88} C5H8_2 + O3 = O3                                     : ARRZ(1.2d-15,821.0d0)*(1.0-ifMTprods) ;
+{89} C5H8_2 + NO3 = NO3                                   : ARRZ(3.7d-12,-175.0d0)*(1.0-ifMTprods) ;  
+
+
+
+{SOA formation Lane ea 2008 for density 1.5, mol to kg}                       
+{hi NOx}                       
+{90} OH + TOL = OH + TOL + 0.000276 AVB1e0 + 0.01518 AVB1e1 + 
+                0.0276 AVB1e2 + 0.04002 AVB1e3            : ARRZ(1.8d-12,-340.0d0) * SOA_b ;
+{91} OH + XYL = OH + XYL + 0.000212 AVB1e0 + 0.02067 AVB1e1 + 
+                0.0318 AVB1e2 + 0.04611 AVB1e3            : ARRZ(1.7d-11,-116.0d0) * SOA_b ;
+{92} O + C5H8 = O + C5H8 + 0.0000204 BVB1e0 + 0.001564 BVB1e1 + 
+                0.00102 BVB1e2                            : 3.60E-11 * SOA_b ;
+{93} OH + C5H8 = OH + C5H8 + 0.0000204 BVB1e0 + 0.001564 BVB1e1 + 
+                 0.00102 BVB1e2                           : ARRZ(2.7d-11,-390.0d0) * SOA_b ;
+{94} O3 + C5H8 = O3 + C5H8 + 0.0000204 BVB1e0 + 0.001564 BVB1e1 + 
+                 0.00102 BVB1e2                           : ARRZ(1.03d-14,1995.0d0) * SOA_b ;
+{95} NO3 + C5H8 = NO3 + C5H8 + 0.0000204 BVB1e0 + 0.001564 BVB1e1 + 
+                  0.00102 BVB1e2                          : ARRZ(3.15d-12,450.0d0) * SOA_b ;
+{96} O + C5H8_2 = O + C5H8_2 + 0.001632 BVB1e0 + 0.016592 BVB1e1 + 
+                  0.027336 BVB1e2 + 0.068952 BVB1e3       : 3.60E-11 * SOA_b ;
+{97} OH + C5H8_2 = OH + C5H8_2 + 0.001632 BVB1e0 + 0.016592 BVB1e1 + 
+                   0.027336 BVB1e2 + 0.068952 BVB1e3      : ARRZ(1.5d-11,-449.0d0) * SOA_b ;
+{98} O3 + C5H8_2 = O3 + C5H8_2 + 0.001632 BVB1e0 + 0.016592 BVB1e1 + 
+                   0.027336 BVB1e2 + 0.068952 BVB1e3      : ARRZ(1.2d-15,821.0d0) * SOA_b ;
+{99} NO3 + C5H8_2 = NO3 + C5H8_2 + 0.001632 BVB1e0 + 0.016592 BVB1e1 + 
+                    0.027336 BVB1e2 + 0.068952 BVB1e3     : ARRZ(3.7d-12,-175.0d0) * SOA_b ;
+                        
+{lo NOx}                       
+{100} OH + TOL = OH + TOL + 0.0069 AVB1e0 + 0.0207 AVB1e1 + 
+                0.0345 AVB1e2 + 0.0483 AVB1e3             : ARRZ(1.8d-12,-340.0d0) * (1.0-SOA_b) ;
+{101} OH + XYL = OH + XYL + 0.00795 AVB1e0 + 0.0318 AVB1e1 + 
+                0.03975 AVB1e2 + 0.05565 AVB1e3           : ARRZ(1.7d-11,-116.0d0) * (1.0-SOA_b) ;
+{102} O + C5H8 = O + C5H8 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 
+                0.00102 BVB1e2                            : 3.60E-11 * (1.0-SOA_b) ;
+{103} OH + C5H8 = OH + C5H8 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 
+                 0.00102 BVB1e2                           : ARRZ(2.7d-11,-390.0d0) * (1.0-SOA_b) ;
+{104} O3 + C5H8 = O3 + C5H8 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 
+                  0.00102 BVB1e2                          : ARRZ(1.03d-14,1995.0d0) * (1.0-SOA_b) ;
+{105} NO3 + C5H8 = NO3 + C5H8 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 
+                   0.00102 BVB1e2                         : ARRZ(3.15d-12,450.0d0) * (1.0-SOA_b) ;
+{106} O + C5H8_2 = O + C5H8_2 + 0.014688 BVB1e0 + 0.012512 BVB1e1 + 
+                   0.048824 BVB1e2 + 0.082688 BVB1e3      : 3.60E-11 * (1.0-SOA_b) ;
+{107} OH + C5H8_2 = OH + C5H8_2 + 0.014688 BVB1e0 + 0.012512 BVB1e1 + 
+                    0.048824 BVB1e2 + 0.082688 BVB1e3     : ARRZ(1.5d-11,-449.0d0) * (1.0-SOA_b) ;
+{108} O3 + C5H8_2 = O3 + C5H8_2 + 0.014688 BVB1e0 + 0.012512 BVB1e1 + 
+                    0.048824 BVB1e2 + 0.082688 BVB1e3     : ARRZ(1.2d-15,821.0d0) * (1.0-SOA_b) ;
+{109} NO3 + C5H8_2 = NO3 + C5H8_2 + 0.014688 BVB1e0 + 0.012512 BVB1e1 + 
+                     0.048824 BVB1e2 + 0.082688 BVB1e3    : ARRZ(3.7d-12,-175.0d0) * (1.0-SOA_b) ;
+
+{SOA aging}
+   
+{110} OH + AVB1e0 = OH + 1.075 AVB0                       : ASOA_aging {4.0E-11} ;
+{111} OH + AVB1e1 = OH + 1.075 AVB1e0                     : ASOA_aging {4.0E-11} ;
+{112} OH + AVB1e2 = OH + 1.075 AVB1e1                     : ASOA_aging {4.0E-11} ;
+{113} OH + AVB1e3 = OH + 1.075 AVB1e2                     : ASOA_aging {4.0E-11} ;
+{114} OH + AVB1e4 = OH + 1.075 AVB1e3                     : IVOC_aging {4.0E-11} ;
+{115} OH + AVB1e5 = OH + 1.075 AVB1e4                     : IVOC_aging {4.0E-11} ;
+{116} OH + AVB1e6 = OH + 1.075 AVB1e5                     : IVOC_aging {4.0E-11} ;
+{117} OH + BVB1e0 = OH + 1.075 BVB0                       : BSOA_aging {4.0E-11} ;
+{118} OH + BVB1e1 = OH + 1.075 BVB1e0                     : BSOA_aging {4.0E-11} ;
+{119} OH + BVB1e2 = OH + 1.075 BVB1e1                     : BSOA_aging {4.0E-11} ;
+{120} OH + BVB1e3 = OH + 1.075 BVB1e2                     : BSOA_aging {4.0E-11} ;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                   

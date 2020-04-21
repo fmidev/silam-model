@@ -1,0 +1,276 @@
+$(OBJDIR)advection_eulerian.mod.o : $(SRCDIR)advection_eulerian.silam.mod.f90 $(OBJDIR)chemistry_manager.mod.o 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)  $(OPENMP) -o $(OBJDIR)advection_eulerian.mod.o $(SRCDIR)advection_eulerian.silam.mod.f90; mv advection_eulerian.mod $(OBJDIR)
+
+$(OBJDIR)advection_lagrangian.mod.o : $(SRCDIR)advection_lagrangian.silam.mod.f90 $(OBJDIR)chemistry_manager.mod.o 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)   -o $(OBJDIR)advection_lagrangian.mod.o $(SRCDIR)advection_lagrangian.silam.mod.f90; mv advection_lagrangian.mod $(OBJDIR)
+
+$(OBJDIR)aer_dyn_basic.mod.o : $(SRCDIR)aerosol_dynamics_basic.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)aer_dyn_basic.mod.o $(SRCDIR)aerosol_dynamics_basic.f90; mv aer_dyn_basic.mod $(OBJDIR)
+
+$(OBJDIR)aer_dyn_simple.mod.o : $(SRCDIR)aerosol_dynamics_simple.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)aer_dyn_simple.mod.o $(SRCDIR)aerosol_dynamics_simple.f90; mv aer_dyn_simple.mod $(OBJDIR)
+
+$(OBJDIR)areas.mod.o : $(SRCDIR)areas.silja.mod.f90 $(OBJDIR)geography_tools.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)areas.mod.o $(SRCDIR)areas.silja.mod.f90; mv areas.mod $(OBJDIR)
+
+$(OBJDIR)ascii_io.mod.o : $(SRCDIR)ascii_io.silam.mod.f90 $(OBJDIR)stacks.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)ascii_io.mod.o $(SRCDIR)ascii_io.silam.mod.f90; mv ascii_io.mod $(OBJDIR)
+
+$(OBJDIR)box.o : $(SRCDIR)box_model.f90 $(OBJDIR)chemistry_manager.mod.o $(OBJDIR)io_server.mod.o 
+	$(F90C) $(FFLAGS)  -c    -o $(OBJDIR)box.o $(SRCDIR)box_model.f90
+
+$(OBJDIR)cbm4_function.mod.o : $(SRCDIR)cbm4_Function.f90 $(OBJDIR)cbm4_parameters.mod.o 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)  $(OPENMP) -o $(OBJDIR)cbm4_function.mod.o $(SRCDIR)cbm4_Function.f90; mv cbm4_function.mod $(OBJDIR)
+
+$(OBJDIR)cbm4_integrator.mod.o : $(SRCDIR)cbm4_Integrator.f90 $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_linearalgebra.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_function.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobian.mod.o $(OBJDIR)cbm4_linearalgebra.mod.o 
+	$(F90C) $(FFLAGS) -c  -O1 $(PREPROCESS)  $(OPENMP) -o $(OBJDIR)cbm4_integrator.mod.o $(SRCDIR)cbm4_Integrator.f90; mv cbm4_integrator.mod $(OBJDIR)
+
+$(OBJDIR)cbm4_jacobian.mod.o : $(SRCDIR)cbm4_Jacobian.f90 $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)   -o $(OBJDIR)cbm4_jacobian.mod.o $(SRCDIR)cbm4_Jacobian.f90; mv cbm4_jacobian.mod $(OBJDIR)
+
+$(OBJDIR)cbm4_jacobiansp.mod.o : $(SRCDIR)cbm4_JacobianSP.f90 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)   -o $(OBJDIR)cbm4_jacobiansp.mod.o $(SRCDIR)cbm4_JacobianSP.f90; mv cbm4_jacobiansp.mod $(OBJDIR)
+
+$(OBJDIR)cbm4_linearalgebra.mod.o : $(SRCDIR)cbm4_LinearAlgebra.f90 $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_jacobiansp.mod.o 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)  $(OPENMP) -o $(OBJDIR)cbm4_linearalgebra.mod.o $(SRCDIR)cbm4_LinearAlgebra.f90; mv cbm4_linearalgebra.mod $(OBJDIR)
+
+$(OBJDIR)cbm4_parameters.mod.o : $(SRCDIR)cbm4_Parameters.f90 $(OBJDIR)cbm4_precision.mod.o 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)   -o $(OBJDIR)cbm4_parameters.mod.o $(SRCDIR)cbm4_Parameters.f90; mv cbm4_parameters.mod $(OBJDIR)
+
+$(OBJDIR)cbm4_precision.mod.o : $(SRCDIR)cbm4_Precision.f90 
+	$(F90C) $(FFLAGS) -c  $(PREPROCESS)   -o $(OBJDIR)cbm4_precision.mod.o $(SRCDIR)cbm4_Precision.f90; mv cbm4_precision.mod $(OBJDIR)
+
+$(OBJDIR)chem_dep_acid_basic.mod.o : $(SRCDIR)chem_dep_acid_basic.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chem_dep_acid_basic.mod.o $(SRCDIR)chem_dep_acid_basic.silam.mod.f90; mv chem_dep_acid_basic.mod $(OBJDIR)
+
+$(OBJDIR)chem_dep_cbm.mod.o : $(SRCDIR)chem_dep_cbm.silam.mod.f90 $(OBJDIR)cbm4_parameters.mod.o $(OBJDIR)cbm4_integrator.mod.o $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chem_dep_cbm.mod.o $(SRCDIR)chem_dep_cbm.silam.mod.f90; mv chem_dep_cbm.mod $(OBJDIR)
+
+$(OBJDIR)chem_dep_passive.mod.o : $(SRCDIR)chem_dep_passive.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chem_dep_passive.mod.o $(SRCDIR)chem_dep_passive.silam.mod.f90; mv chem_dep_passive.mod $(OBJDIR)
+
+$(OBJDIR)chem_dep_pm_general.mod.o : $(SRCDIR)chem_dep_pm_general.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chem_dep_pm_general.mod.o $(SRCDIR)chem_dep_pm_general.silam.mod.f90; mv chem_dep_pm_general.mod $(OBJDIR)
+
+$(OBJDIR)cocktail_persistent_organics.mod.o : $(SRCDIR)chem_dep_pop.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)cocktail_persistent_organics.mod.o $(SRCDIR)chem_dep_pop.silam.mod.f90; mv cocktail_persistent_organics.mod $(OBJDIR)
+
+$(OBJDIR)chem_dep_radioactive.mod.o : $(SRCDIR)chem_dep_radioactive.silja.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chem_dep_radioactive.mod.o $(SRCDIR)chem_dep_radioactive.silja.mod.f90; mv chem_dep_radioactive.mod $(OBJDIR)
+
+$(OBJDIR)chem_dep_sulphur_dmat.mod.o : $(SRCDIR)chem_dep_sulphur_dmat.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chem_dep_sulphur_dmat.mod.o $(SRCDIR)chem_dep_sulphur_dmat.silam.mod.f90; mv chem_dep_sulphur_dmat.mod $(OBJDIR)
+
+$(OBJDIR)chemical_setup.mod.o : $(SRCDIR)chemical_setup.mod.f90 $(OBJDIR)materials.mod.o $(OBJDIR)times.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)chemical_setup.mod.o $(SRCDIR)chemical_setup.mod.f90; mv chemical_setup.mod $(OBJDIR)
+
+$(OBJDIR)chemistry_manager.mod.o : $(SRCDIR)chemistry_manager.silam.mod.f90 $(OBJDIR)source_terms_general.mod.o $(OBJDIR)optical_density.mod.o $(OBJDIR)depositions.mod.o $(OBJDIR)chem_dep_passive.mod.o $(OBJDIR)chem_dep_pm_general.mod.o $(OBJDIR)chem_dep_sulphur_dmat.mod.o $(OBJDIR)chem_dep_acid_basic.mod.o $(OBJDIR)chem_dep_cbm.mod.o $(OBJDIR)chem_dep_radioactive.mod.o $(OBJDIR)aer_dyn_basic.mod.o $(OBJDIR)aer_dyn_simple.mod.o 
+	$(F90C) $(FFLAGS) -c   $(OPENMP) -o $(OBJDIR)chemistry_manager.mod.o $(SRCDIR)chemistry_manager.silam.mod.f90; mv chemistry_manager.mod $(OBJDIR)
+
+$(OBJDIR)cocktail_basic.mod.o : $(SRCDIR)cocktail_basic.silja.mod.f90 $(OBJDIR)field_buffer.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)cocktail_basic.mod.o $(SRCDIR)cocktail_basic.silja.mod.f90; mv cocktail_basic.mod $(OBJDIR)
+
+$(OBJDIR)data_assimilation_3d.mod.o : $(SRCDIR)data_assimilation_3d.mod.f90 $(OBJDIR)observation_server.mod.o $(OBJDIR)engine.mod.o $(OBJDIR)tdv_io.mod.o $(OBJDIR)optimiser.mod.o $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)data_assimilation_3d.mod.o $(SRCDIR)data_assimilation_3d.mod.f90; mv data_assimilation_3d.mod $(OBJDIR)
+
+$(OBJDIR)data_assimilation.mod.o : $(SRCDIR)data_assimilation.silam.mod.f90 $(OBJDIR)dispersion_supplementary.mod.o $(OBJDIR)observation_server.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)data_assimilation.mod.o $(SRCDIR)data_assimilation.silam.mod.f90; mv data_assimilation.mod $(OBJDIR)
+
+$(OBJDIR)depositions.mod.o : $(SRCDIR)depositions.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)depositions.mod.o $(SRCDIR)depositions.silam.mod.f90; mv depositions.mod $(OBJDIR)
+
+$(OBJDIR)derived_field_quantities_2.mod.o : $(SRCDIR)derived_field_quantities_2.silja.mod.f90 $(OBJDIR)physiographies.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)derived_field_quantities_2.mod.o $(SRCDIR)derived_field_quantities_2.silja.mod.f90; mv derived_field_quantities_2.mod $(OBJDIR)
+
+$(OBJDIR)derived_field_quantities.mod.o : $(SRCDIR)derived_field_quantities.silja.mod.f90 $(OBJDIR)derived_field_quantities_2.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)derived_field_quantities.mod.o $(SRCDIR)derived_field_quantities.silja.mod.f90; mv derived_field_quantities.mod $(OBJDIR)
+
+$(OBJDIR)diagnostic_variables.mod.o : $(SRCDIR)diagnostic_variables.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)diagnostic_variables.mod.o $(SRCDIR)diagnostic_variables.silam.mod.f90; mv diagnostic_variables.mod $(OBJDIR)
+
+$(OBJDIR)dispersion_models.mod.o : $(SRCDIR)dispersion_models.silja.mod.f90 $(OBJDIR)data_assimilation.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)dispersion_models.mod.o $(SRCDIR)dispersion_models.silja.mod.f90; mv dispersion_models.mod $(OBJDIR)
+
+$(OBJDIR)dispersion_server.mod.o : $(SRCDIR)dispersion_server.silam.mod.f90 $(OBJDIR)diagnostic_variables.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)dispersion_server.mod.o $(SRCDIR)dispersion_server.silam.mod.f90; mv dispersion_server.mod $(OBJDIR)
+
+$(OBJDIR)dispersion_supplementary.mod.o : $(SRCDIR)dispersion_supplementary.silam.mod.f90 $(OBJDIR)observation_server.mod.o $(OBJDIR)data_assimilation_3d.mod.o $(OBJDIR)io_server.mod.o $(OBJDIR)ini_boundary_conditions.mod.o 
+	$(F90C) $(FFLAGS) -c   $(OPENMP) -o $(OBJDIR)dispersion_supplementary.mod.o $(SRCDIR)dispersion_supplementary.silam.mod.f90; mv dispersion_supplementary.mod $(OBJDIR)
+
+$(OBJDIR)field_buffer.mod.o : $(SRCDIR)field_buffer.silam.mod.f90 $(OBJDIR)input_analysis.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)field_buffer.mod.o $(SRCDIR)field_buffer.silam.mod.f90; mv field_buffer.mod $(OBJDIR)
+
+$(OBJDIR)field_identifications.mod.o : $(SRCDIR)field_identifications.silja.mod.f90 $(OBJDIR)input_data_rules.mod.o $(OBJDIR)chemical_setup.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)field_identifications.mod.o $(SRCDIR)field_identifications.silja.mod.f90; mv field_identifications.mod $(OBJDIR)
+
+$(OBJDIR)fields_3d.mod.o : $(SRCDIR)fields_3d.silja.mod.f90 $(OBJDIR)fields.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)fields_3d.mod.o $(SRCDIR)fields_3d.silja.mod.f90; mv fields_3d.mod $(OBJDIR)
+
+$(OBJDIR)fields.mod.o : $(SRCDIR)fields.silja.mod.f90 $(OBJDIR)field_identifications.mod.o $(OBJDIR)positions_v2.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)fields.mod.o $(SRCDIR)fields.silja.mod.f90; mv fields.mod $(OBJDIR)
+
+$(OBJDIR)geography_tools.mod.o : $(SRCDIR)geography_tools.silam.mod.f90 $(OBJDIR)poles.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)geography_tools.mod.o $(SRCDIR)geography_tools.silam.mod.f90; mv geography_tools.mod $(OBJDIR)
+
+$(OBJDIR)globals.mod.o : $(SRCDIR)globals.silja.mod.f90 $(OBJDIR)max_sizes_and_limits.mod.o 
+	$(F90C) $(FFLAGS) -c   $(OPENMP) -o $(OBJDIR)globals.mod.o $(SRCDIR)globals.silja.mod.f90; mv globals.mod $(OBJDIR)
+
+$(OBJDIR)grads_io.mod.o : $(SRCDIR)grads_io.silam.mod.f90 $(OBJDIR)stacks.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)grads_io.mod.o $(SRCDIR)grads_io.silam.mod.f90; mv grads_io.mod $(OBJDIR)
+
+$(OBJDIR)grads_templates.mod.o : $(SRCDIR)grads_templates.silam.mod.f90 $(OBJDIR)times.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)grads_templates.mod.o $(SRCDIR)grads_templates.silam.mod.f90; mv grads_templates.mod $(OBJDIR)
+
+$(OBJDIR)grib_api_io.mod.o : $(SRCDIR)grib_api_io.silam.mod.f90 $(OBJDIR)grads_io.mod.o $(OBJDIR)grib_code_table.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)grib_api_io.mod.o $(SRCDIR)grib_api_io.silam.mod.f90; mv grib_api_io.mod $(OBJDIR)
+
+$(OBJDIR)grib_code_table.mod.o : $(SRCDIR)grib_code_table.silam.mod.f90 $(OBJDIR)stacks.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)grib_code_table.mod.o $(SRCDIR)grib_code_table.silam.mod.f90; mv grib_code_table.mod $(OBJDIR)
+
+$(OBJDIR)grids_geo.mod.o : $(SRCDIR)grids_geo.silja.mod.f90 $(OBJDIR)areas.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)grids_geo.mod.o $(SRCDIR)grids_geo.silja.mod.f90; mv grids_geo.mod $(OBJDIR)
+
+$(OBJDIR)ini_boundary_conditions.mod.o : $(SRCDIR)ini_boundary_conditions.silam.mod.f90 $(OBJDIR)dispersion_server.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)ini_boundary_conditions.mod.o $(SRCDIR)ini_boundary_conditions.silam.mod.f90; mv ini_boundary_conditions.mod $(OBJDIR)
+
+$(OBJDIR)input_analysis.mod.o : $(SRCDIR)input_analysis.silam.mod.f90 $(OBJDIR)derived_field_quantities.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)input_analysis.mod.o $(SRCDIR)input_analysis.silam.mod.f90; mv input_analysis.mod $(OBJDIR)
+
+$(OBJDIR)input_data_rules.mod.o : $(SRCDIR)input_data_rules.silja.mod.f90 $(OBJDIR)grads_templates.mod.o $(OBJDIR)levels.mod.o $(OBJDIR)grids_geo.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)input_data_rules.mod.o $(SRCDIR)input_data_rules.silja.mod.f90; mv input_data_rules.mod $(OBJDIR)
+
+$(OBJDIR)io_server.mod.o : $(SRCDIR)io_server.silam.mod.f90 $(OBJDIR)trajectory_io.mod.o $(OBJDIR)advection_eulerian.mod.o $(OBJDIR)advection_lagrangian.mod.o $(OBJDIR)chemistry_manager.mod.o $(OBJDIR)dispersion_server.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)io_server.mod.o $(SRCDIR)io_server.silam.mod.f90; mv io_server.mod $(OBJDIR)
+
+$(OBJDIR)lagrange_particles.mod.o : $(SRCDIR)lagrange_particles_v3.silja.mod.f90 $(OBJDIR)chemistry_manager.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)lagrange_particles.mod.o $(SRCDIR)lagrange_particles_v3.silja.mod.f90; mv lagrange_particles.mod $(OBJDIR)
+
+$(OBJDIR)levels.mod.o : $(SRCDIR)levels.silja.mod.f90 $(OBJDIR)poles.mod.o $(OBJDIR)names_of_quantities.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)levels.mod.o $(SRCDIR)levels.silja.mod.f90; mv levels.mod $(OBJDIR)
+
+$(OBJDIR)optimiser.mod.o : $(SRCDIR)m1qn3.f90 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)optimiser.mod.o $(SRCDIR)m1qn3.f90; mv optimiser.mod $(OBJDIR)
+
+$(OBJDIR)materials.mod.o : $(SRCDIR)materials.silja.mod.f90 $(OBJDIR)nuclides.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)materials.mod.o $(SRCDIR)materials.silja.mod.f90; mv materials.mod $(OBJDIR)
+
+$(OBJDIR)max_sizes_and_limits.mod.o : $(SRCDIR)max_sizes_and_limits.silja.mod.f90 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)max_sizes_and_limits.mod.o $(SRCDIR)max_sizes_and_limits.silja.mod.f90; mv max_sizes_and_limits.mod $(OBJDIR)
+
+$(OBJDIR)md.mod.o : $(SRCDIR)md.silja.mod.linux_intel.f90 $(OBJDIR)work_arrays.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)md.mod.o $(SRCDIR)md.silja.mod.linux_intel.f90; mv md.mod $(OBJDIR)
+
+$(OBJDIR)silam_namelist.mod.o : $(SRCDIR)namelist.silam.mod.f90 $(OBJDIR)toolbox.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)silam_namelist.mod.o $(SRCDIR)namelist.silam.mod.f90; mv silam_namelist.mod $(OBJDIR)
+
+$(OBJDIR)names_of_quantities.mod.o : $(SRCDIR)names_of_quantities.silja.mod.f90 $(OBJDIR)toolbox.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)names_of_quantities.mod.o $(SRCDIR)names_of_quantities.silja.mod.f90; mv names_of_quantities.mod $(OBJDIR)
+
+$(OBJDIR)natural_constants.mod.o : $(SRCDIR)natural_constants.silja.mod.f90 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)natural_constants.mod.o $(SRCDIR)natural_constants.silja.mod.f90; mv natural_constants.mod $(OBJDIR)
+
+$(OBJDIR)netcdf_io.mod.o : $(SRCDIR)netcdf_io.silam.mod.f90 $(OBJDIR)grib_api_io.mod.o 
+	$(F90C) $(FFLAGS) -c  -O0   -o $(OBJDIR)netcdf_io.mod.o $(SRCDIR)netcdf_io.silam.mod.f90; mv netcdf_io.mod $(OBJDIR)
+
+$(OBJDIR)nuclides.mod.o : $(SRCDIR)nuclides.silja.mod.f90 $(OBJDIR)silam_namelist.mod.o $(OBJDIR)times.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)nuclides.mod.o $(SRCDIR)nuclides.silja.mod.f90; mv nuclides.mod $(OBJDIR)
+
+$(OBJDIR)observation_server.mod.o : $(SRCDIR)observation_server.silam.mod.f90 $(OBJDIR)observations_in_situ.mod.o $(OBJDIR)pollution_cloud.mod.o $(OBJDIR)source_apportionment.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)observation_server.mod.o $(SRCDIR)observation_server.silam.mod.f90; mv observation_server.mod $(OBJDIR)
+
+$(OBJDIR)observations_in_situ.mod.o : $(SRCDIR)observations_in_situ.silam.mod.f90 $(OBJDIR)pollution_cloud.mod.o $(OBJDIR)source_apportionment.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)observations_in_situ.mod.o $(SRCDIR)observations_in_situ.silam.mod.f90; mv observations_in_situ.mod $(OBJDIR)
+
+$(OBJDIR)optical_density.mod.o : $(SRCDIR)optical_density.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)optical_density.mod.o $(SRCDIR)optical_density.silam.mod.f90; mv optical_density.mod $(OBJDIR)
+
+$(OBJDIR)optimisation.mod.o : $(SRCDIR)optimisation.silam.mod.f90 $(OBJDIR)times.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)optimisation.mod.o $(SRCDIR)optimisation.silam.mod.f90; mv optimisation.mod $(OBJDIR)
+
+$(OBJDIR)physiographies.mod.o : $(SRCDIR)physiographies.silja.mod.f90 $(OBJDIR)supermarket_of_fields.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)physiographies.mod.o $(SRCDIR)physiographies.silja.mod.f90; mv physiographies.mod $(OBJDIR)
+
+$(OBJDIR)poles.mod.o : $(SRCDIR)poles.silja.mod.f90 $(OBJDIR)silam_namelist.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)poles.mod.o $(SRCDIR)poles.silja.mod.f90; mv poles.mod $(OBJDIR)
+
+$(OBJDIR)pollution_cloud.mod.o : $(SRCDIR)pollution_cloud.silam.mod.f90 $(OBJDIR)source_apportionment.mod.o $(OBJDIR)lagrange_particles.mod.o $(OBJDIR)advection_lagrangian.mod.o $(OBJDIR)advection_eulerian.mod.o $(OBJDIR)ini_boundary_conditions.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)pollution_cloud.mod.o $(SRCDIR)pollution_cloud.silam.mod.f90; mv pollution_cloud.mod $(OBJDIR)
+
+$(OBJDIR)positions_v2.mod.o : $(SRCDIR)positions_v2.silam.mod.f90 $(OBJDIR)optimisation.mod.o $(OBJDIR)levels.mod.o $(OBJDIR)grids_geo.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)positions_v2.mod.o $(SRCDIR)positions_v2.silam.mod.f90; mv positions_v2.mod $(OBJDIR)
+
+$(OBJDIR)shopping_lists.mod.o : $(SRCDIR)shopping_lists.silja.mod.f90 $(OBJDIR)field_identifications.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)shopping_lists.mod.o $(SRCDIR)shopping_lists.silja.mod.f90; mv shopping_lists.mod $(OBJDIR)
+
+$(OBJDIR)silam_main.o : $(SRCDIR)silam_main.f90 $(OBJDIR)dispersion_models.mod.o $(OBJDIR)optimisation.mod.o $(OBJDIR)silam_namelist.mod.o 
+	$(F90C) $(FFLAGS)  -c    -o $(OBJDIR)silam_main.o $(SRCDIR)silam_main.f90
+
+$(OBJDIR)source_apportionment.mod.o : $(SRCDIR)source_apportionment.silam.mod.f90 $(OBJDIR)chemistry_manager.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_apportionment.mod.o $(SRCDIR)source_apportionment.silam.mod.f90; mv source_apportionment.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_area.mod.o : $(SRCDIR)source_terms_area.silja.mod.f90 $(OBJDIR)source_terms_time_params.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_area.mod.o $(SRCDIR)source_terms_area.silja.mod.f90; mv source_terms_area.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_bio_voc.mod.o : $(SRCDIR)source_terms_bio_voc.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_bio_voc.mod.o $(SRCDIR)source_terms_bio_voc.silam.mod.f90; mv source_terms_bio_voc.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_bomb.mod.o : $(SRCDIR)source_terms_bomb.silja.mod.f90 $(OBJDIR)source_terms_time_params.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_bomb.mod.o $(SRCDIR)source_terms_bomb.silja.mod.f90; mv source_terms_bomb.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_general.mod.o : $(SRCDIR)source_terms_general.silja.mod.f90 $(OBJDIR)source_terms_area.mod.o $(OBJDIR)source_terms_bio_voc.mod.o $(OBJDIR)source_terms_bomb.mod.o $(OBJDIR)source_terms_point.mod.o $(OBJDIR)source_terms_pollen.mod.o $(OBJDIR)source_terms_sea_salt.mod.o $(OBJDIR)source_terms_wind_blown_dust.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_general.mod.o $(SRCDIR)source_terms_general.silja.mod.f90; mv source_terms_general.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_point.mod.o : $(SRCDIR)source_terms_point.silja.mod.f90 $(OBJDIR)source_terms_time_params.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_point.mod.o $(SRCDIR)source_terms_point.silja.mod.f90; mv source_terms_point.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_pollen.mod.o : $(SRCDIR)source_terms_pollen.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_pollen.mod.o $(SRCDIR)source_terms_pollen.silam.mod.f90; mv source_terms_pollen.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_sea_salt.mod.o : $(SRCDIR)source_terms_sea_salt.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_sea_salt.mod.o $(SRCDIR)source_terms_sea_salt.silam.mod.f90; mv source_terms_sea_salt.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_time_params.mod.o : $(SRCDIR)source_terms_time_params.silja.mod.f90 $(OBJDIR)dispersion_server.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_time_params.mod.o $(SRCDIR)source_terms_time_params.silja.mod.f90; mv source_terms_time_params.mod $(OBJDIR)
+
+$(OBJDIR)source_terms_wind_blown_dust.mod.o : $(SRCDIR)source_terms_wind_blown_dust.silam.mod.f90 $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)source_terms_wind_blown_dust.mod.o $(SRCDIR)source_terms_wind_blown_dust.silam.mod.f90; mv source_terms_wind_blown_dust.mod $(OBJDIR)
+
+$(OBJDIR)stacks.mod.o : $(SRCDIR)stacks.silja.mod.f90 $(OBJDIR)fields_3d.mod.o $(OBJDIR)windfields_3d.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)stacks.mod.o $(SRCDIR)stacks.silja.mod.f90; mv stacks.mod $(OBJDIR)
+
+$(OBJDIR)supermarket_of_fields.mod.o : $(SRCDIR)supermarket_of_fields.silja.mod.f90 $(OBJDIR)netcdf_io.mod.o $(OBJDIR)grads_io.mod.o $(OBJDIR)grib_api_io.mod.o $(OBJDIR)shopping_lists.mod.o $(OBJDIR)ascii_io.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)supermarket_of_fields.mod.o $(SRCDIR)supermarket_of_fields.silja.mod.f90; mv supermarket_of_fields.mod $(OBJDIR)
+
+$(OBJDIR)engine.mod.o : $(SRCDIR)tdv_engine_v4_9.f90 $(OBJDIR)observation_server.mod.o $(OBJDIR)grids_geo.mod.o $(OBJDIR)levels.mod.o $(OBJDIR)tdv_io.mod.o $(OBJDIR)cocktail_basic.mod.o 
+	$(F90C) $(FFLAGS) -c   $(OPENMP) -o $(OBJDIR)engine.mod.o $(SRCDIR)tdv_engine_v4_9.f90; mv engine.mod $(OBJDIR)
+
+$(OBJDIR)tdv_io.mod.o : $(SRCDIR)tdv_io_v4_9.f90 $(OBJDIR)grads_io.mod.o $(OBJDIR)observations_in_situ.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)tdv_io.mod.o $(SRCDIR)tdv_io_v4_9.f90; mv tdv_io.mod $(OBJDIR)
+
+$(OBJDIR)test_modules.o : $(SRCDIR)test_modules.f90 $(OBJDIR)dispersion_models.mod.o 
+	$(F90C) $(FFLAGS)  -c    -o $(OBJDIR)test_modules.o $(SRCDIR)test_modules.f90
+
+$(OBJDIR)thermodynamic_tools.mod.o : $(SRCDIR)thermodynamic_tools.silja.mod.f90 $(OBJDIR)work_arrays.mod.o $(OBJDIR)natural_constants.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)thermodynamic_tools.mod.o $(SRCDIR)thermodynamic_tools.silja.mod.f90; mv thermodynamic_tools.mod $(OBJDIR)
+
+$(OBJDIR)times.mod.o : $(SRCDIR)times.silja.mod.f90 $(OBJDIR)toolbox.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)times.mod.o $(SRCDIR)times.silja.mod.f90; mv times.mod $(OBJDIR)
+
+$(OBJDIR)toolbox.mod.o : $(SRCDIR)toolbox.silja.mod.f90 $(OBJDIR)md.mod.o $(OBJDIR)thermodynamic_tools.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)toolbox.mod.o $(SRCDIR)toolbox.silja.mod.f90; mv toolbox.mod $(OBJDIR)
+
+$(OBJDIR)trajectory_io.mod.o : $(SRCDIR)trajectory_io.silam.mod.f90 $(OBJDIR)pollution_cloud.mod.o $(OBJDIR)lagrange_particles.mod.o $(OBJDIR)field_buffer.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)trajectory_io.mod.o $(SRCDIR)trajectory_io.silam.mod.f90; mv trajectory_io.mod $(OBJDIR)
+
+$(OBJDIR)vectors_v2.mod.o : $(SRCDIR)vectors_v2.silja.mod.f90 $(OBJDIR)positions_v2.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)vectors_v2.mod.o $(SRCDIR)vectors_v2.silja.mod.f90; mv vectors_v2.mod $(OBJDIR)
+
+$(OBJDIR)windfields_3d.mod.o : $(SRCDIR)windfields_3d.silja.mod.f90 $(OBJDIR)windfields.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)windfields_3d.mod.o $(SRCDIR)windfields_3d.silja.mod.f90; mv windfields_3d.mod $(OBJDIR)
+
+$(OBJDIR)windfields.mod.o : $(SRCDIR)windfields.silja.mod.f90 $(OBJDIR)vectors_v2.mod.o $(OBJDIR)fields.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)windfields.mod.o $(SRCDIR)windfields.silja.mod.f90; mv windfields.mod $(OBJDIR)
+
+$(OBJDIR)work_arrays.mod.o : $(SRCDIR)work_arrays.silja.mod.f90 $(OBJDIR)globals.mod.o 
+	$(F90C) $(FFLAGS) -c    -o $(OBJDIR)work_arrays.mod.o $(SRCDIR)work_arrays.silja.mod.f90; mv work_arrays.mod $(OBJDIR)
+

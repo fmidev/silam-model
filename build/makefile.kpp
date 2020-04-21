@@ -1,0 +1,38 @@
+SILAM_ROOT = ../
+# directory with makefiles
+BUILDDIR = $(SILAM_ROOT)build/
+# source code.
+SRCDIR = $(SILAM_ROOT)source/
+
+KPP_DIR=$(shell readlink -f ../kpp/)
+KPP=$(KPP_DIR)/bin/kpp
+# Create chemistries using KPP. KPP_DIR must be defined!
+kpp : $(KPP)
+$(KPP) : 
+	cd $(KPP_DIR) && $(MAKE)
+cbm4 : 
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4 \
+	--silam-dir=$(SRCDIR) cbm4 # if start using photolysis for cbm4, use the line below
+#	--silam-dir=$(SRCDIR) -u photolysis --photoarr cbm4
+
+cbm4_SOA : 
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5011 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4_SOA \
+	--silam-dir=$(SRCDIR) --SOA -u photolysis cbm4_SOA
+
+cbm42_strato :
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5008 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato \
+	--silam-dir=$(SRCDIR) --strato -u photolysis cbm42_strato
+
+cbm42_strato_SOA : 
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5012 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato_SOA \
+	--silam-dir=$(SRCDIR) --SOA --strato -u photolysis cbm42_strato_SOA
+
+cbm5_SOA : 
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5013 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm5_SOA \
+	--silam-dir=$(SRCDIR) --SOA -u photolysis cbm5_SOA
+
+cbm5_strato_SOA : 
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5014 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm5_strato_SOA \
+	--silam-dir=$(SRCDIR) --SOA --strato -u photolysis cbm5_strato_SOA
+#	--silam-dir=$(SRCDIR) --overwrite --SOA --strato -u photolysis cbm5_strato_SOA
+

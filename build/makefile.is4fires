@@ -1,0 +1,9 @@
+# Build rules for modules
+include $(BUILDDIR)/$(IS4FIRES_MAIN).objects
+$(BINDIR)$(IS4FIRES_MAIN)$(ENDING) : $(COMMON_OBJS)
+	$(F90C) -o $@  $(COMMON_OBJS) $(SILAM_LIBS) $(LFLAGS)
+	chmod 750 $@
+	@echo New $@ is ready
+	cd $(BUILDDIR)
+
+include $(BUILDDIR)/$(IS4FIRES_MAIN).rules.$(RULES)

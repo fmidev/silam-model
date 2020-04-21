@@ -1,0 +1,208 @@
+#
+# This is a file describing the source term for SILAM
+# It consists of a set of separate source terms, which
+# at the moment can be of type point-source v.4,
+# bomb-source v.3, area_source v.2, and area_source.v3
+#
+# A POINT_SOURCE defines one release to the atmosphere from a horizontal
+# location, but can be vertically and temporally divided between
+# two vertical levels and a time interval. 
+# The source may have time-varying strength and composition.
+# There is an option enabling buoyant plume rise computation.
+#
+# A BOMB_SOURCE defines one release to the atmosphere from a nuclear bomb explosion
+# Release duration is always 1 minute, vertical and horizontal distribution are
+# computed from the yield. It begins from the word BOMBSOURCE_3 .
+#
+# An AREA_SOURCE defines gridded emission data. Definition of vertical, time and 
+# cocktail closely follow those of point_source v.3
+# Cocktail fractions are allowed specific for every grid cell
+# Time variation is allowed to be in hourly-daily-monthly variation coefs
+#
+# Give positive values to all timesteps/intervals. If inverse problem, it
+# will be reflected in the control file
+#
+# All lines beginning with "#" or "!" are comment lines, as well as empty ones.
+# Also inside a line everything from a "#" or " !" to line's end is a comment.
+#
+# Mikhail Sofiev, October 2009
+#
+#############################################################################
+#
+#   The AREA source
+#
+AREA_SOURCE_3 # area-source starts
+
+source_name = area2          # source name
+source_sector_name =         # source sector name, e.g. SNAP_10. May be empty
+source_timezone = UTC # Local Solar Europe/Helsinki, etc.
+                        # Default: Solar
+
+#
+#  Grid definition 
+#  Format EXACTLY follows the KSEC2 of the GRIB format
+#  x-var is longitude, y-var is latitude
+#  All geo values are in degrees and decimal parts of a degree, NO MINUTES/SECONDS
+#  Do NOT FORGET DECIMAL POINT in all fields marked by R
+#
+
+grid_type = lon_lat  !So far the only available. ALso covers cylindrical or plate carree grids
+resol_flag = 128    ! ksec2(6), resolution flag. DEFAULT: 128 = regular grid
+ifReduced = 0       ! ksec2(17), regular/reduced grid flag. DEFAULT: 0=regular
+earth_flag = 0      ! ksec2(18), Earth-flag, 0=sphere, 64=oblate spheroid. DEFAULT: 0
+wind_component = 0  ! ksec2(19), wind flag, 0=u,v relate to east/north, 8=u,v relate to x/y growing, DEFAULT:0
+reduced_nbr_str = 0 ! ksec2(23+), all nbrs of elements along the reduced direction, in one line. DEFAULT: 0
+
+nx = 12          !  ksec2(2), Nbr of cells along the parallel (varying lon)
+ny = 6          !  ksec2(3), Nbr of cells along the meridian (varying lat)
+lat_start = -75. !R ksec2(4), Lat of the first grid cell
+lon_start = -165.   !R ksec2(5), Lon of the first grid cell
+! lat_end = 80.    !R ksec2(7), last point lat
+! lon_end = 50.    !R ksec2(8), last point lon
+dx = 30.0         !R ksec2(9), x-direction increment (lon)
+dy = 30.0         !R ksec2(10), y-direction increment (lat)
+lat_s_pole = -90.     !R ksec2(13), lat of the south pole of rotation (-90. for geo)
+lon_s_pole = 0.       !R ksec2(14), lon of the south pole of rotation (0. for geo)
+lat_pole_stretch = 0. !R ksec2(15), lat of pole of stretching (0 so far)
+lon_pole_stretch = 0. !R ksec2(16), lon of pole of stretching (0 so far)
+
+
+release_rate_unit = kg/hr  ! Unit of the release rate: <mass>/<time> 
+                           ! [kg][g][ton][bq][mole][number] - mass(radioactivity); [yr][mon][day][hr][min][sec] - time units
+
+
+#
+# Vertical distribution comes in two ways: via a single dynamic layer that is defined in par_str
+# of via a set of fixed layers (not necessarily continuous). If par_str is used, here only the unit 
+# is to be stated, otherwise the whole set of layers required
+# Fixed levels/layers can be: PRESSURE, HEIGHT_FROM_SURF, ALTITUDE_FROM_SEA, HYBRID
+#                             SURFACE_LEVEL, TOP_ATMOSPHERE_LEVEL, MEAN_SEA_LEVEL, ENTIRE_ATMOSPHERE_LAYER
+#
+
+###vertical_distribution = SINGLE_LEVEL_DYNAMIC    ! SINGLE_LEVEL_DYNAMIC or MULTI_LEVEL_FIXED
+
+vertical_distribution = MULTI_LEVEL_FIXED  ! SINGLE_LEVEL_DYNAMIC or MULTI_LEVEL_FIXED
+
+vertical_unit = m  ! [hpa] or [m] - if SINGLE_LEVEL_DYNAMIC 
+
+vert_level = HEIGHT_FROM_SURF 1. 9000.   1.0
+
+
+# Time-strength-composition data. 
+# Arbitrary number of lines. The last line determines the end of the release
+# If there is only one line, it may be just: 
+# NOW  <duration [min]> <rate_scale> <bottom> <top> <cocktail_name>
+# Otherwise each line contains: 
+#  y4 m2 d2 h2 m2 sec(real) <bottom> <top> <cocktail_name> <rate_scale>
+# Note:
+# rate_scale a unitless time dependence of the emission. It will be multiplied with actual rate in
+# each grid cell. if time_variation = INDICES then it will be scaled with corresponding indices
+
+#par_str_area = NOW  10. hr  925. 900.   AEROSOL_5_MODES_COCKTAIL  4. PASSIVE_COCKTAIL 5. 
+par_str_area = 1999 5 15 0 0 0.    925. 900.  AEROSOL_xx_MODES_COCKTAIL 1.0 # TIME_COCKTAIL 1.0  ###SOX  4. PASSIVE_COCKTAIL 18. 
+par_str_area = 2012 5 15 1 0 0.    925. 900.  AEROSOL_xx_MODES_COCKTAIL 1.0 #  TIME_COCKTAIL 1.0  ###SOX  4. PASSIVE_COCKTAIL 18. 
+#par_str_area = 1900 1 1 6 0 0.    925. 900.   SOX  4. PASSIVE_COCKTAIL 18. 
+#par_str_area = 2200 1 2 6 0 0.    925. 900.   SOX  4. PASSIVE_COCKTAIL 18. 
+
+#
+# Extra rate adjustment is possible: hour_in_day, day_in_week, month_in_year 
+#
+# 24 hours in day: duirnal relative intensity
+# 7 days in week: week-day relative intensity
+# 12 months in year: monthly relative intensity
+#
+hour_in_day_index = AEROSOL_xx_MODES_COCKTAIL 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 
+day_in_week_index = AEROSOL_xx_MODES_COCKTAIL 1. 1. 1. 1. 1. 1. 1.
+month_in_year_index = AEROSOL_xx_MODES_COCKTAIL 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+
+#
+# The number of value_strings is arbitrary, each containing the label "val", x, y and value(s)
+# The number of values must be equal to that of descriptors in the par_str line, same order
+#
+# x and y are co-ordinates in the above grid and value is the emission rate in the above unit -
+# possibly, specific for each substance and aerosol size class (or gas).
+# Note: actual rate will be = rate * rate_scale for each descriptor, so geographical and 
+# temporal distributions are copmpletely split.
+# Note: all co-ordinates are REAL, as well as the emission value itself.
+#
+
+coordinate_of_values = GEOGRAPHICAL
+
+val = -165. -75. 100.
+val = -135. -75. 100.
+val = -105. -75. 100.
+val = -75. -75. 100.
+val = -45. -75. 100.
+val = -15. -75. 100.
+val = 15. -75. 100.
+val = 45. -75. 100.
+val = 75. -75. 100.
+val = 105. -75. 100.
+val = 135. -75. 100.
+val = 165. -75. 100.
+val = -165. -45. 100.
+val = -135. -45. 100.
+val = -105. -45. 100.
+val = -75. -45. 100.
+val = -45. -45. 100.
+val = -15. -45. 100.
+val = 15. -45. 100.
+val = 45. -45. 100.
+val = 75. -45. 100.
+val = 105. -45. 100.
+val = 135. -45. 100.
+val = 165. -45. 100.
+val = -165. -15. 100.
+val = -135. -15. 100.
+val = -105. -15. 100.
+val = -75. -15. 100.
+val = -45. -15. 100.
+val = -15. -15. 100.
+val = 15. -15. 100.
+val = 45. -15. 100.
+val = 75. -15. 100.
+val = 105. -15. 100.
+val = 135. -15. 100.
+val = 165. -15. 100.
+val = -165. 15. 100.
+val = -135. 15. 100.
+val = -105. 15. 100.
+val = -75. 15. 100.
+val = -45. 15. 100.
+val = -15. 15. 100.
+val = 15. 15. 100.
+val = 45. 15. 100.
+val = 75. 15. 100.
+val = 105. 15. 100.
+val = 135. 15. 100.
+val = 165. 15. 100.
+val = -165. 45. 100.
+val = -135. 45. 100.
+val = -105. 45. 100.
+val = -75. 45. 100.
+val = -45. 45. 100.
+val = -15. 45. 100.
+val = 15. 45. 100.
+val = 45. 45. 100.
+val = 75. 45. 100.
+val = 105. 45. 100.
+val = 135. 45. 100.
+val = 165. 45. 100.
+val = -165. 75. 100.
+val = -135. 75. 100.
+val = -105. 75. 100.
+val = -75. 75. 100.
+val = -45. 75. 100.
+val = -15. 75. 100.
+val = 15. 75. 100.
+val = 45. 75. 100.
+val = 75. 75. 100.
+val = 105. 75. 100.
+val = 135. 75. 100.
+val = 165. 75. 100.
+
+END_AREA_SOURCE_3   # MANDATORY 
+
+
+# End of first AREA SOURCE
+

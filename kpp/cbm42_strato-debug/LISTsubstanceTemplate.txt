@@ -1,0 +1,20 @@
+# ***********************************************************************
+LIST = substance
+  chemical_name = VirSxxx #Virtual species appearing on the right hand side of the KPP equations.
+  molar_mass = 1000 g/mole
+  low_concentration_threshold = 0.001 pg/m3  #Use small threshold for virtual species!
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  0.0e0    # mol/kg/pa
+  Henry_constant_T_dependence_exponent_scale = 0.  #Dimension -- Degrees Kelvin
+
+  gas_surf_resistance_over_water = -2000.
+  gas_surf_resistance_land_default = -2000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  
+END_LIST = substance
+

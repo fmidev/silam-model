@@ -1,0 +1,120 @@
+#################################################################
+#
+# A makefile for a main program defined in ../source/$(PROGRAM).f90.
+# Provide PRORGRAM as a parameter.
+#
+#################################################################
+
+# The executable
+PROGRAM = ???
+# The setup variable: if defined, compiler options will be read from
+# options.$(SETUP), and the executable will be named as $(PROGRAM).$(SETUP)
+SETUP = 
+
+SILAM_ROOT = ../
+# directory with makefiles
+BUILDDIR = $(SILAM_ROOT)build/
+
+ENDING = $(if $(SETUP),.$(SETUP))$(if $(SUFFIX), .$(SUFFIX))
+OPTIONS = $(BUILDDIR)/options/$(ENDING)
+include $(BUILDDIR)/$(join options, $(ENDING))
+PROGRAM := $(PROGRAM)$(ENDING)
+
+# source code.
+SRCDIR = $(SILAM_ROOT)source/
+# object and .mod files
+OBJDIR = $(SILAM_ROOT)obj/$(SETUP)/
+# directory for the executable
+BINDIR = $(SILAM_ROOT)bin/
+
+# directory for a distribution package
+DISTRDIR=$(SILAM_ROOT)/distr
+
+# Build rules: if this is set to simple, every module is assumed to depend
+# on its own source only. Caveat emptor.
+RULES = full
+
+# build targets
+all : check_exist $(PROGRAM)
+
+export
+
+# Only the actual fortran compilation shall be parallel - otherwise
+# we'd be finding the dependencies simultaneously with compilation, etc.
+.NOTPARALLEL : 
+
+check_exist : $(SRCDIR)/$(PROGRAM).f90
+
+$(PROGRAM) : expand config revision
+	mkdir -p $(OBJDIR) $(BINDIR)	
+	$(MAKE) -f$(BUILDDIR)/makefile.any
+
+only : 
+	mkdir -p $(OBJDIR) $(BINDIR)	
+	$(MAKE) -f$(BUILDDIR)/makefile.any
+
+clean:
+	rm -f $(OBJDIR)*.o $(OBJDIR)*.mod $(BINDIR)$(PROGRAM)
+
+config: 	
+	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(PROGRAM) $(ARCH) \
+$(if $(MPI_CHOICE), $(MPI_CHOICE), no_mpi)
+	rm $(BUILDDIR)/sourcelist
+	@echo Config OK.
+
+tags: $(SRCDIR)*.f90
+	cd $(SRCDIR) && $(MAKE) -f makefile.tags
+
+lib : expand config
+	$(MAKE) -f $(BUILDDIR)/makefile.lib
+
+dot : expand config
+#	dot -Gratio=1.4 -Granksep=0.4 -Gnodesep=0.3 -Nfontsize=18 -Tsvg silam.dot > $(PROGRAM).svg
+	dot -Granksep=0.4 -Gnodesep=0.3 -Nfontsize=18 -Tsvg $(MODEL_MAIN).dot > $(PROGRAM).svg
+
+revision : 
+	@chmod u+x $(BUILDDIR)/check_revision
+	$(BUILDDIR)/check_revision $(SRCDIR)
+
+compact :
+	rm -rf $(SILAM_ROOT)/obj/*
+#	cd $(SILAM_ROOT) && tar cvf source.tar source && gzip source.tar
+	cd $(SILAM_ROOT) && zip -r source.zip source && rm -rf source
+
+expand :
+	cd $(SILAM_ROOT) && { if [ -e source.zip ]; then unzip source.zip && rm source.zip; fi }
+#	cd $(SILAM_ROOT) && tar xvf source.tar.gz
+
+up : expand
+	cd $(SRCDIR) && svn up
+
+KPP_DIR=$(shell readlink -f ../kpp/)
+KPP=$(KPP_DIR)/bin/kpp
+# Create chemistries using KPP. KPP_DIR must be defined!
+kpp : $(KPP)
+$(KPP) : 
+	cd $(KPP_DIR) && $(MAKE)
+cbm4 : 
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4 \
+	--silam-dir=$(SRCDIR) -u photolysis cbm4
+cbm4_strato : $(KPP) $(KPP_DIR)/models/cbm42_strato.*
+	KPP_HOME=$(KPP_DIR) python kpp2silam.py $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato \
+	--silam-dir=$(SRCDIR) -u photolysis cbm42_strato
+
+
+# Create a source distribution package. Libraries are not
+# included. The check_revision script is replace with a dummy, since
+# the .svn directory is not included either.
+
+DISTRO = $(DISTRDIR)/$(PROGRAM)
+distr : expand config revision 
+	mkdir -p $(DISTRO) && cd $(DISTRO) && mkdir -p source bin build obj 
+	cp -v makefile makefile.model config.pl library.objects options.*[!~] $(DISTRO)/build
+	touch $(DISTRO)/build/check_revision
+	cp -v ../source/*.f90 $(DISTRO)/source
+	cp README $(DISTRO)
+	cd $(DISTRDIR) && tar cvf $(PROGRAM).tar $(PROGRAM)
+	gzip -f $(DISTRDIR)/$(PROGRAM).tar
+
+

@@ -1,0 +1,69 @@
+#
+# This is a setup file for SILAM model version 5.0 and further
+#
+# Main internal system parameters are defined here. This file is for experienced
+# user only. Do NOT change anything if unsure in results. 
+#
+# In case of any changes - make a copy of this file and give different name.
+# Options in standard.setup file must be kept always default. However, the model
+# anyway has some default values pre-defined :-). They will be taken if values in 
+# this file appear bad from the model point of view. Then you will get a warning
+#
+# The file paths may contain environment variables in form ${NAME}. If a path begins 
+# with ^, the caret will be replaced with the directory of this file.
+#
+
+BEGIN_STANDARD_SETUP
+
+horizontal_advection_method_eulerian = EULERIAN_HORIZ_V3    # EULERIAN_HORIZ_V2, EULERIAN_HORIZ_V3, EULERIAN_3D_BULK
+vertical_advection_method_eulerian = EULERIAN_VERT_V4   # EULERIAN_VERT_V3, EULERIAN_VERT_V4, EULERIAN_3D_BULK
+kz_profile_method = SILAM_ABL_EC_FT_KZ    # SILAM_KZ_EMULATOR / SILAM_OLD_KZ / SILAM_ABL_EC_FT_KZ / EC_KZ
+
+advection_method_lagrangian = LAGRANGIAN_WIND_ENDPOINT_3D   # LAGRANGIAN_WIND_MID(END)POINT_3D(2D)
+random_walk_method = FULLY_MIXED    # Random-walk method [IDIOT_SIMPLE, FULLY_MIXED, BULK_GAUSSIAN]
+
+advection_method_default = EULERIAN
+
+abl_height_method = COMBINATION     # [HIRLAM_ABL, CONSTANT, COMBINATION, RICHARDSON, PARCEL, TURBULENT_ENERGY]
+
+continuity_equation = incompressible_v2  # incompressible / incompressible_v2 / anelastic_v2 / nwp_omega / zero_wind / hybrid_top_down
+# Cellmasses are used when wind_diagnostics /= none
+wind_diagnostics = none #  hardtop #hardtop # opentop / none / topdown / hardtop_weighted
+
+horizontal_interpolation = LINEAR   # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+vertical_interpolation = LINEAR     # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+time_interpolation = LINEAR         # [NEAREST_POINT, SECOND_ORDER, CUBIC, LOG_LINEAR]
+
+nuclide_database_fnm = ^silam_nuclides.dat
+
+chemical_database_fnm = ^silam_chemicals.dat
+
+standard_cocktail_fnm = ^standard.cocktails
+
+grib_code_table_fnm = ^grib_code_table_v5.silam
+
+netcdf_name_table_fnm = ^netcdf_name_table.silam
+
+land_use_data_meta_file = ^land_use_features_USGS_Eurasia.dat
+
+optical_properties_meta_data_file = ^optical_properties.dat
+
+photolysis_data_file = ^photolysis_finrose.dat
+
+timezone_list_fnm = ^tzindex.dat
+
+oh_climatology_file = ^clim_oh_v3.dat
+
+allow_zero_forecast_length = NO      # Whether zero-long forecasts may be used in the simulations
+                                     # Beware of zero-valued accumulated fields
+
+precipitation_low_limit = 0.1 mm/hr  # Cut-off limit for precipitation rate (separate for large-sc and conv)
+
+print_debug_info = DEBUG_INFO_YES    # DEBUG_INFO_YES, DEBUG_INFO_NO
+
+cloud_report_interval = 1
+
+disregard_meteo_data_sources = YES
+
+END_STANDARD_SETUP
+

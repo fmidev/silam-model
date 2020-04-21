@@ -1,0 +1,9 @@
+# Build rules for modules
+include $(BUILDDIR)/$(PROGRAM).objects
+$(BINDIR)$(PROGRAM)$(ENDING) : $(COMMON_OBJS)
+	$(F90C) -o $@  $(COMMON_OBJS) $(SILAM_LIBS) $(LFLAGS)
+	chmod 750 $@
+	@echo New $@ is ready
+	cd $(BUILDDIR)
+
+include $(BUILDDIR)/$(PROGRAM).rules.$(RULES)
