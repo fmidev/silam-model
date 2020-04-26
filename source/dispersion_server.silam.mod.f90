@@ -2377,11 +2377,11 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
     end select
 
     call msg('Variables found: ',fields_found)
-    if(fields_found > 0 .and. fields_accepted == 0)then
-      call set_error('Zero updated fields: update failed','update_mass_map_from_file')
-    else
+!    if(fields_found > 0 .and. fields_accepted == 0)then
+!      call set_error('Zero updated fields: update failed','update_mass_map_from_file')
+!    else
       call msg('Variables updated: ',fields_accepted)
-    endif
+!    endif
 
     nFields_updated = nFields_updated + fields_accepted
     

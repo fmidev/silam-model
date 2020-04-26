@@ -622,9 +622,11 @@ CONTAINS
       end do  ! cycle over nuclides
       
       ChemicalData%nChemical = fu_nbr_of_namelists(nlGroupSubst) + fu_nbr_of_namelists(nlGroupNuclides)
+      call destroy_namelist_group(nlGroupNuclides)
     else
       ChemicalData%nChemical = fu_nbr_of_namelists(nlGroupSubst)
     endif
+    call destroy_namelist_group(nlGroupSubst)
 
     ChemicalData%defined = silja_true
     ifChemicalDataLoaded = .true.
@@ -930,24 +932,22 @@ CONTAINS
         call msg('Setting default deposition parameters for nuclide: '//trim(fu_nuc_name(pSubst%nuc_data)) &
                         &//' substance: '// fu_name(pSubst))
         ! gas
-        if(fu_content(nlSubst,'can_be_gas') == 'YES')then
-          pSubst%gas_dep_param = gas_depositon_default
-        elseif(fu_content(nlSubst,'can_be_gas') == 'NO')then
-          pSubst%gas_dep_param = gas_depositon_nodep
-        else
-          call set_error('can_be_gas must be YES or NO','init_chemical_materials')
-          return
-        endif ! can_be_gas
+
+        if( pSubst%ifGasPossible ) then
+          if(fu_content(nlSubst,'gas_deposible') == 'YES')then
+            pSubst%gas_dep_param = gas_depositon_default
+          elseif(fu_content(nlSubst,'gas_deposible') == 'NO')then
+            pSubst%gas_dep_param = gas_depositon_nodep
+          else
+            call set_error('gas_deposible must be YES or NO for nuclides','init_chemical_materials')
+            return
+          endif ! can_be_gas
+        endif
+
         ! aerosol
-        if(fu_content(nlSubst,'can_be_aerosol') == 'YES')then
+        if(pSubst%ifAerosolPossible)then
           pSubst%aerosol_param = aerosol_param_soluble
-        elseif(fu_content(nlSubst,'can_be_aerosol') == 'NO')then
-          pSubst%aerosol_param = aerosol_param_missing
-        else
-          call set_error('can_be_aerosol must be YES or NO','init_chemical_materials')
-          return
-        endif ! can_be_gas
-        if(error)return
+        endif 
       else
         nullify(pSubst%nuc_data)
       endif

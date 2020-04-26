@@ -241,7 +241,7 @@ CONTAINS
     type(silam_material), pointer :: pSubst, pDaughterSubst
     integer :: iNucStart, iDec, iMother, iDaughter, iSp
     type(Taerosol_mode) :: mode, modeOut
-    real :: d, decay_rate
+    real :: d, decay_rate, daughter_decay_rate
     logical :: ifAerosol ! spIn is aerosol
 
     !
@@ -277,6 +277,7 @@ CONTAINS
     do iDec = 1, fu_n_daughters(pNuc) ! Does not execute if no daughters
 
       pDaughterSubst => fu_get_material_ptr(fu_daughter(pNuc,iDec))
+      daughter_decay_rate =  ln_2 / fu_half_life(pDaughterSubst)
 
       !Get or guess daughter mode
       if (fu_if_gas(pDaughterSubst) == silja_true) then
@@ -288,16 +289,16 @@ CONTAINS
         ! Try to find existing species with suitable mode
         modeOut = aerosol_mode_missing
         do iSp = iNucStart, nSpTrn
-         if (associated(fu_material(speciesTransp(iSp)), pDaughterSubst)) then
-           d = fu_nominal_d(speciesTransp(iSp))
-           if (d < 5.e-8 .or. d > 2.e-6) cycle !! Wrong-sized mode
-           if (defined(modeOut)) then
-             if (fu_nominal_d(modeOut) < d) modeOut = fu_mode(speciesTransp(iSp))
-           else
-             modeOut = fu_mode(speciesTransp(iSp))
-    endif
-        endif
-    enddo
+          if (associated(fu_material(speciesTransp(iSp)), pDaughterSubst)) then
+            d = fu_nominal_d(speciesTransp(iSp))
+            if (d < 5.e-8 .or. d > 2.e-6) cycle !! Wrong-sized mode
+            if (defined(modeOut)) then
+              if (fu_nominal_d(modeOut) < d) modeOut = fu_mode(speciesTransp(iSp))
+            else
+              modeOut = fu_mode(speciesTransp(iSp))
+            endif
+          endif
+       enddo
        ! Last resort: just invent a mode 
        if (.not. defined(modeOut)) call set_aerosol_mode(modeOut, 0.5e-6)
       endif
@@ -306,9 +307,12 @@ CONTAINS
       call addSpecies(speciesTransp, nSpTrn, spDaughter, 1)
       nNucsAdded = nSpTrn - iNucStart + 1
 
+
       iDaughter = fu_index(spDaughter(1), speciesTransp, nSpTrn) - iNucStart + 1
 
-      reactTmp(iMother,iDaughter) = decay_rate * fu_decay_branch_fraction(pNuc, iDec)
+      ! one (or fraction of) daugter atom appear per each beckuerell of mother
+      ! that corresponds to the daughter activity increment:
+      reactTmp(iMother,iDaughter) = daughter_decay_rate * fu_decay_branch_fraction(pNuc, iDec)
 
       !! Handle further generations
       call add_radioact_decay_sp(spDaughter(1), speciesTransp, nSpTrn, reactTmp, nNucsAdded)

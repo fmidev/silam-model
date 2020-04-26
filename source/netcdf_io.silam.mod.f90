@@ -690,6 +690,8 @@ CONTAINS
     call  put_chatt_nc(nf, nf90_global, "global", "source",  revision_str)
     call  put_chatt_nc(nf, nf90_global, "global", "_CoordinateModelRunDate", &
            &  fu_time_to_thredds_string(nCtl%start_time))
+    call  put_chatt_nc(nf, nf90_global, "global", "SIMULATION_START_DATE", &
+           &  fu_time_to_thredds_string(nCtl%start_time))
 
     nf%missing_value = fMissingVal
     

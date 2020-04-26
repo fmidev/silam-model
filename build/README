@@ -25,6 +25,48 @@ silam_v5_6  ## Should run and complain about missing silam.ini
 
 
 
+* Instructions for (contributed by Lars Örtegren <leo@apertum.se>)
+
+###### For build server ######
+
+# Enable Repo EPEL
+dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
+
+# Enable repo PowerTools
+yum install dnf-plugins-core
+yum config-manager --set-enabled PowerTools
+
+# Install libs
+dnf install zlib zlib-devel netcdf netcdf-devel netcdf-fortran-openmpi-devel jasper-libs jasper-devel lapack lapack-devel eccodes eccodes-devel
+
+# Add to options.gnu:
+INCLUDE = ... -I/usr/lib64/gfortran/modules -I/usr/lib64/gfortran/modules/openmpi
+
+# Add path to NETCDF shared libraries (as root):
+echo "/usr/lib64/openmpi/lib" > /etc/ld.so.conf/netcdf.conf
+lsconfig -v
+
+# In source directory
+make gnu
+make
+
+###### For run server ######
+# Enable Repo EPEL
+dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
+
+# Enable repo PowerTools
+[dnf install dnf-plugins-core]
+dnf config-manager --set-enabled PowerTools
+
+# Install packages
+dnf install lapack netcdf netcdf-fortran netcdf-fortran-openmpi eccodes
+
+
+
+
+
+
+
 ==============Seems to be somewhat outdated======================
 * BUILDING SILAM v5.1
  
