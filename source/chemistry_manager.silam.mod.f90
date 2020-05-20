@@ -45,10 +45,15 @@ module chemistry_manager
 
   private
 
-!!@##define DEBUG
 
 !!#define DUMP
 !!#define FORCING_TOP
+
+#ifdef DEBUG_TRANSFORMATIONS
+  logical, parameter :: if_OMP_chemistry = .false.
+#else
+  logical, parameter :: if_OMP_chemistry = .true.
+#endif
 
   
   !
@@ -1126,7 +1131,7 @@ end do
 
     !call msg('Total N before transformation:', get_total_n(mapTransport))
 
-    !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(metdat, metdat_col, reactRates, ix, iy, i3d, itransf, isrc, print_it, &
+    !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, metdat_col, reactRates, ix, iy, i3d, itransf, isrc, print_it, &
     !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, & !tcc_photo, tcc_scav, &
     !$OMP & photorates, aodext, aodscat, o3column, cncAer, cncSL, ithread, soot_col, pwc_col, tau_above_bott, ssa, iSoot)
 
@@ -1987,7 +1992,7 @@ end do
     ! a real array which will be private for everyone.
     !
 
-    !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(metdat, iP, itransf, isrc, iSpecies, &
+    !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, iP, itransf, isrc, iSpecies, &
     !$OMP & cell_volume, zenith_cos, lat, lon, garb_array, print_it, cncTrn, cncAer, cncSL)
     metdat => fu_work_array(meteo_input%nQuantities)
     garb_array => fu_work_array_2D(lpSet%nSrcs,lpSet%nSpeciesTrn)
@@ -2357,7 +2362,7 @@ end do
 
     !call msg('Total N before transformation:', get_total_n(mapTransport))
 
-    !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(metdat, ix, iy, itransf, isrc, print_it)
+    !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, ix, iy, itransf, isrc, print_it)
     
     !$OMP DO
     do iy = 1, mapDryDep%ny
@@ -3366,7 +3371,7 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     !
     ! Allocate chemical stuff
     !
-    !$OMP PARALLEL DEFAULT(NONE) &
+    !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(NONE) &
     !$OMP SHARED(nthreads,iStat, ChemStuff, &
     !$OMP & nSrc, nSpTr, nSpAer,nSpSl,nReact,nMetdat,nz) &
     !$OMP & PRIVATE(ithread, istatP)
@@ -3449,11 +3454,17 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     
   end subroutine init_chemicalRunSetup
 
+  
+  !*******************************************************************************
+  
   subroutine data_for_photolysis_and_cld_model(mapTransport, chemRules, indO3, ind_soot, &
-       & frac_soot, n_soot, density, diam)
-
+                                             & frac_soot, n_soot, density, diam)
+    !
+    ! Catches the index of ozone in the transport species and counts soot-related aerosols
+    !
     implicit none
 
+    ! Imported parameters
     type(Tmass_map), intent(in) :: mapTransport
     type(Tchem_rules), intent(in) :: chemRules
     integer, intent(out) :: indO3
@@ -3461,12 +3472,15 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     real, dimension(max_species), intent(out) :: frac_soot, density, diam
     integer, intent(out) :: n_soot
 
-    real, dimension(:), allocatable :: fractions_opt_subst
-    character(len=substNmLen), dimension(:), allocatable :: names_opt_subst
+    ! Local parameter
+    logical, parameter :: if_soot_affects_photolysis = .true.
+    ! Local variables
+    real, dimension(:), pointer :: fractions_opt_subst
+    character(len=substNmLen), dimension(max_species) :: names_opt_subst
     integer :: iSpecies, iSubst, is, n_opt_subst
-    character(len=*), parameter :: sub_name='find_indices'
-    logical, parameter :: if_soot_affects_depo = .true.
+    character(len=*), parameter :: sub_name='data_for_photolysis_and_cld_model'
     
+    ! ozone needed?
     if (chemRules%need_photo_lut) then
       do iSpecies = 1, mapTransport%nSpecies
         if(trim(fu_str_u_case(fu_name(fu_material(mapTransport%species(iSpecies))))) == 'O3')then
@@ -3474,13 +3488,13 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
           exit
         endif
       end do
-      if (indO3 == int_missing) then
-        call set_error('Undefined ozone index: Needed for photolysis LUT', sub_name)
-      end if
+      if(fu_fails(indO3 /= int_missing,'Undefined ozone index: Needed for photolysis LUT', sub_name))return
     else
       indO3 = int_missing
     end if
-
+    !
+    ! Store aerosol particle features
+    !
     diam(:) = 0.0
     density(:) = real_missing
 
@@ -3488,38 +3502,35 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
       diam(iSpecies) = fu_nominal_d(mapTransport%species(iSpecies))
       density(iSpecies) = fu_density(mapTransport%species(iSpecies))
     end do
-
+    !
+    ! Find soot-referring particles (those, which have soot in referece optical species)
+    !
     ind_soot(:) = int_missing
     frac_soot(:) = 0.0
-
-    if (if_soot_affects_depo) then
+    n_soot = 0
+    if (if_soot_affects_photolysis) then
+      fractions_opt_subst => fu_work_array()
       is = 1
       do iSpecies = 1, mapTransport%nSpecies
-        !n_opt_subst = fu_n_opt_subst(fu_optical_features(fu_material(mapTransport%species(iSpecies))))
-        !names_opt_subst => fu_names_opt_subst(fu_optical_features(fu_material(mapTransport%species(iSpecies))))
-        !fractions_opt_subst => fu_fractions_opt_subst(fu_optical_features(fu_material(mapTransport%species(iSpecies))))
-
         n_opt_subst = fu_n_opt_subst(fu_material(mapTransport%species(iSpecies)))
-
         if (n_opt_subst > 0) then
-          allocate(names_opt_subst(n_opt_subst), fractions_opt_subst(n_opt_subst))
-
-          names_opt_subst = fu_names_opt_subst(fu_material(mapTransport%species(iSpecies)))
-          fractions_opt_subst = fu_fractions_opt_subst(fu_material(mapTransport%species(iSpecies)))
-
+          names_opt_subst(1:n_opt_subst) = fu_names_opt_subst(fu_material(mapTransport%species(iSpecies)))
+          fractions_opt_subst(1:n_opt_subst) = fu_fractions_opt_subst(fu_material(mapTransport%species(iSpecies)))
           do iSubst = 1, n_opt_subst
             if (trim(names_opt_subst(iSubst)) == 'soot') then
               ind_soot(is) = iSpecies
               frac_soot(is) = fractions_opt_subst(iSubst)
               is = is + 1
             end if
-          end do
-          deallocate(names_opt_subst, fractions_opt_subst)
-        end if
-      end do
-    end if
+          end do  ! n_opt_subst
+        end if  ! n_opt_subst > 0
+      end do  ! transport species
+      call free_work_array(fractions_opt_subst)
+      n_soot = is - 1
+    end if   ! if_soot_affects_photolysis
 
   end subroutine data_for_photolysis_and_cld_model
+
 
   !=====================================================================================
 

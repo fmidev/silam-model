@@ -366,7 +366,7 @@ MODULE ini_boundary_conditions
         !
         do iStat = 1, iTmp
           rulesIniBoundary%bFiles(iStat)%bHeaderFNm = fu_process_filepath(fu_content(ptrItems(iStat)), &
-                                                          & convert_slashes=.true., must_exist=.true.)
+                                                          &  must_exist=.true.)
         end do
       endif   ! header file exists
     endif  ! if boundaries

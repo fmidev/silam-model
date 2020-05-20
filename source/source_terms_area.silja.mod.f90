@@ -1732,8 +1732,7 @@ CONTAINS
       spContent%sp = adjustl(fu_content(ptrItems(iItem)))
       ! split the input at space:
       a_src%chFIeldFNms(iItem) = fu_process_filepath(spContent%sp(index(spContent%sp,' ')+1:), &  ! file name
-                                                   & convert_slashes = .true., must_exist = .false., &
-                                                   & superfile = src_dir_name)
+                                                   & must_exist = .false., superdir = src_dir_name)
       a_src%FieldFormat(iItem) = fu_input_file_format(spContent%sp)                   ! format
       call decode_template_string(a_src%chFIeldFNms(iItem), a_src%chFIeldFNmTemplates(iItem))
 

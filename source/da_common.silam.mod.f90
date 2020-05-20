@@ -2799,7 +2799,7 @@ module da_common
       end if
       if (error) return
 
-      filename = fu_process_filepath(filenames(1)%sp, convert_slashes=.true., must_exist=.true.)
+      filename = fu_process_filepath(filenames(1)%sp, must_exist=.true.)
       deallocate(filenames)
     end subroutine expand_template
 

@@ -2659,27 +2659,22 @@ CONTAINS
 
   !************************************************************************************
 
-  function fu_process_filepath(path, convert_slashes, must_exist, superfile, superdir) result(processed)
+  function fu_process_filepath(path, must_exist, superfile, superdir) result(processed)
    ! Handles a file path:onverts \ or / to 
     ! the native path separator. If specified, checks that the file exists and sets
     ! an error if not.
     implicit none
     character(len=*), intent(in) :: path
     character(len=fnlen) :: processed
-    logical, intent(in), optional :: convert_slashes, must_exist
+    logical, intent(in), optional ::  must_exist
     character(len=*), optional, intent(in) :: superfile !Filename used to expand "^" symbol
-    character(len=*), optional, intent(in) :: superdir !Filename used to expand "^" symbol
+    character(len=*), optional, intent(in) :: superdir !Directory used to expand "^" symbol
 
     integer :: i
     character(len=32) :: readable
-    logical :: exists, convert_slashes_, must_exist_
+    logical :: exists, must_exist_
     character(len=fnlen) :: superdir_
 
-    if (present(convert_slashes)) then
-      convert_slashes_ = convert_slashes
-    else
-      convert_slashes_ = .true.
-    end if
     if (present(must_exist)) then
       must_exist_ = must_exist
     else
@@ -2704,13 +2699,13 @@ CONTAINS
     
 !    call msg('fu_process_filepath1:' + path + ',' + superdir)
     
-    if (convert_slashes_) then
+!    if (convert_slashes_) then
       do i = 1, len_trim(processed)
         if (processed(i:i) == '\'  .or. processed(i:i) == '/' ) then !'
           processed(i:i) = dir_slash
         end if
       end do
-    end if
+!    end if
     
 !    call msg('fu_process_filepath2:' + path)
 
@@ -2718,13 +2713,13 @@ CONTAINS
     
  !   call msg('fu_process_filepath3:' + path)
 
-    if (convert_slashes_) then
+!    if (convert_slashes_) then
       do i = 1, len_trim(processed)
         if (processed(i:i) == '\'  .or. processed(i:i) == '/' ) then !'
           processed(i:i) = dir_slash
         end if
       end do
-    end if
+!    end if
 
     if (must_exist_) then
       inquire(file=processed, exist=exists, read=readable)
@@ -4302,7 +4297,9 @@ CONTAINS
        return
      endif
      if (present(missval)) then
-       where (x /= missval) 
+       where (abs(x) < 1e-37) 
+         x = 0. !Kill denormalized to avoid Floating-point exceptions below
+       else where (x /= missval) 
          x =  nint(factor * fraction(x))*(2.**exponent(x))/factor
        end where
      else

@@ -150,12 +150,13 @@ CONTAINS
 
   !*********************************************************************
 
-  subroutine fill_dms_src_from_namelist(nlptr, dmssrc)
+  subroutine fill_dms_src_from_namelist(nlptr, dmssrc, chDataDir)
     implicit none
 
     ! Imported parameters
     type(Tsilam_namelist), pointer :: nlptr
     type(silam_dms_source), intent(inout) :: dmssrc
+    character(len=*), intent(in) :: chDataDir
 
     character(len=*), parameter :: subname = 'fill_from_namelist_dmssrc'
     character(len=fnlen) :: filename, fileformat, nl_content
@@ -176,7 +177,7 @@ CONTAINS
     if (fu_fails(nl_content /= '', 'Missing dms_map_filename', subname)) return
     fileformat = nl_content(1:index(nl_content, ' ')-1)
     filename = nl_content(index(nl_content, ' ')+1:)
-    dmssrc%map_dms_filename = fu_process_filepath(filename, convert_slashes=.true., must_exist=.true.)
+    dmssrc%map_dms_filename = fu_process_filepath(filename, must_exist=.true., superdir = chDataDir)
     if (error) return
     dmssrc%map_dms_fileformat = fu_input_file_format(fileformat)
     if (error) return
@@ -186,7 +187,7 @@ CONTAINS
     if (fu_fails(nl_content /= '', 'Missing water_mask_filename', subname)) return
     fileformat = nl_content(1:index(nl_content, ' ')-1)
     filename = nl_content(index(nl_content, ' ')+1:)
-    dmssrc%water_mask_filename = fu_process_filepath(filename, convert_slashes=.true., must_exist=.true.)
+    dmssrc%water_mask_filename = fu_process_filepath(filename, must_exist=.true., superdir = chDataDir)
     if (error) return
     dmssrc%water_mask_fileformat = fu_input_file_format(fileformat)
     if (error) return
@@ -806,7 +807,7 @@ CONTAINS
     call report(nlptr)
     close(file_unit)
     
-    call fill_dms_src_from_namelist(nlptr, dmssrc)
+    call fill_dms_src_from_namelist(nlptr, dmssrc, fu_dirname(filename))
     if (error) return
     grid = fu_set_lonlat_grid('grid', -10.0, 12.0, .true., 200, 300, pole_geographical, 0.2, 0.2)
     call init_emission_dms(dmssrc, grid)

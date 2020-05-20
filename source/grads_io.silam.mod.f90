@@ -397,8 +397,7 @@ CONTAINS
     ! Extend hat in ctl file name with superctl path
     !
     call replace_namelist_item(nlPtr, 'ctl_file_name', 'ctl_file_name', &
-                             & fu_process_filepath(chTmp, convert_slashes=.true., &
-                                                 & must_exist=.true., superfile=chSuperCtlFNm))
+                             & fu_process_filepath(chTmp, must_exist=.true., superfile=chSuperCtlFNm))
 !                             & fu_extend_grads_hat(chTmp,chSuperCtlFNm) )
     close(iUnit)
 

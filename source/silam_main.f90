@@ -328,6 +328,8 @@ PROGRAM silam_main
   call msg('')
 
   CALL start_silam_v5(control_fname, had_error)
+
+  call msg("At the end of the run memory usage (kB)", fu_system_mem_usage())
   
   chTmp = 'Overall_run_time'
   call stop_count(chCounterNm = chTmp)

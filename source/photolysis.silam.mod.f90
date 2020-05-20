@@ -176,7 +176,7 @@ contains
       character(len=worksize_string) :: content
       
       call msg('')
-      call msg('Initializing photolysis lookup tables')
+      call msg('Initializing photolysis lookup tables from '//trim(filename_lut))
       call msg('')
 
       ! read in the LUT data
@@ -470,7 +470,7 @@ contains
                                  & aer_att    ! aerosol_att in in-cloud area 
     real :: lat, alb_sfc, fCloudCover, cwc_totcol   !!sfc meteo input
     real, dimension(max_levels) :: col_press, col_cwcabove !! column meteo input
-    real, dimension(max_levels) :: cwc_cloud  ! Cloudy-area cwc
+    real, dimension(max_levels) :: cwc_cloud  ! Cloudy-area cwc_above [kg/m2]
     real :: albedo_aer, albedo_cld    ! Effective albedo of surface without/with clouds
     real :: o3_col_std ! ozone column above for standard atmosphere (DU)
     real :: o3factor ! ozone column above / the ozone column above for the standard atmosphere
@@ -755,14 +755,22 @@ contains
             end if
             !rates(pd_open, ind_lev)  = 5.334E-05*fTmp
             
-#ifdef DEBUG 
+!#ifdef DEBUG
+            !! Quite a few rates are uninitialised doe far. The check triggers
+             !! randomly on them
+!            In my case (forced ununutialized to NaN) the output of below was:
+!num_reactions+1 ,maxPhotoIndex-1, ind_lev        38        84         1
+!rates(num_reactions+1:maxPhotoIndex-1, ind_lev)          NaN  0.39307E-08          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN  0.16254E-06          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN          NaN  0.72568E-06  0.19654E-04          NaN          NaN          NaN          NaN  0.98268E-07          NaN  0.98268E-07
+!
+
             !Checked only up to maxPhotoIndex-1 since the last one (pd_open) is currently set by using the value of pd_no2.
             if (.not. all(rates(num_reactions+1:maxPhotoIndex-1, ind_lev) >= 0.)) then
-              call msg("rates(num_reactions+1:maxPhotoIndex-1, ind_lev)",rates(pd_ald2:pd_clo, ind_lev))
+              call msg("num_reactions+1 ,maxPhotoIndex-1, ind_lev", (/num_reactions+1 ,maxPhotoIndex-1, ind_lev/))
+              call msg("rates(num_reactions+1:maxPhotoIndex-1, ind_lev)",rates(num_reactions+1:maxPhotoIndex-1, ind_lev))
               call set_error("Trouble with non-LUT-photorates", sub_name)
               return
             endif
-#endif
+!#endif
         endif
 
 
@@ -1061,8 +1069,12 @@ contains
       lwc_d = 1e-3*clw_dens_col(iLev)
 
       if (lwc_d > 0) then
-        aerosol_nbr_cnc = sum(masses(:,1,iLev)/(density(1:nSpecies)*1.33*3.14*(0.5*diam(1:nSpecies))**3)) * &
-           & metdat_col(imet_airdens,iLev)/metdat_col(imet_airmass,iLev)
+        ! Sum over aerosols only: diam>0; real_missing**3 is -Inf in gfortran, 
+        ! leads to formal zero, but triggers floating-point exception
+        aerosol_nbr_cnc = sum(&
+            &  masses(:,1,iLev)/(density(1:nSpecies)*1.33*3.14*(0.5*diam(1:nSpecies))**3),&
+            & MASK = (diam(1:nSpecies) > 0)&
+            &) *  metdat_col(imet_airdens,iLev)/metdat_col(imet_airmass,iLev)
 
         if (aerosol_nbr_cnc > 9e7) then
           cdnc = max(-765.5 + 395.71 * log10(aerosol_nbr_cnc*1e-6), 15.0)
@@ -1199,91 +1211,86 @@ contains
     meteo_input_local%q_type(nq) = meteo_dynamic_flag
     imet_press => meteo_input_local%idx(nq) 
 
+    imet_cc3d => null()
+    imet_cwc3d => null()
     imet_cwcol => null()
+    imet_dz_size => null()
+    imet_lcwc3d => null()
+    imet_lcwcol => null()
+    imet_temp => null()
 
-    if (cloud_model == fake_cloud) then
-      imet_cwc3d => null()                                                                                                                                                
-      imet_cwcol => null()                                                                                                                                                
-      imet_lcwc3d => null()                                                                                                                                               
-      imet_lcwcol => null()
+    if (cloud_model /= fake_cloud) then
+      ! Common for non-fake cloud
 
-    else if (cloud_model == simple_cloud) then
       nq = nq +1
-      meteo_input_local%quantity(nq) = cwcolumn_flag
+      meteo_input_local%quantity(nq) = total_cloud_cover_flag
       meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_cwcol => meteo_input_local%idx(nq) 
+      imet_tcc => meteo_input_local%idx(nq)
 
       nq = nq + 1
       meteo_input_local%quantity(nq) = cwcabove_3d_flag
       meteo_input_local%q_type(nq) = meteo_dynamic_flag
       imet_cwc3d => meteo_input_local%idx(nq)
 
-      nq = nq +1
-      meteo_input_local%quantity(nq) = total_cloud_cover_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_tcc => meteo_input_local%idx(nq)
-    
-      nq = nq + 1
-      meteo_input_local%quantity(nq) = lcwcabove_3d_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_lcwc3d => meteo_input_local%idx(nq)
+      if (cloud_model == simple_cloud) then
+        nq = nq +1
+        meteo_input_local%quantity(nq) = cwcolumn_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_cwcol => meteo_input_local%idx(nq) 
 
-      nq = nq + 1
-      meteo_input_local%quantity(nq) = lcwcolumn_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_lcwcol => meteo_input_local%idx(nq)
+      
+        nq = nq + 1
+        meteo_input_local%quantity(nq) = lcwcabove_3d_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_lcwc3d => meteo_input_local%idx(nq)
+
+        nq = nq + 1
+        meteo_input_local%quantity(nq) = lcwcolumn_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+
+        imet_lcwcol => meteo_input_local%idx(nq)
+      elseif (cloud_model == detailed_cloud) then
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = cloud_cover_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_cc3d => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = temperature_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_temp => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = cell_size_z_flag
+        meteo_input_local%q_type(nq) = dispersion_dynamic_flag
+        imet_dz_size => meteo_input_local%idx(nq)
+        
+        nq = nq +1
+        meteo_input_local%quantity(nq) = disp_cell_airmass_flag
+        meteo_input_local%q_type(nq) = dispersion_dynamic_flag
+        imet_airmass => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = air_density_flag
+        meteo_input_local%q_type(nq) = dispersion_dynamic_flag
+        imet_airdens => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = cloud_water_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_cwc => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = cloud_ice_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_cic => meteo_input_local%idx(nq)
+
+
+      end if
     endif
 
-    imet_temp => null()
-    imet_lcwc3d => null()
-    imet_lcwcol => null()
-    imet_dz_size => null()
-    imet_cc3d => null()
-
-    if (cloud_model == detailed_cloud) then
-      nq = nq +1
-      meteo_input_local%quantity(nq) = total_cloud_cover_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_tcc => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = cloud_cover_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_cc3d => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = temperature_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_temp => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = cell_size_z_flag
-      meteo_input_local%q_type(nq) = dispersion_dynamic_flag
-      imet_dz_size => meteo_input_local%idx(nq)
-      
-      nq = nq +1
-      meteo_input_local%quantity(nq) = disp_cell_airmass_flag
-      meteo_input_local%q_type(nq) = dispersion_dynamic_flag
-      imet_airmass => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = air_density_flag
-      meteo_input_local%q_type(nq) = dispersion_dynamic_flag
-      imet_airdens => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = cloud_water_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_cwc => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = cloud_ice_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_cic => meteo_input_local%idx(nq)
-    end if
-
     imet_albedo => null()
-
     if (ifDynamicAlbedo) then 
       nq = nq + 1
       meteo_input_local%quantity(nq) = albedo_flag

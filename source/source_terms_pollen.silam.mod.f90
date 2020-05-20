@@ -1780,7 +1780,13 @@ fMassInjected_out_ = 0
 !endif
         iDisp = ix + (iy-1) * nx_dispersion  
         if(pSrcMask(iDisp) < 1e-10)then
-          disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!  Due to imprecise grids interpolation PollenLeft diffused and cut off on every MPI restart
+! here and in few places above. Made it nearest-neighbour to avoid diffusion
+!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
+!                      call msg("Cutting pollen left pSrcMask"//trim(srcPollen%src_nm)//", cell, value, maskval", &
+!                       & (/real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp), pSrcMask(iDisp)/) )
+                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!              endif
           cycle
         endif
         iMeteo =  fu_grid_index(nx_meteo, ix, iy, pHorizInterpMet2DispStruct)
@@ -1796,9 +1802,13 @@ fMassInjected_out_ = 0
               disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0               
             endif     
             ! If flowering started, zero the pollen left to end the emission in gridcell
-            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-6 .and. &
-             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-6) then 
-             disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
+             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then 
+!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
+!                      call msg("Cutting pollen left ifTempThr"//trim(srcPollen%src_nm)//", cell, value", &
+!                       & real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp))
+                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!              endif
             endif
           endif
         endif
@@ -1809,9 +1819,13 @@ fMassInjected_out_ = 0
               disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0               
             endif     
             ! If flowering started, zero the pollen left to end the emission in gridcell
-            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-6 .and. &
-             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-6) then 
-              disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
+             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then
+!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
+!                      call msg("Cutting pollen left ifDayTempThr"//trim(srcPollen%src_nm)//", cell, value", &
+!                       & real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp))
+                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!              endif
             endif
           endif
         endif
@@ -1819,9 +1833,13 @@ fMassInjected_out_ = 0
           if(met_buf%p2d(indSoilWater)%present%ptr(iMeteo) < disp_buf%p2d(indSoilWaterThr)%present%ptr(iDisp))then
             ifEms = .false.  
             ! If flowering started, zero the pollen left to end the emission in gridcell
-            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-6 .and. &
-             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-6) then 
-              disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
+             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then 
+!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
+!                      call msg("Cutting pollen left ifSWThr"//trim(srcPollen%src_nm)//", cell, value", &
+!                       & real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp))
+                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!             endif
             endif
           endif
         endif

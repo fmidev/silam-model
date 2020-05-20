@@ -62,6 +62,10 @@ puhti_mpi:
 	echo "SE=puhti_mpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
+puhti:
+	echo "SE=puhti" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
 DefaultSetup:
 	echo "SE=$(SE)" > $(DefaultSetup)	
 	echo Switching make to `cat $(DefaultSetup)`

@@ -4079,7 +4079,7 @@ CONTAINS
 
         fu_regridding_method = summation  ! this is total-cell flux. Must be summed up
 
-      case(timezone_index_flag)
+      case(timezone_index_flag, pollen_left_relative_flag) !! Sic!  
 
         fu_regridding_method = nearest_point 
 

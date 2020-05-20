@@ -42,7 +42,6 @@ MODULE chem_dep_radioactive
   private add_radioact_decay_sp
   private fu_defined_radioactive_rules
   private set_missing_radioact_rules
-  private fu_lifetime_radioact
 
   interface fu_if_specific_deposition
     module procedure fu_if_specific_dep_radioact
@@ -87,7 +86,7 @@ MODULE chem_dep_radioactive
   type Tchem_rules_radioactive
     private
 !    real :: massLowThreshold   ! Lower threshold for activity transported by Eulerian advection
-    real :: vD_gas  ! A dry deposition velocity for gaseous species for dry smooth surface
+    real :: max_daughter_half_life !!! (seconds)  Cut more long-livig daughters
     type(Tprecomputed_decay) :: precomputed_decay
     type(silja_logical) :: defined
   end type Tchem_rules_radioactive
@@ -166,7 +165,8 @@ CONTAINS
     do iEmis = 1, nSpeciesEmis
       if(iClaimedSpecies(iEmis) == transformation_radioactive)then
 !        call msg('Trying Species:' + fu_str(speciesEmis(iEmis)))
-        call add_radioact_decay_sp(speciesEmis(iEmis), speciesTransp, nSpTrn, reactTmp, nNucsAdded)
+        call add_radioact_decay_sp(speciesEmis(iEmis), speciesTransp, nSpTrn, reactTmp, nNucsAdded, &
+          & rules%max_daughter_half_life)
       end if
       if(error)return
     end do
@@ -214,7 +214,8 @@ CONTAINS
 
   !************************************************************************************
 
-  recursive subroutine add_radioact_decay_sp(spIn, speciesTransp, nSpTrn, reactTmp, nNucsAdded)
+  recursive subroutine add_radioact_decay_sp(spIn, speciesTransp, nSpTrn, reactTmp, nNucsAdded, &
+      & max_daughter_half_life)
     !
     ! Adds daughters to speciesTransp
     ! Fills reactTmp matrix with decay rates (1/tau)
@@ -234,6 +235,7 @@ CONTAINS
     real, dimension (:,:), intent(inout) :: reactTmp ! decay rates 
     integer, intent(inout) :: nNucsAdded ! number of nucleides added to speciesTransp
 !                Nucleides have indices (nSpTrn-nNucsAdded+1):nSpTrn
+    real, intent(in) :: max_daughter_half_life !! Skip daughters with longer lifetime
 
     ! Local variables
     type(silam_species), dimension(1) :: spDaughter
@@ -241,7 +243,7 @@ CONTAINS
     type(silam_material), pointer :: pSubst, pDaughterSubst
     integer :: iNucStart, iDec, iMother, iDaughter, iSp
     type(Taerosol_mode) :: mode, modeOut
-    real :: d, decay_rate, daughter_decay_rate
+    real :: d, decay_rate, daughter_decay_rate, daughter_half_life
     logical :: ifAerosol ! spIn is aerosol
 
     !
@@ -277,7 +279,8 @@ CONTAINS
     do iDec = 1, fu_n_daughters(pNuc) ! Does not execute if no daughters
 
       pDaughterSubst => fu_get_material_ptr(fu_daughter(pNuc,iDec))
-      daughter_decay_rate =  ln_2 / fu_half_life(pDaughterSubst)
+      daughter_half_life = fu_half_life(pDaughterSubst)
+      daughter_decay_rate =  ln_2 / daughter_half_life
 
       !Get or guess daughter mode
       if (fu_if_gas(pDaughterSubst) == silja_true) then
@@ -304,6 +307,14 @@ CONTAINS
       endif
 
       call set_species(spDaughter(1), pDaughterSubst, modeOut)
+
+      !! Do not add this daughter if it is too stable
+      if (max_daughter_half_life > 0) then
+        if (daughter_half_life > max_daughter_half_life ) then
+          if ( fu_index(spDaughter(1), speciesTransp, nSpTrn ) < 1) cycle
+        endif
+      endif
+
       call addSpecies(speciesTransp, nSpTrn, spDaughter, 1)
       nNucsAdded = nSpTrn - iNucStart + 1
 
@@ -315,7 +326,8 @@ CONTAINS
       reactTmp(iMother,iDaughter) = daughter_decay_rate * fu_decay_branch_fraction(pNuc, iDec)
 
       !! Handle further generations
-      call add_radioact_decay_sp(spDaughter(1), speciesTransp, nSpTrn, reactTmp, nNucsAdded)
+      call add_radioact_decay_sp(spDaughter(1), speciesTransp, nSpTrn, reactTmp, nNucsAdded, &
+        &  max_daughter_half_life)
     end do
 
 
@@ -440,17 +452,28 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup !, nlStdSetup
+    type(Tsilam_namelist), intent(in) :: nlSetup !, nlTransf
     type(Tchem_rules_radioactive), intent(out) :: rulesRadioactive
+    character(len=fnLen) ::  chcontent
+    character(len=*), parameter :: sub_name='set_chem_rules_radioactive'
 
     rulesRadioactive%defined = silja_false
 
-    if(.not.defined(nlSetup))then
-      call set_error('Undefined namelist given','set_chem_rules_radioactive')
-      return
+    chcontent =  fu_content(nlSetup,'max_daughter_half_life')
+    ! Do not create too long-living daughters
+    if (chcontent == "") then
+      rulesRadioactive%max_daughter_half_life = real_missing
+    else
+      rulesRadioactive%max_daughter_half_life = fu_sec(fu_set_named_interval(chcontent))
+      if (error) then
+        call msg("Got content: "//trim(fu_content(nlSetup,'max_daughter_half_life')))
+        call msg("Failed to parse named interval for  max_daughter_half_life from the list")
+        call report(nlSetup)
+        call set_error("Failed to parse named interval for max_daughter_half_life from the list", sub_name)
+      endif
     endif
-    
-    rulesRadioactive%defined = silja_true
+
+     rulesRadioactive%defined = silja_true
 
   end subroutine set_chem_rules_radioactive
 
@@ -490,22 +513,6 @@ CONTAINS
 
 
   !********************************************************************************
-
-  function fu_lifetime_radioact(rules)result(lifetime)
-    !
-    ! A typical life time due to degradation and deposition for radioactive materials
-    ! So far, whatever the species are, we set the "typical" lifetime to be two days
-    !
-    implicit none
-
-    type(silja_interval) :: lifetime
-    type(Tchem_rules_radioactive), intent(in) :: rules
-
-    lifetime = one_day * 2.0
-
-  end function fu_lifetime_radioact
-
-  !************************************************************************************
 
   logical function fu_if_tla_required_radioact(rules) result(required)
     ! Collect transformations' requests for tangent linearization. If tangent linear

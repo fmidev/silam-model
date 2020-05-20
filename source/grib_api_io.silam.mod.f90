@@ -930,7 +930,7 @@ MODULE grib_api_io
     ! Local declarations:
     INTEGER :: io_status, namelen
 
-    INTEGER :: inq_unit, iRet, iUnit,iStatus
+    INTEGER :: inq_unit, iRet, iUnit,iStatus, iEdition
     integer (kind=8) :: file_size, i, j, msg_size
     character, dimension(:), pointer :: grib_raw
     integer(kind=8), dimension(:), pointer :: grib_offsets
@@ -1030,33 +1030,29 @@ MODULE grib_api_io
        j = 1 !index of message start
        do i=1,max_2d_fields-2 !Message counter
            do while (j < file_size - 8 ) 
-              grib_raw => gf%grib_raw(j:j+8)
+              grib_raw => gf%grib_raw(j:file_size)
               if (all(grib_raw(1:4) == (/'G','R','I','B'/))) then
+                    iEdition = iachar(grib_raw(8))
 
-                    if (grib_raw(8) == char(1)) then !grib1
-                            !Here is the trick missing from any grib1 standards i have seen
-                            !have found. It is, however, implemented in libcdo
-                            !and grib_api. Here is just a lose copy of that
+                    if (iEdition == 1) then !grib1
 
-                      msg_size = iand(iachar(grib_raw(5)),127)  !!Highest bit means rescaling
-                      msg_size =  msg_size*256 + iachar(grib_raw(6)) 
-                      msg_size =  msg_size*256 + iachar(grib_raw(7))
-                      if (grib_raw(5) > char(127)) then
-                              msg_size = msg_size*120
+                      msg_size = (iachar(grib_raw(5))*256 + iachar(grib_raw(6)))*256 + iachar(grib_raw(7))
+                      if (iachar(grib_raw(5)) > 127) then
+                          call ec_hack(grib_raw, msg_size)
                       endif
-                    elseif (grib_raw(8) == char(2)) then !grib2
-                      grib_raw => gf%grib_raw(j:j+16)
-                      msg_size = iachar(grib_raw(9))*256 + ichar(grib_raw(10))
-                      msg_size = (msg_size*256 + iachar(grib_raw(12)))*256 + ichar(grib_raw(11))
-                      msg_size = (msg_size*256 + iachar(grib_raw(13)))*256 + ichar(grib_raw(14))
-                      msg_size = (msg_size*256 + iachar(grib_raw(15)))*256 + ichar(grib_raw(16))
+                    elseif (iEdition == 2) then !grib2
+                      msg_size = iachar(grib_raw(9))*256 + iachar(grib_raw(10))
+                      msg_size = (msg_size*256 + iachar(grib_raw(12)))*256 + iachar(grib_raw(11))
+                      msg_size = (msg_size*256 + iachar(grib_raw(13)))*256 + iachar(grib_raw(14))
+                      msg_size = (msg_size*256 + iachar(grib_raw(15)))*256 + iachar(grib_raw(16))
                     else
-                      Call msg("Oops, grib recognition failed")
+                      Call msg("Oops, grib edition recognition failed, Edition no:", iEdition)
                       call set_error("Broken GRIB file?", sub_name)
                       return
                     endif
                     grib_offsets(i) = j-1 !Strat of current message
-                    j = j + msg_size
+                    j = j + msg_size 
+                    !  call msg("imsg, size", int(i), int( msg_size))
                     grib_offsets(i+1) = j-1 !First offset after current message
                     gf%nmsgs = i
                     exit ! next i
@@ -1068,6 +1064,7 @@ MODULE grib_api_io
 
            if (j >= file_size - 8 )  exit
        enddo
+       !call msg ("grib_offsets", grib_offsets(1:gf%nmsgs+1))
 
        ! Check and return.....
        if (i > max_2d_fields-2) then
@@ -1131,6 +1128,63 @@ MODULE grib_api_io
 
 
   END SUBROUTINE open_grib_file_i
+
+  subroutine ec_hack(buf, len_grib)
+    !translation of the echack routine form ancient wgrib (seekgrib.c)
+    ! original comments are kept c-style
+    ! The original code is public domain (Wesley Ebisuzaki November 25, 1995)
+    ! https://ftp.cpc.ncep.noaa.gov/wd51we/wgrib/
+
+    ! I could not find any spec for this hack
+    ! It is also implemeted in cdilib (cdo) and in eccodes but in a bit more tricky way
+
+!    /* If the encoded grib record length is long enough, we may have an encoding
+!   of an even longer record length using the ecmwf hack.  To check for this
+!   requires getting the length of the binary data section.  To get this requires
+!   getting the lengths of the various sections before the bds.  To see if those
+!   sections are there requires checking the flags in the pds.  */
+
+    character, dimension(:), intent(in) :: buf
+    integer(kind=8), intent(inout) :: len_grib
+    integer(kind=8) :: center, pdslen, gdslen, bmslen, bdslen, ioff, lentmp, flag
+    integer, parameter :: Ox7fffff = 8388607 !0x007fffff
+
+    
+    center =  iachar(buf(12))
+    if (center /= 7 .and. center /= 54) then ! /* know that NCEP and CMC do not use echack */
+      ioff = 8  
+      pdslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
+
+      flag=iachar(buf(16))
+      if (IAND(flag,128)>0)then !! gdsflg
+        ioff = 8 + pdslen
+         gdslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
+      else 
+        gdslen = 0
+      endif
+
+      ! /* if there, get length of bms */
+      if (IAND(flag,64)>0)then !! bmsflg
+        ioff = 8 + pdslen + gdslen
+        bmslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
+      else 
+        bmslen = 0
+      endif
+
+      ! /* get bds length */
+      ioff = 8 + pdslen + gdslen + bmslen
+      bdslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
+
+      !/* Now we can check if this record is hacked */
+      if (bdslen < 120) then
+        !/* ECMWF hack */
+        lentmp = len_grib
+        len_grib = IAND(len_grib, Ox7fffff) * 120 - bdslen + 4
+        !call msg("Echack", int(len_grib))
+      endif
+    endif
+
+  end subroutine ec_hack
 
 
   subroutine id_list_from_grib_file(grib_unit, idList, iCount)
@@ -3874,10 +3928,16 @@ endif
 
     if(io_switch == 1)then
 
-
-    fname = '/home/met/silja/program_root/hirlam_test_data/pp/GRIB_86_1_11_100_700_0_9804290000_07.170'
-
+    fname = 'ecglob100_VEG_2020042200+00.sfc' !Broken
     CALL open_grib_file_i(fname,grib_unit, interval_missing)
+    fname = 'ecglob100_VEG_2020042100+00.sfc' !Works
+    CALL open_grib_file_i(fname,grib_unit, interval_missing)
+
+
+    stop
+
+
+
     IF (error) RETURN
     call id_list_from_grib_file(grib_unit, idList, nMsg)
 

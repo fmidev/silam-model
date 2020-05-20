@@ -253,15 +253,13 @@ CONTAINS
     endif
     do iFile = 1, nFiles
       bvoc_src%chLandUseMetaDataFNms(iFile) = fu_process_filepath(fu_content(pItems(iFile)), &
-                                                  & convert_slashes = .true., must_exist = .false., &
-                                                  & superfile = src_data_dir)
+                                                  & must_exist = .false., superdir = src_data_dir)
     end do
     !
     ! We can have source mask, which would limit the source area
     !
     bvoc_src%chSrcMaskFile = fu_process_filepath(fu_content(nlSetup,'source_mask_file'), &
-                                               & convert_slashes = .true., must_exist = .false., &
-                                               & superfile = src_data_dir)
+                                               & must_exist = .false., superdir = src_data_dir)
     bvoc_src%ifMasked = len_trim(bvoc_src%chSrcMaskFile) > 0
     !
     ! Final checking and cleaning

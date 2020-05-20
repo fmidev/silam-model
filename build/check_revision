@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+
+from __future__ import print_function
+
 import subprocess, sys
 import os
 #import pwd
@@ -41,7 +44,7 @@ def getRevisionSVN(directory):
         for line in svn.stdout:
             if line.startswith('Last Changed Rev:'):
                 revno=line.split()[-1]
-        print 'Current svn revision is : %s' %(revno)
+        print ('Current svn revision is : %s' %(revno))
         if svn.wait():
             raise RevisionError('SVN returned nonzero')
 
@@ -51,7 +54,7 @@ def getRevisionSVN(directory):
         diffcmd = "svn diff -r%s"%(revno)
 
     except RevisionError as e:
-        print e.message
+        print (e)
         pass
     
 
@@ -61,10 +64,12 @@ def getRevisionSVN(directory):
 def getRevisionGIT(directory):
     #GIT seems to noty allow different revisions for different parts...
     revno=None
+    revstr = None
+    diffcmd= None
     try:
         gitlog = subprocess.Popen(('git' , 'log'), cwd=directory, stdout=subprocess.PIPE)
         for line in gitlog.stdout:
-            if line.startswith('commit'):
+            if line.startswith(b'commit'):
                 gitrev = line.split()[-1]
                 continue
             a=line.split()
@@ -80,7 +85,7 @@ def getRevisionGIT(directory):
         revstr = "%s GIT-SVN (r%s)"%(silamversion, revno)
         diffcmd = "git diff %s"%(gitrev)
     except RevisionError as e:
-        print e.message
+        print (e)
         pass
     
 
@@ -89,7 +94,7 @@ def getRevisionGIT(directory):
 def getRevisionDummy(directory):
     revstr  = "Unknown (could not get last revision)."
     diffcmd = "true"
-    return evstr, "Dummy", diffcmd
+    return revstr, diffcmd
 
 
 
@@ -102,9 +107,9 @@ def isSameRevision(revstr, revfilename):
         # Read the previous revision from the first line of the f90 file.
         with  open(revfilename, 'r') as revision_f90_old:
             old_revision = revision_f90_old.readline().split()[-1]
-        print 'Previously compiled revision: %s' % old_revision
+        print ('Previously compiled revision: %s' % old_revision)
     except (IndexError, ValueError,IOError):
-            print 'Failed to get the previous revision'
+            print ('Failed to get the previous revision')
 
     return  old_revision is not None and old_revision == revstr.split()[-1]
 
@@ -202,8 +207,8 @@ for getRev in [ getRevisionSVN, getRevisionGIT, getRevisionDummy]:
     if  revstr:
         break
 
-print "Detected revision:", revstr
-print "Diffcmd:", diffcmd
+print ("Detected revision:", revstr)
+print ("Diffcmd:", diffcmd)
 
 
 if not isSameRevision(revstr, revision_f90_filename):

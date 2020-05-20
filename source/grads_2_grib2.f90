@@ -44,6 +44,9 @@ program silam_2_grib2
 
 
   run_log_funit = 6 !Default
+  
+ !   call grib_tests(1)
+ !   stop
 
   call  smpi_init()
   

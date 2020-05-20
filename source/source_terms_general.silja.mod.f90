@@ -1679,7 +1679,7 @@ MODULE source_terms_general
       !
       ! DMS source.
       !
-      call fill_dms_src_from_namelist(nlSrc, source%dms_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%dms_src)
+      call fill_dms_src_from_namelist(nlSrc, source%dms_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%dms_src, chDataDir)
 
     elseif(source%src_info_lst(iSrcIndex)%iSrcType == volcano_source)then
       !

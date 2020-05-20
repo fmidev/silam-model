@@ -3967,7 +3967,7 @@ ifTuned = .true.
     if (r%cwcColumnLayer < 1e-6 * cwcAboveBottom) r%cwcColumnLayer = 0.  !! Avoid numerics                             
     if (r%pwcColumnLayer < 1e-6 * pwcAboveBottom) r%pwcColumnLayer = 0.  !! Avoid numerics
 
-    if (cwcAboveBottom < 1e-3*r%pwcColumn) then ! could be done earlier...                                                                                      
+    if (pwcAboveBottom < 1e-3*r%pwcColumn) then ! could be done earlier...
       r%ifRainyCell = .FALSE.
       return
    endif
