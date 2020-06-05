@@ -944,6 +944,7 @@ contains
     real(8) :: H, K, u, v, eps, gama, epsgamafact  !! Coeffs from (Liu 6.5.29ab)  
     real(8) gama1, gama2, gama3, fk !!coeffs 6.5.30ab
     real(8) :: att0, attdir, d, dp, taup0, taup, vpuK, vpuH, cosza
+    real(8) , parameter :: maxtau = 1000.
 
     cosza = max(0.01,cosza_in) !! small negatives can come here, but cause
       !    trouble for two-stream treatment of a layer
@@ -967,7 +968,7 @@ contains
     eps  = ( gama3*(1.-gama1*cosza) - gama2*cosza*(1.-gama3) ) * epsgamafact
     gama = -1.*( (1 - gama3)*(1+gama1*cosza) +  gama2*gama3*cosza)* epsgamafact
       
-    taup0 = tau_above_bott(1)*taufactor
+    taup0 = min(tau_above_bott(1)*taufactor, maxtau)
 
     if (fk*taup0 > 1e-3) then
       d = exp(fk*taup0)
@@ -982,12 +983,29 @@ contains
       vpuH = (v+u)*H
       
       do iLev=1,num_levs
-        taup = tau_above_bott(iLev)*taufactor
+        taup = min(tau_above_bott(iLev)*taufactor, maxtau)
         dp = exp(fk*taup)
         attdir = exp(-taup/cosza)  !!Direct beam attenuation
         att_prof(iLev) = (vpuK*dp + vpuH/dp + (eps+gama+1)*attdir) / (1+cosza*alb_eff)
         !!Factor to the profile with given albedo_eff at surface
       enddo
+!!!FIXME DBG
+!      if (.not. all(att_prof(1:num_levs ) .ge. 0.)) then
+!      !$OMP CRITICAL (bark_effective_albedo_v2)
+!      call msg("taufactor, fk, cosza, vpuK, vpuH, eps, gama, alb_eff, alb_sfc", (/taufactor, fk, cosza, vpuK, vpuH, eps, gama, real(alb_eff,kind=8), real(alb_sfc,kind=8)/))
+!      call msg("u,v,k,h,taup0,d,att0",(/u,v,k,h,taup0,d,att0/))
+!      do iLev=1,num_levs
+!        taup = tau_above_bott(iLev)*taufactor
+!        dp = exp(fk*taup)
+!        attdir = exp(-taup/cosza)  !!Direct beam attenuation
+!        att_prof(iLev) = (vpuK*dp + vpuH/dp + (eps+gama+1)*attdir) / (1+cosza*alb_eff)
+!        call msg("lev:"//trim(fu_str(iLev))//" tau_above_bott att_prof  taup dp ", (/tau_above_bott(ilev), att_prof(ilev), real(taup), real(dp)/))
+!        !!Factor to the profile with given albedo_eff at surface
+!      enddo
+!      !$OMP END CRITICAL (bark_effective_albedo_v2)
+        
+      endif
+
     else
        alb_eff = alb_sfc
        att_prof(1:num_levs) = 1.
@@ -1232,6 +1250,11 @@ contains
       meteo_input_local%q_type(nq) = meteo_dynamic_flag
       imet_cwc3d => meteo_input_local%idx(nq)
 
+      nq = nq +1
+      meteo_input_local%quantity(nq) = cloud_ice_flag
+      meteo_input_local%q_type(nq) = meteo_dynamic_flag
+      imet_cic => meteo_input_local%idx(nq)
+
       if (cloud_model == simple_cloud) then
         nq = nq +1
         meteo_input_local%quantity(nq) = cwcolumn_flag
@@ -1280,11 +1303,6 @@ contains
         meteo_input_local%quantity(nq) = cloud_water_flag
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
         imet_cwc => meteo_input_local%idx(nq)
-
-        nq = nq +1
-        meteo_input_local%quantity(nq) = cloud_ice_flag
-        meteo_input_local%q_type(nq) = meteo_dynamic_flag
-        imet_cic => meteo_input_local%idx(nq)
 
 
       end if
