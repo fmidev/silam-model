@@ -60,6 +60,7 @@ program silam_2_grib2
     j = fu_pid()
     write(unit=run_log_name,fmt='(A,I5.5,A)') "run_",j,".log"
   endif
+  run_log_name = "/dev/null"
 
   run_log_funit = fu_next_free_unit()
   open(run_log_funit, file=run_log_name, iostat = iStatus)
@@ -183,7 +184,7 @@ program silam_2_grib2
     real, dimension(:), pointer :: grads_data
     real :: fScaling
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: itemInLevels
-    type(silja_time) :: an_time, now, timeStart, timeEnd
+    type(silja_time) :: an_time, an_time_force, now, timeStart, timeEnd
     real :: corner_lon_E, corner_lat_N, southpole_lon_E, southpole_lat_N, dx_deg, dy_deg
     logical :: corner_in_geographical_latlon, if_south_pole
     integer :: number_of_points_x, number_of_points_y, iIn, iOut, ixStart, ixEnd, iyStart, &
@@ -244,6 +245,21 @@ program silam_2_grib2
     lat_start_def = fu_content_real(nl_common, 'lat_start')
     lon_end_def = fu_content_real(nl_common, 'lon_end')
     lat_end_def = fu_content_real(nl_common, 'lat_end')
+
+
+    ! just recycle variable
+    date_mode = fu_content(nl_common, 'force_an_time')
+    if (len_trim(date_mode) > 0) then
+      an_time_force = fu_io_string_to_time(date_mode)
+      if(error) then
+        call set_error("failed to parse force_an_time", sub_name)
+        return
+      endif
+      call msg("Forcing analysis time: "//trim(date_mode))
+    else
+      an_time_force = time_missing
+    endif
+
 
     date_mode = fu_content(nl_common, 'date_mode')
     if (fu_fails(date_mode /= '', 'Missing date_mode', sub_name)) return
@@ -359,10 +375,10 @@ program silam_2_grib2
                     if (fu_NbrOfLevels(gVert) > 1) exit
                   endif
                enddo
-               if ( ix>nVerts ) then
-                  call set_error("All "//trim(fu_str(nVerts))//" verticals in NetCDF file undefined", sub_name )
-                  return
-               endif 
+               !if ( ix>nVerts ) then
+               !   call set_error("All "//trim(fu_str(nVerts))//" verticals in NetCDF file undefined", sub_name )
+               !   return
+               !endif 
 
                call timelst_from_netcdf_file(iGf, grads_times, num_grads_times, an_time = an_time)
                if(error) return
@@ -384,6 +400,7 @@ program silam_2_grib2
               call set_error('Unknown input format',sub_name)
               return
           end select
+          if (defined(an_time_force)) an_time = an_time_force
           call report(gVert,.true.)
           call report(gGrid)
 

@@ -4529,6 +4529,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
       if (PassengersIn(0,ix) == 0.) cycle
       exit
     enddo
+    if (ix > iCellEnd) return !Nothing here
     
 
     !Init distribution loop

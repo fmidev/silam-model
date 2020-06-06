@@ -23,6 +23,7 @@ MODULE grib_api_io
   use proj_silam
   use bzip
   use, intrinsic :: ISO_C_BINDING, only:  c_char, c_ptr, c_null_ptr, c_size_t
+  use OMP_lib
 
   IMPLICIT NONE
 
@@ -1147,7 +1148,7 @@ MODULE grib_api_io
     character, dimension(:), intent(in) :: buf
     integer(kind=8), intent(inout) :: len_grib
     integer(kind=8) :: center, pdslen, gdslen, bmslen, bdslen, ioff, lentmp, flag
-    integer, parameter :: Ox7fffff = 8388607 !0x007fffff
+    integer(kind=8),  parameter :: Ox7fffff = 8388607 !0x007fffff
 
     
     center =  iachar(buf(12))
@@ -1156,7 +1157,7 @@ MODULE grib_api_io
       pdslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
 
       flag=iachar(buf(16))
-      if (IAND(flag,128)>0)then !! gdsflg
+      if (IAND(flag,128_8)>0)then !! gdsflg
         ioff = 8 + pdslen
          gdslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
       else 
@@ -1164,7 +1165,7 @@ MODULE grib_api_io
       endif
 
       ! /* if there, get length of bms */
-      if (IAND(flag,64)>0)then !! bmsflg
+      if (IAND(flag,64_8)>0)then !! bmsflg
         ioff = 8 + pdslen + gdslen
         bmslen = (iachar(buf(ioff+1))*256 + iachar(buf(ioff+2)))*256 + iachar(buf(ioff+3))
       else 

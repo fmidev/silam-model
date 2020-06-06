@@ -1,7 +1,8 @@
 * BUILDING SILAM v5.7 in Ubuntu 18.04
 
 #install needed packages
-sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev
+sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev ibproj-dev
+
 
 #Unpack the model source to a desired directory
 cd /where/you/want/silam/installed/

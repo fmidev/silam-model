@@ -1004,7 +1004,7 @@ contains
 !      enddo
 !      !$OMP END CRITICAL (bark_effective_albedo_v2)
         
-      endif
+!      endif
 
     else
        alb_eff = alb_sfc
