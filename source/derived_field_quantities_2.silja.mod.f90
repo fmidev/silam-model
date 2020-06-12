@@ -1823,11 +1823,11 @@ CONTAINS
     TYPE(silja_field_id) :: id
     TYPE(silja_3d_field), POINTER :: height3d,u3d,v3d,t3d, q3d,  theta3d
     TYPE(silja_field), POINTER :: windspeed_10m, field_temp_2m, field_q_2m, ps_2d, &
-                                & fraction_of_land_field
+                                & fraction_of_land_field,  field_abl_height_nwp
     TYPE(silja_level), DIMENSION(max_levels) :: levels
     REAL, DIMENSION(:), POINTER :: monin_obukhov_inv, friction_velocity, & 
      & temperature_scale, sens_heat_flux, height_lev1, height_lev2, &
-     & ps, temp2m, q2m, q_1, density, abl_height, wind10m,&
+     & ps, temp2m, q2m, q_1, density, abl_height, abl_height_nwp, wind10m,&
      & temp_1, x1, Kz, u_1, v_1, u_10m, v_10m, land_mask, alpha_Pr, conv_vel_scale, &
      & latent_heat_flux, humid_scale
     REAL :: windspeed_1, fMinAlert, fMinForce, fMaxForce, fMaxAlert
@@ -2401,7 +2401,6 @@ CONTAINS
 
         CASE (constant_abl_height)                                           ! constant abl height
           abl_height(1:fs_meteo) = 1000.
-          abl_height_m_pointer = abl_height_m_flag
 
         CASE (parcel_method, richardson_method, combination_method)          ! parcel and/or Richardson
 
@@ -2423,7 +2422,6 @@ CONTAINS
               if(abl_height(i) > 7500.) abl_height(i) = 7500.
             END DO
           endif
-          abl_height_m_pointer = abl_height_m_flag
 
         case (coriolis_method)                                               ! Coriolis-parameter and Kz
           call coriolis_parameters(dispersion_grid, x1)
@@ -2431,10 +2429,16 @@ CONTAINS
           do i=1,fs_meteo
             abl_height(i) = Kz(i) / (Kz_ref_height * x1(i))
           end do
-          abl_height_m_pointer = abl_height_m_flag
 
         CASE (nwp_abl)
-          abl_height_m_pointer = nwp_abl_height_m_flag
+          field_abl_height_nwp => fu_sm_obstime_field(meteoMarketPtr, met_src,&
+                                           & nwp_abl_height_m_flag,&
+                                           & level_missing,&
+                                           & time,&
+                                           & single_time)
+          if(error)return
+          abl_height_nwp => fu_grid_data(field_abl_height_nwp)
+          abl_height(1:fs_meteo) = abl_height_nwp(1:fs_meteo)
 
         case default
           call set_error('Unknown ABL height method:' + fu_str(ABL_height_method_switch),'dq_ABL_params')
@@ -3536,7 +3540,7 @@ CONTAINS
       if(error)cycle loop_over_times
 
       ABL_m_2d => fu_sm_obstime_field(meteoMarketPtr, met_src,&
-                                    & abl_height_m_pointer,&
+                                    & abl_height_m_flag,&
                                     & level_missing,&
                                     & time,&
                                     & single_time)
@@ -4782,7 +4786,7 @@ CONTAINS
       if (Kz_method /= zero_kz) then ! some meteo needed
 
               ! 2D fields
-              fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, abl_height_m_pointer, level_missing, &
+              fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, abl_height_m_flag, level_missing, &
                                           & time, single_time)
               if(error)return
               ptrHabl => fu_grid_data(fldTmp)
@@ -5206,7 +5210,7 @@ CONTAINS
       !
       ! ABL
       !
-      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, abl_height_m_pointer, level_missing, &
+      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, abl_height_m_flag, level_missing, &
                                   & time, forwards)
       if(error)return
       abl => fu_grid_data(fldTmp)

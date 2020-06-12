@@ -458,7 +458,6 @@ MODULE names_of_quantities
   ! This is the pointer to one of two possible vertical velocities: omega or w.
   !
   integer, public, save :: vertical_velocity_pointer = int_missing
-  integer, public, save :: abl_height_m_pointer = int_missing
 
 
 
