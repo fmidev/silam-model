@@ -2506,8 +2506,8 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
        erf_input1 = (log(bounds(i+1)) - log(mu1))/(log(s1)*(2.0**(1.0/2.0)))
        erf_input2 = (log(bounds(i+1)) - log(mu2))/(log(s2)*(2.0**(1.0/2.0)))
        ! Cumulative lognormal distribution (fraction of total) under the given radius
-       fractions1 = (1.0 + fu_erf(erf_input1))/(2.0)
-       fractions2 = (1.0 + fu_erf(erf_input2))/(2.0)
+       fractions1 = (1.0 + ERF(erf_input1))/(2.0)
+       fractions2 = (1.0 + ERF(erf_input2))/(2.0)
        ! Total from both with given fractions f1 and f2 of the modes (not bins)
        total_fractions(i) = (fractions1*f1) + (fractions2*f2)
        ! Not the cumulative

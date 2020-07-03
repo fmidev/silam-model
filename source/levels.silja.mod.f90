@@ -1521,6 +1521,7 @@ CONTAINS
     chUnit = fu_content(nl,'vertical_unit')
     if(len_trim(chUnit) == 0)then
       fScale = 1.0
+      chSIunit="???"
     else
       chSIunit = fu_SI_unit(chUnit)
       fScale = fu_factor_to_basic_unit(chUnit, chSIunit)

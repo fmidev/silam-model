@@ -100,13 +100,12 @@ contains
 
     integer :: nitems, stat, i, iStat
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: items
-    type(silam_sp) :: workstring
+    character(len=worksize_string) :: workstring
     real :: lat, lon, hgt
     character(len=STATION_LABEL_LENGTH) :: label
     character(len=clen) :: name
 
     nullify(items)
-    workstring%sp => fu_work_string()
     
     call get_items(nlPtr, 'station', items, nstations)
     
@@ -128,10 +127,10 @@ contains
     !
     iStat = 1
     do i = 1, nstations
-      workstring%sp = fu_content(items(i))
-      read(workstring%sp, fmt=*, iostat=stat) label, lat, lon, hgt, name
+      workstring = fu_content(items(i))
+      read(workstring, fmt=*, iostat=stat) label, lat, lon, hgt, name
       if (stat /= 0) then
-        call msg('Problem with record: ' // workstring%sp)
+        call msg('Problem with record: ' // workstring)
         call set_error('Problem parsing station list', 'stations_from_namelist')
         return
       end if
@@ -140,7 +139,7 @@ contains
     end do
     nstations = iStat - 1 ! the number of actually initialised stations
     
-    call free_work_array(workstring%sp)
+    deallocate(items)
 
   end subroutine stations_from_namelist_no_ptr
 
@@ -148,27 +147,25 @@ contains
 
   subroutine stations_from_namelist_ptr(nlPtr, station_list, nstations, grid)
     implicit none
-    type(Tsilam_namelist), pointer :: nlPtr
-    type(observationStationPtr), dimension(:), pointer :: station_list
+    type(Tsilam_namelist), intent(in) :: nlPtr
+    type(observationStation), dimension(:), allocatable :: station_list
     integer, intent(out) :: nstations
     type(silja_grid), intent(in) :: grid
 
     integer :: nitems, stat, ii, iStat
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: items
-    type(silam_sp) :: workstring
+    character(len=worksize_string) :: workstring
     real :: lat, lon, hgt
     character(len=STATION_LABEL_LENGTH) :: label
     character(len=clen) :: name
     logical :: ifOK
 
     nullify(items)
-    workstring%sp => fu_work_string()
     
     call get_items(nlPtr, 'station', items, nstations)
     
     if (nstations < 1) then
       call set_error('No stations found', 'stations_from_namelist')
-      nullify(station_list)
       return
     end if
 
@@ -180,28 +177,21 @@ contains
     
     iStat = 1
     do ii = 1, nstations
-      workstring%sp = fu_content(items(ii))
-      read(workstring%sp, fmt=*, iostat=stat) label, lat, lon, hgt, name
+      workstring = fu_content(items(ii))
+      read(workstring, fmt=*, iostat=stat) label, lat, lon, hgt, name
       if (stat /= 0) then
-        call msg('Problem with record: ' // workstring%sp)
+        call msg('Problem with record: ' // workstring)
         call set_error('Problem parsing station list', 'stations_from_namelist')
         return
       end if
-      allocate(station_list(iStat)%ptr, stat=stat)
-      if (stat /= 0) then
-        call set_error('Allocate failed', 'stations_from_namelist')
-        return
-      end if
-      station_list(iStat)%ptr = fu_initObservationStation(label, name, lon, lat, hgt, grid)
-      if(defined(station_list(iStat)%ptr))then
+      station_list(iStat) = fu_initObservationStation(label, name, lon, lat, hgt, grid)
+      if(defined(station_list(iStat)))then
         iStat = iStat + 1
-      else
-        deallocate(station_list(iStat)%ptr)
       endif
     end do
     nstations = iStat - 1
 
-    call free_work_array(workstring%sp)
+    deallocate(items)
     
   end subroutine stations_from_namelist_ptr
 
@@ -219,7 +209,7 @@ contains
     type(silja_interval), intent(in) :: obs_period
     character(len=*), intent(in) :: obs_list_path
     character(len=*), dimension(:), pointer :: obs_items
-    type(observationStationPtr), dimension(:), intent(in) :: station_list
+    type(observationStation), dimension(:), intent(in) :: station_list
     integer, intent(in) :: nstations
     integer, intent(inout) :: nObsItems
     type(silam_species), dimension(:), intent(in) :: transport_species
@@ -250,6 +240,7 @@ contains
     integer, parameter :: max_n_obs_per_time_window = 1
     character(len=*), parameter :: sub_name = 'read_observations'
 
+
     if (n_opt_species > 0 .and. .not. associated(optical_species)) then
       call set_error('Inconsistent arguments', sub_name)
       return
@@ -266,15 +257,15 @@ contains
     n_dose_rate = 0
     n_eruption = 0
 
-!     call msg("Before allocating observations memory usage (kB)",  fu_system_mem_usage())
+     call msg("Before allocating observations memory usage (kB)",  fu_system_mem_usage())
     allocate(observations_tmp(max_n_obs_per_time_window*nstations*n_transp_species), &
            & dose_rate_obs_tmp(nstations*n_transp_species), &
            & dose_rate_addition_tmp(nstations*n_transp_species), &
            & vert_obs_tmp(max_column_observations), &
            & eruption_obs_tmp(max_eruption_observations), &
            & stat=status)
-!     call msg("After allocating observations memory usage (kB)",  fu_system_mem_usage())
-    
+     call msg("After allocating observations memory usage (kB)",  fu_system_mem_usage())
+
     if (fu_fails(status == 0, 'Allocate failed', sub_name)) return
 
     file_unit = fu_next_free_unit()
@@ -305,6 +296,7 @@ contains
         call decode_template_string(file_name, obs_templ)
         if (error) return
 
+        file_name_old = ""
         do while (time_in_filename <= obs_start + obs_period)
           call expand_template(obs_templ, time_in_filename, file_name)
           if (file_name /= file_name_old) then
@@ -535,11 +527,10 @@ contains
       character(len=station_id_length) :: id, prev_id
       character(substNmLen) :: cockt_name, prev_cockt_name
       character(len=255) :: line
-      integer :: year, month, day, hour, itime, quantity, n_cockt_species
+      integer :: year, month, day, hour, itime, quantity, n_cockt_species, istation
       real :: duration_hours, value, modeval, wavelength, stdev, variance
       type(silja_interval) :: duration
       type(silja_time) :: time, prev_time
-      type(observationStation), pointer :: station
       real, dimension(:), pointer :: values_tmp, variances_tmp
       type(silja_time), dimension(:), allocatable :: times_tmp
       type(silja_interval), dimension(:), allocatable :: durations_tmp
@@ -655,8 +646,8 @@ contains
 
         if (flush_values) then
           !call msg(id)
-          call searchStationWithID(prev_id, station_list, nstations, station, found)
-          if (.not. found) then
+          call searchStationWithID(prev_id, station_list, nstations, istation)
+          if (istation < 1) then
             call msg_warning('Station ' // trim(prev_id) // ' not found')
           else
             nread = nread + 1
@@ -674,7 +665,7 @@ contains
                                                          & scale_transp2obs, &
                                                          & is_aerosol, &
                                                          & n_cockt_species, &
-                                                         & station, &
+                                                         & station_list(istation), &
                                                          & level_missing, &
                                                          & dispersion_vertical, &
                                                          & cockt_name)
@@ -817,11 +808,10 @@ contains
       integer :: iostat
       character(len=station_id_length) :: id, prev_id
       character(len=255) :: line
-      integer :: year, month, day, hour, itime, quantity
+      integer :: year, month, day, hour, itime, quantity, istation
       real :: duration_hours, value, modeval, wavelength, stdev, variance
       type(silja_interval) :: duration
       type(silja_time) :: time, prev_time
-      type(observationStation), pointer :: station
       real, dimension(:), pointer :: values_tmp, variances_tmp
       type(silja_time), dimension(:), allocatable :: times_tmp
       type(silja_interval), dimension(:), allocatable :: durations_tmp
@@ -894,8 +884,8 @@ contains
 
         if (flush_values) then
           !call msg(id)
-          call searchStationWithID(prev_id, station_list, nstations, station, found)
-          if (.not. found) then
+          call searchStationWithID(prev_id, station_list, nstations, istation)
+          if (istation < 1) then
             call msg_warning('Station ' // trim(prev_id) // ' not found')
           else
             nread = nread + 1
@@ -911,7 +901,7 @@ contains
                                                          & variable_variance, &
                                                          & transport_species, &
                                                          & obs_unit, &
-                                                         & station, &
+                                                         & station_list(istation), &
                                                          & level_missing, &
                                                          & dispersion_vertical, &
                                                          & 'dose_rate')
@@ -978,6 +968,7 @@ contains
       end do
       
       call destroy_namelist(nlptr)
+      deallocate(p_items)
 
     end subroutine add_obs_items_from_list
 
@@ -1035,6 +1026,7 @@ contains
     if (error) return
 
     filename = fu_process_filepath(filenames(1)%sp, must_exist=.true.)
+    deallocate(filenames(1)%sp)
     deallocate(filenames)
   end subroutine expand_template
 
@@ -1190,14 +1182,17 @@ contains
     end do
     !$OMP END DO
                                                                                                                                                                                                                                                                                                                
-    if (present(eruption_height) .and. (.not. eruption_height == real_missing)) then
-      !$OMP DO
-      do i = 1, pointers%nEruptionObservations
-        call observe_eruption(pointers%observationsEruption(i), eruption_height)
-      end do
-      !$omp End Do
+    if (present(eruption_height) )then
+      if  (.not. eruption_height == real_missing) then
+        !$OMP DO
+        do i = 1, pointers%nEruptionObservations
+          call observe_eruption(pointers%observationsEruption(i), eruption_height)
+        end do
+        !$OMP END DO
+
+      endif
     end if
-    !$omp End Parallel
+    !$OMP END PARALLEL
     
   End subroutine observeAll
 
@@ -1345,7 +1340,7 @@ contains
     !character(len=worksize) :: nl_content
     integer :: file_unit, status, ii, n_obs_items, n_observations, n_stations
     type(Tsilam_namelist), pointer :: nl_stations
-    type(observationStationPtr), dimension(:), pointer :: station_list
+    type(observationStation), dimension(:), allocatable :: station_list
     integer :: n_transp_species, n_opt_species
     type(grads_template) :: station_template
     character(len=fnlen) :: station_list_file
@@ -1360,7 +1355,6 @@ contains
 
     if (station_path == '') then
       n_stations = 0
-      nullify(station_list)
     else
       file_unit = fu_next_free_unit()
       call decode_template_string(station_path, station_template)
@@ -1375,7 +1369,7 @@ contains
       nl_stations => fu_read_namelist(file_unit, .false.)
       close(file_unit)
       call stations_from_namelist_ptr(nl_stations, station_list, n_stations, dispersion_grid) ! Sic!!
-                    ! Set sstation indices for current ssubdomain
+                    ! Set station indices for current subdomain
       call destroy_namelist(nl_stations)
       if (error) return
     end if
@@ -1414,6 +1408,7 @@ contains
     call msg('Ave obs value: ', sum(observations%obs_values)/size(observations%obs_values))
     call msg('Number of obs: ', observations%obs_size)
    ! call ooops("End obs read")
+    deallocate(station_list)
     !!!!!!!!!!!!!!!!!!!!!!!!
 
   contains
@@ -1808,7 +1803,7 @@ contains
   !
   !**********************************************************************************
 
-  subroutine searchStationWithID(id, station_list, nstations, station, wasFound)
+  subroutine searchStationWithID(id, station_list, nstations, istation)
     implicit none
 
     ! Walk through the station list and return 
@@ -1816,25 +1811,15 @@ contains
 
     !integer, intent(in) :: id
     character(len=*), intent(in) :: id
-    type(observationStationPtr), dimension(:), intent(in) :: station_list
+    type(observationStation), dimension(:), intent(in) :: station_list
     integer, intent(in) :: nstations
-    type(observationStation), pointer :: station
-    logical, intent(out) :: wasFound
+    integer, intent(out) :: istation
 
-    integer :: i
-    wasfound = .false.
-
-    do i = 1, nstations
+    do istation = 1, nstations
 !call msg('Checking:' + station_list(i)%ptr%id, i)
-      if (station_list(i)%ptr%id == id) then
-        station => station_list(i)%ptr
-        wasFound = .true.
-        return
-      end if
+      if (station_list(istation)%id == id) return
     end do
-
-    wasFound = .false.
-    nullify(station)
+    istation = int_missing
 
   end subroutine searchStationWithID
 
@@ -1955,7 +1940,7 @@ contains
     integer, parameter :: num_transp_sp = 2, num_stations = 2
     type(silam_species), dimension(2) :: transp_species
 
-    type(observationStationPtr), dimension(2) :: station_list
+    type(observationStation), dimension(2) :: station_list
     type(inSituObservation), dimension(:), pointer :: in_situ_list, dose_rate_list
     type(t_dose_rate_obs_addition), dimension(:), pointer :: addition_list
     integer :: num_in_situ, num_vert_obs, num_dose_rate, num_eruption_obs
@@ -2050,10 +2035,10 @@ contains
 
   contains
     
-    subroutine check_observations(obs_list, obs_size, station_ptr_list)
+    subroutine check_observations(obs_list, obs_size, station_list)
       implicit none
       type(insituObservation), dimension(:), intent(in) :: obs_list
-      type(observationStationPtr), dimension(:), intent(in) :: station_ptr_list
+      type(observationStation), dimension(:), intent(in) :: station_list
       integer, intent(in) :: obs_size
 
       real, dimension(:), pointer :: dataptr
@@ -2066,7 +2051,7 @@ contains
         num_val = fu_size(obs_list(ind_obs))
         call msg('num_val, obs_size', num_val, obs_size)
         failure = fu_fails(num_val == obs_size, 'Obs are wrong size', sub_name)
-        failure = fu_fails(obs_list(ind_obs)%station%id == station_ptr_list(ind_obs)%ptr%id, &
+        failure = fu_fails(obs_list(ind_obs)%station%id == station_list(ind_obs)%id, &
              & 'wrong id', sub_name)
         call get_data(in_situ_list(ind_obs), values_obs=dataptr)
         if (fu_fails(all(dataptr(1:obs_size) .eps. expect_values), 'Wrong values', sub_name)) then
@@ -2081,9 +2066,9 @@ contains
       
     end subroutine check_observations
 
-    subroutine make_stations(station_ptr_list, how_many)
+    subroutine make_stations(station_list, how_many)
       implicit none
-      type(observationStationPtr), dimension(:), intent(out) :: station_ptr_list
+      type(observationStation), dimension(:), intent(out) :: station_list
       integer, intent(in) :: how_many
       
       integer :: ind_station
@@ -2091,22 +2076,20 @@ contains
       character(clen) :: code, name
       
       do ind_station = 1, how_many
-        allocate(stationptr)
         write(code, fmt='("A",I0)') ind_station
         write(name, fmt='("station_", I0)') ind_station
-        stationptr = fu_initObservationStation(trim(code), trim(name), &
+        station_list(ind_station) = fu_initObservationStation(trim(code), trim(name), &
                                              & 30.0 + ind_station, 55.0 + ind_station, 2.0, &
                                              & grid)
-        station_ptr_list(ind_station)%ptr => stationptr
       end do
       
     end subroutine make_stations
 
-    subroutine make_observations(filename, station_ptr_list, time_start, time_end, cockt_name, duration, &
+    subroutine make_observations(filename, station_list, time_start, time_end, cockt_name, duration, &
                                & num_val)
       implicit none
       character(len=*), intent(in) :: filename, cockt_name
-      type(observationStationPtr), dimension(:), intent(in) :: station_ptr_list
+      type(observationStation), dimension(:), intent(in) :: station_list
       type(silja_time), intent(in) :: time_start, time_end
       !real, intent(in) :: value
       type(silja_interval), intent(in) :: duration
@@ -2130,7 +2113,7 @@ contains
         do while (now < time_end)
           value = ind_station + num_val
           obs_end = now + duration
-          write(unit, fmt='(A, A, I5, I3, I3, I3, 3G12.3)') station_ptr_list(ind_station)%ptr%id, cockt_name, &
+          write(unit, fmt='(A, A, I5, I3, I3, I3, 3G12.3)') station_list(ind_station)%id, cockt_name, &
                & fu_year(obs_end), fu_mon(obs_end), fu_day(obs_end), fu_hour(obs_end), &
                & hours, value, 1.0
           now = now + duration

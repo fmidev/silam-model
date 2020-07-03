@@ -533,6 +533,7 @@ CONTAINS
         refProp(iRefSub)%defined = silja_true
         IF (error) RETURN
     end do  ! reference optic substances
+    call destroy_namelist_group(nlGrpPtr)
 
   endsubroutine read_optical_properties
 

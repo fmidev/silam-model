@@ -6766,8 +6766,9 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
           !
           ! Remove brackets
           !
-          chSubstNm = chSubstNm(2:len_trim(chSubstNm))
-          chSubstNm(len_trim(chSubstNm):len_trim(chSubstNm)) = ' '
+          iTmp=len_trim(chSubstNm)
+          chSubstNm(1:iTmp-2) = chSubstNm(2:iTmp-1)
+          chSubstNm(iTmp-1:iTmp) = ' '
           !
           ! May be a true substance name or one of INVENTORIES, which have to be expanded later
           !
@@ -6844,7 +6845,8 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
           call msg(chAveraging)
           return
         endif
-        chAveraging = chAveraging(11:len_trim(chAveraging))
+        iTmp=len_trim(chAveraging)
+        chAveraging(1:iTmp-10) = chAveraging(11:iTmp)
         chAveraging = chAveraging(1:index(chAveraging,'_')-1)
         if(len_trim(chAveraging) == 0)then
           call set_error('Failed to understand averging','read_output_configuration')
@@ -7014,6 +7016,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     call free_work_array(sp%sp)
     call free_work_array(arTmp)
     call destroy_namelist(nlOutCfg)
+    deallocate(ptrVars)
 
   end subroutine read_output_configuration
 

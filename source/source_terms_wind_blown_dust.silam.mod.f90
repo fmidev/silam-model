@@ -2170,7 +2170,7 @@ call free_work_array(sp2%sp)
                                    & Ds=3.4,   &    !um, 
                                    & SigmaS=3.0, ln_sigma_s2 = 1.5536723984242, &  !ln(Sigma) * sqrt(2)
                                    & L=12.0         ! um
-        fRate = (1.0D0 + fu_erf(log(fD_um / Ds) / ln_Sigma_s2)) * exp(-(fD_um / L)**3) / (cn * fD_um**3)
+        fRate = (1.0D0 + ERF(log(fD_um / Ds) / ln_Sigma_s2)) * exp(-(fD_um / L)**3) / (cn * fD_um**3)
       
       end function fu_shape_function_Kok_Brittle_nbr
     

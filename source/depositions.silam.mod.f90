@@ -196,7 +196,7 @@ module depositions
                                               & pMetConvVel => null(), pMetSensHF => null(), pMetSnowDepth => null(), pMetLAI => null(), &
                                               & pMetGsto => null(), pMetIcefr => null(), pCAPE => null()
 
-  integer, private, pointer, save :: imet_cwc3d, imet_pwc3d, imet_lcwc3d, imet_press, imet_cwcol, imet_lcwcol,  &
+  integer, private, pointer, save :: imet_cwc3d, imet_pwc3d, imet_press, imet_cwcol, imet_lcwcol,  &
        & imet_temp, imet_u, imet_v, imet_cape, imet_precip, imet_scav, imet_cloudcov, imet_dx_size, imet_dy_size, imet_dz_size, imet_abl
 
   real, private :: meteo_cell_size !! Linear size of a meteo cell, m
@@ -789,6 +789,11 @@ CONTAINS
         meteo_input_local%quantity(nq) = scavenging_coefficient_flag
         meteo_input_local%q_type(nq) = meteo_single_time_flag
         imet_scav => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = temperature_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_temp => meteo_input_local%idx(nq)
 
       case(scav2011,scav2011fc)
         nq = nq +1
@@ -2663,7 +2668,6 @@ ifTuned = .true.
          & cape_met, tcc, fTempr_1, cell_size_x, cell_size_y, abl_height
     integer :: iLev, iSrc, iSpecies, iSpTr, ithread
 
-    real, dimension(max_levels) :: cell_size_z
     real, dimension(max_species) :: rSettling
 
     logical :: not_adjoint
@@ -2692,15 +2696,6 @@ ifTuned = .true.
     iMeteo = fu_grid_index(nx_meteo, ix, iy, pHorizInterpStruct)
     precip_rate = pMetPrecTot(iMeteo)
 
-    tcc = metdat_col(imet_cloudcov,1)
-
-    if (rulesDeposition%max_scav_rate_depends_on == cape) then
-      cape_met = metdat_col(imet_cape,1)
-      abl_height = metdat_col(imet_abl,1)
-    end if
-
-    cwc_col(1:num_levs) = metdat_col(imet_cwc3d,1:num_levs)
-
     if (precip_rate < 1e-30/3600.) return
 
     iThread = 0
@@ -2721,7 +2716,7 @@ ifTuned = .true.
       ! Note that settling is ro*d^2 - proportional. Hence, here we can simply take                              
       ! diameter as the proportionality factor                                                                   
       !                                                                                                          
-      call msg('Standard scavenging...',rulesDeposition%scavengingType)
+      !call msg('Standard scavenging...',rulesDeposition%scavengingType)
 
       fldScavCoefStd => met_buf%p4d(fu_index(mdl_in_q, scavenging_coefficient_flag))
 
@@ -2750,7 +2745,6 @@ ifTuned = .true.
 
       cell_size_x = metdat_col(imet_dx_size,1)
       cell_size_y = metdat_col(imet_dy_size,1)
-      cell_size_z(1:num_levs) = metdat_col(imet_dz_size,1:num_levs)
 
       do iLev = 1, num_levs
         do iSrc = 1, mapConc%nSrc
@@ -2902,7 +2896,15 @@ ifTuned = .true.
       endif
 
       precipContent(1:mapConc%nSpecies, 1:mapConc%nSrc) = 0. !Reset
-      
+    
+      tcc = metdat_col(imet_cloudcov,1)
+      if (rulesDeposition%max_scav_rate_depends_on == cape) then
+        cape_met = metdat_col(imet_cape,1)
+        abl_height = metdat_col(imet_abl,1)
+      end if
+
+      cwc_col(1:num_levs) = metdat_col(imet_cwc3d,1:num_levs)
+
       if(timestep_sec > 0.)then
                 
         do iLev = num_levs,1,-1

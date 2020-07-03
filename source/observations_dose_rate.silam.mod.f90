@@ -534,7 +534,7 @@ contains
     integer, intent(in) :: variance_flag, n_values
     ! the durations are currently assumed to be given in hours. True,
     ! silja_interval would make sense in this context.
-    type(observationStation), intent(in), target:: station
+    type(observationStation), intent(in) :: station
     type(silam_species), dimension(:), intent(in) :: transport_species
     character(len=*), intent(in) :: obs_unit
     type(silam_vertical), intent(in) :: vertical
@@ -566,7 +566,7 @@ contains
     newObservation%durations = durations(1:n_values)
     newObservation%obsData = obsData(1:n_values)
     newObservation%dataLength = n_values
-    newObservation%station => station
+    newObservation%station = station
     allocate(newObservation%modelData(n_values), stat=status)
     if (status /= 0) then
       call set_error('Cannot initialize observation: allocate failed.','fu_init_dose_rate_obs')

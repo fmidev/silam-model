@@ -608,6 +608,8 @@ module da_common
 
     call init_control_from_par(control, analysis_grid, analysis_vertical, transp_species, emis_species, &
                                & rules, space_flag, initial_value_, bgr_cov_ptr)
+    
+    call set_missing(analysis_vertical, .False. )
 
   end subroutine init_control_from_cloud
 
@@ -2681,6 +2683,7 @@ module da_common
                  & analysis_grid, surface_vertical, bgr_cov%correlation_emission, &
                  & fu_emission_ptr(background), bgr_cov%stdev_emission)
       call set_missing(surface_vertical, .false.)
+      call destroy_namelist_group(nlgrp_cov_setup)
     end if
     !
     ! Concentratiobns (initial conditions)
@@ -2714,6 +2717,7 @@ module da_common
                  & bgr_cov%correlation_initial, fu_initial_ptr(background), bgr_cov%stdev_initial)
       if (error) return
       if (.not. associated(analysis_species, species_transport)) deallocate(analysis_species)
+      call destroy_namelist_group(nlgrp_cov_setup)
     end if
     !
     ! Time-vertical emission profile
@@ -2800,6 +2804,7 @@ module da_common
       if (error) return
 
       filename = fu_process_filepath(filenames(1)%sp, must_exist=.true.)
+      deallocate(filenames(1)%sp)
       deallocate(filenames)
     end subroutine expand_template
 
@@ -2938,6 +2943,7 @@ module da_common
           end do ! selected species
           
         end do ! substance
+        deallocate(p_items)
         
       end do ! namelist
       do ind_species = 1, num_species
@@ -2949,7 +2955,8 @@ module da_common
 
       ! Finally combine the separate correlations into one:
       call set_total_correlation(correlations, analysis_grid, analysis_vertical, num_species, correlation)
-      
+      !!FIXME Should be deallocated, but used elsewhere via pointers
+      !!deallocate (correlations) 
     end subroutine set_cov
 
     !========================================================

@@ -153,7 +153,7 @@ module photolysis
   integer, private, save :: ind_summer, ind_winter
 
   integer, public, pointer, save :: imet_albedo, imet_cwc3d, imet_press, imet_cwcol, imet_lat, &
-       & imet_tcc, imet_cc3d, imet_temp, imet_lcwc3d, imet_lcwcol, imet_dx_size, imet_dy_size, imet_dz_size, &
+       & imet_tcc, imet_cc3d, imet_temp, imet_dx_size, imet_dy_size, imet_dz_size, &
        & imet_airmass, imet_airdens, imet_prec, imet_cwc, imet_cic
 
   logical, private, save :: initialized = .false.
@@ -1233,8 +1233,6 @@ contains
     imet_cwc3d => null()
     imet_cwcol => null()
     imet_dz_size => null()
-    imet_lcwc3d => null()
-    imet_lcwcol => null()
     imet_temp => null()
 
     if (cloud_model /= fake_cloud) then
@@ -1245,15 +1243,6 @@ contains
       meteo_input_local%q_type(nq) = meteo_dynamic_flag
       imet_tcc => meteo_input_local%idx(nq)
 
-      nq = nq + 1
-      meteo_input_local%quantity(nq) = cwcabove_3d_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_cwc3d => meteo_input_local%idx(nq)
-
-      nq = nq +1
-      meteo_input_local%quantity(nq) = cloud_ice_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_cic => meteo_input_local%idx(nq)
 
       if (cloud_model == simple_cloud) then
         nq = nq +1
@@ -1261,17 +1250,12 @@ contains
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
         imet_cwcol => meteo_input_local%idx(nq) 
 
-      
         nq = nq + 1
-        meteo_input_local%quantity(nq) = lcwcabove_3d_flag
+        meteo_input_local%quantity(nq) = cwcabove_3d_flag
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
-        imet_lcwc3d => meteo_input_local%idx(nq)
+        imet_cwc3d => meteo_input_local%idx(nq)
 
-        nq = nq + 1
-        meteo_input_local%quantity(nq) = lcwcolumn_flag
-        meteo_input_local%q_type(nq) = meteo_dynamic_flag
 
-        imet_lcwcol => meteo_input_local%idx(nq)
       elseif (cloud_model == detailed_cloud) then
 
         nq = nq +1
@@ -1303,6 +1287,11 @@ contains
         meteo_input_local%quantity(nq) = cloud_water_flag
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
         imet_cwc => meteo_input_local%idx(nq)
+
+        nq = nq +1
+        meteo_input_local%quantity(nq) = cloud_ice_flag
+        meteo_input_local%q_type(nq) = meteo_dynamic_flag
+        imet_cic => meteo_input_local%idx(nq)
 
 
       end if
@@ -1419,8 +1408,8 @@ contains
 
     integer, parameter :: nLev = 3, nMet = 5
 
-    integer, dimension(9), target :: metindex
-    real, dimension(9,3) :: met_dat
+    integer, dimension(7), target :: metindex
+    real, dimension(7,3) :: met_dat
     real, dimension(num_reactions, 3) :: rates
     real, dimension(3), parameter :: aod_ext =  (/1. , 1., 1./), &
                                   & aod_scat = (/ .9,  .9, .9/), &
@@ -1430,7 +1419,7 @@ contains
     type(silja_time) :: now 
     integer :: ind_lev, ind_react
     
-    metindex(:) = (/1,2,3,4,5,6,7,8,9/)
+    metindex(:) = (/1,2,3,4,5,6,7/)
     imet_albedo => metindex(1)
     imet_cwc3d  => metindex(2) 
     imet_press  => metindex(3) 
@@ -1438,8 +1427,6 @@ contains
     imet_lat    => metindex(5) 
     imet_tcc    => metindex(6)
     imet_temp    => metindex(7)
-    imet_lcwc3d  => metindex(8)
-    imet_lcwcol  => metindex(9)
 
      met_dat(imet_albedo,:) = 0.3
      met_dat(imet_cwc3d,:) =  (/3e-3, 1e-3, 0.0/) ! kg/m3!!
@@ -1448,15 +1435,13 @@ contains
      met_dat(imet_lat,:) =    0. 
      met_dat(imet_tcc,:) =    0.3    
      met_dat(imet_temp,:) =    (/273, 263, 253/)
-     met_dat(imet_lcwc3d,:) =  (/3e-3, 1e-3, 0.0/) ! kg/m3!!                                                 
-     met_dat(imet_lcwcol,:) =  3e-3
     
     now = fu_set_time_utc(2001, 7, 1, 0, 0, 0.0)
     
     ! equator, time as above, pressure as in col_press, sun at zenith.
     !call get_photorates_column(met_dat, 1., real_missing, now, aod_ext, &
     !     & aod_scat, o3_col, rates, .true., .true., thickness, version)
-    do ind_lev = 1, nMet
+    do ind_lev = 1, nLev
       call msg('Level, pressure:', ind_lev, met_dat(imet_press,ind_lev))
       do ind_react = 1, num_reactions
         call msg('Reaction, rate', ind_react, rates(ind_react, ind_lev))
@@ -1466,7 +1451,7 @@ contains
     ! equator, time as above, pressure as in col_press, 30 degree zenith angle.
     !call get_photorates_column(met_dat, cos(30./180*pi), real_missing, now, aod_ext, &
     !     & aod_scat, o3_col, rates, .true., .true., thickness)
-    do ind_lev = 1, nMet
+    do ind_lev = 1, nLev
       call msg('Level, pressure:', ind_lev, met_dat(imet_press,ind_lev))
       do ind_react = 1, num_reactions
         call msg('Reaction, rate', ind_react, rates(ind_react, ind_lev))
@@ -1477,7 +1462,7 @@ contains
     !call get_photorates_column(met_dat,  cos(91./180*pi), real_missing, now, aod_ext, &
     !     & aod_scat, o3_col, rates, .true., .true., thickness)
     call msg('Twilight:')
-    do ind_lev = 1, nMet
+    do ind_lev = 1, nLev
       call msg('Level, pressure:', ind_lev, met_dat(imet_press,ind_lev))
       do ind_react = 1, num_reactions
         call msg('Reaction, rate', ind_react, rates(ind_react, ind_lev))

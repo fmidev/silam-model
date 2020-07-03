@@ -2087,13 +2087,13 @@ CONTAINS
             if(trim(nf%nVars(iVar)%chVarNm) == trim(lstVarName(iTmp)))then
                nf%nVars(iVar)%quantity = fu_get_silam_quantity(lstSilamQ(iTmp))
                if(error)then
-                 call unset_error(sub_name)
-                 nf%nVars(iVar)%quantity = int_missing
-               else
-                if(ifMsgs) call msg(fu_connect_strings('Found variable:', &
+                 call set_error("Failed to parse variable listed in the nametable",sub_name)
+                 return
+               endif
+
+               if(ifMsgs) call msg(fu_connect_strings('Found variable:', &
                                             & nf%nVars(iVar)%chVarNm,  ', silam quantity: '), &
                           & nf%nVars(iVar)%quantity)
-               endif
 
 
                jTmp = fu_str2leveltype(lstVType(iTmp))

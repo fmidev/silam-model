@@ -2372,7 +2372,7 @@ write(55,'(6I4,12(F,1x),D)') &
       f1 = fNow - fMid
       f2 = f1 + delta
       s = stDev * sqrt(2.)
-      fu_mk_new_pollen_normal = fTotalPollen * 0.5 * (fu_erf(f2/s)-fu_erf(f1/s))
+      fu_mk_new_pollen_normal = fTotalPollen * 0.5 * (ERF(f2/s)-ERF(f1/s))
 
     end function fu_mk_new_pollen_normal
     
@@ -2409,7 +2409,7 @@ write(55,'(6I4,12(F,1x),D)') &
       t1 = dayT - dayMid1
       t2 = t1 + tStep
       s = daySgm1 * sqrt(2.)
-      fu_mk_new_pollen_normal_diurnal = dayFrac1 * 0.5 * (fu_erf((t2)/s) - fu_erf(t1/s))       
+      fu_mk_new_pollen_normal_diurnal = dayFrac1 * 0.5 * (ERF((t2)/s) - ERF(t1/s))       
     
       if(fu_mk_new_pollen_normal_diurnal < 0.0)then
         call msg('t1, t2', real(t1), real(t2))
@@ -2421,7 +2421,7 @@ write(55,'(6I4,12(F,1x),D)') &
       t2 = t1 + tStep
       s = daySgm2 * sqrt(2.)
       fu_mk_new_pollen_normal_diurnal = fu_mk_new_pollen_normal_diurnal + &
-                                      & (1.0 - dayFrac1) * 0.5 * (fu_erf((t2)/s) - fu_erf(t1/s))      
+                                      & (1.0 - dayFrac1) * 0.5 * (ERF((t2)/s) - ERF(t1/s))      
       if(fu_mk_new_pollen_normal_diurnal < 0.0)then
         call msg('t1, t2', real(t1), real(t2))
         call msg('dayFrac1, s', dayFrac1, real(s))
@@ -2433,7 +2433,7 @@ write(55,'(6I4,12(F,1x),D)') &
       t2 = t1 + 1.0
       s = seasonSgm * sqrt(2.)
       fu_mk_new_pollen_normal_diurnal = fu_mk_new_pollen_normal_diurnal * fTotalPollen * &  
-                              & 0.5 * (fu_erf(t2/s) - fu_erf(t1/s))       ! normal distribution
+                              & 0.5 * (ERF(t2/s) - ERF(t1/s))       ! normal distribution
       
       if(fu_mk_new_pollen_normal_diurnal < 0.0)then
         call msg('t1, t2', real(t1), real(t2))

@@ -5616,8 +5616,8 @@ call msg('Flip...')
         dd2 = d2
         mass_median_log = log(mfp1) + 3.0*(log(mfp2))**2
 !        call msg('Erfect argument:',(log(d1) - mass_median_log) / (sqrt2*log(mode%fp2)))
-!        cumu1 = (1.0 + fu_erf((log(dd1) - mass_median_log) / (dsqrt_2*log(mfp2)))) * 0.5
-!        cumu2 = (1.0 + fu_erf((log(dd2) - mass_median_log) / (dsqrt_2*log(mfp2)))) * 0.5
+!        cumu1 = (1.0 + ERF((log(dd1) - mass_median_log) / (dsqrt_2*log(mfp2)))) * 0.5
+!        cumu2 = (1.0 + ERF((log(dd2) - mass_median_log) / (dsqrt_2*log(mfp2)))) * 0.5
         cumu1 = (1.0 + erf((log(dd1) - mass_median_log) / (dsqrt_2*log(mfp2)))) * 0.5
         cumu2 = (1.0 + erf((log(dd2) - mass_median_log) / (dsqrt_2*log(mfp2)))) * 0.5
         fract = cumu2 - cumu1
@@ -5683,12 +5683,12 @@ call msg('Flip...')
         median_log = log(mfp1)
 !        fTmp = (dlog(dd1) - median_log)
 !        fTmp = (dlog(dd1) - median_log) / (dsqrt_2*dlog(mfp2))
-!        fTmp = fu_erf((dlog(dd1) - median_log) / (dsqrt_2*dlog(mfp2)))
+!        fTmp = ERF((dlog(dd1) - median_log) / (dsqrt_2*dlog(mfp2)))
 !        fTmp = (dlog(dd2) - median_log)
 !        fTmp = (dlog(dd2) - median_log) / (dsqrt_2*dlog(mfp2))
-!        fTmp = fu_erf((dlog(dd2) - median_log) / (dsqrt_2*dlog(mfp2)))
-!        cumu1 = (1.0 + fu_erf((log(dd1) - median_log) / (dsqrt_2*log(mfp2)))) * 0.5
-!        cumu2 = (1.0 + fu_erf((log(dd2) - median_log) / (dsqrt_2*log(mfp2)))) * 0.5
+!        fTmp = ERF((dlog(dd2) - median_log) / (dsqrt_2*dlog(mfp2)))
+!        cumu1 = (1.0 + ERF((log(dd1) - median_log) / (dsqrt_2*log(mfp2)))) * 0.5
+!        cumu2 = (1.0 + ERF((log(dd2) - median_log) / (dsqrt_2*log(mfp2)))) * 0.5
         cumu1 = (1.0 + erf((log(dd1) - median_log) / (dsqrt_2*log(mfp2)))) * 0.5
         cumu2 = (1.0 + erf((log(dd2) - median_log) / (dsqrt_2*log(mfp2)))) * 0.5
         fract = cumu2 - cumu1

@@ -319,6 +319,8 @@ contains
       end if
       model_3dvar_adj%mass_map_adj => mass_map_adjoint
 
+      call msg ("run_3dvar memusage before assimilate (kB)", fu_system_mem_usage())
+
       pDA_rules => model_3dvar%rules%darules
       call set_observations(pDA_rules%station_path, pDA_rules%obs_list_path, &
                             & pDA_rules%DA_begin, pDA_rules%da_window, &
@@ -326,17 +328,20 @@ contains
                             & fu_species_transport(cloud), &
                             & fu_species_optical(cloud), model%obs_ptr)
       if (error) return
+      call msg ("run_3dvar memusage after set_observations (kB)", fu_system_mem_usage())
 
       if (smpi_adv_rank == 0) then
         call set_cov_mdl(bgr_cov, background, fu_species_emission(cloud), fu_species_transport(cloud), &
                        & model_3dvar%rules%darules, wholeMPIdispersion_grid, &
                        & dispersion_vertical, now, model_3dvar%rules%darules%controlVariable)
         if (error) return
+        call msg ("run_3dvar memusage after set_cov_mdl (kB)", fu_system_mem_usage())
       else
         bgr_cov = background_covariance_missing
       endif 
       call init_control(analysis, cloud, darules, control_space, 0.0, bgr_cov)
       if (error) return
+        call msg ("run_3dvar memusage after init_control (kB)", fu_system_mem_usage())
 
       p_values => fu_values_ptr(analysis)
       
@@ -346,6 +351,7 @@ contains
         if (simrules_3d%darules%output_level >= da_out_first_last_flag) then
           background_file_name = trim(simrules_3d%darules%outputdir) // dir_slash // 'background.grads' 
           call control_to_file(background, background, model_3dvar%rules%darules, background_file_name)
+          call msg ("run_3dvar memusage after control_to_file (kB)", fu_system_mem_usage())
         end if
       endif
 
@@ -360,6 +366,7 @@ contains
         call set_error('Strange search method', 'run_4dvar')
         return
       end select
+      call msg ("run_3dvar memusage after optimize (kB)", fu_system_mem_usage())
     
       if (error) then
         call msg('Error on analysis step, reverting to background')
@@ -369,11 +376,15 @@ contains
             analysis_file_name = trim(simrules_3d%darules%outputdir) // dir_slash // 'analysis.grads' 
            !        call ooops("writing analysis.grads, valid time: "//fu_str(model%rules%darules%da_begin)) 
             call control_to_file(analysis, background, model%rules%darules, analysis_file_name)
+            call msg ("run_3dvar memusage after control_to_file (kB)", fu_system_mem_usage())
             call dump_observations(model%obs_ptr, fu_species_transport(cloud), &
                  & trim(simrules_3d%darules%outputdir) // dir_slash // 'obs_final')
+            call msg ("run_3dvar memusage after dump_observations (kB)", fu_system_mem_usage())
       endif
  
       call destroy_observations(model%obs_ptr)
+      call msg ("run_3dvar memusage after destroy_observations (kB)", fu_system_mem_usage())
+
 
     end subroutine assimilate
 
@@ -1229,6 +1240,7 @@ contains
       call da_msg('Iteration terminated: maximum number of iterations')
     end if
     call free_work_array(mdl_obs_values)
+    call destroy(gradient)
 
     call da_msg('quasi_newton finished, iter',ival=iter)
   end subroutine quasi_newton

@@ -41,7 +41,6 @@ module observations_in_situ
   public observationStation
   public inSituObservation
   public t_eruptionObservation
-  public observationStationPtr
   public test_in_situ
   public obs_to_file
   public fu_size
@@ -111,6 +110,32 @@ module observations_in_situ
   ! Type definition for an in situ observation
   !
   !**********************************************************************************
+  type observationStation
+     !
+     ! Observation station: defines a site where AOD or concentration
+     ! observations are made.
+     !
+     character(len=STATION_ID_LENGTH) :: ID
+     character(len=STATION_LABEL_LENGTH) :: label
+     real :: lat, lon !
+!     integer, dimension (2) :: ix_dispersion, iy_dispersion !Indices 4 interp in this_domain - dispersion_grid !!!!
+!     integer, dimension (2) :: ix_whole_dispersion, iy_whole_dispersion !Indices 4 interp in this_domain - dispersion_grid !!!!
+     integer :: ix_dispersion, iy_dispersion !Indices of the cell in this_domain - dispersion_grid !!!!
+     integer :: ix_whole_dispersion, iy_whole_dispersion !Indices 4 interp in this_domain - dispersion_grid !!!!
+     real :: xLoc_dispGrid, yLoc_dispGrid              ! local shift of station from the cell centre: (-0.5, 0.5)
+!     real :: xpos, ypos !! 0..1 relative position between two coordinates in x and y
+     logical :: inThisSubdomain !! Our massmap contributes to this station
+     real :: cell_area
+     integer :: ind_lev = 1
+     logical :: defined = .false.
+  end type observationStation
+
+  type(observationStation), parameter, public ::  station_missing = &
+        & observationStation('', '', real_missing, real_missing, &
+                            & int_missing, int_missing, int_missing, int_missing, &
+                            & real_missing, real_missing, .false.,  &
+                            & real_missing,  int_missing, &
+                            & .false.)
   ! This structure defines a time series type observation from a single station. Each
   ! station has a fixed postion and measures a single substance only.
 
@@ -119,11 +144,11 @@ module observations_in_situ
      character(len=substNmLen) :: tag = '???'
      integer :: iInterpolation = linear    ! nearest_point
      ! for each measurement:
-     type(silja_time), dimension(:), pointer :: endTimes   !startingTimes ! => null()
-     type(silja_interval), dimension(:), pointer :: durations
+     type(silja_time), dimension(:), allocatable :: endTimes   !startingTimes ! => null()
+     type(silja_interval), dimension(:), allocatable :: durations
      ! the real observed data, and that "observed" from the model
-     real, dimension(:), pointer :: obsData, modelData, variance
-     type(observationStation), pointer :: station => null()
+     real, dimension(:), allocatable :: obsData, modelData, variance
+     type(observationStation) :: station = station_missing
      !
      ! Level. Currently not used.
      type(silja_level) :: level = ground_level
@@ -167,36 +192,6 @@ module observations_in_situ
     real, dimension(:), pointer :: lat, lon
   end type t_eruptionObservation
 
-  type observationStation
-     !
-     ! Observation station: defines a site where AOD or concentration
-     ! observations are made.
-     !
-     character(len=STATION_ID_LENGTH) :: ID
-     character(len=STATION_LABEL_LENGTH) :: label
-     real :: lat, lon !
-!     integer, dimension (2) :: ix_dispersion, iy_dispersion !Indices 4 interp in this_domain - dispersion_grid !!!!
-!     integer, dimension (2) :: ix_whole_dispersion, iy_whole_dispersion !Indices 4 interp in this_domain - dispersion_grid !!!!
-     integer :: ix_dispersion, iy_dispersion !Indices of the cell in this_domain - dispersion_grid !!!!
-     integer :: ix_whole_dispersion, iy_whole_dispersion !Indices 4 interp in this_domain - dispersion_grid !!!!
-     real :: xLoc_dispGrid, yLoc_dispGrid              ! local shift of station from the cell centre: (-0.5, 0.5)
-!     real :: xpos, ypos !! 0..1 relative position between two coordinates in x and y
-     logical :: inThisSubdomain !! Our massmap contributes to this station
-     real :: cell_area
-     integer :: ind_lev = 1
-     logical :: defined = .false.
-  end type observationStation
-
-  type observationStationPtr
-     type(observationStation), pointer :: ptr
-  end type observationStationPtr
-
-  type(observationStation), parameter, public ::  station_missing = &
-        & observationStation('', '', real_missing, real_missing, &
-                            & int_missing, int_missing, int_missing, int_missing, &
-                            & real_missing, real_missing, .false.,  &
-                            & real_missing,  int_missing, &
-                            & .false.)
 
   !***********************************************************************************************
 
@@ -251,7 +246,7 @@ contains
     newObservation%durations = durations(1:n_values)
     newObservation%obsData = obsData(1:n_values)
     newObservation%dataLength = n_values
-    newObservation%station => station
+    newObservation%station = station
 
     newObservation%modelData = 0.0
 
@@ -1022,9 +1017,6 @@ call msg('modeldata, new val', obs%modeldata(ind_obs), val)
 
     if (iStat /= 0) call set_error('Deallocation error','destroyObservationInSitu')
 
-    nullify(obs%durations, obs%obsData, obs%modelData, obs%endTimes, &
-         obs%variance, obs%ind_obs2transp, obs%scale_transp2obs)
-
   end subroutine destroyInSitu
 
   subroutine destroyEruption(obs)
@@ -1167,13 +1159,6 @@ call msg('modeldata, new val', obs%modeldata(ind_obs), val)
   ! Accessor functions
   !
   !**********************************************************************************
-
-  function fu_stationPtr(obs) result(station)
-    implicit none
-    type(inSituObservation) :: obs
-    type(observationStation), pointer :: station
-    station => obs%station
-  end function fu_stationPtr
 
   function fu_label(stat)
     implicit none

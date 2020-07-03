@@ -37,7 +37,7 @@ def getRevisionSVN(directory):
         #Get latest of revisions of  and see diff from it
         d = os.path.join(directory, '..')
         try:
-            svn = subprocess.Popen(('svn', 'info'), cwd=d, stdout=subprocess.PIPE)
+            svn = subprocess.Popen(('svn', 'info'), cwd=d, stdout=subprocess.PIPE, universal_newlines=True)
         except:
             raise RevisionError('Failed to run SVN')
 
@@ -67,9 +67,9 @@ def getRevisionGIT(directory):
     revstr = None
     diffcmd= None
     try:
-        gitlog = subprocess.Popen(('git' , 'log'), cwd=directory, stdout=subprocess.PIPE)
+        gitlog = subprocess.Popen(('git' , 'log'), cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
         for line in gitlog.stdout:
-            if line.startswith(b'commit'):
+            if line.startswith('commit'):
                 gitrev = line.split()[-1]
                 continue
             a=line.split()
@@ -140,7 +140,7 @@ def writeDiff(diff_f90_filename, revstr, diffcmd):
         host =  socket.gethostname()
         cwd = os.getcwd()
         try:
-            whoami = subprocess.check_output("who am i".split())
+            whoami = subprocess.check_output("whoami".split(), universal_newlines=True)
         except:
            whoami = None
 
@@ -174,7 +174,7 @@ contains
         svncmd=diffcmd + ' .'
         for dir in [os.path.join(directory,'..','build'), directory]:
           try:
-            with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir ).stdout as inf:
+            with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir, universal_newlines=True ).stdout as inf:
                 diff_f90.write("call msg(\"Output of svn diff at "+dir+"\")\n")
                 for l in inf:
                     l=re.sub("\r","",l[:-1])

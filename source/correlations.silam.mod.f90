@@ -527,6 +527,7 @@ contains
       !
       work_2d(ind, 1:nz) = work(1:nz)
     end do
+    deallocate(itemptr)
 
     ! Done reading. Compute eigendecomposition.
     !
