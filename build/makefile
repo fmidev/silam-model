@@ -7,7 +7,9 @@
 #################################################################
 
 # The executable
-PROGRAM ?= silam_v5_7
+
+include Makefile.branch
+PROGRAM ?= $(BRANCH)
 # The setup variable: if defined, compiler options will be read from
 # options.$(SETUP), and the executable will be named as $(PROGRAM).$(SETUP)
 SETUP = 
@@ -127,7 +129,7 @@ dot : expand config
 last.revision : $(filter-out %svndiff.mod.f90, $(wildcard $(SRCDIR)/*.f90))
 # if the filter-out is removed, svndiff will be always regenerated because it's newer than last.revision
 
-	which svn && svn info ../source > last.revision.tmp && mv last.revision.tmp last.revision || rm -f last.revision.tmp
+#	which svn && svn info ../source > last.revision.tmp && mv last.revision.tmp last.revision || rm -f last.revision.tmp
 	python $(BUILDDIR)/check_revision $(SRCDIR)
 
 

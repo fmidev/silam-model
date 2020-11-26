@@ -4285,11 +4285,11 @@ call msg('EPS from COMPB',EPS)
       INTEGER , INTENT(IN) :: IP
       INTEGER , INTENT(IN) :: L1
       INTEGER , INTENT(IN) :: IDL1
-      REAL(fish_kind) , INTENT(IN) :: CC(IDO,IP,L1)
-      REAL(fish_kind) , INTENT(OUT) :: C1(IDO,L1,IP)
-      REAL(fish_kind) , INTENT(INOUT) :: C2(IDL1,IP)
-      REAL(fish_kind) , INTENT(INOUT) :: CH(IDO,L1,IP)
-      REAL(fish_kind) , INTENT(INOUT) :: CH2(IDL1,IP)
+      REAL(fish_kind) :: CC(IDO,IP,L1)
+      REAL(fish_kind) :: C1(IDO,L1,IP)
+      REAL(fish_kind) :: C2(IDL1,IP)
+      REAL(fish_kind) :: CH(IDO,L1,IP)
+      REAL(fish_kind) :: CH2(IDL1,IP)
       REAL(fish_kind) , INTENT(IN) :: WA(*)
 !-----------------------------------------------
 !   L o c a l   V a r i a b l e s
@@ -4747,11 +4747,11 @@ call msg('EPS from COMPB',EPS)
       INTEGER , INTENT(IN) :: IP
       INTEGER , INTENT(IN) :: L1
       INTEGER , INTENT(IN) :: IDL1
-      REAL(fish_kind) , INTENT(IN) :: CC(IDO,IP,L1)
-      REAL(fish_kind) , INTENT(OUT) :: C1(IDO,L1,IP)
-      REAL(fish_kind) , INTENT(INOUT) :: C2(IDL1,IP)
-      REAL(fish_kind) , INTENT(INOUT) :: CH(IDO,L1,IP)
-      REAL(fish_kind) , INTENT(INOUT) :: CH2(IDL1,IP)
+      REAL(fish_kind) :: CC(IDO,IP,L1)
+      REAL(fish_kind) :: C1(IDO,L1,IP)
+      REAL(fish_kind) :: C2(IDL1,IP)
+      REAL(fish_kind) :: CH(IDO,L1,IP)
+      REAL(fish_kind) :: CH2(IDL1,IP)
       REAL(fish_kind) , INTENT(IN) :: WA(*)
 !-----------------------------------------------
 !   L o c a l   V a r i a b l e s

@@ -446,7 +446,7 @@ CONTAINS
     integer :: iTmp, iSpecies, iFlds, iZ, iWind, iThresh
     type(silam_sp) :: sp
     real :: fTmp, fVolFlux, fMassMeanDiam
-    type(silja_field_id) :: id
+    type(silja_field_id) :: id, idTmp
     real, dimension(:), pointer :: arPtr
     type(silja_shopping_list) :: shop_list
     integer, dimension(:), pointer ::  q_disp_dyn, q_disp_stat, stack_quantities
@@ -536,16 +536,17 @@ CONTAINS
           call set_error('Source area mask is absent','init_emission_wb_dust')
           return
         endif
-        id = fu_set_field_id_simple(met_src_missing, fraction_of_erodible_soil_flag, &
+        idTmp = fu_set_field_id_simple(met_src_missing, fraction_of_erodible_soil_flag, &
                               & time_missing, level_missing)
         if(error)return
         call set_grid(id, dispersion_grid)
         if(error)return
 
+        
         call get_input_field(fu_process_filepath(sp%sp(index(adjustl(sp%sp),' ')+1:), &
              & superdir=srcWBDust%src_data_dir), &  ! file name      
              & fu_input_file_format(sp%sp), &          ! file format          
-             & id, &                 ! The id to search               
+             & idTmp, &                 ! The id to search               
              & arPtr, &              ! data array                                                         
              & dispersion_gridPtr, & ! storage grid                                          
              & .false., &            ! ifAcceptSameMonth                                      

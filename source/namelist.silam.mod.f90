@@ -2559,18 +2559,14 @@ CONTAINS
 
   logical function fu_namelist_defined(nl) 
     !
-    ! Checks whether the namelist is reasonable
+    ! Checks whether the namelist is defined
     !
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nl
+    type(Tsilam_namelist), intent(in) :: nl
 
-    if(.not.associated(nl))then
-      fu_namelist_defined = .false.
-    else
-      fu_namelist_defined = nl%defined == silja_true
-    endif
+    fu_namelist_defined = (nl%defined == silja_true)
 
   end function fu_namelist_defined
 

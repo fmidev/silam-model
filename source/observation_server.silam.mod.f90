@@ -278,7 +278,8 @@ contains
       if (error) return
       call expand_template(obs_templ, obs_start, file_name)
       if (error) return
-      call add_obs_items_from_list(obs_items, nObsItems, file_name, p_obs_items, nObsItems)
+      i = nObsItems !copy to avoid aliasing
+      call add_obs_items_from_list(obs_items, i, file_name, p_obs_items, nObsItems)
       if (error) return
       dealloc_obs_items = .true.
     end if

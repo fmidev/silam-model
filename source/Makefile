@@ -3,7 +3,9 @@
 SE=gnu
 DefaultSetup=DefaultSetup
 
-PROGRAM ?= silam_v5_7
+include ../build/Makefile.branch
+
+PROGRAM=$(BRANCH)
 
 include $(DefaultSetup)
 

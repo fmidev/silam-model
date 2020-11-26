@@ -314,6 +314,10 @@ contains
 
   !****************************************************************************
   subroutine bzReadPipe (fname, buf, length)
+    !
+    ! Reads bzipped and non-bzipped files from S3
+    ! Also bzipped files with external decompressor
+
     character(len=*), intent(in) :: fname
     character, dimension(:), allocatable, target, intent(inout) :: buf
     integer (kind=8), intent(out) :: length
@@ -332,7 +336,17 @@ contains
 
 
     !cFname="/lustre/apps/silam/bin/lbzip2 -v -d -c "//trim(fname)//achar(0)
-    cFname="lbzip2 -d -c "//trim(fname)//achar(0)
+    cnt=len_trim(fname)
+
+    if (fname(1:5) == 's3://') then
+      if (cnt>6 .and. fname(cnt-3:cnt) == ".bz2") then
+        cFname="s3cmd get --no-progress  "//fname(1:cnt)//" -"//achar(0)
+      else
+        cFname="s3cmd get --no-progress  "//fname(1:cnt)//" - | lbzip2 -dc"//achar(0)
+      endif
+    else
+      cFname="lbzip2 -d -c "//fname(1:cnt)//achar(0)
+    endif
 
     if (allocated(buf)) then
         bufsz=size(buf)

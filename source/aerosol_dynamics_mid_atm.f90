@@ -55,7 +55,7 @@ MODULE aer_dyn_middle_atmosph
     module procedure registerSpecies_4_AerDynMidAtm
   end interface
 
-  
+  !!Without this define the code does not compile 
 #define DEBUG_MORE  
   
   !
@@ -940,7 +940,7 @@ call msg('Mass to volumes:',rulesAerDynMidAtm%mass2vol(1:nSpeciesTrans))
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tchem_rules_AerDynMidAtm), intent(out) :: rules
 
     ! Local variables
@@ -2975,7 +2975,12 @@ endif
 !    
 
 
-!FIXME iTemprCount should be initialised and synchronized somehow....
+!FIXME iTemprCount and fLowestTempr should be initialised and synchronized somehow....
+! Here is just dummi init to make authomatic checks happy
+fLowestTempr = 0.
+iTemprCount = 0
+
+
 #ifdef DEBUG_MORE
     if(pw < 2.e-8)then
       if(print_it)call msg('Too low water vapour pressure, extrapolating the Carslaw values, pw in atm:',pw) !Changed 3July2017

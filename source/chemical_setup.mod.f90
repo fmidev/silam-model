@@ -4126,7 +4126,7 @@ call msg('Flip...')
     type(Taerosol_rules) :: rulesAerosol
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
 
     if(.not.defined(nlSetup))then
       call set_error('Undefined namelist given','fu_set_aerosol_rules')

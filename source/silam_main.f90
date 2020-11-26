@@ -31,6 +31,8 @@ PROGRAM silam_main
   use silam_partitioning 
   use field_identifications
   use ascii_io
+
+  use, intrinsic :: iso_fortran_env, only: compiler_version, compiler_options
 !  use source_terms_wind_blown_dust
   
 !  use source_term_fires
@@ -48,7 +50,7 @@ PROGRAM silam_main
   integer :: ierr
 
   real, dimension(:), pointer :: x, y
-  integer :: nP, nMissing
+  integer :: nP, nMissing, MyPID
   real :: slope, intercept, r_value, p_value, slope_err, stderr
   !  real, dimension(2) :: fNbrFlux, fVolFlux, fMassMeanDiam
   type(Taerosol_mode), dimension(50) :: aerModes
@@ -65,15 +67,23 @@ PROGRAM silam_main
   
   
 #ifdef __GFORTRAN__
-     integer, parameter :: SIGUSR1 = 31 
-     integer, parameter :: SIGINT = 15
-     call signal(SIGUSR1, warning_sigusr1)
-     call signal(SIGINT, warning_sigint)
+    !! Updated with /usr/include/x86_64-linux-gnu/bits/signum-generic.h
+     integer, parameter :: SIGHUP = 1
+     integer, parameter :: SIGTERM = 15
+     integer, parameter :: SIGUSR2 = 31
+     integer, parameter :: SIGUSR1 = 30
+     call signal(SIGUSR1, die_sigusr1)
+     call signal(SIGUSR2,  die_sigusr2)
+     call signal(SIGHUP,  die_sighup)
+     call signal(SIGTERM,  die_sigterm)
 #endif
 
 
 
-!   call test_advect_mass_many()  !test_advect_mass()
+!   call test_advect_mass_many()  !test_advect_mass()a
+!   run_log_funit= 20
+!   open(run_log_funit, file ="/dev/null", status='old')
+!   call testremapcon_1d()
 !   stop
 
   call smpi_init()
@@ -108,10 +118,11 @@ PROGRAM silam_main
   !  However, when the output directory becomes known - it will be transferred to it
   !  and its number will be changed
   !
+  MyPID = fu_pid()
   run_log_funit = fu_next_free_unit()
   !call random_number(fTmp)
   !if(fTmp < 0.1) fTmp = fTmp + 0.1
-  call smpi_allreduce_max_int(fu_pid(), iTmp, MPI_COMM_WORLD)
+  call smpi_allreduce_max_int(MyPID, iTmp, MPI_COMM_WORLD)
   write(unit=chTmp,fmt='(A8,I8.8,A1,I3.3,A4)') 'run_tmp_', iTmp, '_', smpi_global_rank, '.log'
   open(run_log_funit, file=chTmp, iostat = iStatus)
   if(iStatus /= 0)then
@@ -254,8 +265,9 @@ PROGRAM silam_main
     PRINT * ;   PRINT * ;   PRINT * ;
   endif
 
-  CALL msg ('Hello world! This is ' // revision_str // ' speaking.')
-
+  CALL msg ('Hello world! This is ' // revision_str // ' speaking. PID = '//trim(fu_str(MyPID)))
+  call msg('compiler_version: '// compiler_version())
+  call msg('compiler_options: '// compiler_options())
   
 !  allocate(x(200))
 !  open(20,file='d:/data/emis/fakes/test_area_src.grads',form='binary',recl=4*30,access='direct')
@@ -305,6 +317,7 @@ PROGRAM silam_main
 !  call msg('Local time now: ' + fu_time_string_original(fu_wallclock()))
   call msg('Local time now: ' + fu_computer_time_string())
   call msg('UTC time now: ' + fu_str(fu_wallclock()))
+  call msg('Memory usage, kB',fu_system_mem_usage())
   !
   ! Get the control file name
   !
@@ -324,7 +337,7 @@ PROGRAM silam_main
       CALL set_error('Too many input arguments','silam_main')
   END SELECT
 
-  call msg('Control file name:' + control_fname)
+  call msg('Control file name: '// trim(control_fname))!!Space must be here!
   call msg('')
 
   CALL start_silam_v5(control_fname, had_error)
@@ -338,8 +351,8 @@ PROGRAM silam_main
   ! Before renaming the file, it must be closed (Intel compiler requirement)
   !
   
-  call msg('Local time now: ' + fu_computer_time_string())
-  call msg('UTC time now: ' + fu_str(fu_wallclock()))
+  call msg('Local time now: ' // fu_computer_time_string())
+  call msg('UTC time now: ' // fu_str(fu_wallclock()))
   
   if ( had_error) then
      call set_error("HAD Errors, not renaming log file",'silam_main')
@@ -413,35 +426,39 @@ PROGRAM silam_main
 
   END FUNCTION read_ini_file
 
- subroutine warning_sigusr1
+
+ subroutine die_gracefully(reason)
+    character(len=*), intent(in) :: reason
      !$omp master
      if (smpi_global_tasks > 1) then 
-       call msg("got sigusr1, sleeping before setting error", smpi_global_rank)
-       call sleep(smpi_global_rank) ! do not mix-up mpi members
+       call msg(trim(reason)//", sleeping before setting error. rank=", smpi_global_rank)
+       call sleep(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
+       ! Slurm waits up to 32 seconds on timeout after sighup before killing 
        write (6, '(a,x,i4)') "backtrace from rank",smpi_global_rank
        flush (6) !
-
        call backtrace_md()
      endif
      flush (run_log_funit) !make sure that last message is there
-     call set_error("silam got a signal (sigusr1)","warning_sigusr1")
+     call set_error(reason,"warning_sigusr1")
+     flush (run_log_funit) !make sure that the error messgae is there
      !$omp end master
- end subroutine warning_sigusr1
-    
- subroutine warning_sigint
-     !$OMP MASTER
-     if (smpi_global_tasks > 1) then 
-       call msg("Got SIGINT, sleeping before setting error", smpi_global_rank)
-       call sleep(smpi_global_rank) ! Do not mix-up mpi members
-       write (6, '(A,X,I4)') "Backtrace from rank",smpi_global_rank
-       FLUSH (6) !
+ end subroutine die_gracefully
 
-       call backtrace_md()
-     endif
-     FLUSH (run_log_funit) !Make sure that last message is there
-     call set_error("Silam got a signal (SIGINT)","warning_sigint")
-     !$OMP END MASTER
- end subroutine warning_sigint
+ subroutine die_sigusr1
+   call die_gracefully("Got sigusr1")
+ end subroutine die_sigusr1
+
+ subroutine die_sigusr2
+   call die_gracefully("Got sigusr2")
+ end subroutine die_sigusr2
+    
+ subroutine die_sigterm
+   call die_gracefully("Got sigterm")
+ end subroutine die_sigterm
+    
+ subroutine die_sighup
+   call die_gracefully("Got sighup")
+ end subroutine die_sighup
     
 END PROGRAM silam_main
 

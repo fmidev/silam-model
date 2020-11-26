@@ -94,7 +94,6 @@ MODULE grads_io
   private field_to_buffer
   private init_grads_buffer
   private free_grads_buffer
-  private fu_get_default_buf_size
   private grads_str_2_times
 
   interface fu_validity_length
@@ -167,9 +166,10 @@ MODULE grads_io
                                      & .false., null(), silja_false)
 
   TYPE grads_buffer
-     real(r4k), dimension(:,:), pointer :: buf !fieldsize, max_flds
-     logical :: allocated = .false.
+     real(r4k), dimension(:,:), allocatable :: buf !fieldsize, max_flds
      integer :: num_flds = 0, fieldsize = int_missing, max_flds = int_missing
+     integer :: buf_first_fld = int_missing  !! For input: number of the first buggered field in the binary file
+     logical :: defined = .false.
   END TYPE grads_buffer
 
   !---------------------------------------------------------------------
@@ -886,16 +886,14 @@ CONTAINS
     gfile(iFile)%ptr%defined = silja_true
 
     gf%ifBuffered = .false.
-#ifdef SILAM_MPI 
+#ifdef SILAM_MPI
     if (gf%silamGrid == wholeMPIdispersion_grid .and. smpi_use_mpiio_grads)then
       if (.not. gf%ifYInverse  .and.  gf%n_times == 1) then
          call smpi_get_decomposition(nx, ny, offx, offy, gnx, gny)
          if (nx /= gnx .or. ny /= gny) then !! Makes sense to read fields to the buffer
            gf%ifBuffered = .true.
-           if (gf%gradsbuf%allocated) call free_grads_buffer(gf%gradsbuf)
-           !Just for the whole timestep
-           nflds = gf%first_field_offset_in_tstep(gf%n_vars+1)
-           call init_grads_buffer(gf%gradsbuf, nx*ny, nFlds)
+
+           call init_grads_buffer(gf%gradsbuf, nx*ny, fu_get_default_mpi_buf_size())
 
            call FNm_from_single_template(gf%grTemplate, &
                                         & fu_time_of_grads(iFile, 1), &
@@ -907,11 +905,10 @@ CONTAINS
                                         & ifWait = .false.)
             if(error)return
 
+            gf%fname = fnames(1)%sp
+            call smpi_open_gradsfile_mpiio_r(gf%fname, gf%unit_bin)
+            if(error)return
 
-            !  call open_grads_binary_i(fnames(1)%sp, gfile(igf)%ptr%unit_bin, nPoints, &
-            !                         & gfile(igf)%ptr%ifBigEndian)
-
-            call smpi_read_grads_fieldset_parallel(gf%gradsbuf%buf, nx*ny, nFlds, fnames(1)%sp)
             !!! Pretend that our subdomain grid is Grads GRID
             gf%silamGrid = dispersion_grid
             CALL lonlat_grid_parameters(gf%silamGrid, &
@@ -935,6 +932,22 @@ CONTAINS
 !call write_ctl_file(gfile(iFile)%ptr)  ! It will write the ctl file
 !gfile(iFile)%ptr%fname = gfile(iFile)%ptr%fname(1:len_trim(gfile(iFile)%ptr%fname)-6)
   end function fu_open_gradsfile_i
+
+  !*********************************************************************************
+
+  subroutine update_grads_buffer_i(gf, iFld_in_file, iFld_in_buffer)
+    !
+    !Ensures that the field is in the buffer
+    type(grads_file) :: gf
+    integer, intent(in)  :: iFld_in_file
+    integer, intent(out) :: iFld_in_buffer
+
+
+
+
+
+
+  end subroutine update_grads_buffer_i
 
   !*********************************************************************************
 
@@ -1183,7 +1196,7 @@ CONTAINS
     end if
     
     if (present(ifBuffered)) then
-      gfile(iFile)%ptr%ifBuffered = ifBuffered .and. fu_get_default_buf_size() > 0
+      gfile(iFile)%ptr%ifBuffered = ifBuffered .and. fu_get_default_mpi_buf_size() > 0
     else
       gfile(iFile)%ptr%ifBuffered = .false.
     end if
@@ -1278,7 +1291,7 @@ CONTAINS
     if (error) return
 
     if(if_parallel)then
-      call smpi_open_gradsfile_mpiio(gfile(iFile)%ptr%fname, gfile(iFile)%ptr%unit_bin)
+      call smpi_open_gradsfile_mpiio_w(gfile(iFile)%ptr%fname, gfile(iFile)%ptr%unit_bin)
       gfile(iFile)%ptr%ifMPIIO = .true.
     else if (gfile(ifile)%ptr%ifBuffered) then
       ! direct access not used
@@ -1371,7 +1384,7 @@ CONTAINS
     if (error) return
 
     if (gfile(Findex)%ptr%ifMPIIO) then
-      call smpi_open_gradsfile_mpiio(gfile(Findex)%ptr%fname, gfile(Findex)%ptr%unit_bin)
+      call smpi_open_gradsfile_mpiio_w(gfile(Findex)%ptr%fname, gfile(Findex)%ptr%unit_bin)
     else
       CALL open_grads_binary_o(gfile(Findex)%ptr%fname, gfile(Findex)%ptr%unit_bin, NbrOfPoints)
     end if
@@ -1660,11 +1673,12 @@ CONTAINS
     real, intent(in), optional :: fill_value_
 
     ! Local variables
-    integer :: iRec, iVTmp, iTTmp, iLTmp, nPoints, ix, iy, indTimeLocal
+    integer :: iRec, iRecBuf, iVTmp, iTTmp, iLTmp, nPoints, ix, iy, indTimeLocal
     real :: fill_value
     type(silam_sp), dimension(:), save, pointer :: fnames
     type(grads_file), pointer :: gf
     type(grads_variable), pointer :: gvar
+    character(len=*), parameter :: sub_name = 'read_field_from_grads_indices'
 
     fill_value = real_missing
     if(present(fill_value_))fill_value = fill_value_
@@ -1684,7 +1698,18 @@ CONTAINS
     !!!IRec is now number of the field in the timestep
 
     if (gf%ifBuffered) then
-      grid_data(1:nPoints) = gf%gradsbuf%buf(1:nPoints,iRec)
+      if (gf%gradsbuf%buf_first_fld < 1 .or. &
+                & gf%gradsbuf%buf_first_fld + gf%gradsbuf%num_flds <= iRec .or. &
+                & gf%gradsbuf%buf_first_fld  >  iRec) then
+          !Update buffer
+          gf%gradsbuf%buf_first_fld = iRec
+          gf%gradsbuf%num_flds = min(gf%gradsbuf%max_flds, gf%first_field_offset_in_tstep(gf%n_vars+1) - iRec + 1 )
+!          call msg("Loading buffer iRec, gf%gradsbuf%num_flds ", iRec, gf%gradsbuf%num_flds)
+          call smpi_read_grads_fieldset_parallel(gf%gradsbuf%buf, nPoints, gf%unit_bin,  iRec, gf%gradsbuf%num_flds )
+      endif
+      iRecBuf = iRec - gf%gradsbuf%buf_first_fld + 1
+!      call msg("Reading from buffer iRec, gf%gradsbuf%num_flds ", iRec, iRecBuf)
+      grid_data(1:nPoints) = gf%gradsbuf%buf(1:nPoints,iRecBuf)
     else
 
       !
@@ -1727,7 +1752,7 @@ CONTAINS
       ! Finally, READ, allowing for flipped y axis
       !
       if(fu_fails(size(grid_data) >= nPoints,'Too small array for field:' + fu_str(size(grid_data)) + &
-                                              & ',' + fu_str(nPoints),'read_field_from_grads_id'))return
+                                              & ',' + fu_str(nPoints),sub_name))return
       if(gf%ifYInverse)then
         read(gf%unit_bin,rec=iRec, iostat=iVTmp) &
                    & ((grid_data(ix+(iy-1)*gf%ggrid%nx), &
@@ -1740,7 +1765,7 @@ CONTAINS
         call msg('iostat = ', iVTmp)
         call msg('file unit: ', gf%unit_bin)
         call report_open_files()
-        call set_error('failed to read the record','read_field_from_grads_id')
+        call set_error('failed to read the record',sub_name)
       endif
     endif !gf%buffered
 
@@ -3331,9 +3356,15 @@ CONTAINS
     gf => gfile(igf)%ptr
 
     !!! Free reads buffer
-    if (gf%gradsbuf%allocated) call free_grads_buffer(gf%gradsbuf)
+    if (gf%gradsbuf%defined) call free_grads_buffer(gf%gradsbuf)
 
-    if (gf%unit_bin > 0) close(gf%unit_bin) ! Close the binary (if any)
+    if (gf%unit_bin > 0) then
+      if (gf%ifMPIIO) then
+        call smpi_close_gradsfile_mpiio(gf%unit_bin)
+       else
+        close(gf%unit_bin) ! Close the binary (if any)
+      endif
+    endif
 
     CALL release_index(igf) ! Free-up the structure.
 
@@ -4276,35 +4307,9 @@ CONTAINS
     fu_grads_missing_value = gfile(iFile)%ptr%missing_value
   end function fu_grads_missing_value
 
-  ! Write buffering. The data are normally written into file one field at time. Especially
-  ! in MPI runs, each write becomes small, and performance can be increased by first
-  ! aggregating data from multiple fields. For serial runs buffering doesn't necessary
-  ! improve the performance, however.
-  ! 
-  ! Current default buffer size is 50 fields, but if the number of MPI tasks is high,
-  ! much more buffering can be useful.
-  ! 
-  
-  integer function fu_get_default_buf_size() result(buf_size_flds)
-    implicit none
-    integer, parameter :: buf_size_flds_def = 50
-    integer :: stat
-    character(len=*), parameter :: sub_name = 'fu_get_default_buf_size'
-    character(len=clen) :: strval
+!!! integer function fu_get_default_mpi_buf_size() Moved to toolbox
 
-    call get_environment_variable('GRADSIO_BUF_SIZE', strval)
-    if (error) return
-    if (strval /= '') then
-      read(unit=strval, fmt=*, iostat=stat) buf_size_flds
-      if (fu_fails(stat == 0, 'Failed to parse GRADSIO_BUF_SIZE: ' + strval, sub_name)) return
-      if (fu_fails(buf_size_flds < 1000000, 'Suspicious GRADSIO_BUF_SIZE', sub_name)) return
-      if (buf_size_flds < 2) call msg_warning('GRADSIO_BUF_SIZE: ' + fu_str(buf_size_flds), sub_name)
-      ! size < 1 used for disabling buffer (above)
-    else
-      buf_size_flds = buf_size_flds_def
-    end if
-    
-  end function fu_get_default_buf_size
+
 
   subroutine init_grads_buffer(buf, fieldsize, buf_size_flds)
     implicit none
@@ -4321,7 +4326,7 @@ CONTAINS
     if (fu_fails(stat == 0, 'Failed to allocate write buffer', sub_name)) return
     buf%max_flds  = buf_size_flds
     buf%fieldsize = fieldsize
-    buf%allocated = .true.
+    buf%defined = .true.
     buf%num_flds = 0
 
     call msg('Grads buffer allocated, fieldsize:', fieldsize)
@@ -4332,11 +4337,11 @@ CONTAINS
     implicit none
     type(grads_buffer), intent(inout) :: buf
     
-    if (fu_fails(buf%allocated, 'buffer not allocate', 'free_grads_buffer')) return
+    if (fu_fails(buf%defined, 'buffer not allocated', 'free_grads_buffer')) return
     deallocate(buf%buf)
     buf%max_flds = 0
     buf%num_flds = 0
-    buf%allocated = .false.
+    buf%defined = .false.
   end subroutine free_grads_buffer
  
   subroutine field_to_buffer(buf, grid_data, fieldsize)
@@ -4348,8 +4353,8 @@ CONTAINS
     integer :: ind_buffer
     character(len=*), parameter :: sub_name = 'field_to_buffer'
 
-    if (.not. buf%allocated) then
-      call init_grads_buffer(buf, fieldsize, fu_get_default_buf_size())
+    if (.not. buf%defined) then
+      call init_grads_buffer(buf, fieldsize, fu_get_default_mpi_buf_size())
       if (error) return
     end if
 
@@ -4385,7 +4390,7 @@ CONTAINS
     gf => gfile(igf)%ptr
     if (fu_fails(associated(gf), 'gf not associated', sub_name)) return
     
-    if (.not. gf%gradsbuf%allocated) return
+    if (.not. gf%gradsbuf%defined) return
     if (gf%gradsbuf%num_flds == 0) return
     
     !ind_start = gf%gradsbuf%max_flds - gf%gradsbuf%num_flds + 1

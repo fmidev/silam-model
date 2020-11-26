@@ -42,7 +42,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE start_silam_v5 (control_param_fname_in, had_error)
+  SUBROUTINE start_silam_v5 (control_param_fname, had_error)
 
     ! Description:
     ! Read the setup, control parameters, and source term files,
@@ -61,7 +61,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent IN:
-    CHARACTER(LEN=*),INTENT(in):: control_param_fname_in
+    CHARACTER(LEN=*),INTENT(in):: control_param_fname
     logical, intent(out) :: had_error
 
     ! Local declarations:
@@ -79,11 +79,8 @@ CONTAINS
     INTEGER :: i, control_file, status, n_levs, time_sign
     CHARACTER (LEN=clen) :: line, setup_FNm, chOutTimeFileSeries, chOutType
     CHARACTER(len=fnlen) :: fname_string, fname_oro_string, chOutVarLst, chOutTemplate, &
-                          & chGribCodeTableFNm, control_param_fname, source_term_fname
+                          & chGribCodeTableFNm, source_term_fname
     LOGICAL :: eof
-    type(mini_market_of_stacks), target :: srcMarket
-    type(mini_market_of_stacks), pointer :: srcMarketPtr => null()
-
     type(Tsilam_namelist), pointer :: nlStandardSetup =>null()
     type(Tsilam_namelist_group), pointer :: nlSetupGrp => null()
 
@@ -101,10 +98,6 @@ CONTAINS
     CALL initialize_work_arrays()
 
     !call exec_tests()
-
-    ! Expand the file names
-    !
-    control_param_fname = fu_expand_environment(control_param_fname_in)
 
     !----------------------------------------
     !
@@ -138,7 +131,6 @@ CONTAINS
     em_sourcePtr => em_source
     cloudPtr => cloud
     OutDefPtr => OutDef
-    srcMarketPtr => srcMarket
 
     !
     ! There can be several formats of the control file. Each
@@ -320,7 +312,8 @@ CONTAINS
       nlPtr => fu_namelist(nlSetupGrp, 'transformation_parameters')
       if(fu_fails(associated(nlPtr),'Absent transformation_parameters namelist','setup_v5_3'))return
 
-      call set_chemistry_rules(nlPtr, nlStandardSetup, simRules%chemicalRules)
+      call set_chemistry_rules(nlPtr, nlStandardSetup, simRules%chemicalRules, .false., &
+                      & fu_if_lagrangian_present(simRules%dynamicsRules%simulation_type))
       if(error)return
       !
       ! Initalise timezones

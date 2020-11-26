@@ -451,7 +451,7 @@ CONTAINS
          case(int_missing)
              call set_error('leaf area inxed is required but data source - use_lai - is missing','')
          case default
-                 call set_error("unknnown wdr%LAIsrc", &
+                 call set_error("unknown wdr%LAIsrc", &
                                          &  "quantities_for_derived_one")
       end select
     
@@ -465,6 +465,10 @@ CONTAINS
                         & leaf_area_index_flag, &
                         & soil_moisture_vol_frac_nwp_flag/)
              requests(1:6) = request
+             list_st(1:2) = (/c4_frac_flag,&
+                        & irrigated_area_flag/)
+             requests_st(1:2) = request
+
            case (LAI_static_1, LAI_static_2)
              list(1:5) = (/  surface_pressure_flag,&
                        & total_cloud_cover_flag, &
@@ -472,8 +476,10 @@ CONTAINS
                         & relative_humidity_2m_flag, &
                         & soil_moisture_vol_frac_nwp_flag/)
              requests(1:5) = request
-             list_st(1) = leaf_area_index_flag 
-             requests_st(1) = request
+             list_st(1:3) = (/leaf_area_index_flag, &
+                        & c4_frac_flag, &
+                        & irrigated_area_flag/)
+             requests_st(1:3) = request
            case default
               call msg("LAIsrc", fu_LAIsrc(wdr))
               call set_error("Unknown LAIsrc", "quantities_for_derived_one")

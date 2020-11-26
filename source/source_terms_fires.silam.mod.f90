@@ -268,6 +268,7 @@ CONTAINS
     ! Local variables
     integer :: iTmp, iUnit
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
+    character (len=fnlen), dimension(:), allocatable :: firelists
     character (len=fnlen) :: metadata_file
     !
     ! Names
@@ -304,6 +305,18 @@ CONTAINS
                    & 'fill_fire_src_from_namelist')
       return
     endif
+    allocate(firelists(fs%nFRPdatasets), stat = iTmp)
+    if(iTmp /= 0)then
+      call set_error('Failed FRP sets allocation2.Source' + fs%src_nm + ', N_sets=' + fu_str(fs%nFRPdatasets), &
+                   & 'fill_fire_src_from_namelist')
+      return
+    endif
+
+    ! fu_process_filepath seems to call something that is not thread-safe on puhti
+    do iTmp = 1, fs%nFRPdatasets
+      firelists(iTmp) = fu_process_filepath(fu_content(pItems(iTmp)), superdir=dirname)
+    enddo
+    deallocate(pitems)
     
 #ifdef VOIMA_GNU_BUG
     !$OMP PARALLEL if (.False.) default(none), &
@@ -311,14 +324,14 @@ CONTAINS
     !$OMP PARALLEL if (.True.) default(none), &
 #endif
     !$OMP & private(iTmp, iUnit),  &
-    !$OMP & shared (pItems, dirname, fs, error)
+    !$OMP & shared (firelists, dirname, fs, error)
 
     iUnit = fu_next_free_unit()
 
     !$OMP DO
     do iTmp = 1, fs%nFRPdatasets
       if (error) cycle
-      call get_FRP_dataset(fu_process_filepath(fu_content(pItems(iTmp)), superdir=dirname), &
+      call get_FRP_dataset(firelists(iTmp), &
                          & fs%first_day(iTmp), fs%last_day(iTmp), &
                          & fs%pFMD, fs%pFRPset(iTmp), iUnit)
       if(error) call set_error('Failed FRP dataset in source:' + fs%src_nm + '_' + fs%sector_nm, &
@@ -333,7 +346,7 @@ CONTAINS
     fs%ifGeoCoord = .true.
     fs%defined = silja_true
     
-    deallocate(pitems)
+    deallocate(firelists)
 
     call report(fs)
     
@@ -376,7 +389,8 @@ CONTAINS
     ! Read the file
     !
     if(error)return
-    open(unit=uIn,file=chFNm,status='old', iostat=iStat)
+!!    print *, 'Reading ', chFNm, ' unit ',  uIn
+    open(unit=uIn,file=chFNm,status='old', action='read', iostat=iStat)
     if(fu_fails(iStat==0,'Cannot open FRP dataset file:' + chFNm, sub_name))return
 
     ! Get array sizes from the header
@@ -418,6 +432,7 @@ CONTAINS
            & pSet%pT11(nFires,nMaxObs),  pSet%pT11b(nFires,nMaxObs),  pSet%pMCE(nFires,nMaxObs), &
            & pSet%pArea(nFires,nMaxObs),  pSet%day(nFires),  pSet%pHour(nFires,nMaxObs), &
            & pSet%indLU(nFires), stat=iStat)
+
 
     if(fu_fails(iStat==0,'Failed fire source allocation','get_FRP_dataset'))return
     pSet%pLonGeo = real_missing
@@ -614,7 +629,13 @@ CONTAINS
         call remove_fire(pSet, iFire)
       endif
     end do
-    if(iCount > 0)call msg('Void fires:' + fu_str(iCount) + ',' + chFNm)
+
+    if(iCount > 0) then  !! Some fortrans seem to be intolerant to fu_connect_strings (+ operator)
+                         !! with many tens of threads. Also filename should have space before.
+      write (unit = lineTmp, fmt='((A),(I8),(A),(A))') 'Void fires: ', iCount, ', ', trim(chFNm)
+      call msg(lineTmp)
+    endif
+
     !
     ! Having collected all fire observations, let's compute daily-mean FRP. 
     ! take unceratinty into account: very low FRPs should not give too much impact if
@@ -1737,10 +1758,6 @@ call msg('finished processing')
                               & plumeBottomHat, plumeTopHat, p_srf, ifUseHybrid)
         if(error)return
 
-        !Prepare pressure
-        if (ifUseHybrid) then
-          p_levTop = a_half_disp(1) + b_half_disp(1) * p_srf
-        endif
         !
         ! We consider the plume stem and hat separately
         !
@@ -1758,6 +1775,10 @@ call msg('finished processing')
           !
           ! We do the injection layer by layer
           !
+          !Prepare pressure before every loop over vertical
+          if (ifUseHybrid) then
+            p_levTop = a_half_disp(1) + b_half_disp(1) * p_srf
+          endif
           do iLev = 1, nz_dispersion
             !
             ! First do the check for the overlap: speed-up
@@ -1770,8 +1791,7 @@ call msg('finished processing')
                overlapTop = max(plumeTop, p_levTop)
   
                if (overlapBottom <= overlapTop) cycle
-               ptrCoord(3) =  (overlapBottom + overLapTop)/2  ! Center of slab
-               ptrCoord(3) =  ptrCoord(3) - (p_levTop + p_levBottom)/2 !relative to cell center 
+               ptrCoord(3) =  (overlapBottom - p_levBottom + overLapTop - p_levTop)/2  ! Center of slab
                ptrCoord(3) = - ptrCoord(3) / (p_levTop - p_levBottom) !+-0.5,
                                                                       !positive -up
             else
@@ -1779,27 +1799,25 @@ call msg('finished processing')
                overlapTop = min(plumeTop, disp_layer_top_m(iLev))
   
                if (overlapBottom >= overlapTop) cycle
-               ptrCoord(3) = (overlapBottom + overLapTop) / 2
+               ptrCoord(3) = (overlapBottom  + overLapTop) / 2
                ptrCoord(3) = (ptrCoord(3) - & 
                           & (disp_layer_top_m(iLev) + disp_layer_top_m(iLev-1))/2) / &  !relative to cell center
                           & (disp_layer_top_m(iLev) - disp_layer_top_m(iLev-1))
             endif
             fLevFraction = (overlapTop - overlapBottom)/(plumeTop - plumeBottom)
-            if(abs(ptrCoord(3)) > 0.5)then
+            if (fLevFraction < 1e-5) cycle !! We can afford  loosing 1e-5 of plume, can't we?
+            if(abs(ptrCoord(3)) >= 0.5)then
               call msg('Relative centre of mass position is strange in layer:',iLev, ptrCoord(3))
               call msg('Plume top, bottom:', plumeTop, plumeBottom)
+              call msg('Overlap top, bottom:', overlapTop, overlapBottom)
+              call msg('fLevFraction:', fLevFraction)
               if (ifUseHybrid) then
-                call msg('Dispersion hybrid layer bottom, top:',p_levBottom, p_levBottom)
+                call msg('Dispersion hybrid layer bottom, top:',p_levBottom, p_levTop)
               else
                 call msg('Dispersion layer top [m]:',disp_layer_top_m(iLev), disp_layer_top_m(iLev-1))
               endif
               call set_error('Wrong calculated vertical plume positon','inject_emission_euler_FRP_set')
-              if(abs(ptrCoord(3)) - 0.5 < 0.0001)then
-                call unset_error('inject_emission_euler_FRP_set')
-                ptrCoord(3)  = sign(0.498, ptrCoord(3))
-              else
-                return
-              endif
+              return
             endif
 
 !call msg('ilev, vertical fraction:', ilev, fLevFraction)

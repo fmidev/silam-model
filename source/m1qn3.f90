@@ -1312,8 +1312,9 @@ c     sinon on prend xn=x_gauche qui fait decroitre f
 c
       if (tg.eq.0.d0) go to 940
       fn=fg
-      do 930 i=1,n
-  930 xn(i)=xn(i)+tg*d(i)
+      do  i=1,n
+        xn(i)=xn(i)+tg*d(i)
+      enddo
   940 if (imp.le.3) go to 999
       write (io,1001)
       write (io,1005) tg,fg,fpg
@@ -1323,8 +1324,9 @@ c
 c
 c               recopiage de x et boucle
 c
-  950 do 960 i=1,n
-  960 x(i)=xn(i)+t*d(i)
+  950 do  i=1,n
+        x(i)=xn(i)+t*d(i)
+      enddo
       go to 100
 c     --- linesearch finished, no skip at next entry in mlis3
   999 indic=1

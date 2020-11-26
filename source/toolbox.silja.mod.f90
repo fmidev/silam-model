@@ -87,6 +87,9 @@ MODULE toolbox
   public fu_lognorm_density
   public get_chunk
   public set_environment_variable
+  public fu_get_default_mpi_buf_size
+  public remapcon_1d
+  public testremapcon_1d
 
   public trim_precision
 
@@ -590,6 +593,91 @@ CONTAINS
   end function fu_value_index_in_array
 
 
+  subroutine remapcon_1D(bnd1, bnd2, epsi,  bndout, idx1, idx2, nSeg)
+      ! Info for conservative remapping of 1D arrays
+      ! Creates a new set of bounds "supermesh" and fills the indices 
+      ! increasing sequence of both bnd1 and bnd2 required
+      ! Number of out bounds is at most sum of input bounds 
+      ! Note, that procedure is assymetric: if bounds are within epsi,
+      ! bounds from bnd2 are used
+      real, dimension(:), intent(in) :: bnd1, bnd2 ! bound points of arr1
+      real, intent(in) ::  epsi !! Consider bunds same if they differ by less than eps
+          ! Assumed sorted
+      real, dimension(:), intent(out) :: bndout ! Common set of bounds
+      integer, dimension(:), intent(out) :: idx1, idx2
+      integer, intent(out) ::  nseg
+
+      integer :: i1, i2, iOut, n1, n2
+
+      n1 = size(bnd1)
+      n2 = size(bnd2)
+
+      i1 = 0   !!! Counters for segments 
+      i2 = 0
+
+      do iOut = 1, n1+n2
+        if (bnd1(i1+1) + epsi < bnd2(i2+1)) then
+          i1 = i1 + 1
+          bndout(iOut) = bnd1(i1)
+        else
+          if (bnd1(i1+1) < bnd2(i2+1) + epsi ) i1 = i1 + 1 ! if bound within epsi -- count it once
+          i2 = i2 + 1
+          bndout(iOut) = bnd2(i2)
+        endif
+        idx1(iOut) = i1
+        idx2(iOut) = i2
+ !       write (*,*) iOut, bndout(iOut), i1, i2
+        if (i1 >= n1) exit
+        if (i2 >= n2) exit
+      enddo
+      do i2 = i2+1, n2
+         iOut = iOut + 1
+!         write (*,*) iOut, bnd2(i2), i1, i2
+         bndout(iOut) = bnd2(i2)
+         idx1(iOut) = i1
+         idx2(iOut) = i2
+      enddo
+      do i1 = i1+1, n1
+         iOut = iOut + 1
+  !       write (*,*) iOut, bnd1(i1), i1, i2
+         if (iOut > size(bndout)) call ooops("")
+         bndout(iOut) = bnd1(i1)
+         idx1(iOut) = i1
+         idx2(iOut) = i2
+      enddo
+      nseg = iOut
+
+  end subroutine remapcon_1D
+
+  subroutine testremapcon_1D()
+    integer i, n
+    integer, parameter :: n1 = 1801
+    integer, parameter :: n2 = 1801
+
+    real, dimension (n1) :: bnd1 
+    real, dimension (n2) :: bnd2
+    real, dimension (n1+n2) :: bndout
+    integer, dimension (n1+n2) :: idx1, idx2
+    integer :: nSeg
+
+    do i = 1,n1
+      bnd1(i) = -180. + 0.2*(i-1)
+    enddo
+    do i = 1,n2
+      bnd2(i) = -180 + 0.2*(i-1)
+    enddo
+
+    call msg("bnd1", bnd1)
+    call msg("bnd2", bnd2)
+    call remapcon_1D(bnd1, bnd2, 0.001, bndout, idx1, idx2, nSeg)
+    call msg("Bndout(1)", bndout(1))
+    do i = 1, nSeg-1
+        call msg ("idx1,idx2", idx1(i), idx2(i))
+        call msg("Bndout(i+1), i", bndout(i+1)) 
+    enddo
+
+  endsubroutine testremapcon_1D
+
   ! ***************************************************************
   ! ***************************************************************
   !
@@ -777,6 +865,8 @@ CONTAINS
     fu_dy_m_to_deg = dy_m/(earth_radius*degrees_to_radians)
 
   END FUNCTION fu_dy_m_to_deg
+
+
 
 
 
@@ -4330,7 +4420,40 @@ CONTAINS
 
   end SUBROUTINE set_environment_variable
 
+  !***************************************************************************************
+  
 
+  ! Write buffering. The data are normally written into file one field at time. Especially
+  ! in MPI runs, each write becomes small, and performance can be increased by first
+  ! aggregating data from multiple fields. For serial runs buffering doesn't necessary
+  ! improve the performance, however.
+  ! 
+  ! Current default buffer size is 50 fields, but if the number of MPI tasks is high,
+  ! much more buffering can be useful.
+  !
+  !  SINCE 2020-07-23 also used for MPI NetCDF buffered read/write
+  ! 
+  
+  integer function fu_get_default_mpi_buf_size() result(buf_size_flds)
+    implicit none
+    integer, parameter :: buf_size_flds_def = 500
+    integer :: stat
+    character(len=*), parameter :: sub_name = 'fu_get_default_mpi_buf_size'
+    character(len=clen) :: strval
+
+    call get_environment_variable('GRADSIO_BUF_SIZE', strval)
+    if (error) return
+    if (strval /= '') then
+      read(unit=strval, fmt=*, iostat=stat) buf_size_flds
+      if (fu_fails(stat == 0, 'Failed to parse GRADSIO_BUF_SIZE: ' + strval, sub_name)) return
+      if (fu_fails(buf_size_flds < 1000000, 'Suspicious GRADSIO_BUF_SIZE', sub_name)) return
+      if (buf_size_flds < 2) call msg_warning('GRADSIO_BUF_SIZE: ' + fu_str(buf_size_flds), sub_name)
+      ! size < 1 used for disabling buffer (above)
+    else
+      buf_size_flds = buf_size_flds_def
+    end if
+    
+  end function fu_get_default_mpi_buf_size
 
   
   !***************************************************************************************

@@ -35,8 +35,6 @@ MODULE grids_geo
   USE geography_tools
   !!$use omp_lib
 
-!!!??#define OLD_REPROJECTION  
-
   IMPLICIT NONE
 
   ! Public functions and subroutines available in this module:
@@ -1620,7 +1618,7 @@ CONTAINS
     type(silja_grid), intent(in) :: grid
     character :: bName
     type(silja_grid) :: bGrid
-    real :: cornerY, cornerX, dx, dy, fTmp
+    real :: cornerY, cornerX, dx, dy, fTmp, fTmp1
     integer :: nX, nY, i
     logical :: corner_in_geo_lonlat
     real, dimension(:), pointer :: lats, lons, dx_ptr, dy_ptr, sin_map_rot, cos_map_rot
@@ -1634,7 +1632,7 @@ CONTAINS
          call lonlat_grid_parameters(grid,&
                                   & cornerX, cornerY, corner_in_geo_lonlat, &
                                   & nX, nY, &
-                                  & fTmp, fTmp, &
+                                  & fTmp, fTmp1, &
                                   & dx, dy)
          select case(bName)
            case('N')
@@ -5642,13 +5640,20 @@ CONTAINS
     real, dimension(:,:,:), pointer :: weightTmp, weight_X_Tmp, weight_Y_Tmp
     integer, dimension(:,:), pointer :: arCount
     integer, dimension(:), pointer :: pIX, pIY, iWork
-    real, dimension(:), pointer :: pWeight, pWeight_X, pWeight_Y
-    logical :: ifFound, ifSimpleReprojection, ifLonGlobalTo
+    real, dimension(:), pointer :: pWeight, pWeight_X, pWeight_Y, pWeight_Xmom, pWeight_Ymom,fWork
+    logical :: ifFound, ifSimpleReprojection, ifLonGlobalTo, ifLonGlobalFrom
     real :: lat, lon, lat2, lon2
     real, dimension(3,2) :: B1, B2
     real, dimension(3,3) :: rotation_3d, rotation_3d_2
     real, dimension(2,2) :: rot_tmp
     type(silam_any_grid_param), pointer :: anyGridParamTo, anyGridParamFrom 
+
+    !!!! same-projection conservative remap
+    real :: y0From, y0To, x0From, x0To,  yeps, xeps, dxfrom, dxto, dyfrom, dyto, dxseg, dyseg, offXSeg, offYSeg
+    integer :: nSegY, nSegX, nsegXFrom, nsegYFrom, iXFrom, iYfrom
+    real,dimension(:), pointer :: bndXfrom, bndXto, bndX, bndYfrom, bndYto, bndY
+    integer,dimension(:), pointer :: pIXfrom, pIXTo, pIYfrom, pIYTo 
+
 
     type(rng_type) :: rng !Random-number generator
 
@@ -5754,6 +5759,7 @@ CONTAINS
     interpStructPtr%iOutside = myiOutside
 
     ifLonGlobalTo = fu_ifLonGlobal(interpStructPtr%gridTo)
+    ifLonGlobalFrom = fu_ifLonGlobal(interpStructPtr%gridFrom)
     !
     ! Allocate the necessary pointers and make up the reprojection coefficients
     !
@@ -5769,11 +5775,175 @@ CONTAINS
       case(average, summation)
         !
         ! These are the flux-preserving reprojection ways.
-        ! Note that the number of cells affecting the single output one is unknown. Have to use 
-        ! temporaries as long as needed
         !
+        ifSimpleReprojection = gridFrom%gridtype == lonlat .and. &
+                             & gridTo%gridtype == lonlat
+        if(ifSimpleReprojection) ifSimpleReprojection = ifSimpleReprojection .and. &
+                                                      & gridFrom%lonlat%pole == gridTo%lonlat%pole
+        !
+        ! For lonlat grids with the same projection the reprojection can be simple
+        !
+       !!!        if(.false.)then
+       if(ifSimpleReprojection)then  
+          !
+          ! Poles are the same, i.e. the grid cell borders are parallel. Then a simple algebra can 
+          ! serve the reprojection
+          !
+          
+          call msg('Simplified same-pole reprojection')
+
+          dxfrom = gridFrom%lonlat%dx_deg
+          dxto   =  gridTo%lonlat%dx_deg
+          x0From = gridFrom%lonlat%sw_corner_modlon - 0.5*dxfrom
+          x0To = gridTo%lonlat%sw_corner_modlon - 0.5*dxto
+          xeps = 1e-2 * dxto !! Epsilon to assume cell boundaries same
+          if ( ifLonGlobalFrom ) then
+              nSegXFrom =  nxFrom*2+1 !!Let wrap
+              if ( x0From > x0To) x0From = x0From - 360. !
+          else
+             nSegXFrom =  nxFrom + 1
+          endif
+          nSegX = nSegXFrom + nxTo + 1
+           
+          dyfrom = gridFrom%lonlat%dy_deg
+          dyto   = gridTo%lonlat%dy_deg
+          y0From = gridFrom%lonlat%sw_corner_modlat - 0.5*dyfrom
+          y0To = gridTo%lonlat%sw_corner_modlat - 0.5*dyto
+          yeps = 1e-2 * gridTo%lonlat%dy_deg !! Epsilon to assume boundaries same
+          nSegY = nyFrom + nYto + 2  !! Max no of overlapping segments
+
+          ! Mazimum number of "From" cells to contribute to a "To" cell
+          maxCount = (int(gridTo%lonlat%dx_deg / gridFrom%lonlat%dx_deg) + 2) * &
+                    & (int(gridTo%lonlat%dy_deg / gridFrom%lonlat%dy_deg) + 2)
+
+          iWork =>  fu_work_int_array(2*nSegX + 2*nSegY + nxTo*nYTo)
+          ! Four slices for indices
+          pIXfrom => iWork(1:nSegX)
+          pIXTo   => iWork(nSegX+1:2*nSegX) 
+          pIYfrom => iWork(2*nSegX+1 : 2*nSegX + nSegY)
+          pIYTo   => iWork(2*nSegX + nSegY+1 : 2*nSegX + 2*nSegY)
+          arCount(1:nxTo,1:nYTo)  => iWork(2*nSegX + 2*nSegY+1 : 2*nSegX + 2*nSegY + nxTo*nYTo)
+
+          ! 
+          fWork => fu_work_array(3*nSegX + 3*nSegY)
+          ! six scices for
+          bndXfrom => fWork(1:nSegX)
+          bndXto   => fWork(nSegX +1   : 2*nSegX)
+          bndX     => fWork(2*nSegX +1 : 3*nSegX)
+          bndYfrom => fWork(3*nSegX +1 : 3*nSegX + nSegY)
+          bndYto    => fWork(3*nSegX + nSegY +1 : 3*nSegX + 2*nSegY)
+          bndY     => fWork(3*nSegX + 2*nSegY +1 : 3*nSegX + 3*nSegY)
+
+          do ix = 0, nsegXFrom-1
+            bndXfrom(ix+1) =  x0From + ix * dxFrom 
+          enddo
+          do ix = 0, nxTo
+            bndXTo(ix+1) =  x0To + ix * dxTo 
+          enddo
+
+          do iy = 0, nyFrom
+            bndYfrom(iy+1) =  y0From + iy * dyFrom
+          enddo
+          do iy = 0, nyTo
+            bndYTo(iy+1) =  y0To + iy * dyTo
+          enddo
+
+          call remapcon_1D(bndXfrom(1:nsegXFrom), bndXto(1:nxTo+1), xeps, bndX, pIXfrom, pIXTo, nSegX)
+          call remapcon_1D(bndYfrom(1:nyFrom+1), bndYto(1:nyTo+1), yeps, bndY, pIYfrom, pIYTo, nSegY)
+
+          interpStructPtr%nCoefs = maxCount
+          allocate(interpStructPtr%indX(maxCount,nxTo,nyTo), interpStructPtr%indY(maxCount,nxTo,nyTo), &
+                 & interpStructPtr%weight(maxCount,nxTo,nyTo), &
+                 & interpStructPtr%weight_X(maxCount,nxTo,nyTo), &
+                 & interpStructPtr%weight_Y(maxCount,nxTo,nyTo), stat = ii)
+          if(fu_fails(ii == 0,'Failed interpolation-structure arrays allocation','fu_horiz_interp_struct'))return
+
+          interpStructPtr%indX(:,:,:) = 0
+          interpStructPtr%indY(:,:,:) = 0
+          interpStructPtr%weight(:,:,:) = 0.
+          interpStructPtr%weight_X(:,:,:) = 0.
+          interpStructPtr%weight_Y(:,:,:) = 0.
+          arCount(:,:) = 0
+
+
+          do iy = 1, nSegY
+            iYTo = pIYTo(iy)
+            iYFrom = pIYFrom(iy)
+            if (iYTo < 1) cycle
+            if (iYTo > nYto) cycle
+            if (iYFrom < 1 .or. iYFrom > nYFrom ) then
+              call msg("grid from and to:")
+              call report(gridFrom)
+              call report(gridTo)
+              call set_error("Cannot map y conservatively", "fu_horiz_interp_struct")
+              return
+            endif
+            dySeg = bndY(iY+1) - bndY(iY)
+
+            !!Offset of center of segment from the trget cell (in units of target cell)
+            offYSeg = 0.5* (bndY(iY+1) + bndY(iY+1) - bndYto(iYTo) - bndYto(iYTo+1)) / dyTo
+
+            do ix = 1, nSegX
+              iXTo = pIXTo(iX)
+              if (iXTo < 1) cycle
+              if (iXTo > nXto) cycle
+              iXFrom = pIXFrom(iX)
+              if (ifLonGlobalFrom) iXFrom = modulo(iXFrom-1, nxFrom) + 1
+              if (iXFrom < 1 .or. iXFrom > nXFrom ) then
+                call msg("grid from and to:")
+                call report(gridFrom)
+                call report(gridTo)
+                call set_error("Cannot map X conservatively", "fu_horiz_interp_struct")
+                return
+              endif
+
+              dXSeg = bndX(iX+1) - bndX(iX)
+              !!Offset of center of segment from the trget cell (in units of target cell)
+              offXSeg = 0.5* (bndX(iX+1) + bndX(iX+1) - bndXto(iXTo) - bndXto(iXTo+1)) / dXTo
+
+              arCount(iXTo, iYTo) = arCount(iXTo, iYTo) + 1
+              iCount = arCount(iXTo, iYTo)
+
+              interpStructPtr%indX(iCount,iXto,iYto) = iXFrom
+              interpStructPtr%indY(iCount,iXto,iYto) = iYfrom
+              if(interpStructPtr%interp_type == average)then
+                fTmp = dXSeg * dySeg / (dxTo * dyTo) !!! Segment size as a raction of output -- weights sum to one
+              else
+                fTmp = dXSeg * dySeg / (dxFrom * dyFrom) !!! Segment size as a raction of input cell -- weights sum 
+                                                         !! to ratio of cell areas 
+              endif
+              interpStructPtr%weight(iCount,iXto,iYto) =  fTmp
+              interpStructPtr%weight_X(iCount,iXto,iYto) = fTmp * offXSeg
+              interpStructPtr%weight_Y(iCount,iXto,iYto) = fTmp * offYSeg
+
+              ! update the range of useful From and To cells 
+              ! Only if not yet updated
+              if (interpStructPtr%iyEndTo == 1) then !! Sic!  Y index is used for check
+                interpStructPtr%ixStartTo = min(interpStructPtr%ixStartTo, ixTo)
+                interpStructPtr%ixEndTo = max(interpStructPtr%ixEndTo, ixTo)
+                interpStructPtr%ixStartFrom = min(interpStructPtr%ixStartFrom, ixFrom)
+                interpStructPtr%ixEndFrom = max(interpStructPtr%ixEndFrom, ixFrom)
+              endif
+            enddo
+            interpStructPtr%iyStartTo = min(interpStructPtr%iyStartTo, iYTo)
+            interpStructPtr%iyEndTo = max(interpStructPtr%iyEndTo, iYTo)
+            interpStructPtr%iyStartFrom = min(interpStructPtr%iyStartFrom, iYFrom)
+            interpStructPtr%iyEndFrom = max(interpStructPtr%iyEndFrom, iYFrom)
+          enddo
+          call free_work_array(iWork)
+          call free_work_array(fWork)
+          
+        else ! not same poles
+          ! Note that the number of cells affecting the single output one is unknown. Have to use 
+          ! temporaries as long as needed
+          !
+          ! Poles are different. No other way, have to go for tough work.
+          ! Select the number of small cells, which the original grid cell will be broken into
+          !
+call msg('Full-scale different-poles reprojection')
         ! Let's get temporary array that will almost surely incorporate the neede coefs
         !
+        ! FIXME black magic with ratios sometimes causes OOM errors
         ratio = fu_cell_size_midpoint(interpStructPtr%gridFrom) / &
               & fu_cell_size_midpoint(interpStructPtr%gridTo)
         
@@ -5817,137 +5987,6 @@ call msg('maxExpectedCount =', maxExpectedCount)
         weightTmp = 0.0
         weight_X_Tmp = 0.0
         weight_Y_Tmp = 0.0
-        !
-        ! For lonlat grids with the same poles the reprojection can be substantially sped-up
-        !
-        ifSimpleReprojection = gridFrom%gridtype == lonlat .and. &
-                             & gridTo%gridtype == lonlat
-        if(ifSimpleReprojection) ifSimpleReprojection = ifSimpleReprojection .and. &
-                                                      & gridFrom%lonlat%pole == gridTo%lonlat%pole
-        if(.false.)then
-!!!        if(ifSimpleReprojection)then  !FIXME BUGGY
-          !
-          ! Poles are the same, i.e. the grid cell borders are parallel. Then a simple algebra can 
-          ! serve the reprojection
-          !
-call msg('Simplified same-pole reprojection')
-          do iy = 1, nyFrom
-            do ix = 1, nxFrom
-              !
-              ! Lower left and upper right corners determine the coordinates range in the From grid
-              !
-!              if(ix == 3406 .and. iy == 1087)then
-!                call msg('(3406, 1087)', (/fx_ll, fx_ur, fy_ll, fy_ur/))
-!              endif  
-              call project_point_to_grid(interpStructPtr%gridFrom,real(ix)-0.5,real(iy)-0.5, &
-                                       & interpStructPtr%gridTo,fX_ll,fY_ll)
-              call project_point_to_grid(interpStructPtr%gridFrom,real(ix)+0.5,real(iy)+0.5, &
-                                       & interpStructPtr%gridTo,fX_ur,fY_ur)
-              !
-              ! Do we yeed to bother? The From-cell can be out of To area: inside pole caps or out of 
-              ! regional domain
-              !
-              if (ifLonGlobalTo) then 
-                if(.not.(fY_ur >0.5 .and. fY_ll <nYTo+0.5))cycle   ! pole caps
-              else
-                if(.not.(fX_ur >0.5 .and. fX_ll <nxTo+0.5 .and. fY_ur >0.5 .and. fY_ll <nYTo+0.5))cycle  ! regional domain
-              endif
-
-!call msg('ixFrom,iyFrom', ix, iy)
-              ! we do... First, update the range of useful From-cells
-              interpStructPtr%ixStartFrom = min(interpStructPtr%ixStartFrom, ix)
-              interpStructPtr%iyStartFrom = min(interpStructPtr%iyStartFrom, iy)
-              interpStructPtr%ixEndFrom = max(interpStructPtr%ixEndFrom, ix)
-              interpStructPtr%iyEndFrom = max(interpStructPtr%iyEndFrom, iy)
-              !
-              ! Cycle over the covered To-grid cells sending there a corresponding From mass fraction 
-              ! Skip the out-of-grid cells
-              !
-              fX_save = fX_ur
-              if (ifLonGlobalTo .and. fX_ll > fX_ur) then ! Handling of global wrapping
-                nWrap=2
-                fX_ur = nxTo+0.5
-              else
-                nWrap=1
-              endif
-              !
-              ! note that for the Arakawa shifts we need extra half-grid-cell space, another one
-              ! can come from small error in rounding. In-total, +-2 cells. Further on, fractions
-              ! are checked and unnecessary cella are cut. Since there are no heavy calls until then,
-              ! better check a few extra cells than lose one in inaccuracies. 
-              !
-              do iWrap=1,nWrap
-!                do ixTo = max(1,nint(fX_ll)), min(nxTo,nint(fX_ur))
-!                  do iyTo = max(1,nint(fY_ll)), min(nyTo,nint(fY_ur))
-                do ixTo = max(1,nint(fX_ll)-1), min(nxTo,nint(fX_ur)+1)
-                  do iyTo = max(1,nint(fY_ll)-1), min(nyTo,nint(fY_ur)+1)
-                    !
-                    ! The fraction of mass of the (iSml,jSml) FROM cell that goes into (ix,iy) TO cell
-                    !
-!call msg('Now dealing with ixTo,iyTo', ixTo, iyTo)
-                    xL = max(fX_ll,ixTo-0.5)
-                    xR = min(fX_ur,ixTo+0.5)
-                    yU = min(fY_ur,iyTo+0.5)
-                    yL = max(fY_ll,iyTo-0.5)
-                    fSmall_2 = (xR - xL) / (fX_ur - fX_ll) * (yU - yL) / (fY_ur - fY_ll)
-                    if(fSmall_2 < 1e-10)cycle  ! for the case of nearly-perfect hit of the boundaries
-                    
-                    interpStructPtr%ixStartTo = min(ixTo, interpStructPtr%ixStartTo)
-                    interpStructPtr%iyStartTo = min(iyTo, interpStructPtr%iyStartTo)
-                    interpStructPtr%ixEndTo = max(ixTo, interpStructPtr%ixEndTo)
-                    interpStructPtr%iyEndTo = max(iyTo, interpStructPtr%iyEndTo)
-
-                    ! Check if we already have the corresponding relation
-                    ifFound = .false.
-                    do iCount = arCount(ixTo,iyTo), 1, -1
-                      if(ixTmp(iCount,ixTo,iyTo) == ix .and. iyTmp(iCount,ixTo,iyTo) == iy)then
-                        weightTmp(iCount,ixTo,iyTo) = weightTmp(iCount,ixTo,iyTo) + fSmall_2
-                        weight_X_Tmp(iCount,ixTo,iyTo) = weight_X_Tmp(iCount,ixTo,iyTo) + &
-                                                                      & fSmall_2 * ((xL+xR) /2. - ixTo)
-                        weight_Y_Tmp(iCount,ixTo,iyTo) = weight_Y_Tmp(iCount,ixTo,iyTo) + &
-                                                                      & fSmall_2 * ((yL+yU) /2. - iyTo)
-                        ifFound = .true.
-                        exit
-                      endif
-                    end do  ! iCount
-                    if(ifFound)cycle  ! Finished with this receiving cell
-                    !
-                    ! This cellFrom has not yet contributed to the cellTo. Take the new element, 
-                    ! beware on limited array size
-                    !
-                    if(arCount(ixTo,iyTo) == maxExpectedCount)then
-                      ii = max(10,(maxExpectedCount * 5) / 4) ! Enlarge by 20% or by 10
-call msg('Enlarging to/from:', ii, maxExpectedCount)
-                      call enlarge_int_counter(ixTmp, pIX, ii, maxExpectedCount, nxTo, nyTo)
-                      call enlarge_int_counter(iyTmp, pIY, ii, maxExpectedCount, nxTo, nyTo)
-                      call enlarge_real_counter(weightTmp, pWeight, ii, maxExpectedCount, nxTo, nyTo)
-                      call enlarge_real_counter(weight_X_Tmp, pWeight_X, ii, maxExpectedCount, nxTo, nyTo)
-                      call enlarge_real_counter(weight_Y_Tmp, pWeight_Y, ii, maxExpectedCount, nxTo, nyTo)
-                      maxExpectedCount = ii
-                      if(error)return
-                    endif  ! if max expected count
-                    arCount(ixTo,iyTo) = arCount(ixTo,iyTo) + 1
-                    maxCount = max(maxCount,arCount(ixTo,iyTo))
-                    ixTmp(arCount(ixTo,iyTo),ixTo,iyTo) = ix    ! from
-                    iyTmp(arCount(ixTo,iyTo),ixTo,iyTo) = iy    ! from
-                    weightTmp(arCount(ixTo,iyTo),ixTo,iyTo) = fSmall_2
-                    weight_X_Tmp(arCount(ixTo,iyTo),ixTo,iyTo) = fSmall_2 * ((xL+xR) /2. - ixTo)
-                    weight_Y_Tmp(arCount(ixTo,iyTo),ixTo,iyTo) = fSmall_2 * ((yL+yU) /2. - iyTo)
-
-                  end do  ! iyTo
-                end do  ! ixTo
-                fX_ur = fX_save 
-                fX_ll = 0.5
-              enddo !iWrap
-            end do  ! iy From
-          end do  ! ix From
-          
-        else
-          !
-          ! Poles are different. No other way, have to go for tough work.
-          ! Select the number of small cells, which the original grid cell will be broken into
-          !
-call msg('Full-scale different-poles reprojection')
 
           nSmall = int(sqrt(2000. * ratio)/2.) * 2 + 1
 
@@ -6069,114 +6108,113 @@ call msg('Full-scale different-poles reprojection')
               end do  ! jSml
             end do   ! ix
           end do  ! iy
-        endif  ! if poles are same
-        !
-        ! OK, we know the sizes and temporary arrays have been filled in. Copy stuff to the structure
-        !
-call msg('Temporaries created')
-        interpStructPtr%nCoefs = maxCount
-        allocate(interpStructPtr%indX(maxCount,nxTo,nyTo), interpStructPtr%indY(maxCount,nxTo,nyTo), &
-               & interpStructPtr%weight(maxCount,nxTo,nyTo), &
-               & interpStructPtr%weight_X(maxCount,nxTo,nyTo), &
-               & interpStructPtr%weight_Y(maxCount,nxTo,nyTo), stat = ii)
-        if(fu_fails(ii == 0,'Failed interpolation-structure arrays allocation','fu_horiz_interp_struct'))return
-        do iy = 1, nyTo
-          do ix = 1, nxTo
-            fX = sum(weightTmp(1:maxCount,ix,iy))
-            if(fX > 0.0)then
-              if(interpStructPtr%interp_type == average)then
-                do iCount = 1, maxCount
-                  interpStructPtr%indX(iCount,ix,iy) = ixTmp(iCount,ix,iy)
-                  interpStructPtr%indY(iCount,ix,iy) = iyTmp(iCount,ix,iy)
-                  interpStructPtr%weight(iCount,ix,iy) = weightTmp(iCount,ix,iy) / fX
-                  interpStructPtr%weight_X(iCount,ix,iy) = weight_X_Tmp(iCount,ix,iy) / fX
-                  interpStructPtr%weight_Y(iCount,ix,iy) = weight_Y_Tmp(iCount,ix,iy) / fX
-                end do
+          !
+          ! OK, we know the sizes and temporary arrays have been filled in. Copy stuff to the structure
+          !
+          interpStructPtr%nCoefs = maxCount
+          allocate(interpStructPtr%indX(maxCount,nxTo,nyTo), interpStructPtr%indY(maxCount,nxTo,nyTo), &
+                 & interpStructPtr%weight(maxCount,nxTo,nyTo), &
+                 & interpStructPtr%weight_X(maxCount,nxTo,nyTo), &
+                 & interpStructPtr%weight_Y(maxCount,nxTo,nyTo), stat = ii)
+          if(fu_fails(ii == 0,'Failed interpolation-structure arrays allocation','fu_horiz_interp_struct'))return
+          do iy = 1, nyTo
+            do ix = 1, nxTo
+              fX = sum(weightTmp(1:maxCount,ix,iy))
+              if(fX > 0.0)then
+                if(interpStructPtr%interp_type == average)then
+                  do iCount = 1, maxCount
+                    interpStructPtr%indX(iCount,ix,iy) = ixTmp(iCount,ix,iy)
+                    interpStructPtr%indY(iCount,ix,iy) = iyTmp(iCount,ix,iy)
+                    interpStructPtr%weight(iCount,ix,iy) = weightTmp(iCount,ix,iy) / fX
+                    interpStructPtr%weight_X(iCount,ix,iy) = weight_X_Tmp(iCount,ix,iy) / fX
+                    interpStructPtr%weight_Y(iCount,ix,iy) = weight_Y_Tmp(iCount,ix,iy) / fX
+                  end do
+                else
+                  do iCount = 1, maxCount
+  !if(ix == 41 .and. iy ==46)then
+  !  call msg('ixFrom, iyFrom, weight, weight_X, weight_Y: (' + &
+  !                & fu_str(ixTmp(iCount,ix,iy)) + ',' + fu_str(iyTmp(iCount,ix,iy)) + ')', &
+  !                & (/weightTmp(iCount,ix,iy), weight_X_Tmp(iCount,ix,iy), weight_Y_Tmp(iCount,ix,iy)/))
+  !endif
+                    interpStructPtr%indX(iCount,ix,iy) = ixTmp(iCount,ix,iy)
+                    interpStructPtr%indY(iCount,ix,iy) = iyTmp(iCount,ix,iy)
+                    interpStructPtr%weight(iCount,ix,iy) = weightTmp(iCount,ix,iy)
+                    interpStructPtr%weight_X(iCount,ix,iy) = weight_X_Tmp(iCount,ix,iy)
+                    interpStructPtr%weight_Y(iCount,ix,iy) = weight_Y_Tmp(iCount,ix,iy)
+                  end do
+                endif  ! aver or sum
               else
-                do iCount = 1, maxCount
-!if(ix == 41 .and. iy ==46)then
-!  call msg('ixFrom, iyFrom, weight, weight_X, weight_Y: (' + &
-!                & fu_str(ixTmp(iCount,ix,iy)) + ',' + fu_str(iyTmp(iCount,ix,iy)) + ')', &
-!                & (/weightTmp(iCount,ix,iy), weight_X_Tmp(iCount,ix,iy), weight_Y_Tmp(iCount,ix,iy)/))
-!endif
-                  interpStructPtr%indX(iCount,ix,iy) = ixTmp(iCount,ix,iy)
-                  interpStructPtr%indY(iCount,ix,iy) = iyTmp(iCount,ix,iy)
-                  interpStructPtr%weight(iCount,ix,iy) = weightTmp(iCount,ix,iy)
-                  interpStructPtr%weight_X(iCount,ix,iy) = weight_X_Tmp(iCount,ix,iy)
-                  interpStructPtr%weight_Y(iCount,ix,iy) = weight_Y_Tmp(iCount,ix,iy)
-                end do
-              endif  ! aver or sum
-            else
-              interpStructPtr%indX(1:maxCount,ix,iy) = 0
-              interpStructPtr%indY(1:maxCount,ix,iy) = 0
-              interpStructPtr%weight(1:maxCount,ix,iy) = 0.
-              interpStructPtr%weight_X(1:maxCount,ix,iy) = 0.
-              interpStructPtr%weight_Y(1:maxCount,ix,iy) = 0.
-            endif  ! sum(1:maxCount)>0
-          end do   ! ix
-        end do  ! iy
-        !
-        ! We might need to deal with pieces of the output grid outside the input grid
-        !
-        select case(myiOutside)
-            case(notAllowed, handleGlobalGrid)
-              if(any(arCount(1:nxTo,1:nyTo) == 0))then
-                    call set_error('Out-of-grid-from point in grid-to','fu_horiz_interp_struct')
+                interpStructPtr%indX(1:maxCount,ix,iy) = 0
+                interpStructPtr%indY(1:maxCount,ix,iy) = 0
+                interpStructPtr%weight(1:maxCount,ix,iy) = 0.
+                interpStructPtr%weight_X(1:maxCount,ix,iy) = 0.
+                interpStructPtr%weight_Y(1:maxCount,ix,iy) = 0.
+              endif  ! sum(1:maxCount)>0
+            end do   ! ix
+          end do  ! iy
+          call free_work_array(iWork)
+          call free_work_array(pIX)
+          call free_work_array(pIY)
+          call free_work_array(pWeight)
+          call free_work_array(pWeight_X)
+          call free_work_array(pWeight_Y)
+  !        deallocate(ixTmp, iyTmp, weightTmp, weight_X_Tmp, weight_Y_Tmp)
+        endif  ! if poles are same
+          !
+          ! We might need to deal with pieces of the output grid outside the input grid
+          !
+          select case(myiOutside)
+              case(notAllowed, handleGlobalGrid)
+                if(any(arCount(1:nxTo,1:nyTo) == 0))then
+                      call set_error('Out-of-grid-from point in grid-to','fu_horiz_interp_struct')
 
-                    call msg("arCount>0:")
-                    do iy = nyTo , 1, -1 !Top-bottom, so map looks normal
-                      call msg("",arCount(1:nxTo,iy) > 0)
-                    enddo
+                      call msg("arCount>0:")
+                      do iy = nyTo , 1, -1 !Top-bottom, so map looks normal
+                        call msg("",arCount(1:nxTo,iy) > 0)
+                      enddo
 
-                    return
-                  endif
-              
-            case(nearestPoint)  ! find the first closest reasonable point and copy all its values
-              call msg("Switch: iOutside = nearest")
-              do iy = 1, nyTo
-                do ix = 1, nxTo
-                  if(arCount(ix,iy) == 0)then
-                    patch: do iCount = 1, max(nxTo, nyTo)
-                      do jSml = max(iy-iCount, 1), min(iy+iCount, nyTo)
-                        do iSml = max(ix-iCount, 1), min(ix+iCount, nxTo)
-                          if(arCount(iSml,jSml) > 0)then
-                            interpStructPtr%indX(1:maxCount,ix,iy) = interpStructPtr%indX(1:maxCount,iSml,jSml)
-                            interpStructPtr%indY(1:maxCount,ix,iy) = interpStructPtr%indY(1:maxCount,iSml,jSml)
-                            interpStructPtr%weight(1:maxCount,ix,iy) = interpStructPtr%weight(1:maxCount,iSml,jSml)
-                            interpStructPtr%weight_X(1:maxCount,ix,iy) = interpStructPtr%weight_X(1:maxCount,iSml,jSml)
-                            interpStructPtr%weight_Y(1:maxCount,ix,iy) = interpStructPtr%weight_Y(1:maxCount,iSml,jSml)
-                            exit patch
-                          endif
-                        end do  ! iSml
-                      end do  ! jSml
-                    end do patch
-                  endif  ! no contribution from input grid
-                end do  ! ix
-              end do  ! iy
-              
-            case(setZero)  ! do nothing: zeroes are already there
-               call msg("Switch: iOutside = setZero")
-            case(setMissVal)
-               call msg("Switch: iOutside = setMissVal")
-               where(arCount > 0) 
-                    interpStructPtr%ifValid=.true.
-               elsewhere
-                    interpStructPtr%weight(1,:,:) = real_missing
-                    interpStructPtr%weight_X(1,:,:) = real_missing
-                    interpStructPtr%weight_Y(1,:,:) = real_missing
-                    interpStructPtr%ifValid=.false.
-               endwhere
-            case default
-              call set_error('Strange out-of-grid handle switch:'+fu_str(myiOutside),'fu_horiz_interp_struct')
-        end select   ! iOutside
+                      return
+                    endif
+                
+              case(nearestPoint)  ! find the first closest reasonable point and copy all its values
+                call msg("Switch: iOutside = nearest")
+                do iy = 1, nyTo
+                  do ix = 1, nxTo
+                    if(arCount(ix,iy) == 0)then
+                      patch: do iCount = 1, max(nxTo, nyTo)
+                        do jSml = max(iy-iCount, 1), min(iy+iCount, nyTo)
+                          do iSml = max(ix-iCount, 1), min(ix+iCount, nxTo)
+                            if(arCount(iSml,jSml) > 0)then
+                              interpStructPtr%indX(1:maxCount,ix,iy) = interpStructPtr%indX(1:maxCount,iSml,jSml)
+                              interpStructPtr%indY(1:maxCount,ix,iy) = interpStructPtr%indY(1:maxCount,iSml,jSml)
+                              interpStructPtr%weight(1:maxCount,ix,iy) = interpStructPtr%weight(1:maxCount,iSml,jSml)
+                              interpStructPtr%weight_X(1:maxCount,ix,iy) = interpStructPtr%weight_X(1:maxCount,iSml,jSml)
+                              interpStructPtr%weight_Y(1:maxCount,ix,iy) = interpStructPtr%weight_Y(1:maxCount,iSml,jSml)
+                              exit patch
+                            endif
+                          end do  ! iSml
+                        end do  ! jSml
+                      end do patch
+                    endif  ! no contribution from input grid
+                  end do  ! ix
+                end do  ! iy
+                
+              case(setZero)  ! do nothing: zeroes are already there
+                 call msg("Switch: iOutside = setZero")
+              case(setMissVal)
+                 call msg("Switch: iOutside = setMissVal")
+                 where(arCount > 0) 
+                      interpStructPtr%ifValid=.true.
+                 elsewhere
+                      interpStructPtr%weight(1,:,:) = real_missing
+                      interpStructPtr%weight_X(1,:,:) = real_missing
+                      interpStructPtr%weight_Y(1,:,:) = real_missing
+                      interpStructPtr%ifValid=.false.
+                 endwhere
+              case default
+                call set_error('Strange out-of-grid handle switch:'+fu_str(myiOutside),'fu_horiz_interp_struct')
+          end select   ! iOutside
 
-        call free_work_array(iWork)
-        call free_work_array(pIX)
-        call free_work_array(pIY)
-        call free_work_array(pWeight)
-        call free_work_array(pWeight_X)
-        call free_work_array(pWeight_Y)
-!        deallocate(ixTmp, iyTmp, weightTmp, weight_X_Tmp, weight_Y_Tmp)
 call msg('Finished averaging/sum structure')
 
       case(nearest_point)
@@ -6789,7 +6827,7 @@ call msg('Finished averaging/sum structure')
     !
     ! The very basic function: returns an index in the From grid, which corresponds
     ! to the given ixTo, iyTo. It can later be used for direct addressing the values from the 
-    ! gridFrom. However, it is advisable to use then fu_get_value because that function
+    ! gridFrom. However, it is faster then fu_get_value because that function
     ! makes horizontal interpolation rather than picks a single value
     !
     implicit none
@@ -6802,29 +6840,36 @@ call msg('Finished averaging/sum structure')
     real :: fxFrom, fyFrom
     integer :: iCoef
     logical :: ifValid, ifDegradeMethod
+    character(len = *), parameter :: sub_name = 'fu_grid_index'
 
     !
-    ! ATTENTION. ABSOLUTELY NO CHECKING TO KEEP THE MAX SPEED
     !
+    iIndex = int_missing
     if(horizInterpStruct%ifInterpolate)then
       !
       ! Full-blown horizontal interpolation
       !
       ifValid=.true.
       if (associated(horizInterpStruct%ifValid)) ifValid = horizInterpStruct%ifValid(iXTo, iYTo)
-      if (ifValid) then  
-        if(horizInterpStruct%ifGridFromGlobal)then
-          !
-          ! In global grid cannot interpolate the indices across the longitude closure line
-          ! Degrade interpolation along x-direction down to nearest-point if the coefficients are
-          ! far from each other, i.e. their mean value strongly differs from the first of them.
-          !
-          ifDegradeMethod = abs ( sum(horizInterpStruct%indX(1:horizInterpStruct%nCoefs,ixTo,iyTo)) - &
-                                & horizInterpStruct%nCoefs * horizInterpStruct%indX(1,ixTo,iyTo)) > &
-                          & horizInterpStruct%nCoefs
-        else
-          ifDegradeMethod = .false.   ! Non-global grid. Proceed!
-        endif
+      if (ifValid) then 
+          if ( horizInterpStruct%interp_type ==  summation) then
+            call set_error("Called for summation structure", sub_name )
+          elseif ( horizInterpStruct%interp_type == average) then
+              !!for these structure we want a "center" of non-zero weights
+              !! I failed to find any call in Silam that comes here
+          
+             if(horizInterpStruct%ifGridFromGlobal)then
+               !
+               ! In global grid cannot interpolate the indices across the longitude closure line
+               ! Degrade interpolation along x-direction down to nearest-point if the coefficients are
+               ! far from each other, i.e. their mean value strongly differs from the first of them.
+               !
+               ifDegradeMethod = abs ( sum(horizInterpStruct%indX(1:horizInterpStruct%nCoefs,ixTo,iyTo)) - &
+                                     & horizInterpStruct%nCoefs * horizInterpStruct%indX(1,ixTo,iyTo)) > &
+                               & horizInterpStruct%nCoefs
+             else
+               ifDegradeMethod = .false.   ! Non-global grid. Proceed!
+             endif
 #ifdef DEBUG_IS
 if(ifDegradeMethod)then
 call msg('Edge of global grid. Indices:',horizInterpStruct%indX(1:horizInterpStruct%nCoefs,ixTo,iyTo))
@@ -6832,48 +6877,52 @@ call msg('Criterion = ', abs ( sum(horizInterpStruct%indX(1:horizInterpStruct%nC
                                 & horizInterpStruct%nCoefs * horizInterpStruct%indX(1,ixTo,iyTo)))
 endif
 #endif
-        !
-        ! Now, do the actual interpolation with whatever method
-        !
-        if(ifDegradeMethod)then
-          !
-          ! Nearest-point is needed
-          !
-          fxFrom = horizInterpStruct%indX( &
-                       & maxloc(horizInterpStruct%weight(1:horizInterpStruct%nCoefs, ixTo, iyTo), 1), &
-                       & ixTo, iyTo)
-        else
-          !
-          ! No need for nearest-point degraded interpolation. Sum the weighted indices 
-          !
-          if (horizInterpStruct%nCoefs < 5) then ! normal structures
-            fxFrom = sum(horizInterpStruct%weight(:,ixTo,iyTo) * horizInterpStruct%indX(:,ixTo,iyTo))
-          else
-            fxFrom = 0.   ! Potentially long list of weights
-            do iCoef = 1, horizInterpStruct%nCoefs
-              if (horizInterpStruct%weight(iCoef,ixTo,iyTo) == 0.) exit
-              fxFrom = fxFrom + horizInterpStruct%weight(iCoef,ixTo,iyTo) * horizInterpStruct%indX(iCoef,ixTo,iyTo)
-            end do
-          endif
-        endif  ! whether nearest-point or full interpolation
-        !
-        ! For y-axis, no global closure can occur
-        !
-        if (horizInterpStruct%nCoefs < 5) then ! normal structures
-          fyFrom = sum(horizInterpStruct%weight(:,ixTo,iyTo) * horizInterpStruct%indY(:,ixTo,iyTo))
-        else
-          fyFrom = 0.
-          do iCoef = 1, horizInterpStruct%nCoefs   ! potentially long list of weights
-            if (horizInterpStruct%weight(iCoef,ixTo,iyTo) == 0.) exit
-            fyFrom = fyFrom + horizInterpStruct%weight(iCoef,ixTo,iyTo) * horizInterpStruct%indY(iCoef,ixTo,iyTo)
-          end do
-        endif
-        !
-        ! Finally, index
-        iIndex = int(fxFrom+0.5)+(int(fyFrom+0.5)-1)*nxFrom
-        if (iIndex < 1) iIndex = int_missing
-      else
-        iIndex = int_missing
+             !
+             ! Now, do the actual interpolation with whatever method
+             !
+             if(ifDegradeMethod)then
+               !
+               ! Nearest-point is needed
+               !
+               fxFrom = horizInterpStruct%indX( &
+                            & maxloc(horizInterpStruct%weight(1:horizInterpStruct%nCoefs, ixTo, iyTo), 1), &
+                            & ixTo, iyTo)
+             else
+               !
+               ! No need for nearest-point degraded interpolation. Sum the weighted indices 
+               !
+               if (horizInterpStruct%nCoefs < 5) then ! normal structures
+                 fxFrom = sum(horizInterpStruct%weight(:,ixTo,iyTo) * horizInterpStruct%indX(:,ixTo,iyTo))
+               else
+                 fxFrom = 0.   ! Potentially long list of weights
+                 do iCoef = 1, horizInterpStruct%nCoefs
+                   if (horizInterpStruct%weight(iCoef,ixTo,iyTo) == 0.) exit
+                   fxFrom = fxFrom + horizInterpStruct%weight(iCoef,ixTo,iyTo) * horizInterpStruct%indX(iCoef,ixTo,iyTo)
+                 end do
+               endif
+             endif  ! whether nearest-point or full interpolation
+             !
+             ! For y-axis, no global closure can occur
+             !
+             if (horizInterpStruct%nCoefs < 5) then ! normal structures
+               fyFrom = sum(horizInterpStruct%weight(:,ixTo,iyTo) * horizInterpStruct%indY(:,ixTo,iyTo))
+             else
+               fyFrom = 0.
+               do iCoef = 1, horizInterpStruct%nCoefs   ! potentially long list of weights
+                 if (horizInterpStruct%weight(iCoef,ixTo,iyTo) == 0.) exit
+                 fyFrom = fyFrom + horizInterpStruct%weight(iCoef,ixTo,iyTo) * horizInterpStruct%indY(iCoef,ixTo,iyTo)
+               end do
+             endif
+             !
+             ! Finally, index
+             iIndex = int(fxFrom+0.5)+(int(fyFrom+0.5)-1)*nxFrom
+             if (iIndex < 1) iIndex = int_missing
+         else
+           !Structure is linear/nearest_point, so simple maxloc would do
+          iCoef = maxloc(horizInterpStruct%weight(1:horizInterpStruct%nCoefs, ixTo, iyTo), 1)
+          iIndex = horizInterpStruct%indX( iCoef, ixTo, iyTo) + &
+                & nxFrom * (horizInterpStruct%indY( iCoef, ixTo, iyTo) - 1 )
+         endif
       endif  ! ifValid
     else
       !

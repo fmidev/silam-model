@@ -475,7 +475,7 @@ MODULE chem_dep_pollen
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tchem_rules_pollen), intent(out) :: rulesPollen
 
     rulesPollen%defined = silja_false

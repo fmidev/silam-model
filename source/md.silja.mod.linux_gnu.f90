@@ -17,7 +17,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
   !
   ! Modules used:
 
-  use iso_c_binding, only : c_size_t
+  use, intrinsic :: ISO_C_BINDING, only:  c_size_t
   use globals  !, only : r4k, r8k
   use silam_mpi
   use revision
@@ -50,7 +50,18 @@ MODULE md ! The machine dependent code of silja on Intel platform
 
   public revision_str
 
+
+  interface
+    integer(c_int) function getpagesize () bind (c, NAME='getpagesize')
+      use, intrinsic :: ISO_C_BINDING
+    end function
+  end interface
+
 CONTAINS
+
+
+
+
 
   subroutine open_binary_md(unit, file, recl, status, action, convert, access, iostat)
     implicit none
@@ -388,45 +399,76 @@ CONTAINS
   end subroutine backtrace_md
 
 
+!!!integer function fu_system_mem_usage()
+!!!        !
+!!!        ! Get valueRSS of the current process (in kB)
+!!!        ! stolen (with some fixes) from
+!!!        ! https://stackoverflow.com/questions/22028571/track-memory-usage-in-fortran-90
+!!!        implicit none
+!!!
+!!!        character(len=200):: filename=' '
+!!!        character(len=80) :: line
+!!!        character(len=8)  :: pid_char=' '
+!!!        integer :: iunit, stat
+!!!       
+!!!
+!!!        fu_system_mem_usage = -1    ! return negative number if not found
+!!!
+!!!        !--- get proc filename
+!!!
+!!!        write(filename,'(A,I0,A)') '/proc/',getpid(),'/status'
+!!!        iunit = 1001 ! something never returned by fu_next_free_unit()
+!!!
+!!!        !--- read system file
+!!!        open(unit=iunit, file=filename, action='read', IOSTAT=stat)
+!!!        if (stat == 0) then
+!!!          do
+!!!            read (iunit,'(a)',end=120) line
+!!!            if (line(1:6).eq.'VmRSS:') then
+!!!               read (line(7:),*) fu_system_mem_usage
+!!!               exit
+!!!            endif
+!!!          enddo
+!!!          120 continue
+!!!          close(iunit)
+!!!        else
+!!!          call msg("Faileled to open:"//trim(filename)//' status:',stat)
+!!!        endif
+!!!
+!!!        return
+!!!end function fu_system_mem_usage
+
 integer function fu_system_mem_usage()
         !
-        ! Get valueRSS of the current process (in kB)
-        ! stolen (with some fixes) from
-        ! https://stackoverflow.com/questions/22028571/track-memory-usage-in-fortran-90
+        ! Stolen from slurm source code (seems to be the way Slurm counts memory)
         implicit none
 
         character(len=200):: filename=' '
         character(len=80) :: line
-        character(len=8)  :: pid_char=' '
         integer :: iunit, stat
+        integer (kind=8) size, rss, share, text, lib, data, dt, my_pagesize
        
 
         fu_system_mem_usage = -1    ! return negative number if not found
 
         !--- get proc filename
 
-        write(filename,'(A,I0,A)') '/proc/',getpid(),'/status'
+        write(filename,'(A,I0,A)') '/proc/',getpid(),'/statm'
         iunit = 1001 ! something never returned by fu_next_free_unit()
 
         !--- read system file
         open(unit=iunit, file=filename, action='read', IOSTAT=stat)
         if (stat == 0) then
-          do
-            read (iunit,'(a)',end=120) line
-            if (line(1:6).eq.'VmRSS:') then
-               read (line(7:),*) fu_system_mem_usage
-               exit
-            endif
-          enddo
-          120 continue
-          close(iunit)
+            read (iunit,*) size, rss, share, text, lib, data, dt
+            close(iunit)
+            my_pagesize = getpagesize()
+            fu_system_mem_usage = int( (rss) * my_pagesize / 1024_8, kind=4) !!!To kB
         else
           call msg("Faileled to open:"//trim(filename)//' status:',stat)
         endif
 
         return
 end function fu_system_mem_usage
-
 
 
 END MODULE md

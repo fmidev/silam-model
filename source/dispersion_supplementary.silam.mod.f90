@@ -175,6 +175,7 @@ contains
       call msg(' ')
       call msg('Time in loop now:' + fu_str(now) + ', run to: ' + &
              & fu_str(simrules%startTime + simrules%periodToCompute))
+      call msg("LoopStart memusage, kB", fu_system_mem_usage())
 #ifdef DEBUG
     if(simRules%ifRunDispersion)then
       call msg("In run_dispersion1")

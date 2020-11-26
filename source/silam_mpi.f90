@@ -11,9 +11,6 @@ MODULE silam_mpi
 #else
 
 !!!STUBS and checks for NON-MPI version
-#ifdef WITH_NF90_MPIIO
-#error "WITH_NF90_MPIIO defined for non-MPI version. forgot to define SILAM_MPI?"
-#endif
 #ifdef  WITH_PNETCDF
 #error "WITH_PNETCDF defined for non-MPI version. forgot to define SILAM_MPI?"
 #endif
@@ -36,7 +33,8 @@ MODULE silam_mpi
   PUBLIC smpi_exchange_boundaries
   PUBLIC smpi_exchange_wings
   PUBLIC smpi_init
-  PUBLIC smpi_open_gradsfile_mpiio
+  PUBLIC smpi_open_gradsfile_mpiio_r
+  PUBLIC smpi_open_gradsfile_mpiio_w
   PUBLIC smpi_global_barrier
   PUBLIC smpi_finalize
   PUBLIC smpi_reduce_add
@@ -263,7 +261,7 @@ CONTAINS
 
   ! ***********************************************************************************
 
-  SUBROUTINE smpi_open_gradsfile_mpiio(fname, filehandle)
+  SUBROUTINE smpi_open_gradsfile_mpiio_w(fname, filehandle)
     ! Opens a file using mpi_file_open, this is needed for mpiio.
     ! Currently this uses the ADVECTION communicator because the mpiio
     ! version does not use separate io tasks, but all tasks that participate
@@ -278,7 +276,7 @@ CONTAINS
     CALL mpi_file_open(smpi_adv_comm, fname, MPI_MODE_WRONLY+MPI_MODE_CREATE, MPI_INFO_NULL, &
          & filehandle, ierr)
     IF (ierr /= MPI_SUCCESS) THEN
-       WRITE(0,'(A,A)') 'Failed to open file: ', fname
+       WRITE(0,'(A,A)') 'Failed to open file for mpi write: ', fname
        CALL mpi_error_string(ierr, errormsg, res_len, ierr)
        PRINT *, errormsg
        CALL smpi_abort(1)
@@ -287,7 +285,35 @@ CONTAINS
     RETURN
 #endif    
 
-  END SUBROUTINE smpi_open_gradsfile_mpiio
+  END SUBROUTINE smpi_open_gradsfile_mpiio_w
+
+  ! ***********************************************************************************
+
+  SUBROUTINE smpi_open_gradsfile_mpiio_r(fname, filehandle)
+    ! Opens a file using mpi_file_open, this is needed for mpiio.
+    ! Currently this uses the ADVECTION communicator because the mpiio
+    ! version does not use separate io tasks, but all tasks that participate
+    ! in the advection computation do also write the data.
+    IMPLICIT NONE
+    CHARACTER(len=*), INTENT(in) :: fname
+    INTEGER, INTENT(inout) :: filehandle
+    INTEGER :: ierr, res_len
+#ifdef SILAM_MPI 
+    CHARACTER(len=MPI_MAX_ERROR_STRING) :: errormsg
+
+    CALL mpi_file_open(smpi_adv_comm, fname, MPI_MODE_RDONLY, MPI_INFO_NULL, &
+         & filehandle, ierr)
+    IF (ierr /= MPI_SUCCESS) THEN
+       WRITE(0,'(A,A)') 'Failed to open file for mpi read: ', fname
+       CALL mpi_error_string(ierr, errormsg, res_len, ierr)
+       PRINT *, errormsg
+       CALL smpi_abort(1)
+    END IF
+#else
+    RETURN
+#endif    
+
+  END SUBROUTINE smpi_open_gradsfile_mpiio_r
 
   ! ***********************************************************************************
 

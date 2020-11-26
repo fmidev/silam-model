@@ -1243,17 +1243,16 @@ contains
       meteo_input_local%q_type(nq) = meteo_dynamic_flag
       imet_tcc => meteo_input_local%idx(nq)
 
+      nq = nq + 1
+      meteo_input_local%quantity(nq) = cwcabove_3d_flag
+      meteo_input_local%q_type(nq) = meteo_dynamic_flag
+      imet_cwc3d => meteo_input_local%idx(nq)
 
       if (cloud_model == simple_cloud) then
         nq = nq +1
         meteo_input_local%quantity(nq) = cwcolumn_flag
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
         imet_cwcol => meteo_input_local%idx(nq) 
-
-        nq = nq + 1
-        meteo_input_local%quantity(nq) = cwcabove_3d_flag
-        meteo_input_local%q_type(nq) = meteo_dynamic_flag
-        imet_cwc3d => meteo_input_local%idx(nq)
 
 
       elseif (cloud_model == detailed_cloud) then

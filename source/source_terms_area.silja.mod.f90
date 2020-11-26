@@ -31,7 +31,6 @@ MODULE source_terms_area
   IMPLICIT NONE
   private
 
-#define DEBUG_SRC
   
   
   ! The public functions and subroutines available in this module:
@@ -4808,12 +4807,12 @@ endif
     !  call msg('fzdisp, vertFract', as%fzDisp(icell), as%levFractDispVert(icell))
     !end do
     
-!    deallocate(as%cell_Val)
-!    deallocate(as%cell_fX)
-!    deallocate(as%cell_fY)
-!    nullify(as%cell_Val)
-!    nullify(as%cell_fX)
-!    nullify(as%cell_fY)
+    deallocate(as%cell_Val)
+    deallocate(as%cell_fX)
+    deallocate(as%cell_fY)
+    nullify(as%cell_Val)
+    nullify(as%cell_fX)
+    nullify(as%cell_fY)
 
   end subroutine project_a_src_second_grd
 
@@ -5367,8 +5366,8 @@ endif
           call msg('Time-step emission of:' + fu_substance_name(mapEmis%species(iSpeciesEmis)), & 
                  & fMassInjected(iSpeciesEmis))
        end do
-      end do
 #endif      
+      end do
 
 !call msg('Size of area source and field_3d:',sizeof(a_src),sizeof(a_src%pFldEmis))
 !call msg('size of horiz & vert structure:',sizeof(a_src%pHorizIS),sizeof(a_src%pVertIS))

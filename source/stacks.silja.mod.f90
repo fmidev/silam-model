@@ -583,6 +583,10 @@ CONTAINS
           stack%mds = fu_mds(stack%wdr_ptr,fu_met_src(id)) ! Pointer must point to wdr element
         END IF  ! definde met_src
       END IF  ! if ifForceInputMetSrc
+    else
+      if(ifForceInputMetSrc)then
+        call set_met_src(idTmp, met_src_missing)
+      endif
     endif  ! if single met_src
 
     !

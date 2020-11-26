@@ -674,7 +674,16 @@ CONTAINS
     !
     if(fu_if_Eulerian_present(dynRules%simulation_type))then  !=========================== EULERIAN present
 
-      call msg('Making Eulerian emission map')
+      !
+      ! Linking the sources to the selected dispersion grid and vertical 
+      ! This should return some memory allocated for temporaries in area sources
+      ! which is a good to do before allocating huge massmaps...
+      call msg('Linking Eulerian emission to dispersion grid and vertical, memusage kB', fu_system_mem_usage() )
+      call link_emission_2_dispersion(source, cloud%speciesEmission, &
+                                    & meteoMarket, meteo_grid, dispersion_grid, meteo_vertical, dispersion_vertical, &
+                                    & iAccuracy, ifRandomise)
+
+      call msg('Making Eulerian emission map, memusage kB', fu_system_mem_usage() )
       !
       ! Moments are defined using the basic parameters only, so we create them here using the 
       ! above dimensions
@@ -730,12 +739,12 @@ CONTAINS
         call set_map_species(cloud%mapPz_emis, cloud%speciesEmission)
       endif
 
-      call msg('Making Eulerian concentration map')
+      call msg('Making Eulerian concentration map, memusage kB', fu_system_mem_usage() )
       call set_aux_disp_massmap(cloud%mapConc, nSrcIds,  cloud%speciesTransport, &
             & cloud%nSpTransport, mass_in_air_flag)
 
       if(cloud%nSpShortLived > 0)then
-        call msg('Making shortlived map')
+        call msg('Making shortlived map, memusage kB', fu_system_mem_usage() )
         call set_aux_disp_massmap(cloud%mapShortLived, nSrcIds,  cloud%speciesShortLived, &
             & cloud%nSpShortLived, mass_in_air_flag)
       endif
@@ -743,7 +752,7 @@ CONTAINS
       ! And this strange creature for aerosol dynamics (flipping between diameters and particle numbers)
       !
       if (cloud%nSpAerosol > 0) then
-        call msg('Making aerosol map')
+        call msg('Making aerosol map, memusage kB', fu_system_mem_usage() )
         call set_aux_disp_massmap(cloud%mapAerosol, nSrcIds,  cloud%speciesAerosol, &
                                             & cloud%nSpAerosol, aerosol_flag)
       end if
@@ -758,6 +767,7 @@ CONTAINS
         nMomentSpecies = cloud%nSpTransport
       end if
       iPassengers(1:nMomentSpecies) = 0
+      call msg('Making X moment map, memusage kB', fu_system_mem_usage() )
       call set_mass_map_from_basic_par(cloud%mapPx_conc, advection_moment_X_flag, &  ! quantity
                  & nx_dispersion, ny_dispersion, nz_dispersion, nSrcIds, &
                  & nMomentSpecies, &          ! nSpecies
@@ -765,6 +775,7 @@ CONTAINS
                  & 0, 0, 0, 0, &              ! x, y, z, source border cells
 !                 & 1, 1, 1, 0, &              ! x, y, z, source border cells
                  & val=0.)                    ! value
+      call msg('Making Y moment map, memusage kB', fu_system_mem_usage() )
       call set_mass_map_from_basic_par(cloud%mapPy_conc, advection_moment_Y_flag, &  ! quantity
                  & nx_dispersion, ny_dispersion, nz_dispersion, nSrcIds, &
                  & nMomentSpecies, &          ! nSpecies
@@ -772,6 +783,7 @@ CONTAINS
                  & 0, 0, 0, 0, &              ! x, y, z, source border cells
 !                 & 1, 1, 1, 0, &              ! x, y, z, source border cells
                  & val=0.)                    ! value
+      call msg('Making Z moment map, memusage kB', fu_system_mem_usage() )
       call set_mass_map_from_basic_par(cloud%mapPz_conc, advection_moment_Z_flag, &  ! quantity
                                         & nx_dispersion, ny_dispersion, nz_dispersion, nSrcIds, &
                                         & nMomentSpecies, &          ! nSpecies
@@ -790,14 +802,8 @@ CONTAINS
         call set_map_species(cloud%mapPy_conc, cloud%speciesTransport)
         call set_map_species(cloud%mapPz_conc, cloud%speciesTransport)
       endif
+      call msg('Eulerian massmaps done, memusage kB', fu_system_mem_usage() )
 
-      !
-      ! Linking the sources to the selected dispersion grid and vertical 
-      !
-      call msg('Linking Eulerian emission to dispersion grid and vertical')
-      call link_emission_2_dispersion(source, cloud%speciesEmission, &
-                                    & meteoMarket, meteo_grid, dispersion_grid, meteo_vertical, dispersion_vertical, &
-                                    & iAccuracy, ifRandomise)
     endif  ! if Eulerian present
     
     
@@ -816,7 +822,7 @@ CONTAINS
       ! Linking the sources to the Lagrangian dispersion grid and vertical. Note that there will be no
       ! emission species
       !
-      call msg('Linking Lagrangian emission to dispersion grid and vertical')
+      call msg('Linking Lagrangian emission to dispersion grid and vertical, memusage kB', fu_system_mem_usage() )
       call link_emission_2_dispersion(source, cloud%speciesEmission, meteoMarket, &
                                     & meteo_grid, dispersion_grid, meteo_vertical, dispersion_vertical, &
                                     & iAccuracy, ifRandomise)
@@ -829,10 +835,10 @@ CONTAINS
     ! Make deposition maps. They are the same for both Lagrangian and Eulerian environments, 
     ! made in dispersion_grid.
     !
-    call msg('Making dry deposition')
+    call msg('Making dry deposition, memusage kB', fu_system_mem_usage() )
     call set_aux_disp_massmap(cloud%mapDryDep, nSrcIds,  cloud%speciesTransport, &
                                             & cloud%nSpTransport, drydep_flag)
-    call msg('Making wet deposition')
+    call msg('Making wet deposition, memusage kB', fu_system_mem_usage() )
     call set_aux_disp_massmap(cloud%mapWetDep, nSrcIds,  cloud%speciesTransport, &
                                             & cloud%nSpTransport, wetdep_flag)
 
@@ -848,6 +854,7 @@ CONTAINS
       ! the particle sizes and their mass-weighted moments (actually, between the single-particle 
       ! volume and number concentrations)
       !
+      call msg('Allocating chemRules%ChemRunSetup%mapVolume2NumberCnc, memusage kB', fu_system_mem_usage() )
       allocate(chemRules%ChemRunSetup%mapVolume2NumberCnc)
       call create_mass_2_nbr_mapping(cloud%mapConc, &      ! transport: 
                                    & cloud%mapAerosol, &   ! aerosol
@@ -867,6 +874,7 @@ CONTAINS
     else
       nz = 1  ! Lagrangian does not have split over levels
     endif
+    call msg('Allocating accounting, memusage kB', fu_system_mem_usage() )
     allocate(cloud%mInAir (nSrcIds,cloud%nSpTransport,nz), &
            & cloud%mDryDep(nSrcIds,cloud%nSpTransport), &
            & cloud%mWetDep(nSrcIds,cloud%nSpTransport), &
@@ -896,7 +904,7 @@ CONTAINS
     cloud%vert_mass_M(1:nSrcIds,1:cloud%nSpTransport,1:2) = 0.
     cloud%garbage_mass(1:nSrcIds,1:cloud%nSpTransport) =0.
 
-    if(.not.error) call msg('Computational environment in pollution cloud is created')
+    if(.not.error) call msg('Computational environment in pollution cloud is created, memusage kB', fu_system_mem_usage() )
 
 !        call msg('')
 !        call msg('Setting trial initial mass')

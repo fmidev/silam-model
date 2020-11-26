@@ -948,6 +948,12 @@ species:  do iSpecies = 1, nspeciesLst
     enddo
     !Convert the mass (in moles) to Dobson Units:
     o3_col(1:nLev,1:nSrc) = o3_col(1:nLev,1:nSrc)/(4.4642e-4*cellarea)
+
+    if (o3_col(1,1) < 50.) then ! Stupidity check
+      !! Too small column might mean a limited-area run with photolysis_affected_by_o3col = YES
+        call set_error("Total ozone column < 50 DU, must be an error in the setup", &
+              & "get_o3column")
+    endif
         
   end subroutine get_o3column
 

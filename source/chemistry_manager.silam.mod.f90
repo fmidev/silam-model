@@ -481,7 +481,7 @@ CONTAINS
         call init_radioactive(chemRules%rulesRadioactive, &
                      & speciesEmission, speciesTransport,&
                      & nSpeciesEmission, nSpeciesTransport, &
-                     & iClaimedSpecies, ifActive, timestep)
+                     & iClaimedSpecies, ifActive, timestep, timestep_output)
       case(int_missing)
         exit
 
@@ -1019,7 +1019,8 @@ end do
     !call msg_warning('Skipping chemistry')
     !return
 
-    if (chemRules%nTransformations + chemRules%nAerosolDynamics == 0) return
+    if (chemRules%nTransformations + chemRules%nAerosolDynamics == 0 .and. &
+         & chemRules%rulesDeposition%scavengingType == scavNoScav) return
 
     if (.not. ChemStuff%defined == silja_true) then
       if (defined(mapReactRates)) then
@@ -1153,6 +1154,7 @@ end do
     reactRates   => ChemStuff%arrStuff(iThread)%reactRates(:,:)
     
     garb_array(1:mapTransport%nSrc, 1:mapTransport%nSpecies) = 0.0
+    o3column(:,:) = real_missing !! (1:nLev,1:nSrc) should not be used uninitialized
     
     if (cbm_type == transformation_cbm4) call prepare_step_cbm4()
     if (cbm_type == transformation_cbm4_SOA) call prepare_step_cbm4_SOA()
@@ -1199,9 +1201,11 @@ end do
           end if
 
           if (chemRules%need_photo_lut) then 
-            !calculate the ozone column above (in Dobson units) 
-            call get_o3column(metdat_col, mapTransport%arM(indO3,1:mapTransport%nSrc,1:mapTransport%n3d,ix,iy), o3column)
-            !call msg('RISTO TEST O3: ix,iy,Ozone column: ', (/real(ix), real(iy), o3column(1,1) /) )
+            !calculate the ozone column above (in Dobson units)
+            if (chemRules%ifPhotoO3col) then
+              call get_o3column(metdat_col, mapTransport%arM(indO3,1:mapTransport%nSrc,1:mapTransport%n3d,ix,iy), o3column)
+              !call msg('RISTO TEST O3: ix,iy,Ozone column: ', (/real(ix), real(iy), o3column(1,1) /) )
+            endif
             zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
             if (error) cycle
 
@@ -2439,21 +2443,22 @@ end do
 
   !*********************************************************************************
 
-  subroutine set_chemistry_rules(nlTransf, nlStdSetup, rulesChemistry, ifOldFileFormat_)
+  subroutine set_chemistry_rules(nlTransf, nlStdSetup, rulesChemistry, ifOldFileFormat, if_lagr_present)
     !
     ! Initialises the basic chemical rules for the run
     !
     implicit none
     !
     ! Imported parameters
-    type(Tsilam_namelist), pointer :: nlTransf, nlStdSetup
+    type(Tsilam_namelist), intent(in) :: nlTransf, nlStdSetup
     type(Tchem_rules), intent(out) :: rulesChemistry
-    logical, intent(in), optional :: ifOldFileFormat_
+    logical, intent(in)  :: ifOldFileFormat
+    logical, intent(in)  :: if_lagr_present
     !
     ! Local variables
     integer :: iTmp, jTmp, kTmp
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: items
-    logical :: ifOldFileFormat, ifOK
+    logical :: ifOK
     !
     !ATTENTION. Order in Dynamics calls is fixed and follows these arrays:
     character(len=17), dimension(5), parameter :: chDynamics = &
@@ -2465,12 +2470,6 @@ end do
                                                   & aerosol_dynamics_Mid_Atmosph, aerosol_dynamics_basic, &
                                                   & aerosol_dynamics_VBS/)
     character(len=clen) :: strTmp
-    
-    if(present(ifOldFileFormat_))then
-      ifOldFileFormat = ifOldFileFormat_
-    else
-      ifOldFileFormat = .false.
-    endif
 
     nullify(items)
 
@@ -2786,8 +2785,8 @@ end do
     !
     rulesChemistry%rulesDeposition%nDepositionTypes = &
                      & fu_merge_integer_to_array(deposition_standard, &
-                                               & rulesChemistry%rulesDeposition%iDepositionType)
-    call set_deposition_rules(nlTransf, rulesChemistry%rulesDeposition)
+                               & rulesChemistry%rulesDeposition%iDepositionType)
+    call set_deposition_rules(nlTransf, rulesChemistry%rulesDeposition, if_lagr_present)
     if(error)return
 
     rulesChemistry%filename_photo_lut = fu_content(nlStdSetup, 'photolysis_data_file')
@@ -2965,8 +2964,8 @@ end do
       amounts_my(:) = 0.0
       amounts_all(:) = 0.0
 
-      chemrules%low_mass_trsh_frw(:) = 1e-23
-      chemrules%low_cnc_trsh_frw(:) = 1e-37
+      !      chemrules%low_mass_trsh_frw(:) = 1e-23
+      !chemrules%low_cnc_trsh_frw(:) = 1e-37
 
       if(ifDefineLagrangianParticle)then
         allocate(chemrules%mass_lagr_particle(nspecies_transport), stat=istat)
@@ -2981,7 +2980,7 @@ end do
     !
     if(ifForwardRun)then
       if(chemrules%low_mass_trsh_frw(1) < 0)then   ! not available, calculate
-        !call calculate_thresholds(chemrules%low_cnc_trsh_frw, chemrules%low_mass_trsh_frw)
+        call calculate_thresholds(chemrules%low_cnc_trsh_frw, chemrules%low_mass_trsh_frw)
         if(error)return
       endif
     else
@@ -3367,7 +3366,7 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     nthreads = 1
     ithread = 0
 
-    call msg("Allocating ChemStuff%arrStuff")
+    call msg("Allocating ChemStuff%arrStuff, memusage (kB)", fu_system_mem_usage())
     !
     ! Allocate chemical stuff
     !
@@ -3410,7 +3409,7 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     endif
     !$OMP END PARALLEL
     if (.not. error) ChemStuff%defined = silja_true
-    call msg("Allocating ChemStuff%arrStuff done for numthreads:", nthreads)
+    call msg("Allocating ChemStuff%arrStuff done for numthreads, memusage (kB)", nthreads, fu_system_mem_usage())
     
   end subroutine init_chemisryStuff
 

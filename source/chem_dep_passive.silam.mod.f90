@@ -409,7 +409,7 @@ MODULE chem_dep_passive
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tchem_rules_passive), intent(out) :: rulesPassive
 
     rulesPassive%defined = silja_false

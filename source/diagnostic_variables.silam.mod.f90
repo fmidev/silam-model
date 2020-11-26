@@ -3928,10 +3928,10 @@ MODULE diagnostic_variables
     type(silam_vertical), intent(in) :: vertTarget
     type(silja_grid), intent(in) :: gridTarget
     type(Tdiagnostic_rules), intent(in) :: diag_rules
-
+    character (len=*), parameter :: sub_name = "diag_cell_fluxes"
 
     ! Local variables
-    integer :: ind_time, i1d, ind_ps, ind_u, ind_v, ind_z  !,   ix, iy
+    integer :: ind_time, i1d, ind_ps, ind_u, ind_v, ind_z, sendcnt, rcvcnt
     integer :: ixTo, iyTo, iLev, iLevMet, iCell, iTmp, jTmp, iBound, iCellTo, iCoef, itime, last_vert_index
     type(silja_time) :: now, analysis_time
     real ::  da, db,  psTmp, zTmp, uTmp, vTmp, mTmp, cellsizeX, cellsizeY
@@ -3987,18 +3987,18 @@ MODULE diagnostic_variables
     ! Met-buf indices
 
     ind_u = fu_index(met_buf%buffer_quantities, u_flag)
-    if (fu_fails(ind_u > 0, 'u-wind not available', 'diag_cell_fluxes')) return
+    if (fu_fails(ind_u > 0, 'u-wind not available', sub_name)) return
 
     ind_v = fu_index(met_buf%buffer_quantities, v_flag)
-    if (fu_fails(ind_v > 0, 'v-wind not available', 'diag_cell_fluxes')) return
+    if (fu_fails(ind_v > 0, 'v-wind not available', sub_name)) return
     
     ind_ps = fu_index(met_buf%buffer_quantities, surface_pressure_flag)
-    if (fu_fails(ind_ps > 0, 'surface pressure not available', 'diag_cell_fluxes')) return
+    if (fu_fails(ind_ps > 0, 'surface pressure not available', sub_name)) return
 
 !    ind_z = int_missing
 !    if (ifZlevels) then
     ind_z = fu_index(met_buf%buffer_quantities, height_flag)
-    if (fu_fails(ind_z > 0, 'met height not available', 'diag_cell_fluxes')) return
+    if (fu_fails(ind_z > 0, 'met height not available', sub_name)) return
 !    endif
 
     if(error)return
@@ -4011,7 +4011,7 @@ MODULE diagnostic_variables
     
     ! Need also dispersion_grid etc grids. If change this, change also cell size defs below.
     if (fu_fails(gridTarget == dispersion_grid, &
-               & 'Not implememted for non-dispersion grid', 'diag_cell_fluxes')) return
+               & 'Not implememted for non-dispersion grid', sub_name)) return
     
     grid_met   = fu_grid(met_buf%p2d(ind_ps)%past%idPtr)
     u_grid_met = fu_grid(met_buf%p4d(ind_u)%past%p2d(1)%idPtr)
@@ -4062,7 +4062,7 @@ MODULE diagnostic_variables
           ps_met =>  met_buf%p2d(ind_ps)%future%ptr
           z_met3d => met_buf%p4d(ind_z)%future  
       else
-        call set_error('Strange time:'+fu_str(obstimes(itime)),'diag_cell_fluxes')
+        call set_error('Strange time:'+fu_str(obstimes(itime)),sub_name)
         return
       end if
       if(error)return
@@ -4163,7 +4163,7 @@ MODULE diagnostic_variables
                call msg(fu_str(now)+":Forcing zero cell fluxes and cell masses from air density....")
                ifGetWind = .False.
             else
-               if (fu_fails(ifZlevels,"Only z-coordiantes are allowed for this wind dype", "diag_cell_fluxes" )) return
+               if (fu_fails(ifZlevels,"Only z-coordiantes are allowed for this wind dype", sub_name )) return
                call msg(fu_str(now)+":Forcing zero cell fluxes and 1kg/m2 cell masses....")
                fPtr =>  cellMass_3d_ptr(1)%ptr
                do iyTo = 1, ny_disp  ! 
@@ -4184,7 +4184,7 @@ MODULE diagnostic_variables
 
          case default
           call msg ("diag_rules%wind_method=",diag_rules%wind_method)
-          call set_error("Unknown massflux diagnostic method","diag_cell_fluxes")
+          call set_error("Unknown massflux diagnostic method",sub_name)
          end select
       
       !$OMP PARALLEL default(none), shared(my_x_coord,my_y_coord,&
@@ -4382,7 +4382,7 @@ ix:      do ixTo = 1, nx_disp
                    do jTmp = 1, nz_meteo
                      call msg('Meteo level and its height:',jTmp,z_met3d%p2d(jTmp)%ptr(iTmp))
                    end do
-                   call set_error("Dispersion  z-vertical is not covered by meteo", "diag_cell_fluxes")
+                   call set_error("Dispersion  z-vertical is not covered by meteo", sub_name)
                    !$OMP END CRITICAL (bark_diag_cell_fluxes)
                    cycle ix
                 endif
@@ -4457,12 +4457,21 @@ ix:      do ixTo = 1, nx_disp
                 iBound = iTmp ! 1,2,3,4
             endif
             if(adv_mpi_neighbours(iBound)>=0) then
-               !call msg(fu_str(smpi_adv_rank)+"Exchanging FMB with neighbor, boundary:"+fu_str(iBound))
-               jTmp = boundLength(iTmp)*nz_disp*2
-               fPtr => FMBflat(iBound)%ptr(1:jTmp)  !!! Our
-               fPtr1 => FMBflat(iBound)%ptr(jTmp+1:2*jTmp) !!!Their
+               call msg(fu_str(smpi_adv_rank)+"Exchanging FMB with neighbor, boundary:"+fu_str(iBound))
+               call msg("boundLength(iTmp)", boundLength(iTmp), nz_disp)
+               sendcnt = boundLength(iTmp)*nz_disp*2
+               fPtr => FMBflat(iBound)%ptr(1:sendcnt)  !!! Our
+               fPtr1 => FMBflat(iBound)%ptr(sendcnt+1:2*sendcnt) !!!Their
+               flush(run_log_funit)
+
                call smpi_exchange_wings(adv_mpi_neighbours(iBound), &
-                       & fPtr, jTmp,  fPtr1, jTmp)
+                       & fPtr, sendcnt,  fPtr1, rcvcnt)
+               if (sendcnt /= rcvcnt) then
+                 call msg("after smpi_exchange_wings sendcnt,recvcnt", sendcnt,rcvcnt )
+                 call set_error("sendcnt and recvcnt do not match", sub_name)
+                 return
+               endif
+
                fPtr =  0.5*(fPtr + fPtr1)  !! Take a compromise as valid for this boundary
             endif
          enddo
@@ -5494,7 +5503,7 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
 
    TYPE(silja_field), POINTER :: field
    integer :: iTmp, iPrDyan, nx_disp, ny_disp, iLev, jTmp, fs_disp, iY, iX, offx, offy, gnx, gny,iBound, nz_disp
-   integer :: ind_m, ind_furt, ind_fvrt, ind_fwrt, i1d
+   integer :: ind_m, ind_furt, ind_fvrt, ind_fwrt, i1d,  sendcnt, rcvcnt
    type (silja_time) :: valid, analysis 
    type (silja_interval) :: validity
    logical :: ifLonGlobal, ifPoisson, ifBottomUp
@@ -5518,6 +5527,7 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
                                        !just views of above
    integer, dimension(4) :: boundLength  !length of boundaries
    integer :: my_y_coord, my_x_coord
+    character(len=19), parameter :: sub_name = 'df_update_cellfluxcorr_rt'
 
    !Realtime (output)
    ind_furt = fu_index(disp_buf%buffer_quantities,disp_flux_celle_rt_flag) 
@@ -5623,11 +5633,20 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
                if(adv_mpi_neighbours(iBound)>=0) then
                   !call msg(fu_str(smpi_adv_rank)+"Exchanging MassBehind with neighbor, boundary:"+fu_str(iBound))
                   !call flush()
-                  jTmp = boundLength(iTmp)*nz_disp
-                  fPtr  => MBflat(iBound)%ptr(1:jTmp)  !!! Our
-                  fPtr1 => MBflat(iBound)%ptr(jTmp+1:2*jTmp) !!!Their
-                  call smpi_exchange_wings(adv_mpi_neighbours(iBound), &
-                          & fPtr, jTmp,  fPtr1, jTmp)
+                   call msg(fu_str(smpi_adv_rank)+"Exchanging FMB with neighbor, boundary:"+fu_str(iBound))
+                   call msg("boundLength(iTmp)", boundLength(iTmp), nz_disp)
+                   sendcnt = boundLength(iTmp)*nz_disp
+                  fPtr  => MBflat(iBound)%ptr(1:sendcnt)  !!! Our
+                  fPtr1 => MBflat(iBound)%ptr(sendcnt+1:2*sendcnt) !!!Their
+                  flush(run_log_funit)
+
+                   call smpi_exchange_wings(adv_mpi_neighbours(iBound), &
+                           & fPtr, sendcnt,  fPtr1, rcvcnt)
+                   if (sendcnt /= rcvcnt) then
+                     call msg("after smpi_exchange_wings mass sendcnt,recvcnt", sendcnt,rcvcnt )
+                     call set_error("sendcnt and recvcnt do not match", sub_name)
+                     return
+                   endif
                   fPtr =  0.5*(fPtr + fPtr1)  !! Take a compromise as valid for this boundary
                endif
             enddo
@@ -5674,6 +5693,7 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
 
             endif
 
+            masscorrfactor = 0 !! Just make it initialized for non-master
             if (smpi_adv_rank == 0) then ! Master
               call adjust_2D_fluxes(uPtr2D, vPtr2D, dmPtr2D, mPtr2D, &
                          & fu_ifLonGlobal(wholeMPIdispersion_grid), &
@@ -5718,7 +5738,7 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
           if (ifBottomUp) then
             ! Apply horizontal wind  corrections and diagnoze vertical wind bottom-up
             if (ifPoisson) then
-                 call set_error("No Poisson with bottom-Up diagnostics","df_update_cellfluxcorr_rt")
+                 call set_error("No Poisson with bottom-Up diagnostics",sub_name)
                  return
             endif
             !Pretend it was flux correction from the underground level
@@ -5996,13 +6016,13 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
 
             case default
                 call msg ("rules%iTestWindType =", diag_rules%iTestWindType)
-                call set_error("Not implemented (yet?):","df_update_cellfluxcorr_rt")
+                call set_error("Not implemented (yet?):",sub_name)
             end select ! Test wind method
 
 
        case default
           call msg ("diag_rules%wind_method=",diag_rules%wind_method)
-          call set_error("Unknown massflux diagnostic method","df_update_cellfluxcorr_rt")
+          call set_error("Unknown massflux diagnostic method",sub_name)
     end select
 
     !
@@ -6305,19 +6325,21 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
        endif
 
        call msg("inflow", inflow)
-     
-       inflowfactor = inflow/absinflow
+      
        if (.not. ifSpole) then
+            inflowfactor = inflow/absinflow
             V2D(1:nx,1) = inflowfactor * abs(V2D(1:nx,1))
             Disp_wind%Phi(:,1) = Disp_wind%Phi(:,1) + V2D(1:nx,1)
             call   msg("Sum of divergence inside the domain after S adj  (kg/s)",sum(Disp_wind%Phi(:,:)))
        endif
        if ( .not. ifNpole)  then 
+          inflowfactor = inflow/absinflow
           V2D(1:nx,ny+1) = - inflowfactor *  abs( V2D(1:nx,ny+1) )
           Disp_wind%Phi(:,ny) = Disp_wind%Phi(:,ny) - V2D(1:nx,ny+1)
           call   msg("Sum of masschange inside the domain after N adj  (kg/s)",sum(Disp_wind%Phi(:,:)))
        endif
       if (.not. ifLonGlobal) then
+          inflowfactor = inflow/absinflow
           U2D(1,1:ny)    =  inflowfactor * abs( U2D(1,1:ny) )
           U2D(nx+1,1:ny) =  - inflowfactor * abs( U2D(nx+1,1:ny) )
           Disp_wind%Phi(1,:) = Disp_wind%Phi(1,:) + U2D(1,1:ny)

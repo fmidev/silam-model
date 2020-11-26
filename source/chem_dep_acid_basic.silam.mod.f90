@@ -577,7 +577,7 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup, nlStdSetup
+    type(Tsilam_namelist), intent(in) :: nlSetup, nlStdSetup
     type(Tchem_rules_acidBasic), intent(out) :: rules
 
     ! Local variables

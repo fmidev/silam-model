@@ -246,6 +246,8 @@ CONTAINS
     type (silam_vertical) :: vertdispTop
     
     nxyz = max(nxy, nz)
+
+    call msg("Allocating advecion stuff for numthreads, memusage (kB):", nthreads, fu_system_mem_usage())
     !
     ! Stupidity check.
     !
@@ -397,6 +399,7 @@ CONTAINS
         EulerStuff%Galp5zShared%ifMoldiffInitialised = .false. !Yet to be filled with values
       endif
     endif
+    call msg("Allocating advecion stuff done. numthreads, memusage (kB):", nthreads, fu_system_mem_usage())
    
   end subroutine InitEulerAdvectionFields_v5
 
@@ -2825,6 +2828,13 @@ if(ifTalk)call msg('Starting vertical diffusion:',(/ix,iy,iLev,iSpecies/))
 !                fTmp = (mystuff%Pabove(0) - mystuff%p_cm_out(1)) / (g * mystuff%rho_above(0))
                 fTmp = dh1*(0.5 + mystuff%moment_line_out(1) ) !Positive up!
                 ftmp = max(ftmp,0.005)  ! half-centimiter min value
+
+                if (defined(pCnc2m)) then
+                   iVd2m = real_missing 
+                else 
+                   iVd2m = 0
+                endif
+                    
 
                 fVd =   fu_get_vd(fTmp,  & ! Reference height in meters
                                 & pDispFlds%species(ispecies), & ! what to deposit

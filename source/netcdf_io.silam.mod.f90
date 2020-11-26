@@ -198,7 +198,7 @@ MODULE netcdf_io
     real :: missing_value = real_missing
 #ifdef WITH_PNETCDF
     integer, dimension(:), allocatable ::  nf90mpiReq,  nf90mpiStat
-    integer :: nf90mpifieldCnt, nf90mpiNfieldsPerTimestep
+    integer :: nf90mpifieldCnt, nf90mpiBUFfdlds
 #endif
     logical :: ifCocktails = .false.
     logical :: ifMPIIO = .false.
@@ -363,7 +363,7 @@ CONTAINS
     if (ncver == 3) then
       if (ifMPIIO) then
 #ifdef WITH_PNETCDF
-      iStat = nf90mpi_create(MPI_COMM_WORLD, fname, NF90_64BIT_OFFSET, MPI_INFO_NULL, ounit)
+      iStat = nf90mpi_create(smpi_adv_comm, fname, NF90_64BIT_OFFSET, MPI_INFO_NULL, ounit)
       if (iStat/=0) call set_error("nf90mpi_create error: "//trim(nf90mpi_strerror(iStat)), sub_name)
       
 #else
@@ -513,12 +513,12 @@ CONTAINS
 !      call msg("mystarts(1:ndims)",starts(1:ndims))
 !      call msg("mycounts(1:ndims)",counts(1:ndims))
 
-      if (ifMsgs) call msg("nf%nf90mpifieldCnt",nf%nf90mpifieldCnt, nf%nf90mpiNfieldsPerTimestep)
+      if (ifMsgs) call msg("nf%nf90mpifieldCnt nf%nf90mpiBUFfdlds",nf%nf90mpifieldCnt, nf%nf90mpiBUFfdlds)
       iStat = nf90mpi_bput_var(nf%unit_bin, VarId, outData, nf%nf90mpiReq(nf%nf90mpifieldCnt), mystarts(1:ndims), mycounts(1:ndims))
       if (iStat /= 0) call set_error("nf90mpi_put_var: "//nf90mpi_strerror(iStat), sub_name)
 
       ! Was it the last field? Flush it
-      if (nf%nf90mpifieldCnt == (nf%nf90mpiNfieldsPerTimestep + 1)*buffer_timesteps ) then ! Extra for time variable
+      if (nf%nf90mpifieldCnt == nf%nf90mpiBUFfdlds ) then ! Extra for time variable
         call flush_nf90mpi_buf(nf, sub_name)
         if (fu_fails(.not. error,"Error set", sub_name)) return
       endif
@@ -543,7 +543,7 @@ CONTAINS
 
         integer :: iStat, iTmp
 
-        if (ifMsgs)call msg("Dumping all",nf%nf90mpifieldCnt, nf%nf90mpiNfieldsPerTimestep)
+        if (ifMsgs)call msg("Dumping all",nf%nf90mpifieldCnt, nf%nf90mpiBUFfdlds)
 
         iStat = nf90mpi_wait_all(nf%unit_bin, nf%nf90mpifieldCnt, nf%nf90mpiReq, nf%nf90mpiStat)
 
@@ -1169,14 +1169,18 @@ CONTAINS
     ! Close define mode
     if (nf%ncver==3 .and. nf%ifmpiio) then
 #ifdef WITH_PNETCDF
-      nf%nf90mpiNfieldsPerTimestep = NoFields2d
+      !!! NoFields2d
+      nf%nf90mpiBUFfdlds = fu_get_default_mpi_buf_size()
+      !nf%nf90mpiBUFfdlds = min(100, NoFields2d * buffer_timesteps)
+      !      nf%nf90mpiNfieldsPerTimestep = NoFields2d
+
       nf%nf90mpifieldCnt = 0
-      call msg("Allocating buffer for "//trim(fu_str(NoFields2d+1))//" fields2D for timesteps", buffer_timesteps)
-      allocate ( nf%nf90mpiReq((NoFields2d+1)*buffer_timesteps), &
-              & nf%nf90mpiStat((NoFields2d+1)*buffer_timesteps), stat=iStat)
+      call msg("Allocating output buffer of  fields2D, fields per time step", nf%nf90mpiBUFfdlds, NoFields2d)
+      allocate ( nf%nf90mpiReq(nf%nf90mpiBUFfdlds), &
+              & nf%nf90mpiStat(nf%nf90mpiBUFfdlds), stat=iStat)
       if (fu_fails(iStat == 0, "Failed to allocate nf90MpiStuff", sub_name)) return
-      call msg("nf90mpi_buffer_attach size", nx*ny*(NoFields2d+1)*4)
-      iStat =nf90mpi_buffer_attach(nf%unit_bin, nx*ny*int((NoFields2d+1)*4, kind=8)*buffer_timesteps)
+      call msg("nf90mpi_buffer_attach size, kB", nx*ny*(nf%nf90mpiBUFfdlds)*4/1024)
+      iStat =nf90mpi_buffer_attach(nf%unit_bin, nx*ny*int((nf%nf90mpiBUFfdlds)*4, kind=8))
       if (fu_fails(iStat == 0, "nf90mpi_buffer_attach: "//nf90mpi_strerror(iStat), sub_name)) return 
       iStat =nf90mpi_enddef(nf%unit_bin, V_ALIGN=int(iTmp*4,kind=8), R_ALIGN=int(iTmp*4,kind=8))
       if (fu_fails(iStat == 0, "nf90mpi_enddef: "//nf90mpi_strerror(iStat), sub_name)) return 
@@ -3699,7 +3703,7 @@ CONTAINS
     if (nf%ncver == 3  .and. nf%ifmpiio) then
 #ifdef WITH_PNETCDF
 
-       if (fu_fails(modulo(nf%nf90mpifieldCnt, nf%nf90mpiNfieldsPerTimestep + 1) == 0, "Incomplete timestep was written", sub_name)) return
+!!!       if (fu_fails(modulo(nf%nf90mpifieldCnt, nf%nf90mpiNfieldsPerTimestep + 1) == 0, "Incomplete timestep was written", sub_name)) return
 
        if (nf%nf90mpifieldCnt /= 0) then !Have to finish the file
         call flush_nf90mpi_buf(nf, sub_name)
@@ -3973,9 +3977,6 @@ CONTAINS
      if (nf%ncver == 3  .and. nf%ifmpiio) then
 #ifdef WITH_PNETCDF 
       
-      if (fu_fails(modulo(nf%nf90mpifieldCnt, nf%nf90mpiNfieldsPerTimestep + 1)== 0, &
-          & "Not all fields were written at previous step, nf%nf90mpifieldCnt=" + &
-                & fu_str(nf%nf90mpifieldCnt) + ', nf%nf90mpiNfieldsPerTimestep=' + fu_str(nf%nf90mpiNfieldsPerTimestep), sub_name)) return
       nf%nf90mpifieldCnt =  nf%nf90mpifieldCnt + 1
       istat = nf90mpi_bput_var(nf%unit_bin, nf%ntime%tVarId, &
                         & timeval, &
@@ -3983,6 +3984,10 @@ CONTAINS
       if (iStat /= 0) then 
         call set_error("nf90mpi_put_var time: "//nf90mpi_strerror(iStat), sub_name)
         return
+      endif
+      if (nf%nf90mpifieldCnt == nf%nf90mpiBUFfdlds ) then ! Extra for time variable
+        call flush_nf90mpi_buf(nf, sub_name)
+        if (fu_fails(.not. error,"Error set", sub_name)) return
       endif
 #else
        call set_error("Compiled without PNETCDF", sub_name)

@@ -2023,7 +2023,7 @@ CONTAINS
     
     if (present(fc_step)) fc_step_my = fc_step
     
-    ! try to guess reaonable forecast step
+    ! try to guess reasonable forecast step
     if (.not. defined(fc_step_my)) then
       !!Trick to handle strange start times
       fTmp = modulo(silja_time_to_real8(valid_time)/3.6D3,1D0)  !!!fraction of hour

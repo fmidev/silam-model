@@ -244,7 +244,7 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tchem_rules_cbm42_strato_SOA) :: rules
 
     ! Local variables

@@ -187,11 +187,16 @@ MODULE grib_api_io
     !! A wrapper to grib_definition_path that has no fortran interface
     character(len=*), intent(out) :: definitionPath
     type(C_PTR) :: Cptr
+    integer :: n 
 
     Cptr = grib_definition_path(c_null_ptr)
 
     !p (char*) &Cptr
     call strncpyptr(definitionPath, Cptr, len(definitionPath,kind=c_size_t))
+    ! C string to fortran
+    n = index(definitionPath,achar(0))-1
+    definitionPath = definitionPath(1:n)
+
 
   end subroutine  get_definition_path
 
@@ -977,7 +982,10 @@ MODULE grib_api_io
     count1=count0
     count2=count0
     if (grib_mpi_rank == 0) then
-       if (fname(namelen-3:namelen) == '.bz2') then
+       if (fname(1:5) == 's3://') then
+         call msg('Opening s3:// GRIB.bz2 file i with bzReadPipe: '//trim(fname))
+         call bzReadPipe(fname, gf%grib_raw, file_size)
+       elseif (fname(namelen-3:namelen) == '.bz2') then
          !BZIP file
 #ifdef WITH_BZIP2
         call msg('Opening GRIB.bz2 file i with bzReadPar: '//trim(fname))

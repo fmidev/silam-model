@@ -839,7 +839,8 @@ CONTAINS
                                     & ifNewDataHere, &
                                     & storage_grid = storage_grid, &
                                     & ifAdjust=ifAdjustLocal, &
-                                    & st_time_feature = static_value )
+                                    & st_time_feature = static_value, &
+                                    & ifforcemetsrcacceptance = .TRUE.) !!Accept test field
           ifGotNewData = ifGotNewData .or. ifNewDataHere
 
       else
@@ -1564,7 +1565,6 @@ CONTAINS
          call msg('The following test field has been created (store input)')
          call report(idStore)
          call msg('')
-       !  call ooops("")
          if(fu_field_id_in_list(id, shopping_list,  indexVar))then  
             call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                 & nStacks, &
@@ -2522,7 +2522,7 @@ call msg('')
           input_unit =  fu_open_gradsfile_i(chFName)
 
       case(test_field_value_flag)        ! Do nothing - no file
-        call msg('Making test field:' + chFName)
+        call msg('Making test field (open_input_file):' + chFName)
 
       case default
         call msg('Non-supported file type',FFormat%iformat)

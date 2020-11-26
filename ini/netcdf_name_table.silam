@@ -1060,8 +1060,35 @@ title = dust_emis_0
 END_LIST = dust_emis_0
 ###########################################################
 
+LIST = c4_frac
 
+title = c4_frac
 
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  c4_frac       c4_frac          SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = c4_frac
+###########################################################
+
+LIST = irrigated_area
+
+title = irrigated_area
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  irrigated_area   irrigated_area  SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = irrigated_area
+###########################################################
 
 END_NETCDF_NAME_TABLE
 

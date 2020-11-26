@@ -1867,6 +1867,8 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
           ispecies = fu_isp(isubst, imode, iwave, pMap%mapper)            
           ifSameGrids = pMap%gridTemplate == fu_grid(id)                   ! same grid ?
 
+          call msg("Updating "//trim(fu_quantity_short_string(pMap%quantity))// &
+                                      & '_' // trim(fu_str(fu_species(id))))
           if(fu_multi_level_quantity(pMap%quantity))then ! go along the vertical
             !
             ! Do we have to reproject the vertical?
@@ -2323,7 +2325,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
         
       case(test_field_value_flag)   
       
-        call msg('Making test field:' + chFName)
+        call msg('Making test field (update_mass_map_from_file):' + chFName)
 
         spTmp%sp => fu_work_string()
         
@@ -2343,24 +2345,28 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
         call find_mass_map_4_input_id(ptrMap, nMaps, timeOfMap, id, iMap, &
                                     & iSubst, iMode, iWave, conversion_type)
         if(error)return
-        if(fu_fails(iMap /= int_missing, 'Unused test field:'+chFName,'update_mass_map_from_file'))return
+       !        if(fu_fails(iMap /= int_missing, 'Unused test field:'+chFName,'update_mass_map_from_file'))return
+        if (iMap /= int_missing) then
 
-        pMap => ptrMap(iMap)%ptrMassMap
-        ispecies = fu_isp(isubst, imode, iwave, pMap%mapper) 
-        pGrid => pMap%gridTemplate
+            pMap => ptrMap(iMap)%ptrMassMap
+            ispecies = fu_isp(isubst, imode, iwave, pMap%mapper) 
+            pGrid => pMap%gridTemplate
 
-        ! All levels of the variable will be initiliased with this value
-        do iLevMap = 1, fu_NbrOfLevels(pMap%vertTemplate)
-          call make_test_field(chFName,  id,  dataIn,  timeOfMap,  zero_interval, pGrid)
-          call convert_fld_to_mass_map_unit(dataIn,  conversion_type,  pMap%gridTemplate, &
-                                          & pMap%vertTemplate, iLevMap) 
-          do iy = 1, pMap%ny
-            do ix = 1, pMap%nx
-               pMap%arM(ispecies,1,iLevMap,ix,iy) = dataIn(ix+(iy-1)*pMap%nx)
-            end do   ! nx
-          end do   ! ny
-        end do   ! levels
-        fields_accepted = fields_accepted + 1
+            ! All levels of the variable will be initiliased with this value
+            do iLevMap = 1, fu_NbrOfLevels(pMap%vertTemplate)
+              call make_test_field(chFName,  id,  dataIn,  timeOfMap,  zero_interval, pGrid)
+              call convert_fld_to_mass_map_unit(dataIn,  conversion_type,  pMap%gridTemplate, &
+                                              & pMap%vertTemplate, iLevMap) 
+              do iy = 1, pMap%ny
+                do ix = 1, pMap%nx
+                   pMap%arM(ispecies,1,iLevMap,ix,iy) = dataIn(ix+(iy-1)*pMap%nx)
+                end do   ! nx
+              end do   ! ny
+            end do   ! levels
+            fields_accepted = fields_accepted + 1
+        else
+                call msg_warning('Unused test field:'+chFName,'update_mass_map_from_file')
+        endif
         
       case default   
         call msg('Not supported file type for initialization',fformat%iformat)
@@ -2582,6 +2588,10 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
       else if (fu_quantity(id) == volume_mixing_ratio_flag) then
         conversion = vmr_2_cnc      
       end if
+    else if (pMap%quantity == fu_quantity(id) .and. &
+           & any(pMap%quantity == (/advection_moment_X_flag, &
+                              & advection_moment_Y_flag, advection_moment_Z_flag/))  ) then
+           conversion = volume_ratio  !! Should be same as mass                              
     else
       call msg_warning('Assuming unit conversion between ' &
                      & // fu_quantity_short_string(pMap%quantity) // ' and ' &
@@ -2616,7 +2626,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
     ! Local variables
     real, dimension(:), pointer :: xSizeIn => null(), ySizeIn => null(), &
                         & xSizeOut => null(), ySizeOut => null()
-    real :: fTmp, zSizeIn, zSizeOut, border, dx_deg, dy_deg, corner_lat_N, t, p
+    real :: fTmp, zSizeIn, zSizeOut, border, dx_deg, dy_deg, corner_lat_N, t, p, x0, y0
     integer :: iTmp, nx, ny, ix, iy, nxIn, nyIn
     type(silja_level) :: level
     logical :: ifAllocate = .False. , if_geo_grid
@@ -2671,7 +2681,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
           CALL lonlat_grid_parameters(gridOut,& ! Get parameters of the grid
                              & fTmp, corner_lat_N, if_geo_grid, &
                              & nx, ny, &
-                             & fTmp, fTmp, & 
+                             & x0, y0, & 
                              & dx_deg, dy_deg)
           DO iy=1,ny
             DO ix=1,nx

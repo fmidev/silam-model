@@ -378,8 +378,8 @@ CONTAINS
     implicit none
     
     ! Imported parameters
-    type(Tsilam_namelist), pointer :: nlN
-    type(silam_nuclide), pointer :: pN
+    type(Tsilam_namelist), intent(in) :: nlN
+    type(silam_nuclide), intent(out) :: pN
 !    character(len=*), intent(out) :: nuc1, nuc2, nuc3
 
     ! Local variables

@@ -5547,7 +5547,8 @@ CONTAINS
     INTEGER :: tloop, iCell, ix, iy
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
-    REAL, DIMENSION(:), POINTER :: h_canopy, LAI,  cloud, pressure, T2m, rh2m, sm, G_sto
+    REAL, DIMENSION(:), POINTER :: h_canopy, LAI,  cloud, pressure, T2m, rh2m, sm
+    REAL, DIMENSION(:), POINTER :: c4_frac, irrigated_area, G_sto
     real :: lat,lon,cosZen
 
 !    G_sto => fu_work_array() 
@@ -5602,6 +5603,21 @@ CONTAINS
       rh2m => fu_grid_data(fldTmp)
       if(error)return
 
+      fldTmp => fu_sm_simple_field(meteoMarketPtr, met_src, c4_frac_flag, level_missing, &
+                                  & single_time_stack_flag)
+      if(error)return
+
+      c4_frac => fu_grid_data(fldTmp)
+      if(error)return
+
+      fldTmp => fu_sm_simple_field(meteoMarketPtr, met_src, irrigated_area_flag, level_missing, &
+                                  & single_time_stack_flag)
+      if(error)return
+
+      irrigated_area => fu_grid_data(fldTmp)
+      if(error)return
+
+
       fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, soil_moisture_vol_frac_nwp_flag, level_missing, &
                                   & time, single_time)
       if(error)return
@@ -5631,8 +5647,8 @@ CONTAINS
              lat = fu_lat_geographical_from_grid(real(ix), real(iy), meteo_grid)
              lon = fu_lon_geographical_from_grid(real(ix), real(iy), meteo_grid)
              cosZen = max(fu_solar_zenith_angle_cos(lon, lat, time),0.)
-             G_sto(iCell) = fu_g_stomatal(LAI(iCell), T2m(iCell), rh2m(iCell), sm(iCell), pressure(iCell), cloud(iCell), &
-                  & cosZEN, if_high_stomatal_conductance)
+             G_sto(iCell) = fu_g_stomatal(LAI(iCell), T2m(iCell), rh2m(iCell), sm(iCell), c4_frac(iCell), &
+                  & irrigated_area(iCell), pressure(iCell), cloud(iCell), cosZEN, if_high_stomatal_conductance)
 !             G_sto(iCell) = 0.3 * fu_g_stomatal(LAI(iCell), T2m(iCell), rh2m(iCell), pressure(iCell), cloud(iCell), cosZEN)
           else
             G_sto(iCell) = 0.
@@ -5648,7 +5664,7 @@ CONTAINS
   
   !************************************************************************
 
-  real  function fu_g_stomatal(LAI, T2m, rh2m, sm, p, cloud, cosZEN, if_high_stomatal_conductance)
+  real  function fu_g_stomatal(LAI, T2m, rh2m, sm, c4_frac, irrigated_area, p, cloud, cosZEN, if_high_stomatal_conductance)
     !
     ! Get stomatal resistance 
     ! As done in EMEP model with some corner-cut...
@@ -5662,38 +5678,46 @@ CONTAINS
     ! Added nighttime g_sto 
 
     !
-    real, intent(in) ::  cosZEN,  T2m, rh2m, sm, p, cloud
+    real, intent(in) ::  cosZEN,  T2m, rh2m, c4_frac, irrigated_area, p, cloud
     real, intent(in)  :: LAI       ! leaf area index (m^2/m^2), one-sided
+    real :: sm ! soil moisture
     logical, intent(in) :: if_high_stomatal_conductance ! use high (for CB5) or low (for CB4) g_sto
 
     real :: Idirect, Idiffuse, Idrctn
     real :: LAIsun    ! sunlit LAI
     real :: ftmp, bt, dts, dg, att
-    real :: vpd, vpsat, PARshade, PARsun, LAIsunfrac  
+    real :: vpd, vpsat, PARshade, PARsun, LAIsunfrac
     real :: f_env,  f_vpd,  f_swp, f_phen, f_sun,   f_shade, f_light, f_temp, f_sm
-    real :: mmol2sm
+    real :: mmol2sm, g_night_c3, g_night_c4
 
-    real,  parameter :: PARfrac = 0.45 ! approximation to fraction (0.45 to 0.5) of total 
+    real :: f_env_c4, f_temp_c4, f_vpd_c4 ! for c4 plants
+
+    real,  parameter :: PARfrac = 0.45 ! approximation to fraction (0.45 to 0.5) of total
                           ! radiation in PAR waveband (400-700nm)
     real,  parameter ::  Wm2_uE  = 4.57 ! converts from W/m^2 to umol/m^2/s
     real,  parameter ::  Wm2_2uEPAR= PARfrac * Wm2_uE ! converts from W/m^2 to umol/m^2/s PAR
     real,  parameter ::  do3se_f_light = 8e-3 ! LUC-dependent parameter in EMEP 0.005--0.013
                           ! except 0.002 for root_crop...
                           ! see Inputs_DO3SE.csv
-    real,  parameter :: do3se_T_opt = 23 + 273   ! ! Some average... about med_needle
-    real,  parameter :: do3se_T_min = 5  + 273   ! 
-    real,  parameter :: do3se_T_max = 40 + 273   !
+
+    ! the optimal value is not the actual optimal value, as the Wang-VPD model affects it
+    real,  parameter :: do3se_T_opt = 32 + 273   ! ! Some average... about med_needle
+    real,  parameter :: do3se_T_min = 3  + 273   !
+    real,  parameter :: do3se_T_max = 50 + 273   !
+
+    real,  parameter :: do3se_T_opt_c4 = 60 + 273   !
+    real,  parameter :: do3se_T_min_c4 = 8 + 273   !
+    real,  parameter :: do3se_T_max_c4 = 75 + 273   !
 
     !vapour pressure defficit
-    real,  parameter :: do3se_VPD_min = 1. 
-    real,  parameter :: do3se_VPD_max = 3. ! 2.5--3.5 
-    real,  parameter :: do3se_f_min =  1e-1 
+    real,  parameter :: do3se_VPD_min = 1.
+    real,  parameter :: do3se_VPD_max = 3. ! 2.5--3.5
+    real,  parameter :: do3se_f_min =  1e-1
     real,  parameter :: do3se_f_min_lowveg =  1e-2
     real,  parameter :: do3se_g_max = 200  !!! mmol/m2/s
 
-
    !!
-   !! ROUX: Nighttime g_sto does not get to zero! 
+   !! ROUX: Nighttime g_sto does not get to zero!
    ! Mairgareth A. Caird, James H. Richards, Lisa A. Donovan
    ! "Nighttime Stomatal Conductance and Transpiration in C3 and C4 Plant"
    !  DOI: https://doi.org/10.1104/pp.106.092940
@@ -5703,7 +5727,7 @@ CONTAINS
     real,  parameter :: g_night = 40 !! mmol/m2/s
             !! 40 seems to be okay (VRA2016)
 
-    real, parameter :: cosA    = 0.5   ! A = mean leaf inclination (60 deg.), 
+    Real, parameter :: cosA    = 0.5   ! A = mean leaf inclination (60 deg.), 
      ! where it is assumed that leaf inclination has a spherical distribution
 
 
@@ -5717,8 +5741,7 @@ CONTAINS
       ! from subroutine CanopyPAR of EMEP model
       LAIsun = (1.0 - exp(-0.5*LAI/cosZEN) ) * cosZEN/cosA
       LAIsunfrac = LAIsun/LAI
-  
-  
+    
       !! PAR flux densities evaluated using method of
       !! Norman (1982, p.79): 
       !! "conceptually, 0.07 represents a scattering coefficient"  
@@ -5740,6 +5763,10 @@ CONTAINS
       f_sun   = (1.0 - exp (-do3se_f_light*PARsun  ) )
       f_shade = (1.0 - exp (-do3se_f_light*PARshade) )
       f_light = LAIsunfrac * f_sun + (1.0 - LAIsunfrac) * f_shade
+
+!      f_sun_c4   = (1.0 - exp (-do3se_f_light_c4*PARsun  ) )
+!      f_shade_c4 = (1.0 - exp (-do3se_f_light_c4*PARshade) )
+!      f_light_c4 = LAIsunfrac * f_sun_c4 + (1.0 - LAIsunfrac) * f_shade_c4
     else
 !      Idirect    = 0.0
 !      Idiffuse   = 0.0
@@ -5747,13 +5774,44 @@ CONTAINS
 !      PARsun   = 0.0
 !      f_sun  = 0.0
       f_light = 0.0
-
+      !f_light_c4 = 0.0
     end if
-    f_light=max(g_night/do3se_g_max,f_light) 
-            ! SILAM invention to leave some conductance 
-            ! for night  
-            ! For some vegetation can be up to 0.1
-            
+
+    ! Saturated pressure from Tetens equation https://en.wikipedia.org/wiki/Tetens_equation
+    fTmp  = 17.67 * (T2m-273.15)/(T2m-29.65)
+    vpSat = 611.2 * exp(fTmp) !in Pa
+    vpd   = (1.0 - min(rh2m,0.95)) * vpSat  ! in Pa
+
+    ! Wang-VPD model, Journal of Hydrometeorology 13, 239 (Wang, 2012)
+    !     https://doi.org/10.1175/JHM-D-11-043.1
+    f_vpd = 51.5*vpd**(-.65)
+
+    ! the c4 plants are adapted to dry climates, so speculatively (and to improve the O3 bias in India)
+    ! the scaling factor for c4 plants accounting for the relative humidity is set to a constant
+    f_vpd_c4 = 2.2
+
+    ! Added dependence on soil moisture.
+   ! Roughly matches some published values, but the scatter was so significant
+   ! that there is lots of freedom for choosing the parameters.
+
+    ! the soil moisture of the irrigated area is set to 0.5 m3/m3
+    sm = 0.5*irrigated_area + sm*(1-irrigated_area)
+
+    ! the scaling factor accounting for soil moisture, optimized for CB5 (high g_sto) or CB4 (low g_sto)
+    if (if_high_stomatal_conductance) then
+       f_sm = 3.5*sm
+       f_sm = max(f_sm, 0.6)
+    else
+       f_sm = 0.2 + 4.5*max(sm-0.1, 0.)
+       f_sm = min(f_sm, 2.0)
+    end if
+
+    f_light=max(g_night/do3se_g_max,f_light)
+    
+    ! SILAM invention to leave some conductance
+    ! for night
+    ! For some vegetation can be up to 0.1
+
 
 !!..3) Calculate  f_temp
 !!---------------------------------------
@@ -5768,20 +5826,13 @@ CONTAINS
   f_temp = max( f_temp, 0.001 )  !Roux: Reduced  from 0.01 to 0.001 to supress the deposition in winter
   ! Revised usage of min value during 2007
 
-
+  ! different temperature dependence for c4 plants
+  f_temp_c4 = dTs / ( do3se_T_max_c4 - do3se_T_opt_c4 )
+  f_temp_c4 = ( T2m - do3se_T_min_c4 ) / dg *  f_temp_c4**bt
+  f_temp_c4 = max( f_temp_c4, 0.001 )
 
 !!..4) Calculate f_vpd ! Water pressure defficit
   !! Re-written from what is in EMEP
-
-
-      ! Saturated pressure from Tetens equation https://en.wikipedia.org/wiki/Tetens_equation
-  fTmp   = 17.67 * (T2m-273.15)/(T2m-29.65)
-  vpSat = 611.2 * exp(fTmp) !in Pa
-  vpd   = (1.0 - min(rh2m,0.95)) * vpSat  ! in Pa 
-  
-      ! Wang-VPD model, Journal of Hydrometeorology 13, 239 (Wang, 2012)
-      !     https://doi.org/10.1175/JHM-D-11-043.1
-  f_vpd = 51.5*vpd**(-.65)   !! Coefficient to match unity at +15
 
   !!!! double-counting for vpd improves O3 scores on summer evenings in Europe
   !! Suppresses deposition of O3
@@ -5802,37 +5853,31 @@ CONTAINS
 !  ! ************************************
 !   if ( USE_SOILWATER ) f_swp =  L%fSW
 !  ! ************************************       
-   f_swp = 1.  !!! Disabled in original EMEP code
+   f_swp = 1.  !!! Disabled in original EMEP code, effectively replaced by f_sm
    f_phen = 1. 
 !!.. And finally,
 !!---------------------------------------
 !!  ( with revised usage of min value for f_temp during 2007)
 
-   ! Added dependence on soil moisture.
-   ! Roughly matches some published values, but the scatter was so significant
-   ! that there is lots of freedom for choosing the parameters.
-
-   ! the effect of soil moisture, optimized for CB5 (high g_sto) or CB4 (low g_sto)
-   if (if_high_stomatal_conductance) then
-      f_sm = 3.5*sm
-      f_sm = max(f_sm, 0.6)
-   else
-      f_sm = 0.2 + 4.5*max(sm-0.1, 0.)
-      f_sm = min(f_sm, 2.0)
-   end if
-   f_env = f_vpd * f_swp * f_sm
+   f_env = f_vpd * f_sm
    f_env = max( f_env, do3se_f_min )
    f_env = f_temp * f_env
 
    f_env = f_phen * f_env * f_light  ! Canopy average
+
+   f_env_c4 = f_vpd_c4 * f_sm
+   f_env_c4 = max( f_env_c4, do3se_f_min )
+   f_env_c4 = f_temp_c4 * f_env_c4
+
+   f_env_c4 = f_phen * f_env_c4 * f_light
 
 ! From mmol O3/m2/s to s/m given in Jones, App. 3, gives 41000 for 20 deg.C )
 !   (should we just use P=100 hPa?)
 
    mmol2sm = 8.3144e-8 * t2m       ! 0.001 * RT/P
 
-   fu_g_stomatal = do3se_g_max * f_env * mmol2sm
-
+   ! the stomatal conductance is a linear combination of the c3 and c4 plant stomatal conductances
+   fu_g_stomatal = ((1-c4_frac) * f_env + c4_frac * f_env_c4) * do3se_g_max * mmol2sm
 
    !g_sun = g_sto * f_sun/f_light       ! sunlit part
 

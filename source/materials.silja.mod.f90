@@ -491,10 +491,11 @@ CONTAINS
     ! Local variables
     type(Tsilam_namelist_group), pointer :: nlGroupSubst, nlGroupNuclides
     type(Tsilam_namelist), pointer :: nlSubst_
-    integer :: iTmp, iStat, iSubst, nItems, jTmp
+    integer :: iTmp, iStat, iSubst, nItems, jTmp, depDefaultCounter
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
     type(silam_material), pointer :: pSubst_
-    logical :: file_exists
+    logical :: file_exists, depDefault
+    character (len=*), parameter ::sub_name = "init_chemical_materials"
 
 
 !      call msg('======================================TEMPORARY==========================================')
@@ -506,7 +507,7 @@ CONTAINS
 !    CHARACTER (LEN = nuc_name_len), DIMENSION (max_nuclides_used) :: nuclides_used
 !      call msg('======================================TEMPORARY==========================================')
 
-
+    depDefaultCounter = 0
 
     ! Stupidity check
     !
@@ -516,7 +517,7 @@ CONTAINS
     INQUIRE(file=chChemicalDataFNm, exist=file_exists)
     if(.not. file_exists)then
       call set_error('Chemical data file does not exist:' + chChemicalDataFNm, &
-                   & 'init_chemical_materials')
+                   & sub_name)
       return
     endif
     call msg("Reading chemical database from :>>>" + chChemicalDataFNm + '<<<')
@@ -528,7 +529,7 @@ CONTAINS
       ifRadioactiveSpecies = .true.
     else
       call msg_warning('Radiological data file does not exist:' + chNuclideDataFNm, &
-                     & 'init_chemical_materials')
+                     & sub_name)
       ifRadioactiveSpecies = .false.
     endif
 
@@ -543,7 +544,7 @@ CONTAINS
       close(iTmp)
     else
       call set_error('Failed to open chemical data file:' + chChemicalDataFNm, &
-                   & 'init_chemical_materials')
+                   & sub_name)
       return
     endif
 
@@ -568,7 +569,7 @@ CONTAINS
         close(iTmp)
       else
         call set_error('Failed to open radiological data file:' + chNuclideDataFNm, &
-                     & 'init_chemical_materials')
+                     & sub_name)
         return
       endif
 
@@ -577,7 +578,7 @@ CONTAINS
     else
       allocate(ChemicalData%pChem(fu_nbr_of_namelists(nlGroupSubst) + 30), stat=iStat)
     endif
-    if(fu_fails(iStat == 0,'Failed to allocate chemical structure','init_chemical_materials'))return
+    if(fu_fails(iStat == 0,'Failed to allocate chemical structure',sub_name))return
 
     do iSubst = 1, size(ChemicalData%pChem)
       allocate(ChemicalData%pChem(iSubst)%ptr)
@@ -597,10 +598,13 @@ CONTAINS
       if(.not. associated(nlSubst_))cycle
       if(.not. defined(nlSubst_))cycle
 
-      call set_substance(nlSubst_, pSubst_)
+      call set_substance(nlSubst_, pSubst_, depDefault)
       if(error)return
 
+      if (depDefault)  depDefaultCounter = depDefaultCounter + 1
+
     end do  ! cycle over substances
+    if (fu_fails(depDefaultCounter==0, "Default deposition for a cemical", sub_name))return  
 
     !
     ! Having done the chemicals, let's do the nuclides. They follow the same template but also
@@ -616,13 +620,15 @@ CONTAINS
         if(.not. associated(nlSubst_))cycle
         if(.not. defined(nlSubst_))cycle
 
-        call set_substance(nlSubst_, pSubst_)
+        call set_substance(nlSubst_, pSubst_, depDefault)
         if(error)return
+        if (depDefault)  depDefaultCounter = depDefaultCounter + 1
 
       end do  ! cycle over nuclides
       
       ChemicalData%nChemical = fu_nbr_of_namelists(nlGroupSubst) + fu_nbr_of_namelists(nlGroupNuclides)
       call destroy_namelist_group(nlGroupNuclides)
+
     else
       ChemicalData%nChemical = fu_nbr_of_namelists(nlGroupSubst)
     endif
@@ -632,6 +638,7 @@ CONTAINS
     ifChemicalDataLoaded = .true.
 
     call msg('Number of chemical materials set:',ChemicalData%nChemical)
+    call msg("Default depositions assigned for nuclides:", depDefaultCounter)
     !
     ! Check for duplicates. Break the run if found something.
     !
@@ -640,7 +647,7 @@ CONTAINS
         if(ChemicalData%pChem(iSubst)%ptr%name == ChemicalData%pChem(iTmp)%ptr%name)then
           call msg("Substance numbers:", iSubst, iTmp)      
           call set_error('Duplicated substance: '// trim(ChemicalData%pChem(iSubst)%ptr%name), &
-                       & 'init_chemical_materials')
+                       & sub_name)
           return
         endif
       enddo
@@ -658,21 +665,25 @@ CONTAINS
 
     !==================================================================================================
     
-    subroutine set_substance(nlSubst, pSubst)
+    subroutine set_substance(nlSubst, pSubst, ifDefaultDep)
       !
       ! Sets a single chemical substance from the given namelist
       !
       implicit none
       
       ! Imported parameters
-      type(Tsilam_namelist), pointer :: nlSubst
-      type(silam_material), pointer :: pSubst
+      type(Tsilam_namelist), intent(in) :: nlSubst
+      type(silam_material), intent(out) :: pSubst
+      logical, intent(out) :: ifDefaultDep
       !
       ! Internal variables
       !
       integer :: iStat, iTmp, nItems
       type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
       type(silam_sp) :: sp
+      character (len=*), parameter ::sub_name = "set_substance"
+
+      ifDefaultDep = .False.
 
       sp%sp => fu_work_string()
 
@@ -715,7 +726,7 @@ CONTAINS
         pSubst%ifGasPossible = .false.
       else
         call set_error('the item can_be_gas is not recognised:' + fu_content(nlSubst,'can_be_gas'), &
-                     & 'init_chemical_materials')
+                     & sub_name)
         return
       endif
       !
@@ -735,28 +746,28 @@ CONTAINS
                                          & pSubst%aerosol_param%dry_part_density <= 0.)then
           call msg('Problem with dry particle density:', pSubst%aerosol_param%dry_part_density)
           call set_error('Problem with dry particle density for substance:' + pSubst%name, &
-                       & 'init_chemical_materials')
+                       & sub_name)
           return
         endif
         if(pSubst%aerosol_param%humidity_growth_alpha > 1.0e6 .or. &
                                          & pSubst%aerosol_param%humidity_growth_alpha <= 0.)then
           call msg('Problem with humidity growth scale:', pSubst%aerosol_param%humidity_growth_alpha)
           call set_error('Problem with humidity growth scale for substance:' + pSubst%name,  &
-                       & 'init_chemical_materials')
+                       & sub_name)
           return
         endif
         if(pSubst%aerosol_param%humidity_growth_beta > 1.0e6 .or. &
                                          & pSubst%aerosol_param%humidity_growth_beta <= 0.)then
           call msg('Problem with humidity growth scale:', pSubst%aerosol_param%humidity_growth_alpha)
           call set_error(fu_connect_strings('Problem with dry particle density for substance:', &
-                                          & pSubst%name),'init_chemical_materials')
+                                          & pSubst%name),sub_name)
           return
         endif
         if(pSubst%aerosol_param%deliquescence_humidity > 10.0 .or. &
                                          & pSubst%aerosol_param%deliquescence_humidity < 0.)then
           call msg('Problem with deliquescence humidity:', pSubst%aerosol_param%deliquescence_humidity)
           call set_error(fu_connect_strings('Problem with deliquescence humidity for substance:', &
-                                         & pSubst%name),'init_chemical_materials')
+                                         & pSubst%name),sub_name)
           return
         endif
 
@@ -771,7 +782,7 @@ CONTAINS
         ! Information is missing
         !
         call set_error('Item can_be_aerosol must be YES or NO in suibst' + pSubst%name, &
-                     & 'init_chemical_materials')
+                     & sub_name)
         return
       endif
 
@@ -790,12 +801,12 @@ CONTAINS
       if(nItems > 0)then
         allocate(pSubst%reaction_data, stat=iStat)
         if(iStat /= 0)then
-          call set_error('Failed to allocate chemical reaction structure','init_chemical_materials')
+          call set_error('Failed to allocate chemical reaction structure',sub_name)
           return
         endif
         allocate(pSubst%reaction_data%reaction(nItems), stat=iStat)
         if(iStat /= 0)then
-          call set_error('Failed to allocate chemical reactions','init_chemical_materials')
+          call set_error('Failed to allocate chemical reactions',sub_name)
           return
         endif
         !
@@ -922,15 +933,15 @@ CONTAINS
       sp%sp = fu_content(nlSubst,'half_life_period')
       if(len_trim(sp%sp) > 0)then
         allocate(pSubst%nuc_data, stat=iStat)
-        if(fu_fails(iStat == 0, 'Failed to allocate nuclide data','init_chemical_materials'))return
+        if(fu_fails(iStat == 0, 'Failed to allocate nuclide data',sub_name))return
         
         call set_nuclide_from_namelist(nlSubst, pSubst%nuc_data) !, sp%sp, sp%sp, sp%sp)
         !
         ! For now, we shall no distinguish the details of deposition features of nuclides
         ! Just check if they are deposible or not
         !
-        call msg('Setting default deposition parameters for nuclide: '//trim(fu_nuc_name(pSubst%nuc_data)) &
-                        &//' substance: '// fu_name(pSubst))
+        ifDefaultDep = .True.
+
         ! gas
 
         if( pSubst%ifGasPossible ) then
@@ -939,7 +950,7 @@ CONTAINS
           elseif(fu_content(nlSubst,'gas_deposible') == 'NO')then
             pSubst%gas_dep_param = gas_depositon_nodep
           else
-            call set_error('gas_deposible must be YES or NO for nuclides','init_chemical_materials')
+            call set_error('gas_deposible must be YES or NO for nuclides',sub_name)
             return
           endif ! can_be_gas
         endif
@@ -960,7 +971,7 @@ CONTAINS
       if(len_trim(sp%sp) > 0)then
         allocate(pSubst%pollen, stat=iStat)
         if(iStat /= 0)then
-          call set_error('Failed to allocate pollen data','init_chemical_materials')
+          call set_error('Failed to allocate pollen data',sub_name)
           return
         endif
         if(fu_str_u_case(sp%sp) == 'POLLEN_GRAINS')then
@@ -971,7 +982,7 @@ CONTAINS
           pSubst%pollen%material_type = freeAllergen
         else
           pSubst%pollen%material_type = int_missing
-          call set_error(fu_connect_strings('Unknown pollen material type:',sp%sp),'init_chemical_materials')
+          call set_error(fu_connect_strings('Unknown pollen material type:',sp%sp),sub_name)
           return
         endif
         
@@ -992,7 +1003,7 @@ CONTAINS
               call setNamedValue(fu_content(nlSubst,'pollen_break_RH_threshold'), 'fraction',  &
                          & pSubst%pollen%fThresRH)
             else
-              call set_error('Pollen RH break rate given but no RH threshold','init_chemical_materials')
+              call set_error('Pollen RH break rate given but no RH threshold',sub_name)
             endif
           endif
           
@@ -1000,7 +1011,7 @@ CONTAINS
           if(nItems > 0)then
             allocate(pSubst%pollen%break_agents(nItems), pSubst%pollen%break_rates(nItems), stat=iStat)
             if(iStat /= 0)then
-              call set_error('Failed to allocate pollen breaking','init_chemical_materials')
+              call set_error('Failed to allocate pollen breaking',sub_name)
               return
             endif
             do iTmp = 1, nItems
@@ -1025,14 +1036,14 @@ CONTAINS
         iTmp = fu_content_int(nlSubst,'number_of_reference_subst_in_mixture')
         allocate(pSubst%optic_data, stat=iStat)
         if(iStat /= 0)then
-          call set_error('Failed to allocate optical features','init_chemical_materials')
+          call set_error('Failed to allocate optical features',sub_name)
           return
         endif
         pSubst%optic_data%nOptSubst = iTmp
         allocate(pSubst%optic_data%chOpticStdSubst(pSubst%optic_data%nOptSubst), &
                & pSubst%optic_data%fractionOptStdSubst(pSubst%optic_data%nOptSubst), stat=iStat)
         if(iStat /= 0)then
-          call set_error('Failed to allocate optical features arrays','init_chemical_materials')
+          call set_error('Failed to allocate optical features arrays',sub_name)
           return
         endif
         sp%sp = fu_content(nlSubst,'names_of_ref_subst_in_mixture')

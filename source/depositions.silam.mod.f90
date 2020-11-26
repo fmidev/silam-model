@@ -82,7 +82,7 @@ module depositions
     integer :: scavengingType ! Method for computing the scavenging
     integer :: DryDepType     ! Method for computing the dry deposition
     integer :: RsType         ! Method for surface resistance for gases
-    integer :: max_scav_rate_depends_on = horiz_wind
+    integer :: max_scav_rate_depends_on = int_missing
     logical :: ifHumidityDependent ! or just take the defualt humidity
     real :: fDefaultRelHumidity       ! the very default humidity
     logical :: ifSulphurSaturation
@@ -228,7 +228,7 @@ CONTAINS
   !
   !*****************************************************************************
 
-  subroutine set_deposition_rules(nlSetup, rulesDeposition)
+  subroutine set_deposition_rules(nlSetup, rulesDeposition, if_lagr_present)
     !
     ! Creates the set of standard deposition rules. The input is taken
     ! from the transformation_parameters namelist in the control
@@ -238,17 +238,21 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tdeposition_rules) :: rulesDeposition
+    logical, intent(in) :: if_lagr_present
 
     ! Local parameters
     integer :: iTmp, iTransf
+    character (len=*), parameter :: sub_name="set_deposition_rules"
 
     if(.not.defined(nlSetup))then
-      call set_error('Undefined namelist given','set_deposition_rules')
+      call set_error('Undefined namelist given',sub_name)
       rulesDeposition%defined = silja_false
       return
     endif
+
+    rulesDeposition%if_lagr = if_lagr_present 
     !
     ! Scavenging type. May be undefined - then take the default one
     !
@@ -275,19 +279,20 @@ CONTAINS
         rulesDeposition%scavengingType = scavNoScav
 
       case('') ! No such line at all
-        call set_error('Scavenging is not defined. Take default','set_deposition_rules')
-        call unset_error('set_deposition_rules')
+        call set_error('Scavenging is not defined. Take default',sub_name)
+        call unset_error(sub_name)
         rulesDeposition%scavengingType = scavStandard
 
       case default
         call set_error('Unknown scavenging type: "'// trim(fu_content(nlSetup,'wet_deposition_scheme')) // '"',&
-                     & 'set_deposition_rules')
+                     & sub_name)
         call msg("Valid values for wet_deposition_scheme are:")
         call msg(" (STANDARD_3D_SCAVENGING|NEW2011_SCAVENGING|NEW2011_SCAVENGING_FAKECLOUD|NO_SCAVENGING|2020_SCAVENGING|2018_SCAVENGING)")
         call msg(" 2019_SCAVENGING depricated since r588934")
         rulesDeposition%defined = silja_false
         return
     end select
+
 
     if (fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')) == 'HORIZONTAL_WIND') then
       call msg('Max scavenging rate depends on the horizontal wind')
@@ -296,6 +301,12 @@ CONTAINS
       call msg('Max scavenging rate depends on the convective available potential energy')
       rulesDeposition%max_scav_rate_depends_on = cape      
     end if
+
+    if (rulesDeposition%max_scav_rate_depends_on == int_missing .neqv. &
+       & any(rulesDeposition%scavengingType == (/scavStandard, scav2011, scav2011fc, scavNoScav/))) then
+       call set_error("Incompatible max_scav_rate_depends_on and wet_deposition_scheme", sub_name)
+       return
+     endif
     
     !
     ! Saturation of sulphur scavenging is so far the only non-linear species-specific process
@@ -341,13 +352,13 @@ CONTAINS
 
 
       case('') ! No such line at all
-        call msg_warning('Dry deposition is not defined. Take default','set_deposition_rules')
+        call msg_warning('Dry deposition is not defined. Take default',sub_name)
         rulesDeposition%DryDepType = DryD_KS2011_TF
 
       case default
         call set_error('Unknown dry deposition type:' + &
                                         & fu_content(nlSetup,'dry_deposition_scheme'), &
-                     & 'set_deposition_rules')
+                     & sub_name)
         rulesDeposition%defined = silja_false
         return
     end select
@@ -363,13 +374,13 @@ CONTAINS
         call msg('Using Wesely-type Rs for dry depo')
 
       case('') ! No such line at all
-        call msg_warning('Rs for dry deposition is not defined. Using standard','set_deposition_rules')
+        call msg_warning('Rs for dry deposition is not defined. Using standard',sub_name)
         rulesDeposition%RsType = DryD_Rs_standard
 
       case default
               call set_error('Unknown Rs methos dry deposition type:' + &
                                         & fu_content(nlSetup,'surface_resistance_method'), &
-                     & 'set_deposition_rules')
+                     & sub_name)
         rulesDeposition%defined = silja_false
         return
     end select
@@ -383,7 +394,7 @@ CONTAINS
     elseif(fu_str_u_case(fu_content(nlSetup,'if_actual_humidity_for_particle_size')) == 'NO')then
       rulesDeposition%ifHumidityDependent = .false.
     else
-      call set_error('if_actual_humidity_for_particle_size must be YES or NO','set_deposition_rules')
+      call set_error('if_actual_humidity_for_particle_size must be YES or NO',sub_name)
       return
     endif
 
@@ -392,7 +403,7 @@ CONTAINS
       if(error .or. rulesDeposition%fDefaultRelHumidity < 0 .or. rulesDeposition%fDefaultRelHumidity > 1.)then
         call msg('if_actual_humidity_for_particle_size = NO but strange default_relative_humidity')
         call report(nlSetup)
-        call set_error('default_relative_humidity must be real [0..1]','set_deposition_rules')
+        call set_error('default_relative_humidity must be real [0..1]',sub_name)
         return
       endif
     endif
@@ -726,9 +737,10 @@ CONTAINS
     end select ! rulesDeposition%RsType
 
     !
-    ! Now scavenging. Might need the ABL height as well to position the cloud bottom
-    ! Needed for Lagrangian transport only, the input needs for scavenging in Eulerian transport 
-    ! are set in the subroutine wet_deposition_input_needs
+    ! Now scavenging. Might need the ABL height as well to position the cloud bottoma
+
+    !! Needed for Lagrangian transport only, the input needs for scavenging in Eulerian transport 
+    !! are set in the subroutine wet_deposition_input_needs
 
     if (rulesDeposition%if_lagr) then
 
@@ -752,7 +764,7 @@ CONTAINS
        case default
          call set_error('Unsupported scavenging type','add_deposition_input_needs')
      end select ! rulesDeposition%scavengingType
-   end if
+  end if
 
   end subroutine add_deposition_input_needs
 
@@ -1169,7 +1181,7 @@ CONTAINS
     real, intent(in) :: Rs                              ! surface resistance
     integer, intent(in) :: deptype                      ! deposition type
     integer, intent(in) :: timeSign                     ! 1 for forward, -1 for backward
-    real, intent(out) :: invVd2m                            ! resistance from zref to 2m 
+    real, intent(inout) :: invVd2m                            ! resistance from zref to 2m 
     
     ! Local variables
     real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
@@ -1358,6 +1370,8 @@ CONTAINS
       fu_get_vd = 0.5*(fu_get_vd + abs(fu_get_vd)) + 1e-10 ! 1/Vd is still meaningful
     endif
 
+    if (invVd2m == real_missing) return  !! No need in invVd2m
+
     !! Remaining stuff -- Vd2m
 
     if (fu_get_vd == 0.) then
@@ -1372,23 +1386,32 @@ CONTAINS
       if (zref>Z2m) then 
         R2m = max(0., R2m)   ! Could become negative in unstable
         fTmp = V*R2m
-        if (abs(fTmp) .gt. 0.001) then
-          fTmp = exp(-fTmp)
-          invVd2m = invVd2m*fTmp + (1.-fTmp)/V
-        else
-          invVd2m = invVd2m - R2m
+        if (-fTmp < LOG_MAX_REAL ) then  !exp defined
+          if (abs(fTmp) .gt. 0.001) then
+            fTmp = exp(-fTmp)
+            invVd2m = invVd2m*fTmp + (1.-fTmp)/V
+          else
+            invVd2m = invVd2m - R2m
+          endif
         endif
       else
         R2m = -min(R2m, 0.0)   ! Could become wrong sign. In the end, should become positive
         fTmp = V*R2m
-        if (abs(fTmp) .gt. 0.001) then
-          fTmp = exp(fTmp)
-          invVd2m = invVd2m*fTmp + (fTmp - 1.)/V
-        else
-          invVd2m = invVd2m + R2m
+        if (fTmp < 0.1*LOG_MAX_REAL ) then  !exp defined Plus hack.. 
+          if (abs(fTmp) .gt. 0.001) then
+            fTmp = exp(fTmp)
+            invVd2m = invVd2m*fTmp + (fTmp - 1.)/V !!Hack needed for this line
+          else
+            invVd2m = invVd2m + R2m
+          endif
         endif
       endif
       if (.not.(invVd2m > 0)) then
+        if (.not. fRoughfr > 0) then !! Initialize them to something
+          Re = -1
+          St = -1
+          dpa = -1
+        endif
         call msg_warning("Negative Vd2m", "fu_get_vd")
         call msg("Resistance invVd2m", invVd2m)
         call msg("Resistance zRef-2m", R2m)
@@ -2790,7 +2813,7 @@ ifTuned = .true.
               arGarbage(iSrc, iSpTr) = arGarbage(iSrc, iSpTr) + mapConc%arM(iSpTr,iSrc,iLev,ix,iy)
               mapConc%arM(iSpTr,iSrc,iLev,ix,iy) = 0.0
             else
-              ScavAmount(iSpTr,iSrc,iLev,0) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) * &
+              ScavAmount(iSpTr,iSrc,iLev,iThread) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) * &
                    & (1.-exp(-scav_coef_std * rSettling(iSpTr)))
               !                mapConc%arM(iSpTr,iSrc,iLev,ix,iy) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) - ScavAmount             
               !                mapWetDep%arM(iSpTr,iSrc,1,ix,iy) = mapWetDep%arM(iSpTr,iSrc,1,ix,iy) + ScavAmount               
@@ -2811,9 +2834,9 @@ ifTuned = .true.
           do iSrc = 1, mapConc%nSrc
             do iSpecies = 1, nSulphurSpecies
               if(indSulphurSpecies(iSpecies) == indSO2)then
-                fSO2 = fSO2 + ScavAmount(indSulphurSpecies(iSpecies),iSrc,iLev,0)
+                fSO2 = fSO2 + ScavAmount(indSulphurSpecies(iSpecies),iSrc,iLev,iThread)
               else
-                fS_rest = fS_rest + ScavAmount(indSulphurSpecies(iSpecies),iSrc,iLev,0)
+                fS_rest = fS_rest + ScavAmount(indSulphurSpecies(iSpecies),iSrc,iLev,iThread)
               endif
             end do
           end do  ! iSrc                                                                                       
@@ -2835,7 +2858,7 @@ ifTuned = .true.
           fMaxScav = max(fMaxScav - fS_rest, 0.) / fSO2
           do iLev = 1, mapConc%n3D
             do iSrc = 1, mapConc%nSrc
-              ScavAmount(indSO2,iSrc,iLev,0) = ScavAmount(indSO2,iSrc,iLev,0) * fMaxScav
+              ScavAmount(indSO2,iSrc,iLev,iThread) = ScavAmount(indSO2,iSrc,iLev,iThread) * fMaxScav
             end do  ! iSrc                                                                                     
           end do  ! iLev                                                                                       
         end if
@@ -2846,9 +2869,9 @@ ifTuned = .true.
       do iLev = 1, mapConc%n3D
         do iSrc = 1, mapConc%nSrc
           do iSpTr = 1, mapConc%nSpecies
-            mapConc%arM(iSpTr,iSrc,iLev,ix,iy) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) - ScavAmount(iSpTr,iSrc,iLev,0)
-            mapWetDep%arM(iSpTr,iSrc,1,ix,iy) = mapWetDep%arM(iSpTr,iSrc,1,ix,iy) + ScavAmount(iSpTr,iSrc,iLev,0)
-            ScavAmount(iSpTr,iSrc,iLev,0) = 0.0
+            mapConc%arM(iSpTr,iSrc,iLev,ix,iy) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) - ScavAmount(iSpTr,iSrc,iLev,iThread)
+            mapWetDep%arM(iSpTr,iSrc,1,ix,iy) = mapWetDep%arM(iSpTr,iSrc,1,ix,iy) + ScavAmount(iSpTr,iSrc,iLev,iThread)
+            ScavAmount(iSpTr,iSrc,iLev,iThread) = 0.0
           end do
         end do
       end do
@@ -2895,7 +2918,6 @@ ifTuned = .true.
         return
       endif
 
-      precipContent(1:mapConc%nSpecies, 1:mapConc%nSrc) = 0. !Reset
     
       tcc = metdat_col(imet_cloudcov,1)
       if (rulesDeposition%max_scav_rate_depends_on == cape) then
@@ -2903,10 +2925,15 @@ ifTuned = .true.
         abl_height = metdat_col(imet_abl,1)
       end if
 
-      cwc_col(1:num_levs) = metdat_col(imet_cwc3d,1:num_levs)
+      if (associated(imet_cwc3d)) then ! Enable fakecloud branch
+        cwc_col(1:num_levs) = metdat_col(imet_cwc3d,1:num_levs)
+      else
+        cwc_col(1:num_levs) = 0.
+      endif
 
       if(timestep_sec > 0.)then
                 
+        precipContent(1:mapConc%nSpecies, 1:mapConc%nSrc) = 0. !Reset
         do iLev = num_levs,1,-1
           if (rulesDeposition%scavengingType == scav2020) then
             if (iLev < num_levs) then
@@ -2997,7 +3024,7 @@ ifTuned = .true.
       call msg('Unknown scavenging type',rulesDeposition%scavengingType)
       call set_error('Unknown scavenging type', sub_name)
     end select ! type of scavenging
-    
+
   end subroutine scavenge_column
 
 
@@ -3217,7 +3244,27 @@ ifTuned = .true.
               cycle
             endif
           else
-            acid_mol = acid_mol / total_water_in_scav_zone ! Mole/kg
+            if (total_water_in_scav_zone > 0.) then
+              acid_mol = acid_mol / total_water_in_scav_zone ! Mole/kg
+            else
+!$OMP CRITICAL(WC_SO2_1)
+              call msg("Rain with no water!")
+              call msg(".not. total_water_in_scav_zone > 0., iSpTr, iSrc",iSpTr,iSrc)
+              call msg("mass_in_air(iSpTr,iSrc)",mass_in_air(iSpTr,iSrc))
+              call msg("mass_in_water(iSpTr,iSrc)",mass_in_water(iSpTr,iSrc))
+              call msg("total_water_in_scav_zone", total_water_in_scav_zone)
+              call msg("acid_mol (moles)", acid_mol)
+              
+              call msg("r%cwcColumnLayer", r%cwcColumnLayer)
+              call msg("cell_zsize", cell_zsize)
+              call msg("scav_zone_volume", scav_zone_volume)
+              call msg("r%fCloudCover", r%fCloudCover)
+              call msg("r%rain_rate_in", r%rain_rate_in)
+              call msg("precip_rate", precip_rate)
+!$OMP END CRITICAL(WC_SO2_1)
+              cycle
+            endif
+
           endif
  
           if (acid_mol < 2.5e-6) acid_mol = 2.5e-6 ! pH5.6
@@ -3880,6 +3927,9 @@ ifTuned = .true.
     r%fPressure = metdat_col(imet_press, iLev)
     r%fTemperature = metdat_col(imet_temp, iLev)
 
+    !Default for scav2011
+    r%max_scav_rate = real_missing
+    r%pwcColumn = real_missing
     select case(scavType)
       case(scav2018, scav2020)
 
@@ -3942,6 +3992,7 @@ ifTuned = .true.
       else
         r%pwcColumnLayer = pwcColumnLayer
         pwcAboveTop = pwcAbove
+        pwcAboveBottom = pwcAbove + pwcColumnLayer
       end if
     else
       r%cwcColumn = r%fRainRateSfc * 3600. ! hourly rain                                                                                                                                                          

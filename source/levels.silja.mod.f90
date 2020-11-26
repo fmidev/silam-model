@@ -5025,6 +5025,7 @@ CONTAINS
       integer :: ilev, leveltype_full
       logical, parameter :: full_levels = .true.
       type(silja_level) :: top, bottom
+      character(len=*), parameter :: sub_name = 'fu_find_height'
 
       height = height_in
       leveltype_full = fu_leveltype(fu_level(vertical, 1, full_levels)) 
@@ -5114,10 +5115,15 @@ CONTAINS
         if (height < height_column(1)) then
           f_ind = 0.5*clipfactor
           return
-        else if (height > height_column(nlevs+1)) then
-          f_ind = real(nlevs+0.5)*clipfactor
-          return
-        end if
+        else 
+          if (height_column(nlevs+1) < height_column(nlevs) .or. height_column(nlevs+1) > 2*height_column(nlevs)) then
+            call set_error("Wrong height column!", sub_name)
+          endif
+          if (height > height_column(nlevs+1)) then
+            f_ind = real(nlevs+0.5)*clipfactor
+            return
+          end if
+        endif
                 
         do ilev = 1, nlevs
           top_height = height_column(ilev+1)

@@ -232,6 +232,8 @@ MODULE names_of_quantities
   integer, parameter, public :: free_soil_water_grav_flag = 250053  ! underground water excess, kg/m2
   integer, parameter, public :: emission_mask_flag = 250054  ! total emission per run per m2
   integer, parameter, public :: dust_emis_0_flag = 250055
+  integer, parameter, public :: c4_frac_flag = 250056
+  integer, parameter, public :: irrigated_area_flag = 250057
   !
   ! Precipitation and evaporation
   !
@@ -701,7 +703,13 @@ CONTAINS
         string = 'emission mask'
 
       case(dust_emis_0_flag)
-        string = 'dust_emission'
+        string = 'dust emission'
+
+      case(c4_frac_flag)
+        string = 'vegetation c4 fraction'
+
+      case(irrigated_area_flag)
+        string = 'irrigated area fraction'
       
       CASE (total_precipitation_acc_flag)
       string = 'tot. precipitation [kg/m2]'
@@ -1458,6 +1466,12 @@ CONTAINS
       case(dust_emis_0_flag)
         string = 'dust_emis_0'
 
+      case(c4_frac_flag)
+        string = 'c4_frac'
+
+      case(irrigated_area_flag)
+        string = 'irrigated_area'
+
       CASE (total_precipitation_acc_flag)
       string = 'tot_prec'
       
@@ -2171,6 +2185,12 @@ CONTAINS
         string = massunit+'/m2'
 
       case(dust_emis_0_flag)
+        string = ''
+
+      case(c4_frac_flag)
+        string = ''
+
+      case(irrigated_area_flag)
         string = ''
 
       CASE (total_precipitation_acc_flag)
@@ -2996,6 +3016,12 @@ CONTAINS
 
       CASE (dust_emis_0_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
+
+      CASE (c4_frac_flag)
+      fMinAlert = -0.00001; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = 1.0001
+
+      CASE (irrigated_area_flag)
+      fMinAlert = -0.00001; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = 1.0001
 
       CASE (total_precipitation_acc_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
@@ -4034,7 +4060,8 @@ CONTAINS
          & photosynth_active_rad_ac_flag, &
          & SILAM_sensible_heat_flux_flag, &
          & SILAM_latent_heat_flux_flag, &
-         & dust_emis_0_flag, &  !This should be conservative, but causes issues
+         & c4_frac_flag, &
+!         & dust_emis_0_flag, &  !This should be conservative, but causes issues
                         ! when projecting coarse dust_emis to fine dispersion grids
          & leaf_area_indexhv_flag, &
          & leaf_area_indexlv_flag, &
@@ -4069,7 +4096,9 @@ CONTAINS
          & land_roughness_disp_flag, &
          & emission_flux_flag, &
          & emission_mask_flag, &
-         & soil_moisture_vol_frac_nwp_flag)
+         & soil_moisture_vol_frac_nwp_flag, &
+         & dust_emis_0_flag, &
+         & irrigated_area_flag)
 
         fu_regridding_method = average
          
@@ -4434,6 +4463,12 @@ CONTAINS
 
     elseif(trim(chQuantity) == "dust_emis_0")then
       iQ = dust_emis_0_flag
+
+    elseif(trim(chQuantity) == "c4_frac")then
+      iQ = c4_frac_flag
+
+    elseif(trim(chQuantity) == "irrigated_area")then
+      iQ = irrigated_area_flag
 
     elseif(trim(chQuantity) == "total_precipitation")then
       iQ = total_precipitation_acc_flag 
@@ -5053,6 +5088,12 @@ CONTAINS
         
       case(dust_emis_0_flag)
         string =   "dust_emis"
+
+      case(c4_frac_flag)
+        string =   "c4_frac"
+
+      case(irrigated_area_flag)
+        string =   "irrigated_area"
     
       CASE (total_precipitation_acc_flag) 
         string =   "precipitation_amount" 

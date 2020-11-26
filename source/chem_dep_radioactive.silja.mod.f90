@@ -105,7 +105,7 @@ CONTAINS
   subroutine init_radioactive(rules, &
                          & speciesEmis, speciesTransp, &
                          & nSpeciesEmis, nSpTrn, &
-                         & iClaimedSpecies, ifActive, timestep)
+                         & iClaimedSpecies, ifActive, timestep, timestep_output)
     implicit none
     !
     ! Adds decay products to speciesTransp,
@@ -118,14 +118,17 @@ CONTAINS
     integer, intent(inout) :: nSpTrn
     integer, dimension(:), intent(inout) :: iClaimedSpecies !Claimed emission species
     logical, intent(out) :: ifActive  ! whether the radioactive transformation is active
-    type(silja_interval), intent(in) :: timestep
+    type(silja_interval), intent(in) :: timestep, timestep_output
 
     ! Local variables
     integer :: iEmis, nNucsEmis, nNucsAdded,  iSp
 !    real, dimension(:), pointer :: fWork
     real, dimension(:,:), pointer :: reactTmp 
     character (len=15) :: strTmp
+    character (len=worksize_string) :: strTmpLong
     character (len=*), parameter :: subname = "init_radioactive"
+
+    real(r8k), dimension(:,:), allocatable :: pMatrixTmp
 
     !
     ! Each emission species has to be checked for valid radioactive features of the material.
@@ -205,8 +208,26 @@ CONTAINS
         write(unit=strTmp,fmt='(A10,X,I3,A)') fu_str(rules%precomputed_decay%species(iSp)), iSp, ':'
         call msg(strTmp, rules%precomputed_decay%decay_matrix(1:nNucsAdded,iSp))
       end do
-      call msg('')
+
     end if
+    if(error)return
+    call msg('')
+
+    !!! The thing needed for doze-tool
+    allocate(pMatrixTmp(nNucsAdded,nNucsAdded))
+    pMatrixTmp = fu_sec(timestep_output)*reactTmp(1:nNucsAdded,1:nNucsAdded)
+    call  matrix_exponent(pMatrixTmp, nNucsAdded)
+    call msg('=========== Radioactive Decay matrix exponent for the output time step:' + &
+           & fu_str(timestep_output) + 'sec ============')
+    do iSp = 1, rules%precomputed_decay%nNuclides
+      write(unit=strTmpLong,fmt='(A20,I4,A,200(1x,F9.7))') &
+          & fu_str(rules%precomputed_decay%species(iSp)), iSp, ':', pMatrixTmp(1:nNucsAdded,iSp)
+      call msg(strTmpLong)
+    end do
+    call msg('------------- End of radioactive Decay matrix exponent --------------------')
+    call msg('')
+    deallocate(pMatrixTmp)
+
     call free_work_array(reactTmp)  !fWork)
 
   end subroutine init_radioactive

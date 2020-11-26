@@ -25,6 +25,10 @@ MODULE natural_constants
   REAL(8), PARAMETER, PUBLIC :: d_pi =  4*ATAN(1.d0)
   REAL(8), PARAMETER, PUBLIC :: drad_to_deg = 180.d0/d_pi
   REAL(8), PARAMETER, PUBLIC :: ddeg_to_rad = d_pi/180.d0
+
+  real, parameter, public :: MAX_REAL = 3.4e38
+  real, parameter, public :: LOG_MAX_REAL = log(MAX_REAL)
+
   REAL, PARAMETER, PUBLIC :: radians_to_degrees =  57.29577951
   REAL, PARAMETER, PUBLIC :: degrees_to_radians =  0.01745329252
   REAL, PARAMETER, PUBLIC :: karmann_c = 0.4 ! karmann-constant

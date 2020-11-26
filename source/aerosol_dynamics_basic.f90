@@ -128,7 +128,7 @@ MODULE aer_dyn_basic
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), pointer :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tchem_rules_AerDynBasic), intent(out) :: rulesADB
 
     ! Stuff to be later read from ini files !!!!!!!!!!!!!!!!

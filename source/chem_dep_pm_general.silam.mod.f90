@@ -333,7 +333,7 @@ MODULE chem_dep_pm_general
     implicit none
 
     ! Imported parameters
-    type(Tsilam_namelist), pointer :: nlSetup
+    type(Tsilam_namelist), intent(in) :: nlSetup
     type(Tchem_rules_pm_general), intent(out) :: rulesPM
 
     rulesPM%defined = silja_false

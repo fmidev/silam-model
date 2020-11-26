@@ -747,7 +747,7 @@ CONTAINS
 
   !************************************************************************************
 
-  SUBROUTINE smpi_read_grads_fieldset_parallel(grid_data, fieldsize, nflds, fname)
+  SUBROUTINE smpi_read_grads_fieldset_parallel(grid_data, fieldsize, iUnit, iFirstFld, nflds)
     !$ use omp_lib
     !
     ! Read a set of fields to a grads file using mpiio.  The file has to be opened with
@@ -756,14 +756,13 @@ CONTAINS
     !
     IMPLICIT NONE
     REAL(r4k), DIMENSION(:,:), INTENT(in) :: grid_data
-    INTEGER, INTENT(in) :: fieldsize, nflds
-    character(len=*),  INTENT(in) :: fname
+    INTEGER, INTENT(in) :: fieldsize, nflds, iUnit, iFirstFld
     CHARACTER(len=*), PARAMETER :: subname = 'smpi_read_grads_fieldset_parallel'
 #ifdef SILAM_MPI    
-    INTEGER :: ierr, tmp, reslen, iunit
-    integer(kind=8) :: local_datasize, global_datasize, dtypesize
+    INTEGER :: ierr, tmp, reslen, dtypesize
+    integer(kind=8) :: local_datasize, global_datasize
     INTEGER(kind=MPI_OFFSET_KIND) :: byteoffset
-    integer :: dtype_fieldset 
+    integer(kind=8) :: dtype_fieldset 
     integer(kind=8) :: fieldsize_decomp
     character(len=200) :: errstr
     integer, dimension(3) :: sizes, starts, subsizes
@@ -771,13 +770,13 @@ CONTAINS
 
     ! The static variables make this not threadsafe.
     !$ if(fu_fails(.not. omp_in_parallel(), 'This subroutine is not OpenMP compatible', subname)) return
-    
+   
     fieldsize_decomp = output_decomposition%size_x * output_decomposition%size_y
     global_datasize = output_decomposition%globalNx * output_decomposition%globalNy
     local_datasize = fieldsize_decomp * nflds
 
     IF (fu_fails(fieldsize_decomp == fieldsize, 'Fieldsizes do not match!', subname)) RETURN
-    if (fu_fails(size(grid_data,2) == nflds, 'Number of fields does not match', subname)) return
+    if (fu_fails(size(grid_data,2) >= nflds, 'Number of fields in buffer is not sufficient', subname)) return
 
     ! Create a datatype corresponding to catenated sub-arrays.
     ! call mpi_type_contiguous(nflds, output_decomposition%subarray_mpi_type, dtype_fieldset, ierr)
@@ -794,22 +793,18 @@ CONTAINS
     call mpi_type_commit(dtype_fieldset, ierr)
     if (fu_fails(ierr == MPI_SUCCESS, 'Failed to commit fieldset datatype', subname)) return
 
-    CALL mpi_file_open(smpi_adv_comm, fname, MPI_MODE_RDONLY, MPI_INFO_NULL, &
-         & iunit, ierr)
-
-    IF (ierr /= MPI_SUCCESS) THEN
+    ! Compute the byte offset for this 'record' allowing for offsets bigger than fits
+    ! into integer*4.
+    CALL mpi_type_size(MPI_REAL, dtypesize, ierr)
+    IF (fu_fails(ierr == MPI_SUCCESS, 'MPI_TYPE_SIZE failed', subname)) then
       call mpi_error_string(ierr, errstr, reslen, tmp)
       call msg(errstr)
       return
-    END IF
+    endif
 
-    ! Compute the byte offset for this 'record' allowing for offsets bigger than fits
-    ! into integer*4.
-!    CALL mpi_type_size(MPI_REAL, dtypesize, ierr)
-!    byteoffset = int(irec-1, MPI_OFFSET_KIND) &
-!         & * int(global_datasize, MPI_OFFSET_KIND) * int(dtypesize, MPI_OFFSET_KIND)
-!   
-    byteoffset = 0 
+    byteoffset = int(iFirstFld-1, MPI_OFFSET_KIND) &
+         & * int(global_datasize, MPI_OFFSET_KIND) * int(dtypesize, MPI_OFFSET_KIND)
+   
     CALL mpi_file_set_view(iunit, byteoffset, MPI_REAL, dtype_fieldset, &
          & 'native', MPI_INFO_NULL, ierr)
     IF (fu_fails(ierr == MPI_SUCCESS, 'MPI_FILE_SET_VIEW failed', subname)) then
@@ -817,7 +812,6 @@ CONTAINS
       call msg(errstr)
       return
     endif
-    
     call mpi_file_read_all(iunit, grid_data, local_datasize, MPI_REAL, MPI_STATUS_IGNORE, ierr)
     IF (ierr /= MPI_SUCCESS) THEN
       call msg("local_datasize,",int(local_datasize/1000), int(mod(local_datasize,1000)))
@@ -826,13 +820,6 @@ CONTAINS
       call set_error('mpi_file_read_all failed', subname)
       return
     endif
-
-    CALL mpi_file_close(iunit, ierr)
-    IF (ierr /= MPI_SUCCESS) THEN
-      call mpi_error_string(ierr, errstr, reslen, tmp)
-      call msg(errstr)
-      return
-    END IF
 
     call mpi_type_free(dtype_fieldset, ierr)
     if (fu_fails(ierr == MPI_SUCCESS, 'Failed to free fieldset datatype', subname)) return
