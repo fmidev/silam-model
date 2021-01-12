@@ -784,6 +784,8 @@ CONTAINS
       return
     endif
 
+    if (rulesDeposition%scavengingType == scavNoScav) return
+      
     nq=2
     meteo_input_local%quantity(1:2) = (/cell_size_x_flag, cell_size_y_flag/)
     meteo_input_local%q_type(1:2) = dispersion_single_time_flag

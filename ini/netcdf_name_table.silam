@@ -555,6 +555,7 @@ title = PhenoAnalysis
      
 !        var = varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
      var     =     LAI   lai          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     lai   lai          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
 
 
 END_LIST = PHENOANALYSIS
@@ -756,9 +757,9 @@ var = aermr02 volume_mixing_ratio  XXX -1 sslt     0.5e-6  -1 28.97e-3 0 #"Sea S
 var = aermr03 volume_mixing_ratio  XXX -1 sslt       5e-6  -1 28.97e-3 0 #"Sea Salt Aerosol (5 - 20 um) Mixing Ratio" 
 
 # dust, 3 bins
-var = aermr04 volume_mixing_ratio XXX -1 dust 3.00E-008 -1 28.97e-3 0
-var = aermr05 volume_mixing_ratio XXX -1 dust 5.50E-007 -1 28.97e-3 0
-var = aermr06 volume_mixing_ratio XXX -1 dust 9.00E-007 -1 28.97e-3 0
+var = aermr04 volume_mixing_ratio XXX -1 dust 3.00E-008 -1 28.97e-3 0 #"Dust Aerosol (0.03 - 0.55 um) Mixing Ratio" 
+var = aermr05 volume_mixing_ratio XXX -1 dust 5.50E-007 -1 28.97e-3 0 # "Dust Aerosol (0.55 - 0.9 um) Mixing Ratio"
+var = aermr06 volume_mixing_ratio XXX -1 dust 9.00E-007 -1 28.97e-3 0 #"Dust Aerosol (0.9 - 20 um) Mixing Ratio" 
 
 # Hydrophobic Organic Matter
 var = aermr07 volume_mixing_ratio XXX -1 OC 5.00E-007 -1 28.97e-3 0
