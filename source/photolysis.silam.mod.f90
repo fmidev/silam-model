@@ -1229,19 +1229,21 @@ contains
     meteo_input_local%q_type(nq) = meteo_dynamic_flag
     imet_press => meteo_input_local%idx(nq) 
 
+    nq = nq +1
+    meteo_input_local%quantity(nq) = total_cloud_cover_flag
+    meteo_input_local%q_type(nq) = meteo_dynamic_flag
+    imet_tcc => meteo_input_local%idx(nq)
+
     imet_cc3d => null()
     imet_cwc3d => null()
     imet_cwcol => null()
     imet_dz_size => null()
     imet_temp => null()
 
+
     if (cloud_model /= fake_cloud) then
       ! Common for non-fake cloud
 
-      nq = nq +1
-      meteo_input_local%quantity(nq) = total_cloud_cover_flag
-      meteo_input_local%q_type(nq) = meteo_dynamic_flag
-      imet_tcc => meteo_input_local%idx(nq)
 
       nq = nq + 1
       meteo_input_local%quantity(nq) = cwcabove_3d_flag

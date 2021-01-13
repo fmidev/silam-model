@@ -5118,6 +5118,19 @@ CONTAINS
         else 
           if (height_column(nlevs+1) < height_column(nlevs) .or. height_column(nlevs+1) > 2*height_column(nlevs)) then
             call set_error("Wrong height column!", sub_name)
+            !!! Less-dirty fix for meteolayers
+            do ilev = 1, nlevs-1
+              level_height = height_column(ilev)
+              next_level_height = height_column(ilev + 1)
+              if (height >= level_height .and. height <= next_level_height) then
+                f_ind = ilev + (height-level_height) / (next_level_height - level_height)
+                return
+              end if
+            end do
+#ifdef DEBUG
+            call ooops("Wrong height column in " // sub_name)
+#endif
+            return
           endif
           if (height > height_column(nlevs+1)) then
             f_ind = real(nlevs+0.5)*clipfactor
