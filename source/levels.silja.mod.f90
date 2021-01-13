@@ -5117,7 +5117,6 @@ CONTAINS
           return
         else 
           if (height_column(nlevs+1) < height_column(nlevs) .or. height_column(nlevs+1) > 2*height_column(nlevs)) then
-            call set_error("Wrong height column!", sub_name)
             !!! Less-dirty fix for meteolayers
             do ilev = 1, nlevs-1
               level_height = height_column(ilev)
