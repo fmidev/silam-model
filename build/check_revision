@@ -69,7 +69,7 @@ def getRevisionGIT(directory):
     diffcmd= None
     branchname =None
     try:
-        git =  subprocess.Popen(('git','branch','--show-current'), 
+        git =  subprocess.Popen("git branch |grep '^*' | cut -b 3-", shell=True,
                   cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
         for l in git.stdout:
             if l.startswith('silam'):
