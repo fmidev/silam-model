@@ -1,28 +1,21 @@
-* BUILDING SILAM v5.7 in Ubuntu 18.04
+* BUILDING SILAM v5.7 in Ubuntu 18.04, 20.04
+
+# get the source code
+git clone https://github.com/fmidev/silam-model.git
 
 #install needed packages
 sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev ibproj-dev
 
 
-#Unpack the model source to a desired directory
-cd /where/you/want/silam/installed/
-tar -xvf /path/to/tarball/silam_v5_6.tar.bz2
+$ cd silam-model/source/
+$ make gnu
+$ make 
 
-cd silam_v5_6/source/
-make gnu
-make # should create a binary
+# The latter command should create a binary in ../bin
+$ ../bin/silam_v5_7pub.gnu
 
-
-#### Binary redy. make it available
-mkdir -p ~/bin  # if not exist
-ln -s ~/silam_v5_6/bin/silam_v5_6 ~/bin/
-
-#simple command should pass
-#run it!
-silam_v5_6  ## Should run and complain about missing silam.ini
-
-## ifyou get "command-not-found" error, you might need to
-## logout-login to make ~/bin available in $PATH, or 
+## Should run and complain about missing silam.ini
+## Then the binary is ready to use!
 
 
 
