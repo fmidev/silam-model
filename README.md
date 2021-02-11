@@ -1,65 +1,87 @@
-* BUILDING SILAM v5.7 in Ubuntu 18.04, 20.04
+# Silam public distribution 
 
-# get the source code
-git clone https://github.com/fmidev/silam-model.git
+This is a full-featured source code of Silam model
+with striped revision history
 
-#install needed packages
-sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev ibproj-dev
+## BUILDING SILAM v5.7 in Ubuntu 18.04, 20.04
 
+Get the source code
 
-$ cd silam-model/source/
-$ make gnu
-$ make 
+`$ git clone https://github.com/fmidev/silam-model.git`
 
-# The latter command should create a binary in ../bin
-$ ../bin/silam_v5_7pub.gnu
+install needed packages
 
-## Should run and complain about missing silam.ini
-## Then the binary is ready to use!
+`$ sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev ibproj-dev`
 
+Compile the binary
 
+`$ cd silam-model/source/`
+`$ make gnu`
+`$ make`
 
-* Instructions for (contributed by Lars Örtegren <leo@apertum.se>)
+The latter command should create a binary in ../bin
 
-###### For build server ######
+`$ ../bin/silam_v5_7pub.gnu`
 
-# Enable Repo EPEL
-dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
-
-# Enable repo PowerTools
-yum install dnf-plugins-core
-yum config-manager --set-enabled PowerTools
-
-# Install libs
-dnf install zlib zlib-devel netcdf netcdf-devel netcdf-fortran-openmpi-devel jasper-libs jasper-devel lapack lapack-devel eccodes eccodes-devel
-
-# Add to options.gnu:
-INCLUDE = ... -I/usr/lib64/gfortran/modules -I/usr/lib64/gfortran/modules/openmpi
-
-# Add path to NETCDF shared libraries (as root):
-echo "/usr/lib64/openmpi/lib" > /etc/ld.so.conf/netcdf.conf
-lsconfig -v
-
-# In source directory
-make gnu
-make
-
-###### For run server ######
-# Enable Repo EPEL
-dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y
-
-# Enable repo PowerTools
-[dnf install dnf-plugins-core]
-dnf config-manager --set-enabled PowerTools
-
-# Install packages
-dnf install lapack netcdf netcdf-fortran netcdf-fortran-openmpi eccodes
+Silam dhould run and complain about missing silam.ini.
+Then the binary is ready to use!
 
 
 
+## Instructions for Centos
+
+(contributed by Lars Örtegren <leo@apertum.se>)
+
+### For build server
+
+Enable Repo EPEL
+
+`$ dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y`
+
+Enable repo PowerTools
+
+`$ yum install dnf-plugins-core`
+`$ yum config-manager --set-enabled PowerTools`
+
+Install libs
+
+`$ dnf install zlib zlib-devel netcdf netcdf-devel netcdf-fortran-openmpi-devel jasper-libs jasper-devel lapack lapack-devel eccodes eccodes-devel`
+
+Add to options.gnu:
+
+`INCLUDE = ... -I/usr/lib64/gfortran/modules -I/usr/lib64/gfortran/modules/openmpi`
+
+Add path to NETCDF shared libraries (as root):
+
+`$ echo "/usr/lib64/openmpi/lib" > /etc/ld.so.conf/netcdf.conf`
+`$ lsconfig -v`
+
+
+In source directory
+
+`$ make gnu`
+`$ make`
+
+### For run server 
+
+Enable Repo EPEL
+
+`$ dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm -y`
+
+Enable repo PowerTools
+
+`$ dnf install dnf-plugins-core`
+`$ dnf config-manager --set-enabled PowerTools`
+
+Install packages
+
+`$ dnf install lapack netcdf netcdf-fortran netcdf-fortran-openmpi eccodes`
 
 
 
+
+
+## Old RAEDME file (kept for historical reasons)
 
 ==============Seems to be somewhat outdated======================
 * BUILDING SILAM v5.1
