@@ -40,8 +40,8 @@ PROGRAM silam_main
   
   IMPLICIT NONE
 
-  CHARACTER (LEN=fnlen) :: control_fname
-  character(len=clen) :: chTmp, rankTmp
+  CHARACTER (LEN=fnlen) :: control_fname, hostname, tmpfile
+  character(len=clen) :: chTmp, rankTmp 
   real :: fTmp, fTmp2
   integer :: iStatus, i,j, iTmp, iz, it
   logical :: had_error
@@ -123,141 +123,18 @@ PROGRAM silam_main
   !call random_number(fTmp)
   !if(fTmp < 0.1) fTmp = fTmp + 0.1
   call smpi_allreduce_max_int(MyPID, iTmp, MPI_COMM_WORLD)
-  write(unit=chTmp,fmt='(A8,I8.8,A1,I3.3,A4)') 'run_tmp_', iTmp, '_', smpi_global_rank, '.log'
-  open(run_log_funit, file=chTmp, iostat = iStatus)
+
+  call get_hostname(hostname) !!! Gotcha! PID is not unique among nodes in slurm
+  write(unit=chTmp,fmt='(A8,I8.8,A1,I3.3)') 'run_tmp_', iTmp, '_', smpi_global_rank
+  tmpfile = trim(chTmp) // '_' //  trim(hostname) // '.log'
+
+  open(run_log_funit, file=tmpfile, iostat = iStatus)
   if(iStatus /= 0)then
     call set_error(fu_connect_strings('Failed to open:',chTmp),'silam_main')
     call smpi_finalize()
     stop
   endif
 
-  
-!!!  
-!!!  
-!!!
-!!!  anal_time = ref_time_01012000
-!!!  valid_time = anal_time + one_hour
-!!!  call decode_template_string('d:\model\silam_v5_7\ini\non_existing_%y4.ini', templ)
-!!!  ifStrict = .true.
-!!!  ifAdd = .false.
-!!!  ifAllowZeroFcLen = .true.
-!!!  ifWait = .false.
-!!!  nullify(fnames)
-!!!  do i = 1, 100000
-!!!    call msg('Memory usage before the call', fu_system_mem_usage()) 
-!!!    call fnm_from_single_template(templ, valid_time, fnames, &
-!!!         & ifStrict = .true., &
-!!!         & ifadd = .false., &
-!!!         & ifWait = .false., &
-!!!         & ifAllowZeroFcLen = .true.)
-!!!
-!!!!    call FNm_from_single_template(templ, &
-!!!!                              & valid_time,fnames, &  !nbrOfFiles, anal_time, &
-!!!!                              & ifStrict,ifAdd,ifAllowZeroFcLen,ifWait)  !, &
-!!!!!                              & fc_step, max_hole_length)
-!!!  
-!!!  call msg('nUMBER_OF_FILES', nbrOfFiles)
-!!!  call msg('Memory usage after the call', fu_system_mem_usage()) 
-!!!  enddo
-!!!  stop
-!!!  
-  
-  
-  
-  
-  
-  
-  
-!!!  
-!!!  
-!!!  fTmp = 1e-9
-!!!  do i = 1, 50
-!!!    aerModes(i) = fu_set_mode(fixed_diameter_flag, fTmp, 1.3*fTmp, 1.2*fTmp)
-!!!    print *, fTmp
-!!!    
-!!!    call fires_flux4mode(aerModes(i), &        ! definition of the spectrum band
-!!!!                                 & 6120, &  !private lognorm_3_modes_dust__analytic_flag, &
-!!!                                 & 6121, &  !private lognorm_3_modes_dust__numeric_flag, &
-!!!                                 & fNbrFlux, fVolFlux, fMassMeanDiam)
-!!!    call msg('Mode min,mean,max diam, [um], fluxNbr, fluxVol, meanActualDiam: ', &
-!!!           & (/fu_min_d(aerModes(i)), fu_mean_d(aerModes(i)), fu_max_d(aerModes(i)), &
-!!!             & fNbrFlux, fVolFlux, fMassMeanDiam, &
-!!!             & fNbrFlux / (fu_max_d(aerModes(i)) - fu_min_d(aerModes(i))), &
-!!!             & fVolFlux / (fu_max_d(aerModes(i)) - fu_min_d(aerModes(i)))  /))
-!!!    fTmp = fTmp * 1.3
-!!!  end do
-!!!stop  
-!!!  
-!!!  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-!!!!!    call set_aerosol_mode(aerModes(1), '', &                         ! mode, chNm, 
-!!!!!                                & 1e-6, &           ! fp1
-!!!!!                                & 1., &  ! fp2
-!!!!!                                & 1.5e-6, 2.6e3, &   ! mass_mean_d, dens, 
-!!!!!                                & lognormal_flag, 1) 
-!!!!!    
-!!!!!    call msg('Absolute norm for lognorm nbr:',fu_integrate_number(1e-9, 1e-3, aerModes(1)))
-!!!!!    call msg('Absolute norm for lognorm vol:',fu_integrate_volume(1e-9, 1e-3, aerModes(1)))
-!!!!    
-!!!!    aerModes(1) = fu_set_mode(fixed_diameter_flag, 1e-10, 1e-2, 1e-6)
-!!!!    call wind_blown_dust_flux4mode(aerModes(1), &        ! definition of the spectrum band
-!!!!!                                 & 6110, &  !private lognorm_4_modes_dust_flag, &
-!!!!!                                 & 6111, &  !private Kok spectrumlognorm_4_modes_dust_flag, &
-!!!!                                 & 6112, &  !private lognorm_4_modes_dust__numeric_flag, &
-!!!!                                 & fNbrFlux, fVolFlux, fMassMeanDiam)
-!!!!    call msg('Mode min,mean,max diam, [um], fluxNbr, fluxVol, meanActualDiam: ', &
-!!!!           & (/fu_min_d(aerModes(1))*1e6, fu_mean_d(aerModes(1))*1e6, fu_max_d(aerModes(1))*1e6, &
-!!!!             & fNbrFlux, fVolFlux, fMassMeanDiam*1e6/))
-!!!!  
-!!!!  
-!!!!  fTmp = 1e-9
-!!!!  do i = 1, 50
-!!!!    print *, i
-!!!!    aerModes(i) = fu_set_mode(fixed_diameter_flag, fTmp, 1.3*fTmp, 1.2*fTmp)
-!!!!    
-!!!!    call wind_blown_dust_flux4mode(aerModes(i), &        ! definition of the spectrum band
-!!!!!                                 & 6110, &  !private lognorm_4_modes_dust_flag, &
-!!!!                                 & 6111, &  !private Kok spectrumlognorm_4_modes_dust_flag, &
-!!!!!                                 & 6112, &  !private lognorm_4_modes_dust__numeric_flag, &
-!!!!                                 & fNbrFlux, fVolFlux, fMassMeanDiam)
-!!!!    call msg('Mode min,mean,max diam, [um], fluxNbr, fluxVol, meanActualDiam, unitfluxNbr, unitfluxVol: ', &
-!!!!           & (/fu_min_d(aerModes(i))*1e6, fu_mean_d(aerModes(i))*1e6, fu_max_d(aerModes(i))*1e6, &
-!!!!             & fNbrFlux, fVolFlux, fMassMeanDiam, fNbrFlux / (fu_max_d(aerModes(i)) - fu_min_d(aerModes(i))), &
-!!!!                                                & fVolFlux / (fu_max_d(aerModes(i)) - fu_min_d(aerModes(i)))/))
-!!!!    fTmp = fTmp * 1.3
-!!!!  end do
-!!!!stop  
-  
-  
-  
-  
-  
-!  call system_mem_usage(run_log_funit)
-  
-  
-  
-  
-  
   
   call smpi_global_barrier()
 
@@ -268,6 +145,7 @@ PROGRAM silam_main
   CALL msg ('Hello world! This is ' // revision_str // ' speaking. PID = '//trim(fu_str(MyPID)))
   call msg('compiler_version: '// compiler_version())
   call msg('compiler_options: '// compiler_options())
+  call msg('Log file name (on start): '//trim(tmpfile))
   
 !  allocate(x(200))
 !  open(20,file='d:/data/emis/fakes/test_area_src.grads',form='binary',recl=4*30,access='direct')

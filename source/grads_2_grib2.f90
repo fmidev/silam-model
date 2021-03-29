@@ -171,11 +171,11 @@ program silam_2_grib2
     INTEGER :: status, iGF, nNamelists, iNl, uGribTempl, uGribOut, iLev, nInLevs, indTime
     integer :: iGribMessageIndex, iGribMessageIndexDefTmpl, iCheckGribMessage, iStartIndex, &
          & iEndIndex, ix, iy, ind_lev_in, num_grads_times
-    type(Tsilam_namelist), pointer :: nlIni, nl_common, nl_grib2_defaults, nl_species_map, nl_outgrid
+    type(Tsilam_namelist), pointer :: nlIni, nl_common, nl_grib2_defaults, nl_species_map
     logical :: lExist
     character(len=fnlen) :: chInputFNm, chTmp, chMsg, OpenedFileName, chOutTemplate
     type(silam_fformat) ::  fform ! GRIB file, ASCII file, TEST_FIELD, .....
-    type(silja_grid) :: gGrid, outGrid
+    type(silja_grid) :: gGrid
     type(silja_grid), dimension(:), pointer :: gridPtr
     type(silam_vertical), pointer :: gVert
     type(silam_vertical), dimension(:), pointer :: vertPtr
@@ -200,7 +200,7 @@ program silam_2_grib2
     character(len=fnlen) :: template_def, template_filename
     character(len=*), parameter :: sub_name = 'convert_2_grib2'
     character(len=clen) :: date_mode
-    real :: lon_start_def, lat_start_def, lon_end_def, lat_end_def, findex
+    real ::  findex
     real, dimension(2) :: fract_levs_in
     integer, dimension(2) :: ind_levs_in
     type(silja_time), dimension(:), pointer :: grads_times
@@ -240,12 +240,12 @@ program silam_2_grib2
 
 
 
-
-    lon_start_def = fu_content_real(nl_common, 'lon_start')
-    lat_start_def = fu_content_real(nl_common, 'lat_start')
-    lon_end_def = fu_content_real(nl_common, 'lon_end')
-    lat_end_def = fu_content_real(nl_common, 'lat_end')
-
+    ! grid subsetting was overcomplicated and cdo can do regridding much better (both for grib and for .nc)
+    if (fu_content_real(nl_common, 'lon_start') /= real_missing) then
+      call msg_warning("Looks like grid spec is present the namelist..", sub_name)
+      call msg_warning("Grid subsetting no longer supported. Pease remove the request for it..", sub_name)
+      return
+    endif
 
     ! just recycle variable
     date_mode = fu_content(nl_common, 'force_an_time')
@@ -271,8 +271,6 @@ program silam_2_grib2
     end if
 
     nl_species_map => fu_namelist(nlGrpIni, 'species_map')
-
-   !    outGrid = fu_set_grid(fu_namelist(nlGrpIni, 'output_grid'))
 
     chOutTemplate = fu_content(nl_common,'grib2_output_file')
     if (smpi_global_tasks > 1) then  ! Either forecast length or all others together
@@ -409,6 +407,14 @@ program silam_2_grib2
                                          & southpole_lon_E, southpole_lat_N, &
                                          & dx_deg, dy_deg)
           if(error)return
+          if (abs(southpole_lat_N +90) > 0.1) then
+            call msg_warning("Pole not in geographical pole",sub_name)
+            call report(gGrid)
+            call set_error("Rotated grids not supported for GRIB output (yet?)", sub_name)
+            return
+          endif
+
+
           fsIn = number_of_points_x * number_of_points_y
           nLevels = fu_NbrOfLevels(gVert)
           
@@ -538,39 +544,14 @@ program silam_2_grib2
       ! 
       ! Find the grid limits. Global lat/lon limits are in the common namelist, but can be
       ! overriden by the local start indices.
-      ixStart = fu_content_int(nlIni, 'x_start_index')
-      if (ixStart == int_missing) then
-        call find_grid_ind(lon_start_def, corner_lon_e, dx_deg, number_of_points_x, 'start', ixStart)
-        if (error) return
-      end if
-      if (ixStart == int_missing) ixStart = 1
-      if (fu_fails(ixStart > 0 .and. ixStart <= number_of_points_x, 'Bad x_start_index', sub_name)) return
+      ixStart = 1
+      ixEnd = number_of_points_x
+      iyStart = 1
+      iyEnd = number_of_points_y
       
-      ixEnd = fu_content_int(nlIni, 'x_end_index')
-      if (ixEnd == int_missing) then
-        call find_grid_ind(lon_end_def, corner_lon_e, dx_deg, number_of_points_x, 'end', ixEnd)
-        if (error) return
-      end if
-      if (ixEnd == int_missing) ixEnd = number_of_points_x
-      if (fu_fails(ixEnd > 0 .and. ixEnd <= number_of_points_x, 'Bad x_end_index', sub_name)) return
+      fsOut = fsIn
 
-      iyStart = fu_content_int(nlIni, 'y_start_index')
-      if (iyStart == int_missing) then
-        call find_grid_ind(lat_start_def, corner_lat_n, dy_deg, number_of_points_y, 'start', iyStart)
-        if (error) return
-      end if        
-      if (iyStart == int_missing) iyStart = 1
-      if (fu_fails(iyStart > 0 .and. iyStart <= number_of_points_y, 'Bad y_start_index', sub_name)) return
 
-      iyEnd = fu_content_int(nlIni, 'y_end_index')
-      if (iyEnd == int_missing) then
-        call find_grid_ind(lat_end_def, corner_lat_n, dy_deg, number_of_points_y, 'end', iyEnd)
-        if (error) return
-      end if  
-      if (iyEnd == int_missing) iyEnd = number_of_points_y
-      if (fu_fails(iyEnd > 0 .and. iyEnd <= number_of_points_y, 'Bad y_end_index', sub_name)) return
-      
-      fsOut = (ixEnd - ixStart + 1) * (iyEnd - iyStart + 1)
       if (fu_fails(fsOut <= size(output_data), 'fsOut too small', sub_name)) return
       !
       ! Cycle over time for a single GRIB-2 file
@@ -712,8 +693,12 @@ program silam_2_grib2
         call grib_set_int(iGribMessageIndex,'numberOfDataPoints', fsOut)
         call grib_set_int(iGribMessageIndex,'numberOfPointsAlongAParallel',(ixEnd - ixStart + 1))
         call grib_set_int(iGribMessageIndex,'numberOfPointsAlongAMeridian',(iyEnd - iyStart + 1))
-!        f8 = corner_lon_E + (ixStart - 1) * dx_deg
-!        call grib_set_real8(iGribMessageIndex,'longitudeOfFirstGridPointInDegrees',f8)
+
+        f8 = modulo(corner_lon_E + (ixStart - 1) * dx_deg + 360D0, 360D0) 
+        call grib_set_real8(iGribMessageIndex,'longitudeOfFirstGridPointInDegrees',f8)
+
+        f8 = modulo(corner_lon_E + (ixEnd - 1) * dx_deg + 360D0, 360D0)
+        call grib_set_real8(iGribMessageIndex,'longitudeOfLastGridPointInDegrees',f8)
 
         !
         ! For first-corner-in-the-south:
@@ -726,8 +711,8 @@ program silam_2_grib2
         !
         ! For first-corner-in-the-north:
         !
-!        f8 = corner_lat_N + (iyEnd - 1) * dy_deg
-!        call grib_set_real8(iGribMessageIndex,'latitudeOfFirstGridPointInDegrees',f8)
+        f8 = corner_lat_N + (iyEnd - 1) * dy_deg
+        call grib_set_real8(iGribMessageIndex,'latitudeOfFirstGridPointInDegrees',f8)
         f8 = corner_lat_N + (iyStart - 1) * dy_deg
         call grib_set_real8(iGribMessageIndex,'latitudeOfLastGridPointInDegrees', f8)
 

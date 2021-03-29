@@ -683,8 +683,10 @@ CONTAINS
       IF (error) RETURN
 
       if(fu_fails(fu_stdSilamGrid(grid_new),'Non-standard grid after data_select','put_field_to_stack'))then
-        call msg('Initial grid:')
+        call msg('Initial requested grid:')
         call report(gridTmp)
+        call msg('input-field grid:')
+        call report(fu_grid(idTmp))
         call msg('Selected grid:')
         call report(grid_new)
         call msg('')

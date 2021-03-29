@@ -845,6 +845,7 @@ MODULE source_terms_general
     character(len=clen) :: chTmp
     character(len=SubstNmLen) :: chSubstNm
     integer :: iModeNbr, iStarted
+    character(len=*), parameter :: sub_name = 'count_srcs_one_data_file'
 
     !
     ! Scan the input file and check the number of sources of each type to read.
@@ -871,7 +872,7 @@ MODULE source_terms_general
           ifArea = known_src_types(iSrc)%source_type == area_source
           if(iStarted /= int_missing)then
             call set_error('Start new source without ending previous:'+line, &
-                         & 'count_srcs_one_data_file')
+                         & sub_name)
             return
           endif
           iStarted = iSrc
@@ -891,7 +892,7 @@ MODULE source_terms_general
           srcInfoTmp(nSrcRead+1)%chSrcNm = adjustl(line(iTmp+1:))
         else
           call set_error('source_name is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -901,7 +902,7 @@ MODULE source_terms_general
           srcInfoTmp(nSrcRead+1)%chSectorNm = adjustl(line(iTmp+1:))
         else
           call set_error('source_sector_name is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -912,7 +913,7 @@ MODULE source_terms_general
 !          srcInfoTmp(nSrcRead+1)%chSubstNm(1) = adjustl(line(iTmp+1:))
         else
           call set_error('source_sector_name is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -922,12 +923,12 @@ MODULE source_terms_general
 !          read(unit=line,fmt=*) chTmp, chTmp, srcInfoTmp(nSrcRead+1)%iModeNbr(1)
           if(iTmp /= 0)then
             call set_error('Cannot get mode number from the line:'+line, &
-                         & 'count_srcs_one_data_file')
+                         & sub_name)
             return
           endif
         else
           call set_error('source_sector_name is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -938,12 +939,12 @@ MODULE source_terms_general
                                           & srcInfoTmp(nSrcRead+1)%chDescrNames)
           if(error)then
             call set_error('Failed par_str of the source:' + srcInfoTmp(nSrcRead+1)%chSrcNm + '_' + &
-                         & srcInfoTmp(nSrcRead+1)%chSectorNm,'count_srcs_one_data_file')
+                         & srcInfoTmp(nSrcRead+1)%chSectorNm,sub_name)
             return
           endif
         else
           call set_error('par_str is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -955,13 +956,13 @@ MODULE source_terms_general
           elseif(index(fu_str_u_case(line(iTmp+1 :)), 'EULERIAN') > 0)then
             srcInfoTmp(nSrcRead+1)%iDynamicEnvironment = eulerian_flag
           else
-            call set_error('unknown type of transport environment:'+line,'count_srcs_one_data_file')
+            call set_error('unknown type of transport environment:'+line,sub_name)
             srcInfoTmp(nSrcRead+1)%iDynamicEnvironment = int_missing
             return
           endif
         else
           call set_error('transport_environment_type is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -973,23 +974,34 @@ MODULE source_terms_general
           endif
         else
           call set_error('val is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
       elseif (index(line, 'netcdf_data') > 0) then
-        if (fu_fails(ifArea, 'netcdf_data outside area source', 'count_srcs_one_data_file')) return
+        if (fu_fails(ifArea, 'netcdf_data outside area source', sub_name)) return
+        if (srcInfoTmp(nSrcRead+1)%nChemDescr == 0) then
+          !!!!We need already parsed par_str by now
+          call msg('Source:' + srcInfoTmp(nSrcRead+1)%chSrcNm)
+          call set_error("nChemDescr == 0, probably netcdf_data happened before par_str!", &
+              sub_name)
+
+          return
+        endif
         nc_entry = adjustl(line(index(line,'=')+1:))
         read(unit=nc_entry, iostat=stat, fmt=*) nctag, size_from_nl, ncfilename
         if (fu_fails(stat == 0, 'Failed to parse data item: ' // trim(nc_entry), &
-                   & 'count_srcs_one_data_file')) return
+                   & sub_name)) return
         call replace_string(ncfilename, '^', trim(dirname)//dir_slash)
         call unpack_a_src_from_nc('count', ncfilename, nctag, srcInfoTmp(nSrcRead+1)%nChemDescr, size_from_nc)
-        if (error) return
+        if (error) then
+          call set_error("after unpack_a_src_from_nc", sub_name)
+          return
+        endif
         
         ! The size_from_nl is only used to check for consistency:
         if (fu_fails(size_from_nc == size_from_nl, 'Netcdf/namelist sizes don''t match', &
-                   & 'count_srcs_one_data_file')) return
+                   & sub_name)) return
         
         nValLinesTmp = nValLinesTmp + size_from_nc
         if(nValLines(iFile) < nValLinesTmp) nValLines(iFile) = nValLinesTmp
@@ -1002,7 +1014,7 @@ MODULE source_terms_general
                     & srcInfoTmp(nSrcRead+1)%ifNeedsTZindexMap = .true.
         else
           call set_error('source_timezone is found prior to source start line', &
-                       & 'count_srcs_one_data_file')
+                       & sub_name)
           return
         endif
 
@@ -1058,7 +1070,7 @@ MODULE source_terms_general
           endif ! old or new source ID
           iStarted = int_missing
         else
-          call set_error('End of the source without start:' + line, 'count_srcs_one_data_file')
+          call set_error('End of the source without start:' + line, sub_name)
           return
         endif
         chSubstNm = ''
@@ -1066,11 +1078,6 @@ MODULE source_terms_general
 
     end do   ! while .not. eof
 
-    if(fu_num_sources_total(em_source) == 0)then
-      call set_error('No sources found','count_srcs_one_data_file')
-      call unset_error('count_srcs_one_data_file')
-    endif
-    
     ! Close the possibly open netcdf data file:
     call unpack_a_src_from_nc('close', '', int_missing, int_missing, size_from_nc)
 

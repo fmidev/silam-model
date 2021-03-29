@@ -43,6 +43,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
   public list_files
   public backtrace_md
   public fu_system_mem_usage
+  public get_hostname
 
   ! Local declarations:
   CHARACTER (LEN=1), PARAMETER, PUBLIC :: dir_slash = '\' ! '
@@ -89,6 +90,32 @@ MODULE md ! The machine dependent code of silja on Intel platform
     end if
 
   end subroutine open_binary_md
+
+!*****************************************************************
+
+
+  subroutine get_hostname(hostname)
+    implicit none
+    character(len=*), intent(out) :: hostname
+    integer :: iSt
+    
+    iSt = 0
+#ifdef __GFORTRAN__
+!! Could be some other version
+#if    __GNUC__ > 4 || __GNUC__ == 4 &&  __GNUC_MINOR__ > 7   
+      call HOSTNM(hostname,STATUS=iSt)
+#else
+      call msg('(HOSTNM not available in this compiler (?)')
+#endif
+#else
+    iSt = HOSTNAM (hostname)
+#endif
+    if (iSt /= 0) then
+        call set_error("failed to get hostname, status:"//trim(fu_str(iSt)), 'get_hostname')
+    endif
+
+
+  end subroutine get_hostname
 
   ! *****************************************************************
 
@@ -427,6 +454,8 @@ MODULE md ! The machine dependent code of silja on Intel platform
       stop ! call exit(0)
     end if
   end subroutine exit_with_status
+
+  !*****************************************************************
 
   subroutine backtrace_md()
     implicit none

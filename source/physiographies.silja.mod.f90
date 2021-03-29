@@ -692,7 +692,7 @@ CONTAINS
                                         & single_time_stack_flag, &
                                         & iAccuracy, &
                                         & OK, &
-                                        & storage_grid = meteo_grid, &
+                                        & storage_grid = meteo_grid, ifadjust = .true., & !! Force meteo grid!
                                         & st_time_feature = static_climatology) !, ifVerbose_ = .true.)
           IF (error) RETURN
           fnames(i)%sp = ''

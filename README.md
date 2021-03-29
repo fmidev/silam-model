@@ -11,7 +11,7 @@ Get the source code
 
 install needed packages
 
-`$ sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev ibproj-dev`
+`$ sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev libproj-dev`
 
 Compile the binary
 

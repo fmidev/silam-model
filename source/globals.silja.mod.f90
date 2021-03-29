@@ -35,7 +35,7 @@ MODULE globals
   ! Modules used:
   USE max_sizes_and_limits
   USE silam_mpi
-  USE iso_fortran_env, only : real32, real64
+  USE iso_fortran_env, only : real32, real64, int64, int32
   !$ use OMP_LIB
 #ifdef VS2012
   use ifcore
@@ -212,7 +212,7 @@ MODULE globals
   REAL, PARAMETER, PUBLIC :: real_missing = -999999.e9   !1.0E35
   ! Quiet NAN, double precision.
   REAL(r4k), PARAMETER, PUBLIC :: F_NAN = TRANSFER(2143289344,1.0_r4k)
-  REAL(r8k), PARAMETER, PUBLIC :: D_NAN =  TRANSFER(Z'7FFF800000000000',1.0_r8k)
+  REAL(r8k), PARAMETER, PUBLIC :: D_NAN =  TRANSFER(-2251799813685248_int64,1.0_r8k)
 
   integer(kind=8), parameter, PUBLIC :: MAX_INT32 = 2**30+(2*30-1)
 #ifdef DOUBLE_PRECISION

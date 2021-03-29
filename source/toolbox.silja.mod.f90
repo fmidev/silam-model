@@ -2235,13 +2235,14 @@ CONTAINS
     logical :: eof, file_open
     character(len=fnlen) :: line
     integer :: status
+    character(len=*), parameter :: sub_name = 'copy_text_file'
 
     !
     ! Stupidity check first
     !
     INQUIRE (unit = f_from, opened = file_open)
     IF (.NOT.file_open) THEN
-      CALL set_error('Input file not open','next_line_from_input_file')
+      CALL set_error('Input file not open', sub_name)
       RETURN
     ELSE
       rewind(f_from)
@@ -2250,7 +2251,7 @@ CONTAINS
 
     INQUIRE (unit = f_to, opened = file_open)
     IF (.NOT.file_open) THEN
-      CALL set_error('Output file not open','next_line_from_input_file')
+      CALL set_error('Output file not open', sub_name)
       RETURN
     END IF
 
@@ -2273,7 +2274,7 @@ CONTAINS
       IF (status /= 0) THEN
         !        PRINT *, 'next_line_from_input_file status:', status
         call msg(line)
-        call set_error('Failed to write the above line','copy_text_file')
+        call set_error('Failed to write the above line', sub_name)
         RETURN
       END IF
 

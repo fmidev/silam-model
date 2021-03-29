@@ -5872,10 +5872,13 @@ CONTAINS
             if (iYTo < 1) cycle
             if (iYTo > nYto) cycle
             if (iYFrom < 1 .or. iYFrom > nYFrom ) then
+              if (myioutside == setZero) cycle !!! Just assume all zeros outside the grid_from
+              !! I could not figure out any consistent formulation for conservative reprojection 
+              !! for nearestPoint or setMissVal.   RK
               call msg("grid from and to:")
               call report(gridFrom)
               call report(gridTo)
-              call set_error("Cannot map y conservatively", "fu_horiz_interp_struct")
+              call set_error("Cannot map Y conservatively", "fu_horiz_interp_struct")
               return
             endif
             dySeg = bndY(iY+1) - bndY(iY)
@@ -5890,6 +5893,7 @@ CONTAINS
               iXFrom = pIXFrom(iX)
               if (ifLonGlobalFrom) iXFrom = modulo(iXFrom-1, nxFrom) + 1
               if (iXFrom < 1 .or. iXFrom > nXFrom ) then
+                if (myioutside == setZero) cycle  !!! Just assume all zeros outside the grid_from
                 call msg("grid from and to:")
                 call report(gridFrom)
                 call report(gridTo)
@@ -5907,9 +5911,9 @@ CONTAINS
               interpStructPtr%indX(iCount,iXto,iYto) = iXFrom
               interpStructPtr%indY(iCount,iXto,iYto) = iYfrom
               if(interpStructPtr%interp_type == average)then
-                fTmp = dXSeg * dySeg / (dxTo * dyTo) !!! Segment size as a raction of output -- weights sum to one
+                fTmp = dXSeg * dySeg / (dxTo * dyTo) !!! Segment size as a fraction of output -- weights sum to one
               else
-                fTmp = dXSeg * dySeg / (dxFrom * dyFrom) !!! Segment size as a raction of input cell -- weights sum 
+                fTmp = dXSeg * dySeg / (dxFrom * dyFrom) !!! Segment size as a fraction of input cell -- weights sum 
                                                          !! to ratio of cell areas 
               endif
               interpStructPtr%weight(iCount,iXto,iYto) =  fTmp

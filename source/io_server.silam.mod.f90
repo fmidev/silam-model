@@ -1082,11 +1082,11 @@ CONTAINS
       call msg('Note dir_slash:' + dir_slash)
       return
     endif
-    run_log_name = strTmp%sp(1:iTmp) + 'run_' + strTmp%sp(iTmp+1:len_trim(strTmp%sp)) 
+    run_log_name = strTmp%sp(1:iTmp) + 'run_' + strTmp%sp(iTmp+1:len_trim(strTmp%sp))
 
     if(smpi_is_mpi_version())then
+      call msg("Synchronizing tmp file prefix", i)
       write(taskNumber,'(I3.3)') smpi_global_rank
-      i = int(silja_time_to_real8(fu_wallclock()))
       ! Just use what we have to ensure that the string is the same
       call msg("Synchronizing tmp file prefix", i)
       call smpi_allreduce_max_int(i, j, MPI_COMM_WORLD)
@@ -1098,16 +1098,27 @@ CONTAINS
     endif
     run_log_name=run_log_name+'.log'
     run_log_tmp_name=run_log_tmp_name+'.tmp.log'
+    call msg("Preparing to swap log file to: "//trim(run_log_tmp_name))
 
     iTmp = fu_next_free_unit()
     open(iTmp, file = run_log_tmp_name, iostat = al_status)
     if(al_status /= 0)then
-      call msg("Can't open for writing:"//trim(run_log_tmp_name))
+      call msg("Can't open for writing: "//trim(run_log_tmp_name))
       call set_error('Failed to open run.log file','global_io_init')
       return
     endif
     call copy_text_file(run_log_funit, iTmp)  ! Copy currently open log file
-    close(run_log_funit,status = 'delete')
+
+    close(run_log_funit,status = 'delete',  iostat = al_status)
+
+    if(al_status /= 0)then  !!! Failed to close
+      call msg("Can't delete file..., al_status = ", al_status)
+      run_log_name=""
+      inquire(unit=run_log_funit, NAME=run_log_name) !! going to crash anyway. Reuse variable to get the name..
+      call msg("Can't delete file: "//trim(run_log_name))
+      call set_error('Failed to remove old run.log file','global_io_init')
+      return
+    endif
     run_log_funit = iTmp
 
     !

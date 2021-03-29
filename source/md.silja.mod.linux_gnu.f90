@@ -39,6 +39,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
   public list_files
   public backtrace_md
   public fu_system_mem_usage
+  public get_hostname
 
   ! Local declarations:
   CHARACTER (LEN=1), PARAMETER, PUBLIC :: dir_slash = '/'
@@ -79,6 +80,32 @@ CONTAINS
     end if
 
   end subroutine open_binary_md
+
+!*****************************************************************
+
+
+  subroutine get_hostname(hostname)
+    implicit none
+    character(len=*), intent(out) :: hostname
+    integer :: iSt
+    
+    iSt = 0
+#ifdef __GFORTRAN__
+!! Could be some other version
+#if    __GNUC__ > 4 || __GNUC__ == 4 &&  __GNUC_MINOR__ > 7   
+      call HOSTNM(hostname,STATUS=iSt)
+#else
+      call msg('(HOSTNM not available in this compiler (?)')
+#endif
+#else
+    iSt = HOSTNAM (hostname)
+#endif
+    if (iSt /= 0) then
+        call set_error("failed to get hostname, status:"//trim(fu_str(iSt)), 'get_hostname')
+    endif
+
+
+  end subroutine get_hostname
 
   ! *****************************************************************
 
@@ -399,44 +426,6 @@ CONTAINS
   end subroutine backtrace_md
 
 
-!!!integer function fu_system_mem_usage()
-!!!        !
-!!!        ! Get valueRSS of the current process (in kB)
-!!!        ! stolen (with some fixes) from
-!!!        ! https://stackoverflow.com/questions/22028571/track-memory-usage-in-fortran-90
-!!!        implicit none
-!!!
-!!!        character(len=200):: filename=' '
-!!!        character(len=80) :: line
-!!!        character(len=8)  :: pid_char=' '
-!!!        integer :: iunit, stat
-!!!       
-!!!
-!!!        fu_system_mem_usage = -1    ! return negative number if not found
-!!!
-!!!        !--- get proc filename
-!!!
-!!!        write(filename,'(A,I0,A)') '/proc/',getpid(),'/status'
-!!!        iunit = 1001 ! something never returned by fu_next_free_unit()
-!!!
-!!!        !--- read system file
-!!!        open(unit=iunit, file=filename, action='read', IOSTAT=stat)
-!!!        if (stat == 0) then
-!!!          do
-!!!            read (iunit,'(a)',end=120) line
-!!!            if (line(1:6).eq.'VmRSS:') then
-!!!               read (line(7:),*) fu_system_mem_usage
-!!!               exit
-!!!            endif
-!!!          enddo
-!!!          120 continue
-!!!          close(iunit)
-!!!        else
-!!!          call msg("Faileled to open:"//trim(filename)//' status:',stat)
-!!!        endif
-!!!
-!!!        return
-!!!end function fu_system_mem_usage
 
 integer function fu_system_mem_usage()
         !

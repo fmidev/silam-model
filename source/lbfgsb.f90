@@ -1224,6 +1224,7 @@ c======================== The end of bmv ===============================
       subroutine cauchy(n, x, l, u, nbd, g, iorder, iwhere, t, d, xcp, 
      +                  m, wy, ws, sy, wt, theta, col, head, p, c, wbp, 
      +                  v, nseg, iprint, sbgnrm, info, epsmch)
+      use, intrinsic :: iso_fortran_env
       implicit none
       integer          n, m, head, col, nseg, iprint, info, 
      +                 nbd(n), iorder(n), iwhere(n)
@@ -1427,8 +1428,8 @@ c       the derivative f1 and the vector p = W'd (for theta = 1).
          call dcopy(n,x,1,xcp,1)
          return
       endif 
-      tl = TRANSFER(Z'7FFF800000000000',tl)  ! actually, NaN
-      tu = TRANSFER(Z'7FFF800000000000',tu)  ! actually, NaN
+      tl = TRANSFER(-2251799813685248_int64,tl)  ! actually, NaN
+      tu = TRANSFER(-2251799813685248_int64,tu)  ! actually, NaN
       bnded = .true.
       nfree = n + 1
       nbreak = 0
