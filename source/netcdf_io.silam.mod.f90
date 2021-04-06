@@ -2664,7 +2664,8 @@ CONTAINS
                 nf%nTime%analysis_time = nf%nTime%analysis_time - nf%nTime%step*0.5
               endif
             else
-              call set_error('Failed to set analysis time', sub_name)
+              call msg_warning('Failed to set analysis time from the file, using tDimStart', sub_name)
+              nf%nTime%analysis_time = nf%nTime%tDimStart
             endif
           endif
           call msg('Analysis time:')
