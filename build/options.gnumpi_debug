@@ -1,7 +1,7 @@
 ARCH = linux_gnu
 
 F90C = mpif90
-OPTIMIZATION = -O0 -fopenmp # -Wall
+OPTIMIZATION = -O0 -fopenmp -fallow-argument-mismatch # -Wall
 #OPTIMIZATION = -O3 -fopenmp 
 OPENMP = 
 #DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888  -DDEBUG

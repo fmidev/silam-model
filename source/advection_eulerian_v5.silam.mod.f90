@@ -547,7 +547,7 @@ CONTAINS
     !$OMP        & ifxfirst, m_ind, ifusemassflux, nsrc, nsp, nLev, ifmoments, EulerStuff, &
     !$OMP        & nThreads, itimesign, MPI_stuff, nx_dispersion_mpi, ny_dispersion_mpi, &
     !$OMP        & wing_depth_w, wing_depth_s, wing_depth_e, wing_depth_n, wing_depth, &
-    !$OMP        & nMPIsend, maxWingUsed, neighbours, exchange_buffer, distributor_name, smpi_global_rank)
+    !$OMP        & nMPIsend, maxWingUsed, neighbours, exchange_buffer, distributor_name)
 
 
     iThread = 0
@@ -937,7 +937,7 @@ CONTAINS
           !$OMP barrier
           !Sync before sending
           !$OMP MASTER
-!          print *, 'XTASK', smpi_global_rank, 'to', iNeighbour, "recvsize", recvCount
+          ! print *, 'XTASK', smpi_global_rank, 'to', iNeighbour, "sendsize", jTmp, "recvsize", recvCount
           jTmp = recvOffset !Just length to send
           call smpi_exchange_boundaries(iNeighbour, exchange_buffer, jTmp, recvCount, recvOffset)
           !$OMP END MASTER
@@ -1643,11 +1643,11 @@ call msg('Done')
                                  & advect_axis, ifGlob, left_boundary, right_boundary, &
                                  & mystuff, nSrc, nSp, have_negatives, arMinAdvMass, pBBuf, &
                                  & ifMoments, ifSkipLine)
-      !
-      ! Replacement for duplicated section in x and y advection
+      ! Replacement for duplicated section in x, y and z advection
       ! get masses/cm and passengers from massmap and figure out
       ! and fill ifSkipLine, mystuff%ifSkipCell and mystuff%ifSkipSourceSpecies
       ! Should be possible to use in z advection once the stuff is unified
+      ! Always gets CM for advect axis and moments for others
       !
 
       implicit none
@@ -2099,14 +2099,20 @@ call msg('Done')
          ! Check how many their cells are advected into our domain
          real(r8k), intent(in) :: lb_advected,  rb_advected !domain boundaries
          real(r8k), dimension(0:), intent(in) :: rb !cellboundaries of Whole line
+         real(r8k) :: tolerance !! epsilon to accomodate minor differences between 
+                                !! advection in different domains
          integer, intent(in) :: wing_depth_l, wing_depth_r, n_dispersion
          integer, intent(out) :: NinL, NinR !Counters to increment
          integer :: iwing
+
+         iwing = wing_depth_l + wing_depth_r + n_dispersion !! full line length
+         tolerance = 1e-12 * rb(iwing)  !! Double precision at max line
+
          
          nInL = 0 
          if (wing_depth_l > 0) then
            do iwing = 0, wing_depth_l
-                if( lb_advected < rb(wing_depth_l+iwing)) then
+                if( lb_advected + tolerance < rb(wing_depth_l+iwing)) then
                   nInL = iwing
                   exit
                endif
@@ -2118,7 +2124,7 @@ call msg('Done')
          nInR = 0 
          if (wing_depth_r > 0) then
            do iwing = 0, wing_depth_r
-               if(rb_advected > rb(wing_depth_l + n_dispersion - iwing)) then
+               if(rb_advected - tolerance > rb(wing_depth_l + n_dispersion - iwing)) then
                   nInR = iwing
                   exit
                endif
@@ -2156,7 +2162,7 @@ call msg('Done')
                                            & pCnc2m, &
                                            & pBBuf, &
                                            & chem_rules, &
-                                           & have_negatives, wdr, ifAllMoments, ifTalk)
+                                           & have_negatives, wdr, ifAllMoments, ifAdvFirst, ifTalk)
     ! Works with massfluxes
     ! Treats settling as advection except for the first level
     ! Can work with any vertical
@@ -2173,7 +2179,7 @@ call msg('Done')
     real, dimension(:,:), intent(inout) :: garbage
     real, dimension(:,:,:), intent(inout) :: bottom_mass, top_mass
     type(Tchem_rules), intent(in) :: chem_rules
-    logical, intent(in) :: have_negatives, ifTalk
+    logical, intent(in) :: have_negatives, ifTalk, ifAdvFirst
     logical, intent(inout) :: ifAllMoments
     TYPE(silja_wdr), INTENT(in) :: wdr
     type(TboundaryBuffer), intent(in), pointer :: pBBuf
@@ -2193,12 +2199,15 @@ call msg('Done')
     integer :: timeSign
     real :: fVd, iVd2m ! deposition velocity for species according to KS2011
     real, dimension(:), pointer :: tmp_garbage, arMinAdvMass
-    real, dimension(:), pointer :: fPtr
+    real, dimension(:), pointer :: cmDiff  !! Pointers to  the cmLine for diffusion  enable order flipping
+               !! To point to      mystuff%cm_line(1:,iSpecies,iSrc) and  mystuff%moment_line_out(1:)
+    real, dimension(:,:), pointer :: passDiff, passDiffBak  !! Pointers to  the passengers for diffusion  enable order flipping
+    integer :: maxpass, maxz
     integer, dimension(:), pointer :: iarrPtr
     type(Taerosol_rules), pointer :: rulesAerosol
     type(Tdeposition_rules), pointer :: deprules
     real ::    weightUp 
-    integer :: leveltype, n_time_steps, iThread
+    integer :: leveltype, n_time_steps, iThread, iOrder
     integer :: levMinadvection, levMaxadvection
     integer :: bark_count, total_bark
     logical, dimension(2) :: ifPoles
@@ -2300,6 +2309,9 @@ call msg('Done')
        do_molec_diff = .true. 
     endif
 
+    maxpass = SIZE(EulerStuff%Galp5(0)%passengers, DIM=1 ) - 1  !! Zero-based
+    maxz    = SIZE(EulerStuff%Galp5(0)%passengers, DIM=2 ) - 1  !! Zero-based
+
     ifPoles(northern_boundary) = (pBBuf%iBoundaryType(northern_boundary) == polar_boundary_type)
     ifPoles(southern_boundary) = (pBBuf%iBoundaryType(southern_boundary) == polar_boundary_type)
 
@@ -2314,8 +2326,8 @@ call msg('Done')
     !$OMP         &  tmp_garbage, ftmp, indexDisp, ftmp1, &
     !$OMP         & fMinAdvectedMass,  fVd, iVd2m, p2m, cnc2mfrac1, cnc2mfrac2,  weight_up, ifColparamsNotReady, &
     !$OMP         & weightUp,  ps, isrc,  N_time_steps, XcmTmp, YcmTmp, ZcmTmp, &
-    !$OMP         & levMinadvection, levMaxadvection, ifBark, bark_count) &
-    !$OMP & SHARED( stuff, z_ind, r_down_met_ind, m_ind, w_ind, wadj_ind,  &
+    !$OMP         & levMinadvection, levMaxadvection, ifBark, bark_count, iOrder, cmDiff, passDiff, passDiffBak) &
+    !$OMP & SHARED( stuff, z_ind, r_down_met_ind, m_ind, w_ind, wadj_ind,  ifAdvFirst, &
     !$OMP        & ps_ind,  temper_ind, rh_ind, zSize_ind, ifSettlingNeeded, do_vert_diff, &
     !$OMP        & nspecies,  leveltype, nSrc, top_mass, bottom_mass,  spthread, nthreads,&
     !$OMP        & seconds_abs, timeSign,  pDispFlds, moment_x, moment_y, moment_z, pDryDep, &
@@ -2324,7 +2336,7 @@ call msg('Done')
     !$OMP        & ny_dispersion, nx_meteo,  fs_meteo, nz_meteo, disp_layer_top_m, a_met, b_met, &
     !$OMP        & arMinAdvMass, depRules, nz_dispersion, have_negatives, wdr,  ifAllMoments, &
     !$OMP        & pXCellSize, pYCellSize,  error, pcnc2m, EulerStuff,  total_bark, &
-    !$OMP        & ifPoles,  ifTalk, ifTunedRs, do_molec_diff, diffuse_cm_vert)
+    !$OMP        & ifPoles,  ifTalk, ifTunedRs, do_molec_diff, diffuse_cm_vert, maxpass, maxz)
 
 
     iThread = 0
@@ -2605,63 +2617,76 @@ endif
             mystuff%passengers(:,nz_dispersion+1,:,:) = 0.
          endif
 
-        !
-        ! Real advection starts  
-        !
-        ifColparamsNotReady=.True.
-        do ispecies = 1, nspecies
-          if (error) cycle
-          nPass = moment_z%passengers(iSpecies)%nPassengers   
-          fMinAdvectedMass = arMinAdvMass(ispecies)
-          if (ifColparamsNotReady .or. stuff%ifSettles(ispecies)) then
-            !
-            ! update advected cell boundaries        
+          !
+          ! Real advection starts  
+          !
+          ifColparamsNotReady=.True.
+          do ispecies = 1, nspecies ! DOisp
+            if (error) cycle
+            nPass = moment_z%passengers(iSpecies)%nPassengers   
+            fMinAdvectedMass = arMinAdvMass(ispecies)
+            if (ifColparamsNotReady .or. stuff%ifSettles(ispecies)) then
+              !
+              ! update advected cell boundaries        
 
-            ! NB: all velosities here are in Pa/s -- settling -positive
-            mystuff%windRightTmp(0:nz_dispersion) = &
-                & timeSign*(mystuff%wind_right(0:nz_dispersion) &
-                          & + mystuff%vSettling(ispecies,0:nz_dispersion))
+              ! NB: all velosities here are in Pa/s -- settling -positive
+              mystuff%windRightTmp(0:nz_dispersion) = &
+                  & timeSign*(mystuff%wind_right(0:nz_dispersion) &
+                            & + mystuff%vSettling(ispecies,0:nz_dispersion))
 
 
-            !HACK!! 
-            !mystuff%VertMotionAboveSpc(:) = 0.      !Hack to zero vertical advection/settling
+              !HACK!! 
+              !mystuff%VertMotionAboveSpc(:) = 0.      !Hack to zero vertical advection/settling
 !           mystuff%VertMotionAboveSpc(:) = 1. !Pa/s     !Constant vertical motion 
 
 !
-            mystuff%ifSkipCell(0:nz_dispersion+1) = .false. !FIXME hack
-            call advect_cellboundaries(mystuff%windRightTmp(0:nz_dispersion), &!Staggered
-                     & mystuff%cellmass(1:nz_dispersion),  & ! non-staggered
-                     &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
-                     & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
-                     &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
-                     &     mystuff%scratch,   & !staggered
-                     &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
+              mystuff%ifSkipCell(0:nz_dispersion+1) = .false. !FIXME hack
+              call advect_cellboundaries(mystuff%windRightTmp(0:nz_dispersion), &!Staggered
+                       & mystuff%cellmass(1:nz_dispersion),  & ! non-staggered
+                       &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
+                       & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
+                       &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
+                       &     mystuff%scratch,   & !staggered
+                       &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
 
 
-            ! Finite settling -- can't reuse this advecion
-            ifColparamsNotReady  = stuff%ifSettles(ispecies)
-            if(error) then
-               call advect_cellboundaries(mystuff%windRightTmp(0:nz_dispersion), &!Staggered
-                     & mystuff%cellmass(1:nz_dispersion),  & ! non-staggered
-                     &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
-                     & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
-                     &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
-                     &     mystuff%scratch,   & !staggered
-                     &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
+              ! Finite settling -- can't reuse this advecion
+              ifColparamsNotReady  = stuff%ifSettles(ispecies)
+              if(error) then
+                 call advect_cellboundaries(mystuff%windRightTmp(0:nz_dispersion), &!Staggered
+                       & mystuff%cellmass(1:nz_dispersion),  & ! non-staggered
+                       &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
+                       & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
+                       &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
+                       &     mystuff%scratch,   & !staggered
+                       &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
 
-               call msg("Trouble with Z")
-               cycle
-            endif
+                 call msg("Trouble with Z")
+                 cycle
+              endif
 
-          endif ! Recycle colparams_advected
+            endif ! Recycle colparams_advected
 
 
-          do iSrc=1,nSrc
-            
+            do iSrc=1,nSrc !DOiSrc
+              
 if(ifTalk)call msg('Column valid??',(/ix,iy,iLev,iSpecies, iSrc/))
-            
-            if(.not. pDispFlds%ifColumnValid(iSrc,ix,iy)) cycle
+              
+              if(.not. pDispFlds%ifColumnValid(iSrc,ix,iy)) cycle
+              
+              if (ifAdvFirst) then !! Avection first
+                  cmDiff   => mystuff%moment_line_out
+                  passDiff(0:maxpass,0:maxz) => mystuff%passengers_out
+                  passDiffBak(0:maxpass,0:maxz) => mystuff%passengers(:,:,iSpecies,iSrc)
+               else
+                  cmDiff   => mystuff%cm_line(:,iSpecies,iSrc)
+                  passDiff(0:,0:) => mystuff%passengers(:,:,iSpecies,iSrc)
+                  passDiffBak(0:maxpass,0:maxz) => mystuff%passengers_out(:,:)
+               endif
 
+        do iOrder = 1,2
+
+          if ((iOrder == 1) .eqv. ifAdvFirst) then
 if(ifTalk)call msg('Prior to advect_mass:',(/ix,iy,iLev,iSpecies/))
 
             call  MASS_DISTRIBUTOR(mystuff%cm_line(1:,iSpecies,iSrc),  mystuff%moment_line_out(1:), &
@@ -2675,268 +2700,216 @@ if(ifTalk)call msg('Prior to advect_mass:',(/ix,iy,iLev,iSpecies/))
 
 
 #ifdef DEBUG
-            fTmp = sum(mystuff%passengers(0,0:nz_dispersion+1,iSpecies, iSrc))
-            fTmp1 = sum(abs(mystuff%passengers(0,0:nz_dispersion+1,iSpecies, iSrc)))
+              fTmp = sum(mystuff%passengers(0,0:nz_dispersion+1,iSpecies, iSrc))
+              fTmp1 = sum(abs(mystuff%passengers(0,0:nz_dispersion+1,iSpecies, iSrc)))
 
 
-            if ((.not. all(abs(mystuff%passengers_out(0,0:nz_dispersion+1)) >= 0. )) .or. & !NaNs
-               & ( (.not. have_negatives) .and. any(mystuff%passengers_out(0,0:nz_dispersion+1)<0. )) .or. &!Invalid neg
-               & (abs(fTmp - sum(mystuff%passengers_out(0,0:nz_dispersion+1)))/ (fTmp1+fMinAdvectedMass)) > 1e-5 ) then
-              
-              call msg("################ Trouble  After Advection #######################", ix, iy)
-              call msg("Column mass 3 before, after", fTmp,   sum(mystuff%passengers_out(0,0:nz_dispersion+1)) )
-              call msg("mystuff%PAbove -1:nz+1", mystuff%PAbove(0:nz_dispersion))
-              call msg("mystuff%lineParams   :", mystuff%lineParams(0:nz_dispersion))
-              call msg("mystuff%lineParamsAdv:", mystuff%lineParamsAdvected(0:nz_dispersion))
-              call msg( " MIn (0:nz+1)", mystuff%passengers(0,0:nz_dispersion+1,iSpecies, iSrc) )
-              call msg("  MOut  (0:nz+1)", mystuff%passengers_out(0,0:nz_dispersion+1))
+              if ((.not. all(abs(mystuff%passengers_out(0,0:nz_dispersion+1)) >= 0. )) .or. & !NaNs
+                 & ( (.not. have_negatives) .and. any(mystuff%passengers_out(0,0:nz_dispersion+1)<0. )) .or. &!Invalid neg
+                 & (abs(fTmp - sum(mystuff%passengers_out(0,0:nz_dispersion+1)))/ (fTmp1+fMinAdvectedMass)) > 1e-5 ) then
+                
+                call msg("################ Trouble  After Advection #######################", ix, iy)
+                call msg("Column mass 3 before, after", fTmp,   sum(mystuff%passengers_out(0,0:nz_dispersion+1)) )
+                call msg("mystuff%PAbove -1:nz+1", mystuff%PAbove(0:nz_dispersion))
+                call msg("mystuff%lineParams   :", mystuff%lineParams(0:nz_dispersion))
+                call msg("mystuff%lineParamsAdv:", mystuff%lineParamsAdvected(0:nz_dispersion))
+                call msg( " MIn (0:nz+1)", mystuff%passengers(0,0:nz_dispersion+1,iSpecies, iSrc) )
+                call msg("  MOut  (0:nz+1)", mystuff%passengers_out(0,0:nz_dispersion+1))
               call msg("CMIn (0:nz+1)",mystuff%cm_line(1:nz_dispersion,iSpecies,iSrc) )
               !call msg("CmOut (1:nz)", mystuff%cm_line_out(1:nz_dispersion) )
-              call set_error("Trouble after advection1! End", "AdvVertV5") 
-              cycle iX_do
-            endif
+                call set_error("Trouble after advection1! End", "AdvVertV5") 
+                cycle iX_do
+              endif
 #endif
+                
+              ! Collect outgoing mass and free zero cell for deposition
+              ! Should be done after diffusion ...
+              ! ...once it would be capable bringing stuff out of domain...
+              if ( abs(mystuff%passengers_out(0,0)) > arMinAdvMass(ispecies)) then
+                    call set_error("Gotcha bottom mass", "agergdefbhs")
+                 endif
+              mystuff%bottom_mass(iSrc,iSpecies, outgoing) = mystuff%bottom_mass(nSrc,iSpecies, outgoing) + &
+                                                    &  mystuff%passengers_out(0,0)
+              mystuff%top_mass(iSrc,iSpecies, outgoing) =  mystuff%top_mass(iSrc,iSpecies, outgoing) + &
+                                                    & mystuff%passengers_out(0,nz_dispersion+1) 
               
-            ! Collect outgoing mass and free zero cell for deposition
-            ! Should be done after diffusion ...
-            ! ...once it would be capable bringing stuff out of domain...
-            if ( abs(mystuff%passengers_out(0,0)) > arMinAdvMass(ispecies)) then
-                  call set_error("Gotcha bottom mass", "agergdefbhs")
-               endif
-            mystuff%bottom_mass(iSrc,iSpecies, outgoing) = mystuff%bottom_mass(nSrc,iSpecies, outgoing) + &
-                                                  &  mystuff%passengers_out(0,0)
-            mystuff%top_mass(iSrc,iSpecies, outgoing) =  mystuff%top_mass(iSrc,iSpecies, outgoing) + &
-                                                  & mystuff%passengers_out(0,nz_dispersion+1) 
-            
-            do iPass = 1, nPass
-               iTmp = moment_z%passengers(iSpecies)%iSpeciesGarbage(iPass)
-               mystuff%bottom_mass(iSrc,iTmp, outgoing) =  mystuff%bottom_mass(iSrc,iTmp, outgoing)  + &
-                      & mystuff%passengers_out(iPass,0)
-               mystuff%passengers_out(iPass,0)  = 0.
-               mystuff%top_mass(iSrc,iTmp, outgoing) =  mystuff%top_mass(iSrc,iTmp, outgoing)  + &
-                      & mystuff%passengers_out(iPass, nz_dispersion+1)
-               mystuff%passengers_out(iPass, nz_dispersion+1)  = 0.
-            end do  ! passengers
-
-            ! Free bottom and top for diffusion       
-            ! If we do not kill momens here -- we are in trouble
-            mystuff%passengers_out(:,0) = 0.
-            mystuff%passengers_out(:,nz_dispersion+1) = 0.
-
-
-#ifdef   DEBUG_V5
-!####################################Temp check: FIXME To be removed
-            if ( .not. have_negatives) then
-               do  iLev = 1, nz_dispersion  ! Vertical levels
-                 if (error) cycle
-                 fmass = mystuff%passengers_out(0,iLev) 
-                 if(abs(fMass) <= arMinAdvMass(iSpecies))then
-                   mystuff%passengers_out(nPass+1,iLev) = 0.
-                   mystuff%passengers_out(nPass+2,iLev) = 0.
-                 else
-                   !These guys should be moments already
-                   do jTmp = 1,2 
-                     XcmTmp = mystuff%passengers_out(nPass+jTmp,iLev) / fMass
-                     if(.not. abs(XcmTmp) <= 0.5) then
-                         if (jTmp == 1) then
-                            call msg('StrangeTmp X position ', XcmTmp)
-                         else
-                            call msg('StrangeTmp Y position ', XcmTmp)
-                         endif
-                         call msg('Species:' + fu_str(pDispFlds%species(iSpecies)), iSpecies, arMinAdvMass(iSpecies))
-                         call msg('ix,iy',ix,iy)
-                         call msg('iLev,Mass,',iLev,fmass)
-                         call msg("Levels used in advection:",levMinadvection, levMaxadvection)
-                         do iTmp = 1, nz_dispersion
-                           fTmp =  max( mystuff%passengers_out(0,iTmp),arMinAdvMass(iSpecies))
-                           call msg('iLev,Xcm',iTmp,  mystuff%passengers_out(nPass+1,iTmp) / fTmp)
-                           call msg('Ycm,Mass', mystuff%passengers_out(nPass+2,iTmp) / fTmp, &
-                                                & mystuff%passengers(0,iTmp,iSpecies, iSrc))
-                         end do
-                         call set_error("StrangeTmp h-moment position after vert advection", "advV4vert")
-                         cycle iX_do
-                     endif
-                   enddo !jTmp X,Y moments
-
-                   ZcmTmp = mystuff%moment_line_out(iLev) !Center of mass, actually...
-                   if(.not.  abs(ZcmTmp) <= 0.5) then 
-                       call msg(' Strange Zcm rel.cm',  ZcmTmp)
-                       call msg('Species: ', iSpecies)
-                       call msg('ix,iy',ix,iy)
-                       call msg('iLev,Mass,',iLev,fmass)
-                       call msg("Levels used in advection:",levMinadvection, levMaxadvection)
-                       call msg("---------------------")
-                       do iTmp = 1, nz_dispersion
-                         !rel CM position
-                         call msg('Before/after adv: iLev, mass.'+fu_str(iTmp), &
-                           &  mystuff%passengers(0,iTmp,iSpecies,iSrc) , mystuff%passengers_out(0,iTmp)) 
-                         call msg('Before/after adv: iLev, rel. dev.'+fu_str(iTmp), &
-                           &  mystuff%cm_line(iTmp,iSpecies,iSrc) , mystuff%moment_line_out(iTmp)) 
-                         
-                         call msg('mystuff%PAbove',mystuff%PAbove(iTmp) )
-                         call msg("-----------")
-                       end do
-                       call set_error("Trouble after advection2! End", "AdvVertV4") 
-                       cycle iX_do
-                   endif
-                 endif ! Mass Ok
-              end do ! levels
-            endif
-   !##############################################
-#endif
+              do iPass = 1, nPass
+                 iTmp = moment_z%passengers(iSpecies)%iSpeciesGarbage(iPass)
+                 mystuff%bottom_mass(iSrc,iTmp, outgoing) =  mystuff%bottom_mass(iSrc,iTmp, outgoing)  + &
+                        & mystuff%passengers_out(iPass,0)
+                 mystuff%passengers_out(iPass,0)  = 0.
+                 mystuff%top_mass(iSrc,iTmp, outgoing) =  mystuff%top_mass(iSrc,iTmp, outgoing)  + &
+                        & mystuff%passengers_out(iPass, nz_dispersion+1)
+                 mystuff%passengers_out(iPass, nz_dispersion+1)  = 0.
+              end do  ! passengers
 
 
 
-            !----------------------------------------------------------------------------------
-            !
-            !   VERTICAL DIFFUSION 
-            !
-            
+             else ! Now turn for diffusion
 
-            if(do_vert_diff)then  ! Do vertical diffusion
+
+              !----------------------------------------------------------------------------------
+              !
+              !   VERTICAL DIFFUSION 
+              !
               
+
+              if(do_vert_diff)then  ! Do vertical diffusion
+                
 if(ifTalk)call msg('Starting vertical diffusion:',(/ix,iy,iLev,iSpecies/))
-          
-              
-              if (diffuse_cm_vert)  mystuff%moment_line_out(1:nz_dispersion) = &
-                   & mystuff%cm_relax_diff(1:nz_dispersion) * mystuff%moment_line_out(1:nz_dispersion)
+              ! Free bottom and top for diffusion       
+              ! If we do not kill momens here -- we are in trouble
+              passDiff(:,0) = 0.
+              passDiff(:,nz_dispersion+1) = 0.
+            
+                
+                if (diffuse_cm_vert)  &
+                    & CmDiff(1:nz_dispersion) = mystuff%cm_relax_diff(1:nz_dispersion) * CmDiff(1:nz_dispersion)
 
 
 
 
 
-              call prepareDiffColumnPressure( mystuff%g_over_deltaP, mystuff%rho_over_R, & !g_over_deltaP, rho_over_R_up,
-                                     &      mystuff%moment_line_out, &
-                                     &      mystuff%rho_above, mystuff%PAbove, & ! Diff column
-                                     &      mystuff%r_down_met, mystuff%p_met,  & !Meteo  R1m
-                                     &    seconds_abs, N_time_steps) ! Dispersion column
+                call prepareDiffColumnPressure( mystuff%g_over_deltaP, mystuff%rho_over_R, & !g_over_deltaP, rho_over_R_up,
+                                       &      CmDiff, &
+                                       &      mystuff%rho_above, mystuff%PAbove, & ! Diff column
+                                       &      mystuff%r_down_met, mystuff%p_met,  & !Meteo  R1m
+                                       &    seconds_abs, N_time_steps) ! Dispersion column
 
-              ! The srf-air interfacing resistance is mystuff%rho_over_R(0) but for matrix it is the A-B-C(1) 
-              ! that are at the interface. The 0-th elements are for underground layer
-              fVd = 0.
+                ! The srf-air interfacing resistance is mystuff%rho_over_R(0) but for matrix it is the A-B-C(1) 
+                ! that are at the interface. The 0-th elements are for underground layer
+                fVd = 0.
 
-              if(mystuff%R_Surf(iSpecies) < -0.5)then
-                iLevMinDiff = 1
-                ifDryDep = .false.
-              else
-                iLevMinDiff = 0
-                ifDryDep = .true.
-              endif
-
-              if (ifDryDep)  then
-                ! Get ref height
-!                fTmp = (mystuff%Pabove(0) - mystuff%p_cm_out(1)) / (g * mystuff%rho_above(0))
-                fTmp = dh1*(0.5 + mystuff%moment_line_out(1) ) !Positive up!
-                ftmp = max(ftmp,0.005)  ! half-centimiter min value
-
-                if (defined(pCnc2m)) then
-                   iVd2m = real_missing 
-                else 
-                   iVd2m = 0
+                if(mystuff%R_Surf(iSpecies) < -0.5)then
+                  iLevMinDiff = 1
+                  ifDryDep = .false.
+                else
+                  iLevMinDiff = 0
+                  ifDryDep = .true.
                 endif
-                    
 
-                fVd =   fu_get_vd(fTmp,  & ! Reference height in meters
-                                & pDispFlds%species(ispecies), & ! what to deposit
-                                & indexMeteo, weight_past, &  ! position in space and time
-                                & mystuff%R_Surf(ispecies), &    ! surface resistance 
-                                & deprules%DryDepType, timeSign, iVd2m) ! Depo rules
-              endif
+                if (ifDryDep)  then
+                  ! Get ref height
+!                fTmp = (mystuff%Pabove(0) - mystuff%p_cm_out(1)) / (g * mystuff%rho_above(0))
+                  fTmp = dh1*(0.5 + CmDiff(1) ) !Positive up!
+                  ftmp = max(ftmp,0.005)  ! half-centimiter min value
+
+                  if (defined(pCnc2m)) then
+                     iVd2m = real_missing 
+                  else 
+                     iVd2m = 0
+                  endif
+                      
+
+                  fVd =   fu_get_vd(fTmp,  & ! Reference height in meters
+                                  & pDispFlds%species(ispecies), & ! what to deposit
+                                  & indexMeteo, weight_past, &  ! position in space and time
+                                  & mystuff%R_Surf(ispecies), &    ! surface resistance 
+                                  & deprules%DryDepType, timeSign, iVd2m) ! Depo rules
+                endif !! ifDryDep
 
 
-              mystuff%rho_over_R(0) = fVd * mystuff%rho_above(0)   ! same units as rho_over_R_up
-              mystuff%rho_over_R(nz_dispersion) = 0. ! hard cover above
+                mystuff%rho_over_R(0) = fVd * mystuff%rho_above(0)   ! same units as rho_over_R_up
+                mystuff%rho_over_R(nz_dispersion) = 0. ! hard cover above
 
 #ifdef DEBUG
-            ! save masses before the diffusion for debugging purposes
-              mystuff%passengers(:,0:nz_dispersion,iSpecies, iSrc) = mystuff%passengers_out(:,0:nz_dispersion)
+              ! save masses before the diffusion for debugging purposes
+                passDiffBak(:,0:nz_dispersion) = passDiff(:,0:nz_dispersion)
 #endif              
 
-              call make_diffusion_passengers(mystuff%g_over_deltaP(0:nz_dispersion), &  !g_over_deltaP
-                                  & mystuff%rho_over_R(0:nz_dispersion), &              ! rho_over_R_up
-                                  & mystuff%passengers_out(:,0:nz_dispersion), nPass+2, &
-                                  & iLevMinDiff, nz_dispersion, seconds_abs, &
-                                  & N_time_steps, report_diff, &
-                                  & mystuff%A, mystuff%B, mystuff%C,  mystuff%P, mystuff%Q) 
+                call make_diffusion_passengers(mystuff%g_over_deltaP(0:nz_dispersion), &  !g_over_deltaP
+                                    & mystuff%rho_over_R(0:nz_dispersion), &              ! rho_over_R_up
+                                    & passDiff(:,0:nz_dispersion), nPass+2, &
+                                    & iLevMinDiff, nz_dispersion, seconds_abs, &
+                                    & N_time_steps, report_diff, &
+                                    & mystuff%A, mystuff%B, mystuff%C,  mystuff%P, mystuff%Q) 
 
 
 #ifdef DEBUG
-              if (.not. all(mystuff%passengers_out(0,0:nz_dispersion) >= 0)) then
-               if (.not. (have_negatives .and. all(abs(mystuff%passengers_out(0,0:nz_dispersion)) >= 0)))then
-                 
-                call msg("############# Trouble With diffusion! #########################")
-                call msg("Negative masses after diffusion!")
-                call msg("mystuff%PAbove  ", mystuff%PAbove(0:nz_dispersion))
-                call msg("mystuff%rho      ", mystuff%rho_above(0:nz_dispersion+1))
-                call msg( "g_over_deltaP", mystuff%g_over_deltaP(0:nz_dispersion))
-                call msg("rho_over_R_up", mystuff%rho_over_R(0:nz_dispersion))
-                call msg("  Min   ",  mystuff%passengers(0,:, iSpecies, iSrc))
-                call msg("  MOut   ",  mystuff%passengers_out(0,:))
+                if (.not. all(passDiff(0,0:nz_dispersion) >= 0)) then
+                 if (.not. (have_negatives .and. all(abs(passDiff(0,0:nz_dispersion)) >= 0)))then
+                   
+                  call msg("############# Trouble With diffusion! #########################")
+                  call msg("Negative masses after diffusion!")
+                  call msg("mystuff%PAbove  ", mystuff%PAbove(0:nz_dispersion))
+                  call msg("mystuff%rho      ", mystuff%rho_above(0:nz_dispersion+1))
+                  call msg( "g_over_deltaP", mystuff%g_over_deltaP(0:nz_dispersion))
+                  call msg("rho_over_R_up", mystuff%rho_over_R(0:nz_dispersion))
+                  call msg("  Min   ",  passDiffBak(0,:))
+                  call msg("  MOut   ",  passDiff(0,:))
 
-                !restore and run again with full reporting
-                mystuff%passengers_out(:,0:nz_dispersion) = mystuff%passengers(:,0:nz_dispersion, iSpecies, iSrc)
+                  !restore and run again with full reporting
+                  passDiff(:,0:nz_dispersion) = passDiffBak(:,0:nz_dispersion)
 
-                call make_diffusion_passengers(mystuff%g_over_deltaP, mystuff%rho_over_R, & ! g_over_deltaP, rho_over_R_up
-                                  & mystuff%passengers_out(:,:), 0, & ! mass and passengers here
-                                  & iLevMinDiff, nz_dispersion, seconds_abs, &
-                                  & N_time_steps, .true., &
-                                  & mystuff%A, mystuff%B, mystuff%C, mystuff%P, mystuff%Q) 
-                call msg("  MOut after second-try diffusion  ", mystuff%passengers_out(0,0:nz_dispersion))
-                call set_error("Negative mass after diffusion!", "Adv vertical V5") 
+                  call make_diffusion_passengers(mystuff%g_over_deltaP, mystuff%rho_over_R, & ! g_over_deltaP, rho_over_R_up
+                                    & passDiff(:,:), 0, & ! mass and passengers here
+                                    & iLevMinDiff, nz_dispersion, seconds_abs, &
+                                    & N_time_steps, .true., &
+                                    & mystuff%A, mystuff%B, mystuff%C, mystuff%P, mystuff%Q) 
+                  call msg("  MOut after second-try diffusion  ", passDiff(0,0:nz_dispersion))
+                  call set_error("Negative mass after diffusion!", "Adv vertical V5") 
+                 endif
                endif
-             endif
 #endif              
 !              call msg("################ After Diffusion #######################", ix, iy)
 !              call msg ("iSrc, iSpecies",iSrc, iSpecies)
-!              call msg("Column mass 3 before, after", fTmp,  sum(mystuff%passengers_out(0,:)) )
+!              call msg("Column mass 3 before, after", fTmp,  sum(passDiff(0,:)) )
 !              call msg("p_above  ", mystuff%PAbove(0:nz_dispersion+1))
 !              call msg("rho", mystuff%rho_above(0:nz_dispersion) )
 !              call msg( "g_over_deltaP", mystuff%g_over_deltaP(0:nz_dispersion))
 !              call msg("rho_over_R_up", mystuff%rho_over_R(0:nz_dispersion))
-!              call msg( "   MIn   ", mystuff%passengers(0,:,iSpecies, iSrc) )
-!              call msg("  MOut   ", mystuff%passengers_out(0,:))
+!              call msg( "   MIn   ", passDiffBak(0,: )
+!              call msg("  MOut   ", passDiff(0,:))
 !              call msg("PCmOut  ", mystuff%p_cm_out(0:nz_dispersion+1))
 !              call msg("################## After Diffusion  #####################", ix, iy)
                       
 ! fTmp = sum(mystuff%mass_line)
 ! call msg("Column mass 4", ispecies, fTmp)
-                if (do_molec_diff) then
-                  if (stuff%xplus_moldiff(1,iSpecies) > 0.) then
-                    call make_molec_diffusion_passengers(stuff%xplus_moldiff(:,iSpecies), &
-                               & stuff%xminus_moldiff(:,iSpecies), mystuff%passengers_out(:,:),  &
-                               & nz_dispersion, mystuff%Q)
+                  if (do_molec_diff) then
+                    if (stuff%xplus_moldiff(1,iSpecies) > 0.) then
+                      call make_molec_diffusion_passengers(stuff%xplus_moldiff(:,iSpecies), &
+                                 & stuff%xminus_moldiff(:,iSpecies), passDiff(:,:),  &
+                                 & nz_dispersion, mystuff%Q)
+                    endif
                   endif
-                endif
 
-                if (defined(pCnc2m)) then
-                ! Diagnose cnc2m coefficient. output contains mass in 1m-thick layer at 2m
-                   ! Hcm1
-                  if ( (0.5+mystuff%moment_line_out(1)) * dh1  > 2. ) then ! Extrapolate down..
-                    fTmp = 1. 
-                    if(ifDryDep .and. fVd > 1e-10) fTmp = iVd2m * fVd
-                    cnc2mfrac1 = fTmp/dh1  
-                    cnc2mfrac2 = 0.
-                    weight_up = real_missing
-                  else ! interpolate between the levels  
-                    weight_up = (2 -  (0.5+mystuff%moment_line_out(1)) * dh1) / &
-                       & (dh1 + (0.5+mystuff%moment_line_out(1)) * dh2  - (0.5+mystuff%moment_line_out(1)) * dh1)
-                    cnc2mfrac1 = (1. - weight_up) / dh1
-                    cnc2mfrac2 = weight_up / dh2
+                  pDryDep%arM(iSpecies,iSrc,1,ix,iy) = pDryDep%arM(iSpecies,iSrc,1,ix,iy) + &
+                                &  passDiff(0,0)
+                  passDiff(0,0) = 0
+
+                  if (defined(pCnc2m)) then
+                  ! Diagnose cnc2m coefficient. output contains mass in 1m-thick layer at 2m
+                     ! Hcm1
+                    if ( (0.5+CmDiff(1)) * dh1  > 2. ) then ! Extrapolate down..
+                      fTmp = 1. 
+                      if(ifDryDep .and. fVd > 1e-10) fTmp = iVd2m * fVd
+                      cnc2mfrac1 = fTmp/dh1  
+                      cnc2mfrac2 = 0.
+                      weight_up = real_missing
+                    else ! interpolate between the levels  
+                      weight_up = (2 -  (0.5+CmDiff(1)) * dh1) / &
+                         & (dh1 + (0.5+CmDiff(2)) * dh2  - (0.5+CmDiff(1)) * dh1)
+                      cnc2mfrac1 = (1. - weight_up) / dh1
+                      cnc2mfrac2 = weight_up / dh2
+                    endif
+                    pCnc2m%arm(iSpecies,iSrc,1,ix,iy) = &
+                        & passDiff(0,1) * cnc2mfrac1  + &
+                        & passDiff(0,2) * cnc2mfrac2
                   endif
-                  pCnc2m%arm(iSpecies,iSrc,1,ix,iy) = &
-                      & mystuff%passengers_out(0,1) * cnc2mfrac1  + &
-                      & mystuff%passengers_out(0,2) * cnc2mfrac2
-                endif
-               
+                 
 
-            else !   Skipping the diffusion
-                if(mod(ix,100) == 1 .and. mod(iy,100) == 1) &
-                          & call msg_warning('Skip vertical diffusion','adv_diffusion_vertical_v5')
-                if (defined(pCnc2m)) then
-                  pCnc2m%arm(iSpecies,iSrc,1,ix,iy) = mystuff%passengers_out(0,1) / dh1 ! cnc(2m) = cnc(first level)
-                endif
-            endif ! ifVertical diffusion
+              else !   Skipping the diffusion
+                  if(mod(ix,100) == 1 .and. mod(iy,100) == 1) &
+                            & call msg_warning('Skip vertical diffusion','adv_diffusion_vertical_v5')
+                  if (defined(pCnc2m)) then
+                    pCnc2m%arm(iSpecies,iSrc,1,ix,iy) = mystuff%passengers_out(0,1) / dh1 ! cnc(2m) = cnc(first level)
+                  endif
+              endif ! ifVertical diffusion
 
+            endif ! Time for diffusion 
+
+
+            enddo ! iOrder
 
 
 if(ifTalk)call msg('Return mass:',(/ix,iy,iLev,iSpecies/))
@@ -2945,8 +2918,6 @@ if(ifTalk)call msg('Return mass:',(/ix,iy,iLev,iSpecies/))
             !  Return column to mass maps 
             !####################################
 
-            pDryDep%arM(iSpecies,iSrc,1,ix,iy) = pDryDep%arM(iSpecies,iSrc,1,ix,iy) + &
-                                &  mystuff%passengers_out(0,0)
 
             if (defined(pCnc2m)) then
 !!             ! FIXME Hack: pCnc2m  = 1/Rs
@@ -3092,8 +3063,8 @@ if(ifTalk)call msg('Mass returned:',(/ix,iy,iLev,iSpecies, nPass/))
             end do  ! passengers
 
 
-          enddo !sources loop
-        enddo !species loop
+          enddo !sources loop DOiSrc 
+        enddo !species loop DOisp
 
       end do ix_DO ! Cycle ix
     end do  ! Cycle iy.                 Z-advection-diffusion is over
@@ -3101,7 +3072,7 @@ if(ifTalk)call msg('Mass returned:',(/ix,iy,iLev,iSpecies, nPass/))
 
     !-------------------------------------------------------------------------------
     !
-    ! Southern and Northern polar caps have to be advected and diffused as well. Above, we stored
+    ! Southern and Northern polar caps have to be advected, but not diffused. Above, we stored
     ! all needed parameters, here only the actual function calls are needed
     !
     ! Start from collecting info from all threads into the master
@@ -3354,7 +3325,7 @@ call msg('Done')
         !
         real, dimension(0:), intent(out)  :: rho_over_R_up
         real, dimension(0:), intent(in)   :: g_over_deltaP, rhoCol, Ramet, Pmet 
-        real, dimension(1:), intent(inout) :: CMCol
+        real, dimension(1:), intent(in) :: CMCol
         real(r8k), dimension(0:), intent(in) :: pTopCol
         integer, intent(out)  :: N_time_steps
         real, intent(in) :: seconds_abs
@@ -3730,6 +3701,8 @@ call msg('Done')
          if (abs(incr) > abs(dx)) then 
                  ! Move over more than one grid cell
                  ! How long it takes to pass the current cell?
+                  useExp = (abs(alpha * dx) > 0.0001_r8k*abs(u_right(curix)) )
+
                  if (useExp) then
                       passtime(curix) = log(1.0_r8k + alpha * dx / u_right(curix)) / alpha
                  else
@@ -4515,6 +4488,8 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
 
     real(r8k) ::  fZC, SS, BR_abs, BL_abs, BL_tmp, BR_tmp, ftmp,  loopx,  SS1, alpha, MMRL
     real(r8k), parameter :: fZcTrimax = 1.0_r8k/6  ! Maximum CM for trapezoid slab
+    real (r8k), parameter :: dropFraction = 1D-5 !! Fraction of a slab to ignore
+    real, parameter :: dropMass = MIN_FLOAT / dropFraction !! Mass to ignore 
     real :: fmass, fMass1
     integer ::  ix, ixto
 
@@ -4536,7 +4511,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
     
     ! find first advectable mass
     do ix = iCellStart, iCellEnd
-      if (PassengersIn(0,ix) == 0.) cycle
+      if (abs(PassengersIn(0,ix)) < dropMass ) cycle
       exit
     enddo
     if (ix > iCellEnd) return !Nothing here
@@ -4592,31 +4567,16 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
      
      !MMR = MMRL/SS + alpha*(ax-bl_abs)/(SS*SS)
      !MMR(middle_slab) = 1./SS
-     if (abs(fZC) < fZcTrimax) then !Trapezoid slab
+     !!!!! REMOVED incomplete slab 
+     if (.not. (abs(fZC) < fZcTrimax)) then !Trapezoid slab
+       fzc = sign(fZcTrimax, fZC) !! SIGN(A,B) returns the value of A with the sign of B.
+     endif
          ! on the lower side of the layer
          bl_abs =  xr_advected(ix-1)
          br_abs = xr_advected(ix)
          SS = br_abs - bl_abs
          MMRL = (1.0_r8k - 6 * fzc)   ! in fractions of slab mass
          alpha = 12 * fZC 
-     else !Triangular slab
-        ftmp =  1.0_r8k -  2*abs(fZC) + 2*fZcTrimax ! rel. size of th
-        ftmp = max(ftmp, 1e-6)
-        if (fZC < 0) then !Triange slab left
-           bl_abs =  xr_advected(ix-1)
-           br_abs = ftmp*xr_advected(ix) + (1.0-ftmp)*bl_abs
-           MMRL =  2.
-           alpha = -2.
-        else
-           br_abs = xr_advected(ix)
-           bl_abs = ftmp * xr_advected(ix-1) + (1.0-ftmp) * br_abs
-           MMRL =  0.
-           alpha = 2.
-        end if
-        !now BL is just above iLevTo
-        SS = BR_abs - BL_abs 
-
-     endif
 
      !Still within the domain?
      if (BL_abs + loopx >= xr(nCells))  then 
@@ -4643,7 +4603,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
      !
      ! If slab is too thin, put it to ixTo and cycle, beware negative one
      !
-     if(.not. SS > 1d-5 * dx(ix))then
+     if(.not. SS > dropFraction * dx(ix))then
 
        if(.not. SS >= 0.0)then
           !$OMP CRITICAL(nonpositive)
@@ -4658,7 +4618,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                                    &  passengersIn(0:nPass, ix)
        momOut(iXto) = momOut(iXto) + passengersIn(0, ix) * &
                     & 0.5 * (BR_abs+BL_abs - xr(ixTo-1)-xr(ixTo)) / dx(ixto)
-       CHECK(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo), "Gotcha thin-slab")
+       CHECK(abs(momOut(iXto)) > 0.5*(passengersOut(0,ixTo)+dropMass), "Gotcha thin-slab")
        cycle
      endif
      
@@ -4681,7 +4641,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                momOut(iXto) =   momOut(iXto) + passengersIn(0, ix) * &
                   & SS1*(SS1*(SS1*alpha/3.0_r8k + 0.5*MMRL + 0.5*alpha*fTmp) + MMRL*fTmp)*SS/dx(ixto)
 
-               CHECK(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo), "Gotcha1")
+               CHECK(abs(momOut(iXto)) > 0.5*(passengersOut(0,ixTo)+dropMass), "Gotcha1")
 !               if(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo))then
 !                 !$OMP CRITICAL(g1)
 !                 call msg_warning("Gotcha1 at:" + fu_str(iXto), 'advect_mass_trislab')
@@ -4720,7 +4680,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
            fTmp = (BL_tmp - 0.5_r8k*(xr(ixto) + xr(ixto-1)))/SS ! BL Offset from the center
            momOut(iXto) =   momOut(iXto) + passengersIn(0, ix) * &
                & SS1*(SS1*(SS1*alpha/3.0_r8k + 0.5_r8k*(MMRL + alpha*fTmp)) + MMRL*fTmp)*SS/dx(ixto)
-          CHECK(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo), "Gotcha2")
+          CHECK(abs(momOut(iXto)) > 0.5*(passengersOut(0,ixTo)+dropMass), "Gotcha2")
 !          if(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo))then
 !            !$OMP CRITICAL(g1)
 !            call msg_warning("Gotcha2 at:" + fu_str(iXto), 'advect_mass_trislab')

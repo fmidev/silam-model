@@ -606,7 +606,12 @@ CONTAINS
 
   logical FUNCTION fu_if_noble_gas_by_name (name)
     CHARACTER (LEN = *), INTENT (in) :: name
-    IF (name (1 : 2) == 'H_' .or. &
+
+    fu_if_noble_gas_by_name = .false.
+    IF (len(name) >= 7 ) THEN
+        if (name == 'passive') fu_if_noble_gas_by_name = .true.
+    ELSEIF (&
+        name (1 : 2) == 'H_' .or. &
         name (1 : 2) == 'HE' .or. &
         name (1 : 2) == 'N_' .or. &
         name (1 : 2) == 'O_' .or. &
@@ -618,8 +623,6 @@ CONTAINS
         name (1 : 2) == 'XE' .or. &
         name (1 : 2) == 'RN') THEN
       fu_if_noble_gas_by_name = .true.
-    ELSE
-      fu_if_noble_gas_by_name = .false.
     END IF
   END FUNCTION fu_if_noble_gas_by_name
 

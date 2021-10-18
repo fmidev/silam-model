@@ -1066,10 +1066,12 @@ Stage: DO istage = 1, ros_S
      !  return
      !end if
 
+     !23April2021 by RH: Added ABS() to avoid division by zero.
+     !   Using abs, instead of max(Ynew(i),0.0) which is also an option.
      IF (VectorTol) THEN
-       Scale = AbsTol(i)+RelTol(i)*Ynew(i)
+       Scale = AbsTol(i)+RelTol(i)*ABS(Ynew(i))
      ELSE
-       Scale = AbsTol(1)+RelTol(1)*Ynew(i)
+       Scale = AbsTol(1)+RelTol(1)*ABS(Ynew(i))
      END IF
      
      Err = Err+(Yerr(i)/Scale)**2

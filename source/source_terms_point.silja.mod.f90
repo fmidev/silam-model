@@ -83,6 +83,8 @@ MODULE source_terms_point
   public inject_emission_lagr_p_src
   public add_inventory_p_src
   public store_as_namelist
+  public fu_meteodep_model
+
 
   PRIVATE report_point_source
   private fu_point_source_defined
@@ -110,6 +112,7 @@ MODULE source_terms_point
   private fu_source_nbr_of_p_src
   private calc_plume_rise
   private determine_release_params
+  private fu_meteodep_model_p_src
 
   ! Generic names and operator-interfaces of some functions:
 
@@ -197,6 +200,10 @@ MODULE source_terms_point
     module procedure store_p_src_as_namelist
   end interface
 
+  interface fu_meteodep_model
+    module procedure fu_meteodep_model_p_src
+  end interface
+
   integer, private, parameter :: singleLevelDynamic = 7771
   integer, private, parameter :: multiLevelFixed = 7772  
   integer, private, parameter :: plumeRise = 7773
@@ -244,6 +251,9 @@ MODULE source_terms_point
     character(len=tz_name_length) :: tz_name  ! Timezone name 
     integer :: tz_index ! Index of timezone to use with hourly/daily indices
                     ! can be LocalTimeIndex  or SolarTimeIndex
+    ! Environment for meteo-dependent variation
+    logical, public :: ifMeteoDependent            ! monthly variation coefficients are ignored
+    type(TmeteoDepRules), pointer :: rulesMeteoDep => null()
     type(silja_logical) :: defined
   END TYPE silam_point_source
 
@@ -378,7 +388,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  subroutine fill_p_src_from_namelist(nlSrc, p_src, iPointSrcFileVersion)
+  subroutine fill_p_src_from_namelist(nlSrc, p_src, chPointSrcFileVersion)
     !
     ! Reads and sets one area source term v.2 from an external file.
     ! A trick:
@@ -396,12 +406,12 @@ CONTAINS
     ! Imported parameters
     TYPE(silam_point_source), intent(inout) :: p_src
     type(Tsilam_namelist), pointer :: nlSrc
-    integer, intent(in) :: iPointSrcFileVersion   ! at present, v2 or v3
+    character(len=*), intent(in) :: chPointSrcFileVersion   ! at present, v2 or v3
 
     ! Local variables
     type(silam_sp) :: spContent
     integer :: iLocal, iTmp, nx, ny, nItems, iStat, iCell, iDescr, &
-             & nDescriptorInParLine, iModeNbr, iItem
+             & nDescriptorInParLine, iModeNbr, iItem, iPointSrcFileVersion
     integer, dimension(:), pointer :: indDescriptorOfParLine    ! places of descriptors in descriptor list
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
     real :: fLon, fLat
@@ -414,6 +424,7 @@ CONTAINS
 
     ! A bit of preparations
     !
+    iPointSrcFileVersion = int_missing
     spContent%sp => fu_work_string()
     nullify(ptrItems)
     indDescriptorOfParLine => fu_work_int_array()
@@ -440,13 +451,16 @@ CONTAINS
     !
     ! Timeslot parameters
     !
-    select case(iPointSrcFileVersion)
-      case(4)
+    select case(chPointSrcFileVersion)
+      case('4')
+        iPointSrcFileVersion = 4
         call get_items(nlSrc, 'par_str', ptrItems, nItems)
-      case(5)
+      case('5')
+        iPointSrcFileVersion = 5
         call get_items(nlSrc, 'par_str_point', ptrItems, nItems)
       case default
-        call msg('Wrong point source file version (must be 4 or 5):',iPointSrcFileVersion)
+        call msg('Wrong point source file version (must be 4 or 5): "'// &
+                    & trim(chPointSrcFileVersion)// '"')
         call set_error('Wrong point source file version','fill_p_src_from_namelist')
         return
     end select
@@ -742,6 +756,13 @@ CONTAINS
 !      if(p_src%src_nm == 'FI')then
 !        call msg('')
 !      endif
+       p_src%ifMeteoDependent = fu_str_u_case(fu_content(nlSrc,'if_temperature_dependent_emission')) == 'YES'
+       if (p_src%ifMeteoDependent) then
+         call msg("Source: "//trim(p_src%src_nm))
+         call msg("Sector: "//trim(p_src%sector_nm))
+         call set_error("Meteo_dependent point source not implemented yet", 'set_header')
+         return
+       endif
 
 
   
@@ -3260,6 +3281,16 @@ call msg('Enlarging the number of particles, 1:',  lpset%nop + max(lpset%nop*5/4
     fu_point_source_defined = p_src%defined == silja_true
   end function fu_point_source_defined
 
+  !=========================================================================
+  integer function fu_meteodep_model_p_src(p_src)
+    implicit none
+    type(silam_point_source), intent(in) :: p_src
+    if(p_src%ifMeteoDependent)then
+      fu_meteodep_model_p_src = fu_meteodep_model(p_src%rulesMeteoDep)
+    else
+      fu_meteodep_model_p_src = int_missing
+    endif
+  end function fu_meteodep_model_p_src
 
 END MODULE source_terms_point
 

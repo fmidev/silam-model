@@ -4865,7 +4865,7 @@ ix:      do ixTo = 1, nx_disp
             return
          else
             call msg_warning("Looks like day_temperature_2m_acc_flag was not initialised. crashing..", sub_name)
-            call msg("This behavour can be overriden by 'allow_coldstart_day_temperature = yes' in standard_setup")
+            call msg("This behaviour can be overridden by 'allow_coldstart_day_temperature = yes' in standard_setup")
             call set_error("Missing values for past", sub_name)
             return
          endif

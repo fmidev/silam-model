@@ -375,7 +375,7 @@ CONTAINS
       endif
    elseif (ncver == 4) then
       if (ifMPIIO) then
-        call set_error('Tried to use NETCDF4_MPIIO while compiled without it',sub_name)
+        call set_error('Tried to use NETCDF4 with MPIIO. Please use output_format = NETCDF3',sub_name)
       else
         iStat = nf90_create(fname, NF90_NETCDF4, ounit)
       endif
@@ -443,7 +443,7 @@ CONTAINS
           iStat = nf90_def_var(nf%unit_bin, var_name, xType, dim_ids, varId, chunksizes = chunks)
         else !Make chunked, compressed variable
           iStat = nf90_def_var(nf%unit_bin, var_name, xType, dim_ids, varId, &
-                             & chunksizes = chunks, shuffle=.false., deflate_level = nc4_deflate_level)
+                             & chunksizes = chunks, shuffle=.true., deflate_level = nc4_deflate_level)
         endif
 #endif
       endif
@@ -3874,12 +3874,18 @@ CONTAINS
       !Try to construct reasonable GRADS name
          if(len(trim(chTmp1))>0) then !Species exist
                chTmp =  trim(fu_quantity_short_string(nf%nvars(nVar)%quantity))
-               jTmp  = min(len(chTmp),10)  !Cut quantity length
+               jTmp  = min(len_trim(chTmp),10)  !Cut quantity length
                iTmp = index(chTmp1,"POLLEN_") 
                if (iTmp>0) then !Get taxon name
                   chTmp1=chTmp1(iTmp+7:)
-                  !Cut if needed short_name + taxon 
-                  chTmp = chTmp(1:jTmp)+'_p'+chTmp1(1:3)
+                  !Cut if needed short_name + taxon
+                  if (chTmp1(5:5) >= '0' .and. chTmp1(5:5) <= '9') then !! Dirty hack for MUGW1 - MUGW5
+                      !Fifth letter of taxon is digit
+                     chTmp = chTmp(1:jTmp)//'_p'//chTmp1(1:2)//chTmp1(5:5)
+                  else
+                      !Fifth letter of taxon is NOT digit
+                      chTmp = chTmp(1:jTmp)//'_p'//chTmp1(1:3)
+                  endif
             elseif (index(chTmp1,"APHIDS")>0) then !!Aphids. Yes. Ugly solution for ugly problem
                    chTmp = chTmp(1:jTmp)+'_pAPH'  !! Pretend it is also pollen
                else !No pollen
@@ -3900,10 +3906,10 @@ CONTAINS
       
       if (nf%nvars(nVAr)%if3D) then
         WRITE(iCtlUnit,'(A60,X,I3,X,A,X,A,X,A)') nf%nvars(nVar)%chVarNm+'=>'+chTmp, nf%n_levs, " t,z,y,x ", &
-               & fu_quantity_string(nf%nvars(nVar)%quantity), trim(chTmp1)
+               & trim(fu_quantity_string(nf%nvars(nVar)%quantity)), trim(chTmp1)
       else
         WRITE(iCtlUnit,'(A60,A,A,X,A,X,A)') nf%nvars(nVar)%chVarNm + '=>'+chtmp ,'   0   t,y,x ', &
-               & fu_quantity_string(nf%nvars(nVar)%quantity), trim(chTmp1)
+                      & trim(fu_quantity_string(nf%nvars(nVar)%quantity)), trim(chTmp1)
       endif
       iVar = iVar + 1
     enddo

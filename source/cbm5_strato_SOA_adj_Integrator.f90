@@ -13,8 +13,8 @@
 !        R. Sander, Max-Planck Institute for Chemistry, Mainz, Germany
 ! 
 ! File                 : cbm5_strato_SOA_adj_Integrator.f90
-! Time                 : Wed Nov  6 16:47:10 2019
-! Working directory    : /home/hanniner/Silam/silam_v5_7-risto/kpp/cbm5_strato_SOA
+! Time                 : Fri Apr 23 13:18:07 2021
+! Working directory    : /fmi/scratch/project_2001411/risto/silam_v5_7/kpp/cbm5_strato_SOA
 ! Equation file        : cbm5_strato_SOA_adj.kpp
 ! Output root filename : cbm5_strato_SOA_adj
 ! 
@@ -2154,10 +2154,12 @@ Stage: DO istage = ros_S, 1, -1
      !  return
      !end if
 
+     !23April2021 by RH: Added ABS() to avoid division by zero.
+     !   Using abs, instead of max(Ynew(i),0.0) which is also an option.
      IF (VectorTol) THEN
-       Scale = AbsTol(i)+RelTol(i)*Ynew(i)
+       Scale = AbsTol(i)+RelTol(i)*ABS(Ynew(i))
      ELSE
-       Scale = AbsTol(1)+RelTol(1)*Ynew(i)
+       Scale = AbsTol(1)+RelTol(1)*ABS(Ynew(i))
      END IF
      
      Err = Err+(Yerr(i)/Scale)**2

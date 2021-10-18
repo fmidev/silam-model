@@ -251,7 +251,7 @@ CONTAINS
                              & bottom_mass, top_mass, &
                              & mapDryDep, mapCnc2m, &
                              & pBoundaryBuffer, chem_rules, &
-                             & have_negatives, wdr, ifMoments, &
+                             & have_negatives, wdr, ifMoments, ifXfirst, &
                              & .false.)   !now >= fu_set_time_utc(1980,2,11,8,0,0.))
             if (error) return
             call stop_count(chCounterNm=counter_name)
@@ -292,7 +292,7 @@ CONTAINS
                              & bottom_mass, top_mass, &
                              & mapDryDep, mapCnc2m, &
                              & pBoundaryBuffer, chem_rules, &
-                             & have_negatives, wdr, ifMoments, &
+                             & have_negatives, wdr, ifMoments, ifXfirst, &
                              & .false.)    !now >= fu_set_time_utc(1980,2,11,7,0,0.))
             if (error) return
             call stop_count(chCounterNm=counter_name)

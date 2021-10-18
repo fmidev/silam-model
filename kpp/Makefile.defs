@@ -48,13 +48,19 @@ CC=gcc
 #    http://www.gnu.org/software/flex/ or any other mirror site. If flex
 #    directory is not included in your path use the complete pathname.
 
-FLEX=flex
+#Linux:
+#FLEX=flex
+#CSC puhti settings:
+FLEX=/appl/spack/install-tree/gcc-9.1.0/flex-2.6.4-zhcqfi/bin/flex
 
 # 3. The complete pathname of the FLEX library (libfl.a).
 #    On many systems this is either: 
 #    /usr/lib, /usr/lib64, /usr/local/util/lib/flex
 
-FLEX_LIB_DIR=/usr/lib/x86_64-linux-gnu
+#Linux:
+#FLEX_LIB_DIR=/usr/lib/x86_64-linux-gnu
+#CSC puhti settings:
+FLEX_LIB_DIR=/appl/spack/install-tree/gcc-9.1.0/flex-2.6.4-zhcqfi/lib/
 
 # 4. Platform independent C compiler flags. By default "-O" is used which 
 #    turns on optimization. If you are experiencing problems you may try 

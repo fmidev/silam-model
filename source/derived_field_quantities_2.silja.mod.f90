@@ -4935,6 +4935,7 @@ CONTAINS
                         !Scale it with ptrKz_1m
                         fTmp = fTmp * Kz_ref_height / ptrKz_1m(i)
                       else  !  Kz_method == simple_abl_ec_ft_kz
+                        !!! Reference Troen and Mahrt, 1986]
                        if ( ptrMOs(i) > 0) then
                          ! Kz for Stable BL (m2/s) 
                          fTmp = ptrKz_1m(i)/ Kz_ref_height / (1+4.7*z*ptrMOs(i))  *z* (1-z/Habl)**2 

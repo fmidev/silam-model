@@ -858,7 +858,7 @@ CONTAINS
                                 & chMarketName, &
                                 & 1,&      ! first dimension of the stack arrays
                                 & 0,& ! if>0, the second dimension in multiTime stack
-                                & max(nbr_of_fields+40, 70), & !q_disp_stat has only quantities, which might exist for more than one species (pollen)
+                                & max(nbr_of_fields+100, 70), & !q_disp_stat has only quantities, which might exist for more than one species (pollen)
                                 & max(nbr_of_windfields, 1), &
                                 & max(nbr_of_3d_fields, 1), &
                                 & max(nbr_of_3d_windfields, 1),& 

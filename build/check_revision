@@ -219,10 +219,14 @@ def writeBranch(branch, branchfname):
         return
     branchstr="BRANCH=%s"%(branch)
     oldbranchstr = ""
-    with open(branchfname, 'r') as branchf:
-        for l in branchf:
-            if l.startswith("BRANCH"):
-                oldbranchstr = l
+    try:
+        with open(branchfname, 'r') as branchf:
+            for l in branchf:
+                if l.startswith("BRANCH"):
+                    oldbranchstr = l
+    except IOError:
+        oldbranchstr = None
+        pass
     if ( oldbranchstr != branchstr ):
         tmpfname = branchfname + ".tmp"
         with open(tmpfname, 'w') as branchf:

@@ -8,7 +8,7 @@
 
 # The executable
 
-include Makefile.branch
+-include Makefile.branch
 PROGRAM ?= $(BRANCH)
 # The setup variable: if defined, compiler options will be read from
 # options.$(SETUP), and the executable will be named as $(PROGRAM).$(SETUP)

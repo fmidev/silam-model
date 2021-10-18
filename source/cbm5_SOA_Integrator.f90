@@ -13,8 +13,8 @@
 !        R. Sander, Max-Planck Institute for Chemistry, Mainz, Germany
 ! 
 ! File                 : cbm5_SOA_Integrator.f90
-! Time                 : Wed Nov  6 16:46:56 2019
-! Working directory    : /home/hanniner/Silam/silam_v5_7-risto/kpp/cbm5_SOA
+! Time                 : Fri Apr 23 13:17:52 2021
+! Working directory    : /fmi/scratch/project_2001411/risto/silam_v5_7/kpp/cbm5_SOA
 ! Equation file        : cbm5_SOA.kpp
 ! Output root filename : cbm5_SOA
 ! 
@@ -1099,10 +1099,12 @@ Stage: DO istage = 1, ros_S
      !  return
      !end if
 
+     !23April2021 by RH: Added ABS() to avoid division by zero.
+     !   Using abs, instead of max(Ynew(i),0.0) which is also an option.
      IF (VectorTol) THEN
-       Scale = AbsTol(i)+RelTol(i)*Ynew(i)
+       Scale = AbsTol(i)+RelTol(i)*ABS(Ynew(i))
      ELSE
-       Scale = AbsTol(1)+RelTol(1)*Ynew(i)
+       Scale = AbsTol(1)+RelTol(1)*ABS(Ynew(i))
      END IF
      
      Err = Err+(Yerr(i)/Scale)**2

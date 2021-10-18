@@ -976,7 +976,7 @@ CONTAINS
     type(silja_wdr), pointer :: wdr
     type(Tdiagnostic_rules), intent(inout) :: diagnostic_rules
     type(Tchem_rules), intent(inout) :: chemRules
-    type(Tdynamics_rules), intent(inout) :: dynRules
+    type(Tdynamics_rules), intent(in) :: dynRules
     type(silam_source), pointer :: em_source
     type(silam_pollution_cloud), pointer :: cloud
     integer, dimension(:), intent(inout) :: q_disp_dyn, q_disp_stat
@@ -1087,6 +1087,7 @@ CONTAINS
     if(smpi_is_mpi_version())then
       call msg("Synchronizing tmp file prefix", i)
       write(taskNumber,'(I3.3)') smpi_global_rank
+      i = int(silja_time_to_real8(fu_wallclock()))
       ! Just use what we have to ensure that the string is the same
       call msg("Synchronizing tmp file prefix", i)
       call smpi_allreduce_max_int(i, j, MPI_COMM_WORLD)

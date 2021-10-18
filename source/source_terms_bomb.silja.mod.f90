@@ -32,6 +32,8 @@ MODULE source_terms_bomb
   !
   public reserve_bomb_source
   public add_input_needs
+  public link_source_to_species
+  public add_source_species_b_src
   public defined
   PUBLIC report
   PUBLIC fu_name
@@ -43,24 +45,20 @@ MODULE source_terms_bomb
   public total_bomb_src_species_unit
   public fu_source_id_nbr
   public fu_source_nbr
-  public link_source_to_species
-  public add_source_species
   public fill_b_src_from_namelist
   public source_2_map
   public source_2_second_grid
   public create_source_containing_grid
-  public inject_emission_euler_bomb_src
-  public inject_emission_lagr_bomb_src
-  public add_inventory_b_src
+  public inject_emission_euler_b_src
+  public inject_emission_lagr_b_src
 
   ! Nuclear bomb source specific functions
   PUBLIC fu_bomb_source_yield
-  private uranium_ind_stuk
-  private plutonium_stuk
 
   ! The private functions and subroutines for bomb source
-
-  private add_input_needs_bomb_source
+  private uranium_ind_stuk
+  private plutonium_stuk
+  private add_input_needs_b_src
   private fu_bomb_source_defined
   PRIVATE fu_bomb_source_position
   PRIVATE fu_bomb_source_start_time
@@ -73,17 +71,15 @@ MODULE source_terms_bomb
   private fu_source_id_nbr_of_b_src
   private fu_source_nbr_of_b_src
   private link_b_src_to_species
-  private add_source_species_b_src
   private source_2_map_bomb_source
   private project_b_src_second_grd  ! projects to the given grid and stores new position
   private create_src_cont_grd_b_src
   private report_bomb_source
   private fu_venting_fraction
-  private fu_fireball_fraction
+  private fu_fireball_buried_fraction
   private fu_fission_yield
   private fu_fireball_radius
   private get_horizontal_coverage_and_mom_4_corners
-  private get_number_of_species_b_src
   private set_cocktail_bomb_source
   private set_two_modes_bomb
   private init_bomb_derived_params
@@ -92,7 +88,7 @@ MODULE source_terms_bomb
   ! Generic names and operator-interfaces of some functions:
 
   interface add_input_needs
-    module procedure add_input_needs_bomb_source
+    module procedure add_input_needs_b_src
   end interface
 
   INTERFACE report
@@ -139,14 +135,6 @@ MODULE source_terms_bomb
     module procedure link_b_src_to_species
   end interface
 
-  interface add_source_species
-    module procedure add_source_species_b_src
-  end interface
-
-  interface fill_next_source_from_namelist
-    module procedure fill_b_src_from_namelist
-  end interface
-
   interface source_2_map
     module procedure source_2_map_bomb_source
   end interface
@@ -159,34 +147,27 @@ MODULE source_terms_bomb
     module procedure create_src_cont_grd_b_src
   end interface
 
-
   !
   ! The bomb source
   !
   TYPE silam_bomb_source
     PRIVATE
     CHARACTER(len = clen) :: src_nm, sector_nm, bomb_type, dist_type ! Source name, sector name, bomb type
-    integer :: src_nbr, id_nbr  ! source and id number in a WHOLE source list
-    integer :: nDescriptors
+    integer :: src_nbr, id_nbr  ! source and id number in the WHOLE source list
+    integer :: nDescriptors, location_switch, nSpecies
     TYPE(silam_grid_position) :: position ! contains also start time
-    type(silam_vertical) :: vert !this is stupid: stored and needed only once
-!    TYPE(Tcocktail_descr), dimension(:), pointer :: cocktail_descr
+    type(silam_vertical) :: vert          ! this is stupid: stored and needed only once
     type(silam_species), dimension(:), pointer :: species
     ! activities are in same order as in cocktail.
     ! height_frac in same order as vertical
     real, dimension(:), pointer :: activities, height_frac
-    integer :: nSpecies
-!    real, dimension(:,:), pointer :: fDescr2SpeciesUnit
-!    integer, dimension(:,:), pointer :: pEmisSpeciesMapping
     type(chemical_adaptor) :: adaptor2Trn
+    type(Taerosol) :: aerosolSrc       ! storage place for the requested bins
     REAL :: total_yield, blast_height_m, fission_fraction, venting_fraction, &
-          & fireball_fraction, fireball_radius, fission_yield, smallest_aerosol, &
-          & largest_aerosol
-    integer :: bins_between
+          & fireball_buried_fraction, fireball_radius, fission_yield
     real :: fxDispGrid, fyDispGrid  ! coordinates of the source in the dispersion_grid
-    logical :: ifOverWater
+    logical :: ifOverWater, if_inside_domain
     type(silja_logical) :: defined
-    logical :: ifUnderground, ifSurface, ifAir, if_inside_domain
   END TYPE silam_bomb_source
 
   type b_src_ptr
@@ -194,6 +175,19 @@ MODULE source_terms_bomb
   end type b_src_ptr
   public b_src_ptr
 
+  ! Types of the blast allowed here
+  integer, private, parameter :: blast_underground = 6600
+  integer, private, parameter :: blast_on_surface = 6601
+  integer, private, parameter :: blast_in_air = 6602
+  
+  ! Supplementary strucure for handling the release from the blast
+  type Tblast_nuclide
+    character(len=nuc_name_len) :: nuc_name = ''
+    real :: bq_per_kt = real_missing
+  end type Tblast_nuclide
+  private Tblast_nuclide
+  
+  
 CONTAINS
 
 
@@ -243,7 +237,7 @@ CONTAINS
 
   !*************************************************************************
 
-  subroutine add_input_needs_bomb_source(b_src, q_met_dynamic, q_met_static, &
+  subroutine add_input_needs_b_src(b_src, q_met_dynamic, q_met_static, &
                                             & q_disp_dynamic, q_disp_static)
     !
     ! Returns input needs for the emission/transformation routines. 
@@ -264,29 +258,7 @@ CONTAINS
     if(fu_fails(fu_merge_integer_to_array(height_flag, q_met_dynamic) > 0,'Failed height_flag', &
                                                               & 'add_input_needs_bomb_source'))return
     !
-  end subroutine add_input_needs_bomb_source
-
-
-  !************************************************************************************
-
-  subroutine add_inventory_b_src(b_src, species_list, nSpecies)
-    ! Get the species emitted by this source and make a list of
-    ! them. The source must be initialized, of course.
-    implicit none
-    type(silam_bomb_source), intent(in) :: b_src
-    type(silam_species), dimension(:), pointer :: species_list
-    integer, intent(inout) :: nspecies
-
-    integer :: n
-    ! There is a semantic difference between add_inventory for sources
-    ! and get_inventory for descriptors: in the latter case, only a pointer is
-    ! assigned.
-    type(silam_species), dimension(:), pointer :: speciesPtr
-    
-!    call get_inventory(b_src%cocktail_descr(1), speciesPtr, n)  ! Getting the pointer !!
-    call addSpecies(species_list, nSpecies, b_src%species, b_src%nSpecies)
-
-  end subroutine add_inventory_b_src
+  end subroutine add_input_needs_b_src
 
 
   !*****************************************************************
@@ -320,30 +292,24 @@ CONTAINS
   subroutine add_source_species_b_src(b_src, speciesLst, nSpecies)
     !
     ! Fills-in the given list with the own species. Checks for the duplicates
-    ! never called anywhere??
+    ! 
     implicit none
 
     ! Improted parameters
-    type(silam_bomb_source), intent(inout) :: b_src
+    type(silam_bomb_source), intent(in) :: b_src
     type(silam_species), dimension(:), pointer :: speciesLst
     integer, intent(inout) :: nSpecies
 
-!    integer :: nSpeciesDescr
- !   type(silam_species), dimension(:), pointer :: pSpecies
-
-!    call get_inventory(b_src%cocktail_descr(1), pSpecies, nSpeciesDescr)
-!    if(error)return
     call addSpecies(speciesLst, nSpecies, b_src%species, b_src%nSpecies)
 
   end subroutine add_source_species_b_src
-
 
 
   !*****************************************************************
 
   subroutine total_bomb_src_species_unit(b_src, species, nspecies, amounts, start, duration, layer_)
     !
-    ! Returns the amount of the released material in moles starting from 
+    ! Returns the amount of the released material starting from 
     ! start during the duration time interval. For bomb source it actually 
     ! means that the interval either covers or does not cover the explosion
     ! moment. So, the amount is either whole mass or zero.
@@ -402,7 +368,7 @@ CONTAINS
     !
     nullify(species)
     nSpecies = 0
-    call add_inventory_b_src(b_src, species, nSpecies)
+    call add_source_species_b_src(b_src, species, nSpecies)
     amounts(1:nSpecies) = 0.0
     !
     ! Now explore the descriptors
@@ -491,15 +457,16 @@ CONTAINS
     call enlarge_array(b_src%height_frac,nlevels)
     b_src%height_frac = 0.0
     do iLev = 1,nlevels
-       level = fu_level(vertical, iLev)
-       fraction = 0.0
-       if (b_src%ifAir) then    !Air burst: only hat present
+      level = fu_level(vertical, iLev)
+      fraction = 0.0
+      select case(b_src%location_switch)
+        case (blast_in_air)                       !Air burst: only hat present
           tot_frac = sum(hatFractions)
           do i = 1,3
              fraction = fraction + ((hatFractions(i)/tot_frac) * fu_vert_overlap_fraction(levHatThirds(i), level))
           end do
           b_src%height_frac(iLev) = b_src%height_frac(iLev) + fraction
-       else if (b_src%IfUnderground) then !Underground burst: hat, stem and base surge
+        case (blast_underground)                  !Underground burst: hat, stem and base surge
           tot_frac = (1.0 - b_src%venting_fraction) + 1.0
           do i = 1,3
              fraction = fraction + ((stemFractions(i)/tot_frac) * fu_vert_overlap_fraction(levStemThirds(i), level)) + &
@@ -507,41 +474,48 @@ CONTAINS
           end do
           fraction = fraction + (((1.0 - b_src%venting_fraction)/tot_frac) * fu_vert_overlap_fraction(levBaseSurge, level))
           b_src%height_frac(iLev) = b_src%height_frac(iLev) + fraction
-       else if (b_src%IfSurface) then     !Surface burst: hat and stem
+        case (blast_on_surface)                    !Surface burst: hat and stem
           do i = 1,3
              fraction = fraction + (stemFractions(i) * fu_vert_overlap_fraction(levStemThirds(i), level)) + &
                                  & (hatFractions(i)  * fu_vert_overlap_fraction(levHatThirds(i),  level))
           end do
           b_src%height_frac(iLev) = b_src%height_frac(iLev) + fraction
+        case default
+          call set_error('Unknown blast location switch:' + fu_str(b_src%location_switch), sub_name)
+      end select
+      if(fu_fails(b_src%height_frac(iLev) >= 0.0, 'About to inject negative mass to a level',sub_name))return
+    end do  ! iLev
+    
+    !
+    ! Stuff beyond the projection
+    !
+    forced_act = 1.0 - sum(b_src%height_frac)
+    !
+    ! Error if activity forced too much, warning if quite a lot
+    !
+    if (forced_act > 0.01) then
+       call msg_warning('Some of the activity is above SILAM top and is forced to the highest SILAM level',sub_name)
+       call msg('The fraction of stuff forced from bwyond the domain',forced_act)
+       if (forced_act > 0.5) then
+         call msg("Mushroom heights: stem_bottom, stem_top, hat_top", (/stem_bottom, stem_top, hat_top/))
+         call msg("Dispersion vertical:")
+         call report(vertical, .True.)
+         call set_error('Too much stuff emitted beyond the dispersion vertical', sub_name)
+
        endif
-       if (b_src%height_frac(iLev) < 0.0) call set_error('About to inject negative mass to a level',sub_name)
-       if (error) return
-    end do
-    if (b_src%height_frac(nlevels) > 0.0) then
-       !
-       !Determine forced_act based on perfection of overlap
-       !
-       forced_act = 1.0 - sum(b_src%height_frac)
-       !
-       !Error if activity forced too much, warning if quite a lot
-       !
-       if (forced_act > 0.01) then
-          call msg_warning('Some of the activity is above SILAM top and is forced to the highest SILAM level',sub_name)
-          call msg('The percentage of activity that is forced from out of bounds to the highest level is',forced_act*100.0)
-       end if
-       !
-       !Force the remaining fraction of the bomb the the highest SILAM level
-       !
-       b_src%height_frac(nlevels) = b_src%height_frac(nlevels) + forced_act
-    else
-       dummy_sum = sum(b_src%height_frac)
-       do i = 1,nlevels
-          b_src%height_frac(i) = b_src%height_frac(i)/dummy_sum
-       end do
     end if
     !
-    if ((sum(b_src%height_frac) > 1.001) .or. (sum(b_src%height_frac) < 0.999)) call set_error('Fraction total not 1',sub_name)
-    if (error) return
+    ! Force the remaining fraction of the bomb the the highest SILAM level
+    !
+    b_src%height_frac(nlevels) = b_src%height_frac(nlevels) + forced_act
+
+    !
+    if (.not. abs(sum(b_src%height_frac) - 1.0) < 0.001)  then
+        call msg("bomb fraction per levels", b_src%height_frac(i))
+        call set_error('Fraction total not 1',sub_name)
+
+        return
+    endif
        
   end subroutine initialize_vertical_fraction
 
@@ -622,7 +596,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  subroutine fill_b_src_from_namelist(nlSrc, b_src)
+  subroutine fill_b_src_from_namelist(nlSrc, b_src, chBombSrcFileVersion)
     !
     ! Reads and sets one bomb source term from an external file.
     !
@@ -630,24 +604,25 @@ CONTAINS
     !
     ! Imported parameters
     TYPE(silam_bomb_source), intent(inout) :: b_src
+    character(len=*), intent(in) :: chBombSrcFileVersion
     type(Tsilam_namelist), pointer :: nlSrc
 
     ! Local declarations:
     REAL :: fLat, fLon
     integer :: iLocal, iTmp
-    type(silam_sp) :: spContent
     character(len=10) :: chUnit
-    type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
-    logical :: ifSpecies
     character(len=*), parameter :: sub_name = 'fill_b_src_from_namelist'
 
     ! A bit of preparations
     !
     b_src%defined = silja_false
 
-    spContent%sp => fu_work_string()
-    nullify(ptrItems)
-    if(error)return
+    if (chBombSrcFileVersion /= '4') then
+      call set_error("only BOMB_SOURCE_4 is supported", sub_name)
+      return
+    endif
+
+
     
     !
     !  Name of the source should come
@@ -685,8 +660,10 @@ CONTAINS
     !  Bomb type, options: URANIUM, PLUTONIUM
     !
     b_src%bomb_type = fu_content(nlSrc,'bomb_type')
-    if (fu_fails(b_src%bomb_type == 'URANIUM' .or. b_src%bomb_type == 'PLUTONIUM', &
-                                      & 'Missing or wrong bomb_type (can be URANIUM or PLUTONIUM)',sub_name))return
+    if (fu_fails(b_src%bomb_type == 'URANIUM' &
+             & .or. b_src%bomb_type == 'PLUTONIUM' &
+             & .or. b_src%bomb_type == 'PASSIVE', &
+          & 'Missing or wrong bomb_type (can be URANIUM or PLUTONIUM or PASSIVE)',sub_name))return
     !
     !  Lognormal distribution based on, options: KDFOC3, BAKER
     !  KDFOC3: A Nuclear Fallout Assessment Capability Harvey et al. 1992, UCRL-TM-222788
@@ -714,42 +691,32 @@ CONTAINS
        b_src%fission_fraction = 0.5 + 0.5*((b_src%total_yield-300.0)/(700.0-300.0))
     end if
     !
-    ! Things have been done but do NOT destroy the namelist - it was not you who made it
+    ! Aerosol modes are in the namelist, get them
     !
-    call msg('Bomb source name:' + b_src%src_nm)
-
-    b_src%defined = silja_true
-    !
-    ! Some parameters set here that might be reasonable later to be set in namelist:
-    !
-    spContent%sp = fu_content(nlSrc,'selected_particle_size_range')
-    if(fu_str_u_case(spContent%sp) == 'FULL_RANGE')then
-      ! Diameter of the smallest aerosol boundary
-      b_src%smallest_aerosol = 0.05
-      !Diameter of the largest aerosol boundary
-      b_src%largest_aerosol = 100.0
-    else
-      read(unit = spContent%sp, fmt=*, iostat=iTmp) b_src%smallest_aerosol, b_src%largest_aerosol, chUnit
-      if(fu_fails(iTmp==0,'Failed to read selected_particle_size_range from string:' + spContent%sp,sub_name))return
-      if(fu_fails(b_src%smallest_aerosol < b_src%largest_aerosol,'Strange aerosol size range, from:' + &
-                & fu_str(b_src%smallest_aerosol) + ', to:' + fu_str(b_src%largest_aerosol), sub_name))return
-      b_src%smallest_aerosol = b_src%smallest_aerosol * fu_conversion_factor(chUnit,'mkm')
-      b_src%largest_aerosol = b_src%largest_aerosol * fu_conversion_factor(chUnit,'mkm')
-    endif  ! considered size range
-    !How many bins will be created between them
-    iTmp = fu_content_int(nlSrc,'aerosol_bins')
-    if (iTmp == int_missing) call set_error('Missing aerosol_bins in bomb source',sub_name)
-    if (iTmp < 2 .or. iTmp > 100) call set_error('Unreasonable number of bins requested by user',sub_name)
-    b_src%bins_between = iTmp
+    call set_aerosol(nlSrc, b_src%aerosolSrc)
+    if(error)return
     !
     ! Call function to fill in b_src derivec attributes
     !
-    call init_bomb_derived_params(b_src)
+    call init_bomb_derived_params(b_src, .false.)
+    if(error)return
+    !
     !NOTE: derived values already initialized, but they are misleading if
     ! surface isnt normal land. They are initialized more accurately later
     ! and these are only used for reporting.
     !
-    call free_work_array(spContent%sp)
+    b_src%defined = silja_true
+    !
+    ! Set the cocktail. It depends on the blast height 
+    ! Needs defined source
+    !
+
+    call set_cocktail_bomb_source(b_src)
+    if(error)return
+    !
+    ! Things have been done but do NOT destroy the namelist - it was made above
+    !
+    call msg('Bomb source name:' + b_src%src_nm)
 
   END subroutine fill_b_src_from_namelist
 
@@ -771,81 +738,84 @@ CONTAINS
     real, intent(out) :: base_surge_radius, stem_radius, hat_radius
     
     ! Calculate stem and cloud dimensions:
-    if (b_src%ifAir) then !Air burst
-       !Only hat created
-       stem_bottom = 0.0
-       !stem top defines the hat bottom
-       IF (b_src%total_yield <= 20) THEN
+    select case(b_src%location_switch)
+      case (blast_in_air)                       !Air burst: only hat present
+        !Only hat created
+        stem_bottom = 0.0
+        !stem top defines the hat bottom
+        IF (b_src%total_yield <= 20) THEN
           stem_top = 1670.0*b_src%total_yield**0.477
-       ELSE
+        ELSE
           stem_top = 4450.1*b_src%total_yield**0.159
-       END IF
-       ! Currently bomb detonation height doesn't affect the height of the hat for air bursts.
-       ! This model is incapable of simulating a bomb cloud that is detonated at high altitude.
-       ! So if this parametrization leads to lower hat bottom as detonation height error is invoked.
-       if (stem_top < b_src%blast_height_m) call set_error('Too high detonation height set','init_mushroom_b_src')
-       !
-       IF (b_src%total_yield <= 20) THEN
+        END IF
+        ! Currently bomb detonation height doesn't affect the height of the hat for air bursts.
+        ! This model is incapable of simulating a bomb cloud that is detonated at high altitude.
+        ! So if this parametrization leads to lower hat bottom as detonation height error is invoked.
+        if (stem_top < b_src%blast_height_m) call set_error('Too high detonation height set','init_mushroom_b_src')
+        !
+        IF (b_src%total_yield <= 20) THEN
           hat_top = 3365.0*b_src%total_yield**0.38
-       ELSE
+        ELSE
           hat_top = 6370.3*b_src%total_yield**0.177 !realistic-ish even for tsar bomba
-       END IF
-       hat_radius = 970.0*b_src%total_yield**0.42
-       stem_radius = 0.0
-       base_surge_radius = 0.0
-    else if (b_src%ifSurface) then !Surface burst
-       !Hat and stem are created
-       stem_bottom = 0.0
-       IF (b_src%total_yield <= 20) THEN
+        END IF
+        hat_radius = 970.0*b_src%total_yield**0.42
+        stem_radius = 0.0
+        base_surge_radius = 0.0
+        
+      case(blast_on_surface)                        !Surface burst
+        !Hat and stem are created
+        stem_bottom = 0.0
+        IF (b_src%total_yield <= 20) THEN
           stem_top = 1670.0*b_src%total_yield**0.477
-       ELSE
+        ELSE
           stem_top = 4450.1*b_src%total_yield**0.159
-       END IF
+        END IF
        
-       IF (b_src%total_yield <= 20) THEN
+        IF (b_src%total_yield <= 20) THEN
           hat_top = 3365.0*b_src%total_yield**0.38
-       ELSE
+        ELSE
           hat_top = 6370.3*b_src%total_yield**0.177
-       END IF
-       hat_radius = 970.0*b_src%total_yield**0.42
-       ! Radius of stem is calculated by linear interpolation from known stem radii
-       ! for 20 kt and 1 Mt. For small explosions, this may lead to greater radius
-       ! of stem than that of cloud, which is avoided by forcing stem radius to that
-       ! of cloud:
-       ! EDIT: changed so that stem can be half the radius of hat at maximum
-       stem_radius = max(b_src%fireball_radius*3.0, 1705.0 + (2647.5 - 1705.0) * (b_src%total_yield - 20.0)/(1000.0 - 20.0))
-       base_surge_radius = 0.0
-    else if (b_src%ifUnderground) then !bomb detonated underwater or underground
-       !Argueably the amount of escaped material is larger when bomb is detonated underground than underwater
-       ! but underwater explosions vaporize water that condensates as droplets and fall relatively faster.
-       !The unknowns in both cases disable our ability to determine even if either of these detonations 
-       ! lead to higher effective yield as other.
-       !Nevertheless the detonation depth is already taken into account in the venting fraction calculation.
-       !Therefore here underwater and underground detonations are treated the same.
-       IF (b_src%total_yield <= 20) THEN
+        END IF
+        hat_radius = 970.0*b_src%total_yield**0.42
+        ! Radius of stem is calculated by linear interpolation from known stem radii
+        ! for 20 kt and 1 Mt. For small explosions, this may lead to greater radius
+        ! of stem than that of cloud, which is avoided by forcing stem radius to that
+        ! of cloud:
+        ! EDIT: changed so that stem can be half the radius of hat at maximum
+        stem_radius = max(b_src%fireball_radius*3.0, 1705.0 + (2647.5 - 1705.0) * (b_src%total_yield - 20.0)/(1000.0 - 20.0))
+        base_surge_radius = 0.0
+        
+      case(blast_underground)                        !bomb detonated underwater or underground
+        !Argueably the amount of escaped material is larger when bomb is detonated underground than underwater
+        ! but underwater explosions vaporize water that condensates as droplets and fall relatively faster.
+        !The unknowns in both cases disable our ability to determine even if either of these detonations 
+        ! lead to higher effective yield as other.
+        !Nevertheless the detonation depth is already taken into account in the venting fraction calculation.
+        !Therefore here underwater and underground detonations are treated the same.
+        IF (b_src%total_yield <= 20) THEN
           stem_top = 1670.0*b_src%total_yield**0.477
-       ELSE
+        ELSE
           stem_top = 4450.1*b_src%total_yield**0.159
-       END IF
+        END IF
        
-       IF (b_src%total_yield <= 20) THEN
+        IF (b_src%total_yield <= 20) THEN
           hat_top = 3365.0*b_src%total_yield**0.38
-       ELSE
+        ELSE
           hat_top = 6370.3*b_src%total_yield**0.177
-       END IF
-       hat_radius = 970.0*b_src%total_yield**0.42
-       stem_radius = max(b_src%fireball_radius*3.0, 1705.0 + (2647.5 - 1705.0) * (b_src%total_yield - 20.0)/(1000.0 - 20.0))
-       !Base surge height is thought to reach stem top height in the limit of 0 venting fraction
-       ! -limit of veting fraction = 1 base surge height is 0
+        END IF
+        hat_radius = 970.0*b_src%total_yield**0.42
+        stem_radius = max(b_src%fireball_radius*3.0, 1705.0 + (2647.5 - 1705.0) * (b_src%total_yield - 20.0)/(1000.0 - 20.0))
+        !Base surge height is thought to reach stem top height in the limit of 0 venting fraction
+        ! -limit of veting fraction = 1 base surge height is 0
        
-       stem_bottom = (1.0 - b_src%venting_fraction)*stem_top
-       !Base surge radius is thought to reach 2*hat radius in limit of venting fraction = 0
-       ! -limit of veting fraction = 1 base surge radius is stem radius
-       base_surge_radius = (1.0 - b_src%venting_fraction)*2.0*stem_radius + stem_radius
-    else
+        stem_bottom = (1.0 - b_src%venting_fraction)*stem_top
+        !Base surge radius is thought to reach 2*hat radius in limit of venting fraction = 0
+        ! -limit of veting fraction = 1 base surge radius is stem radius
+        base_surge_radius = (1.0 - b_src%venting_fraction)*2.0*stem_radius + stem_radius
+      case default
        !None of the logicals, just an extra error setter
        call set_error('Impossible bomb','init_mushroom_b_src')
-    end if
+    end select
 
   end subroutine init_mushroom_b_src
 
@@ -1112,14 +1082,14 @@ CONTAINS
 
   !****************************************************************
 
-  subroutine inject_emission_euler_bomb_src(b_src, &
-                                          & mapEmis, mapCoordX, mapCoordY, mapCoordZ, &
-                                          & met_buf, disp_buf, &
-                                          & now, timestep, &
-                                          & ifSpeciesMoment, &
-                                          & fMassInjected, &
-                                          & pHorizInterpMet2DispStruct, &
-                                          & ifHorizInterp)
+  subroutine inject_emission_euler_b_src(b_src, &
+                                       & mapEmis, mapCoordX, mapCoordY, mapCoordZ, &
+                                       & met_buf, disp_buf, &
+                                       & now, timestep, &
+                                       & ifSpeciesMoment, &
+                                       & fMassInjected, &
+                                       & pHorizInterpMet2DispStruct, &
+                                       & ifHorizInterp)
     !
     ! Adds the emission flux to the concentration map and stores the position
     ! of the injected mass to map*Coord. All maps may contain some data before,
@@ -1174,7 +1144,7 @@ CONTAINS
     land = fu_get_value(fraction_of_land_fld, nx_meteo, ixSrc, iySrc, &
                       & pHorizInterpMet2DispStruct, .not. (meteo_grid == dispersion_grid))
     
-    if(fu_fails(land<=1. .and. land >= 0., 'strange land fraction:' + fu_str(land),'inject_emission_euler_bomb_src'))return
+    if(fu_fails(land<=1. .and. land >= 0., 'strange land fraction:' + fu_str(land),'inject_emission_euler_b_src'))return
 
     if (land < 0.1) then
       ! 
@@ -1184,7 +1154,7 @@ CONTAINS
       !
       ! Init params again using density weighted detonation height if underwater
       !
-      call init_bomb_derived_params(b_src,.true.)
+      call init_bomb_derived_params(b_src, .true.)
       !
       amounts => fu_work_array()
       if(error)return
@@ -1209,7 +1179,7 @@ CONTAINS
       !
       call msg('Bomb over land, land fraction:',land)
       !
-      call init_bomb_derived_params(b_src)
+      call init_bomb_derived_params(b_src, .false.)
       amounts => fu_work_array()
       if(error)return
       call total_bomb_src_species_unit(b_src, species, nspecies, amounts, now, timestep)
@@ -1241,7 +1211,7 @@ CONTAINS
                              & momY(-iDistCells:iDistCells,-iDistCells:iDistCells,5), &
                              & stat=iTmp)
     if(fu_fails(iTmp == 0, 'Failed to allocate temporary for grid cell coverage', &
-                         & 'inject_emission_bomb_source'))return
+                         & 'inject_emission_b_src'))return
     
     !For levels between two radii average radius is implemented
     base_surge_stem_r = (base_surge_radius + stem_radius)/2.0
@@ -1255,12 +1225,6 @@ CONTAINS
        !For each radii get the coverage and moments, each radius is referred now with iC
        call get_horizontal_coverage_and_mom_4_corners(cell_fraction_in_cloud(:,:,iC), momX(:,:,iC), momY(:,:,iC), &
                                                     & allRadii(iC),iDistcells, fDX, fDY, xShift, yShift)
-       !There is a cloud but it is so small that it doesn't reach any grid points
-       !then the nearest cell will have all activity.
-       !Specifically the stem showed this behaviour in tests (it is the smallest radii cloud).
-       if ((allRadii(iC) > 0.0) .and. (sum(cell_fraction_in_cloud(:,:,iC)) == 0.0)) then
-          cell_fraction_in_cloud(0,0,iC) = 1.0
-       end if
     end do
     ! This mass has to be distributed along the vertical. All what we need is the top of the stem
     ! and the top of the cloud. Both of them are given in meters and have to be projected to 
@@ -1285,7 +1249,7 @@ CONTAINS
        ! What part of the cloud is this level
        !
        if (activityInLevel == 0.0) cycle !Not in cloud
-       if (activityInLevel < 0.0) call set_error('About to inject negative mass','inject_emission_euler_bomb_src')
+       if (activityInLevel < 0.0) call set_error('About to inject negative mass','inject_emission_euler_b_src')
        if (error) return
        if ((base_surge_radius > 0.0) .and. (iLev+0.5 <= fStemBottomLev)) then !Base surge cloud
           iC = 1
@@ -1302,7 +1266,7 @@ CONTAINS
        end if
        if (iLev == fu_NbrOfLevels(mapEmis%vertTemplate)) iC = 5 !Force highest level as hat
        if (sum(cell_fraction_in_cloud(:,:,iC)) == 0.0) call set_error('If there is activity then it should be in some grid cells', &
-                                                                    & 'inject_emission_euler_bomb_src')
+                                                                    & 'inject_emission_euler_b_src')
        if (error) return
        !
        ! Inject the specific substances directly into mapEmis using pEmisCocktailMapping, which is
@@ -1378,15 +1342,15 @@ CONTAINS
 
     deallocate(cell_fraction_in_cloud, stat=iTmp)
     if(fu_fails(iTmp == 0, 'Failed deallocating temporary grid cell coverage', &
-              & 'inject_emission_bomb_source')) call unset_error('inject_emission_bomb_source')
+              & 'inject_emission_bomb_source')) call unset_error('inject_emission_b_src')
     call free_work_array(amounts)
     
-  end subroutine inject_emission_euler_bomb_src
+  end subroutine inject_emission_euler_b_src
 
   
   !**************************************************************************
 
-  subroutine inject_emission_lagr_bomb_src(b_src, &
+  subroutine inject_emission_lagr_b_src(b_src, &
                                       & lpSet, arParticleMass, & ! Lagrangian
                                       & ChemRunSetup, &  ! translate emission species to transport
                                       & met_buf, disp_buf, &
@@ -1625,7 +1589,7 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     lpset%iFirstEmptyParticle = iParticle
 
     
-  end subroutine inject_emission_lagr_bomb_src
+  end subroutine inject_emission_lagr_b_src
                                           
                                           
   !==========================================================================
@@ -1692,18 +1656,20 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
        sdob = -height*3.2808399/(yield**0.294) !height transfered to feet and positive
        if (sdob > 200.0) then !when scaled depth of burial is deeper than 200 feet bomb has no effect
           vf = 0.0
-          call set_error('Given bomb size and depth buries the bomb totally, no emission or emission would be highly uncertain','fu_venting_fraction')
+          call set_error('Given bomb size and depth buries the bomb totally, no emission or emission would be highly uncertain', &
+                       & 'fu_venting_fraction')
        else
           !function fitted to match KDFOC venting fraction figure:
           !small burial doesn't give much effect on the escaping amount,
           !but then at some point it starts quite rapidly to be significant
           vf = -0.6831437 + (1.000321 + 0.6831437)/(1 + (sdob/183.9856)**4.245358)
-          if (vf < 0.0) call set_error('Given bomb size and depth buries the bomb totally, no emission or emission would be highly uncertain','fu_venting_fraction')
+          if (vf < 0.0) call set_error('Given bomb size and depth buries the bomb totally, no emission or emission would be highly uncertain', &
+                                     & 'fu_venting_fraction')
           if (vf > 0.97) vf = 0.97
        end if
     end if
-    
   end function fu_venting_fraction
+  
   !==========================================================================
   function fu_fission_yield(yield, height, fission_fraction) result(fission_yield)
     !Fusion neutron activation products induce 'fission' yield (KDFOC3)
@@ -1726,16 +1692,17 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
                          & (induced_bomb + induced_surface + induced_buried) &
                          & )
   end function fu_fission_yield
+  
   !==========================================================================
-  function fu_fireball_fraction(yield, height) result(ff)
+  function fu_fireball_buried_fraction(yield, height) result(ff)
     !Is one when height is 0 and is zero when height is
     !fireball_radius = 55.0*(yield**0.3) !DELFIC
-    !fireball_fraction = 0.45345**(0.05048*height*(yield**(1.0/3.0))) !DELFIC
+    !fireball_buried_fraction = 0.45345**(0.05048*height*(yield**(1.0/3.0))) !DELFIC
     implicit none
     real :: yield, height, fireball_radius, ff
     !Fireball radius is calculated assuming activation products from fusion neutron
     ! activation from surface and bomb material is maxed: overestimates the fireball
-    ! size for bombs above surface not to underestimate the actual activation products
+    ! size for bombs above surface in order not to underestimate the actual activation products
     ! calculated later.
     ! NOTE: fireball radius is different here than in other uses (KDFOC3)
     fireball_radius = 55.0*(yield**0.4)
@@ -1746,103 +1713,92 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     else !not surface detonation, but fireball reaches surface
        !ff is the volume of the half sphere that is underground divided
        !   by the volume of the half sphere
-       ff = ((fireball_radius - height)**2.0 &
-           & * (2.0*fireball_radius + height)) & 
-          & /(2.0*fireball_radius**3.0) !KDFOC3
+       ff = (fireball_radius - height)**2.0 * (2.0*fireball_radius + height) / & ! underground volume
+          & (2.0 * fireball_radius**3.0)         ! half-sphere volume, Pi/3 factors cancelled
     end if
-  end function fu_fireball_fraction
+  end function fu_fireball_buried_fraction
+  
   !==========================================================================
   function fu_fireball_radius(yield) result(fr)
     implicit none
     real :: yield, fr
     fr = 30.0*(yield**0.333) !KDFOC3
   end function fu_fireball_radius
+  
   !==========================================================================
   subroutine get_horizontal_coverage_and_mom_4_corners(cell_fraction_in_cloud, momX, momY, &
                                               & radius, iDistcells, fDX, fDY, xShift, yShift)
     !
-    !Allocates the 2d cell fractions and moments inside the cloud based on
-    !simply checking if each corner is inside the radius.
-    !
-    !Note: this system leads to giving +/-0.5 moments to the cells in the edges
-    !so strange mass centre warning is invoked quote a lot. Bad thing???
+    ! Projects circle to grid: Check if centers of the refined  grid are within the circle
+    ! 
+
     implicit none
     !out
     real, dimension(-iDistCells:iDistCells,-iDistCells:iDistCells), &
-         & intent(inout) :: cell_fraction_in_cloud, momX, momY
+         & intent(out) :: cell_fraction_in_cloud, momX, momY
     !in
     integer, intent(in) :: iDistcells
     real, intent(in) :: radius, fDX, fDY, xShift, yShift
     !local
     integer :: ix, iy
-    real :: fDist, total
+    real :: fDist2, R2,total
     
     cell_fraction_in_cloud = 0.0
     momX = 0.0
     momY = 0.0
     
+    R2 = radius*radius
     do iy = -iDistCells, iDistCells
        do ix = -iDistCells, iDistCells
-          ! Corner 1 (-x,-y)
-          fDist = sqrt(((ix-0.5 - xShift)*fDX)**2 + ((iy-0.5 - yShift)*fDY)**2.0)
-          if (fDist <= radius) then
+          
+          ! Corner subcell 1 (-x,-y)
+          fDist2 = (((ix-0.25 - xShift)*fDX)**2 + ((iy-0.25 - yShift)*fDY)**2.0)
+          if (fDist2 < R2) then
              cell_fraction_in_cloud(ix,iy) = cell_fraction_in_cloud(ix,iy) + 0.25
-             momX(ix,iy) = momX(ix,iy) - 0.25
-             momY(ix,iy) = momY(ix,iy) - 0.25
+             momX(ix,iy) = momX(ix,iy) - 0.125
+             momY(ix,iy) = momY(ix,iy) - 0.125
           end if
-          ! Corner 2 (+x,-y)
-          fDist = sqrt(((ix+0.5 - xShift)*fDX)**2 + ((iy-0.5 - yShift)*fDY)**2.0)
-          if (fDist <= radius) then
+          ! Corner subcell 2 (+x,-y)
+          fDist2 = (((ix+0.25 - xShift)*fDX)**2 + ((iy-0.25 - yShift)*fDY)**2.0)
+          if (fDist2 < R2) then
              cell_fraction_in_cloud(ix,iy) = cell_fraction_in_cloud(ix,iy) + 0.25
-             momX(ix,iy) = momX(ix,iy) + 0.25
-             momY(ix,iy) = momY(ix,iy) - 0.25
+             momX(ix,iy) = momX(ix,iy) + 0.125
+             momY(ix,iy) = momY(ix,iy) - 0.125
           end if
-          ! Corner 3 (-x,+y)
-          fDist = sqrt(((ix-0.5 - xShift)*fDX)**2 + ((iy+0.5 - yShift)*fDY)**2.0)
-          if (fDist <= radius) then
+          ! Corner subcell 3 (-x,+y)
+          fDist2 = (((ix-0.25 - xShift)*fDX)**2 + ((iy+0.25 - yShift)*fDY)**2.0)
+          if (fDist2 < R2) then
              cell_fraction_in_cloud(ix,iy) = cell_fraction_in_cloud(ix,iy) + 0.25
-             momX(ix,iy) = momX(ix,iy) - 0.25
-             momY(ix,iy) = momY(ix,iy) + 0.25
+             momX(ix,iy) = momX(ix,iy) - 0.125
+             momY(ix,iy) = momY(ix,iy) + 0.125
           end if
-          ! Corner 4 (+x,+y)
-          fDist = sqrt(((ix+0.5 - xShift)*fDX)**2 + ((iy+0.5 - yShift)*fDX)**2)
-          if (fDist <= radius) then
+          ! Corner subcell 4 (+x,+y)
+          fDist2 = (((ix+0.25 - xShift)*fDX)**2 + ((iy+0.25 - yShift)*fDX)**2)
+          if (fDist2 < R2) then
              cell_fraction_in_cloud(ix,iy) = cell_fraction_in_cloud(ix,iy) + 0.25
-             momX(ix,iy) = momX(ix,iy) + 0.25
-             momY(ix,iy) = momY(ix,iy) + 0.25
+             momX(ix,iy) = momX(ix,iy) + 0.125
+             momY(ix,iy) = momY(ix,iy) + 0.125
           end if
        end do   ! ix +- iDistCells
     end do  ! iy +- iDistCells
-    
+
     total = sum(cell_fraction_in_cloud)
-    do iy = -iDistCells, iDistCells
-       do ix = -iDistCells, iDistCells
-          !final product is divided by the total to get relative importance of each cell
-          cell_fraction_in_cloud(ix,iy) = cell_fraction_in_cloud(ix,iy) / total
-          !Eliminate NaNs
-          if (isnan(cell_fraction_in_cloud(ix,iy))) cell_fraction_in_cloud(ix,iy) = 0.0
-          if (isnan(momX(ix,iy))) momX(ix,iy) = 0.0
-          if (isnan(momY(ix,iy))) momY(ix,iy) = 0.0
-          !Eliminate illegal momentum
-          if (momX(ix,iy) > 0.5) then
-             momX(ix,iy) = 0.499
-             print*,'error was here'
-          end if
-          if (momY(ix,iy) > 0.5) then
-             momY(ix,iy) = 0.499
-             print*,'error was hhere'
-          end if
-       end do
-    end do
-    if (((sum(cell_fraction_in_cloud) < 0.999) .and. &
-       & (sum(cell_fraction_in_cloud) /= 0.0 )) .or. &
-      & (sum(cell_fraction_in_cloud) > 1.001  )) &
-     & call set_error('Total of fractions must equal to unity (or zero for radius 0)','get_horizontal_coverage_and_mom_4_corners')
-    if (error) return
+
+    if (total == 0.) then !! None of the cells hit: circle within 
+      cell_fraction_in_cloud(0,0) = 1.
+      momX(0,0) = xShift
+      momY(0,0) = yShift
+    else  !! Just  normalize
+      cell_fraction_in_cloud = cell_fraction_in_cloud / total
+    endif
+
+
   end subroutine get_horizontal_coverage_and_mom_4_corners
+
   !==========================================================================
   
-  subroutine uranium_ind_stuk(nuc_list, activities)
+  subroutine uranium_ind_stuk(blast_nuclides)
+    !
     !Returns list of nuclides and corresponding activities in becquerel/kiloton
     !compiled by STUK and based mostly on two papers by Kraus and Foster and
     !England and Rider both from 2013. For a possible improvised nuclear device
@@ -1852,280 +1808,163 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !case that activities need to be later revised.
     !
     !Ps. list gives untrimmed nuclide names -> make sure to trim them before use
+    !
     implicit none
-    integer, parameter :: number_of_nuclides = 56
-    real, dimension(max_nuclides), intent(out) :: activities
-    character(len=nuc_name_len), dimension(max_nuclides), intent(out) :: nuc_list
-    integer :: i
-    do i = 1,max_nuclides
-       activities(i) = 0.0
-       nuc_list(i) = 'XXXXXXX'
-    end do
-    nuc_list(1:number_of_nuclides) = &
-              &(/'KR_85M ',&  !8.24E+16
-                &'KR_85  ',&  !8.66E+09
-                &'KR_87  ',&  !5.45E+17
-                &'KR_88  ',&  !3.27E+17
-                &'XE_133M',&  !2.15E+13
-                &'XE_133 ',&  !3.10E+12
-                &'XE_135M',&  !1.93E+17
-                &'XE_135 ',&  !3.48E+15
-                &'XE_137 ',&  !2.63E+19
-                &'XE_138 ',&  !6.93E+18
-                &'BA_140 ',&  !5.37E+15
-                &'BA_141 ',&  !5.31E+18
-                &'BA_142 ',&  !8.48E+18
-                &'CE_141 ',&  !1.08E+10
-                &'CE_143 ',&  !1.11E+13
-                &'CE_144 ',&  !2.10E+14
-                &'CO_58  ',&  !4.54E+13
-                &'CO_58M ',&  !8.43E+15
-                &'CS_137 ',&  !2.38E+11
-                &'CS_138 ',&  !2.60E+17
-                &'I_131  ',&  !1.47E+12
-                &'I_132  ',&  !1.32E+15
-                &'I_133  ',&  !5.24E+15
-                &'I_134  ',&  !2.27E+17
-                &'I_135  ',&  !2.62E+17
-                &'LA_141 ',&  !3.16E+14
-                &'LA_142 ',&  !5.15E+15
-                &'LA_143 ',&  !6.55E+18
-                &'MN_54  ',&  !8.45E+12
-                &'MN_56  ',&  !7.65E+17
-                &'MO_99  ',&  !2.52E+16
-                &'MO_101 ',&  !5.83E+18
-                &'RU_103 ',&  !9.96E+14
-                &'RU_106 ',&  !2.09E+13
-                &'SB_128 ',&  !1.27E+14
-                &'SB_129 ',&  !5.37E+16
-                &'SB_130 ',&  !1.27E+17
-                &'SB_131 ',&  !2.10E+18
-                &'SN_128 ',&  !1.44E+17
-                &'SR_89  ',&  !9.88E+14
-                &'SR_90  ',&  !5.84E+12
-                &'SR_91  ',&  !1.63E+17
-                &'SR_92  ',&  !5.88E+17
-                &'TC_104 ',&  !2.04E+18
-                &'TE_131 ',&  !5.32E+16
-                &'TE_131M',&  !2.23E+15
-                &'TE_132 ',&  !1.67E+16
-                &'TE_133 ',&  !3.39E+18
-                &'TE_133M',&  !8.46E+17
-                &'TE_134 ',&  !2.57E+18
-                &'Y_92   ',&  !2.16E+14
-                &'Y_93   ',&  !1.69E+17
-                &'Y_94   ',&  !5.37E+18
-                &'Y_95   ',&  !9.76E+18
-                &'ZR_95  ',&  !2.54E+12
-                &'ZR_97  '/)  !9.81E+16
     
-    activities(1:number_of_nuclides) = &
-                &(/8.24E+16,&  !KR_85M
-                  &8.66E+09,&  !KR_85
-                  &5.45E+17,&  !KR_87
-                  &3.27E+17,&  !KR_88
-                  &2.15E+13,&  !XE_133M
-                  &3.10E+12,&  !XE_133
-                  &1.93E+17,&  !XE_135M
-                  &3.48E+15,&  !XE_135
-                  &2.63E+19,&  !XE_137
-                  &6.93E+18,&  !XE_138
-                  &5.37E+15,&  !BA_140
-                  &5.31E+18,&  !BA_141
-                  &8.48E+18,&  !BA_142
-                  &1.08E+10,&  !CE_141
-                  &1.11E+13,&  !CE_143
-                  &2.10E+14,&  !CE_144
-                  &4.54E+13,&  !CO_58
-                  &8.43E+15,&  !CO_58M
-                  &2.38E+11,&  !CS_137
-                  &2.60E+17,&  !CS_138
-                  &1.47E+12,&  !I_131
-                  &1.32E+15,&  !I_132
-                  &5.24E+15,&  !I_133
-                  &2.27E+17,&  !I_134
-                  &2.62E+17,&  !I_135
-                  &3.16E+14,&  !LA_141
-                  &5.15E+15,&  !LA_142
-                  &6.55E+18,&  !LA_143
-                  &8.45E+12,&  !MN_54
-                  &7.65E+17,&  !MN_56
-                  &2.52E+16,&  !MO_99
-                  &5.83E+18,&  !MO_101
-                  &9.96E+14,&  !RU_103
-                  &2.09E+13,&  !RU_106
-                  &1.27E+14,&  !SB_128
-                  &5.37E+16,&  !SB_129
-                  &1.27E+17,&  !SB_130
-                  &2.10E+18,&  !SB_131
-                  &1.44E+17,&  !SN_128
-                  &9.88E+14,&  !SR_89
-                  &5.84E+12,&  !SR_90
-                  &1.63E+17,&  !SR_91
-                  &5.88E+17,&  !SR_92
-                  &2.04E+18,&  !TC_104
-                  &5.32E+16,&  !TE_131
-                  &2.23E+15,&  !TE_131M
-                  &1.67E+16,&  !TE_132
-                  &3.39E+18,&  !TE_133
-                  &8.46E+17,&  !TE_133M
-                  &2.57E+18,&  !TE_134
-                  &2.16E+14,&  !Y_92
-                  &1.69E+17,&  !Y_93
-                  &5.37E+18,&  !Y_94
-                  &9.76E+18,&  !Y_95
-                  &2.54E+12,&  !ZR_95
-                  &9.81E+16/)  !ZR_97
+    ! Imported parameters
+    type(Tblast_nuclide), dimension(:), allocatable, intent(out) :: blast_nuclides
+    
+    ! Local parameters and variables
+    integer, parameter :: number_of_nuclides = 56
+    
+    allocate(blast_nuclides(number_of_nuclides))
+
+    blast_nuclides(1:number_of_nuclides) = &
+              & (/Tblast_nuclide('KR_85M' ,  8.24E+16), &
+                & Tblast_nuclide('KR_85  ',  8.66E+09), &
+                & Tblast_nuclide('KR_87  ',  5.45E+17), &
+                & Tblast_nuclide('KR_88  ',  3.27E+17), &
+                & Tblast_nuclide('XE_133M',  2.15E+13), &
+                & Tblast_nuclide('XE_133 ',  3.10E+12), &
+                & Tblast_nuclide('XE_135M',  1.93E+17), &
+                & Tblast_nuclide('XE_135 ',  3.48E+15), &
+                & Tblast_nuclide('XE_137 ',  2.63E+19), &
+                & Tblast_nuclide('XE_138 ',  6.93E+18), &
+                & Tblast_nuclide('BA_140 ',  5.37E+15), &
+                & Tblast_nuclide('BA_141 ',  5.31E+18), &
+                & Tblast_nuclide('BA_142 ',  8.48E+18), &
+                & Tblast_nuclide('CE_141 ',  1.08E+10), &
+                & Tblast_nuclide('CE_143 ',  1.11E+13), &
+                & Tblast_nuclide('CE_144 ',  2.10E+14), &
+                & Tblast_nuclide('CO_58  ',  4.54E+13), &
+                & Tblast_nuclide('CO_58M ',  8.43E+15), &
+                & Tblast_nuclide('CS_137 ',  2.38E+11), &
+                & Tblast_nuclide('CS_138 ',  2.60E+17), &
+                & Tblast_nuclide('I_131  ',  1.47E+12), &
+                & Tblast_nuclide('I_132  ',  1.32E+15), &
+                & Tblast_nuclide('I_133  ',  5.24E+15), &
+                & Tblast_nuclide('I_134  ',  2.27E+17), &
+                & Tblast_nuclide('I_135  ',  2.62E+17), &
+                & Tblast_nuclide('LA_141 ',  3.16E+14), &
+                & Tblast_nuclide('LA_142 ',  5.15E+15), &
+                & Tblast_nuclide('LA_143 ',  6.55E+18), &
+                & Tblast_nuclide('MN_54  ',  8.45E+12), &
+                & Tblast_nuclide('MN_56  ',  7.65E+17), &
+                & Tblast_nuclide('MO_99  ',  2.52E+16), &
+                & Tblast_nuclide('MO_101 ',  5.83E+18), &
+                & Tblast_nuclide('RU_103 ',  9.96E+14), &
+                & Tblast_nuclide('RU_106 ',  2.09E+13), &
+                & Tblast_nuclide('SB_128 ',  1.27E+14), &
+                & Tblast_nuclide('SB_129 ',  5.37E+16), &
+                & Tblast_nuclide('SB_130 ',  1.27E+17), &
+                & Tblast_nuclide('SB_131 ',  2.10E+18), &
+                & Tblast_nuclide('SN_128 ',  1.44E+17), &
+                & Tblast_nuclide('SR_89  ',  9.88E+14), &
+                & Tblast_nuclide('SR_90  ',  5.84E+12), &
+                & Tblast_nuclide('SR_91  ',  1.63E+17), &
+                & Tblast_nuclide('SR_92  ',  5.88E+17), &
+                & Tblast_nuclide('TC_104 ',  2.04E+18), &
+                & Tblast_nuclide('TE_131 ',  5.32E+16), &
+                & Tblast_nuclide('TE_131M',  2.23E+15), &
+                & Tblast_nuclide('TE_132 ',  1.67E+16), &
+                & Tblast_nuclide('TE_133 ',  3.39E+18), &
+                & Tblast_nuclide('TE_133M',  8.46E+17), &
+                & Tblast_nuclide('TE_134 ',  2.57E+18), &
+                & Tblast_nuclide('Y_92   ',  2.16E+14), &
+                & Tblast_nuclide('Y_93   ',  1.69E+17), &
+                & Tblast_nuclide('Y_94   ',  5.37E+18), &
+                & Tblast_nuclide('Y_95   ',  9.76E+18), &
+                & Tblast_nuclide('ZR_95  ',  2.54E+12), &
+                & Tblast_nuclide('ZR_97  ',  9.81E+16) /)
   end subroutine uranium_ind_stuk
 
 !============================================================================
 
-  subroutine plutonium_stuk(nuc_list, activities)
+  subroutine plutonium_stuk(blast_nuclides)
     !Does same as uranium_ind_stuk but for a plutonium device.
     implicit none
-    integer, parameter :: number_of_nuclides = 56
-    real, dimension(max_nuclides), intent(out) :: activities
-    character(len=nuc_name_len), dimension(max_nuclides), intent(out) :: nuc_list
-    integer :: i
-    do i = 1,max_nuclides
-       activities(i) = 0.0
-       nuc_list(i) = 'XXXXXXX'
-    end do
-    nuc_list(1:number_of_nuclides) = &
-              &(/'KR_85M ',&  !3.71E+16
-                &'KR_85  ',&  !2.81E+10
-                &'KR_87  ',&  !2.29E+17
-                &'KR_88  ',&  !1.27E+17
-                &'XE_133M',&  !2.47E+14
-                &'XE_133 ',&  !3.51E+13
-                &'XE_135M',&  !9.26E+17
-                &'XE_135 ',&  !1.88E+16
-                &'XE_137 ',&  !2.45E+19
-                &'XE_138 ',&  !5.60E+18
-                &'BA_140 ',&  !4.85E+15
-                &'BA_141 ',&  !4.65E+18
-                &'BA_142 ',&  !7.01E+18
-                &'CE_141 ',&  !8.81E+10
-                &'CE_143 ',&  !2.44E+14
-                &'CE_144 ',&  !1.50E+14
-                &'CO_58  ',&  !4.54E+13
-                &'CO_58M ',&  !8.43E+15
-                &'CS_137 ',&  !1.06E+12
-                &'CS_138 ',&  !3.55E+17
-                &'I_131  ',&  !2.91E+13
-                &'I_132  ',&  !2.13E+16
-                &'I_133  ',&  !1.74E+16
-                &'I_134  ',&  !3.82E+17
-                &'I_135  ',&  !2.58E+17
-                &'LA_141 ',&  !4.93E+15
-                &'LA_142 ',&  !4.93E+16
-                &'LA_143 ',&  !5.12E+18
-                &'MN_54  ',&  !8.45E+12
-                &'MN_56  ',&  !7.65E+12
-                &'MO_99  ',&  !2.53E+16
-                &'MO_101 ',&  !7.65E+18
-                &'RU_103 ',&  !2.02E+15
-                &'RU_106 ',&  !1.36E+14
-                &'SB_128 ',&  !1.14E+15
-                &'SB_129 ',&  !9.20E+16
-                &'SB_130 ',&  !2.43E+17
-                &'SB_131 ',&  !2.10E+18
-                &'SN_128 ',&  !2.24E+17
-                &'SR_89  ',&  !3.98E+14
-                &'SR_90  ',&  !2.25E+12
-                &'SR_91  ',&  !7.38E+16
-                &'SR_92  ',&  !3.11E+17
-                &'TC_104 ',&  !6.05E+18
-                &'TE_131 ',&  !1.68E+17
-                &'TE_131M',&  !6.15E+15
-                &'TE_132 ',&  !1.84E+16
-                &'TE_133 ',&  !1.66E+18
-                &'TE_133M',&  !1.11E+18
-                &'TE_134 ',&  !1.91E+18
-                &'Y_92   ',&  !1.59E+15
-                &'Y_93   ',&  !1.05E+17
-                &'Y_94   ',&  !3.78E+18
-                &'Y_95   ',&  !7.45E+18
-                &'ZR_95  ',&  !1.69E+13
-                &'ZR_97  '/)  !8.76E+16
     
-    activities(1:number_of_nuclides) = &
-                &(/3.71E+16,&  !KR_85M
-                  &2.81E+10,&  !KR_85
-                  &2.29E+17,&  !KR_87
-                  &1.27E+17,&  !KR_88
-                  &2.47E+14,&  !XE_133M
-                  &3.51E+13,&  !XE_133
-                  &9.26E+17,&  !XE_135M
-                  &1.88E+16,&  !XE_135
-                  &2.45E+19,&  !XE_137
-                  &5.60E+18,&  !XE_138
-                  &4.85E+15,&  !BA_140
-                  &4.65E+18,&  !BA_141
-                  &7.01E+18,&  !BA_142
-                  &8.81E+10,&  !CE_141
-                  &2.44E+14,&  !CE_143
-                  &1.50E+14,&  !CE_144
-                  &4.54E+13,&  !CO_58
-                  &8.43E+15,&  !CO_58M
-                  &1.06E+12,&  !CS_137
-                  &3.55E+17,&  !CS_138
-                  &2.91E+13,&  !I_131
-                  &2.13E+16,&  !I_132
-                  &1.74E+16,&  !I_133
-                  &3.82E+17,&  !I_134
-                  &2.58E+17,&  !I_135
-                  &4.93E+15,&  !LA_141
-                  &4.93E+16,&  !LA_142
-                  &5.12E+18,&  !LA_143
-                  &8.45E+12,&  !MN_54
-                  &7.65E+12,&  !MN_56
-                  &2.53E+16,&  !MO_99
-                  &7.65E+18,&  !MO_101
-                  &2.02E+15,&  !RU_103
-                  &1.36E+14,&  !RU_106
-                  &1.14E+15,&  !SB_128
-                  &9.20E+16,&  !SB_129
-                  &2.43E+17,&  !SB_130
-                  &2.10E+18,&  !SB_131
-                  &2.24E+17,&  !SN_128
-                  &3.98E+14,&  !SR_89
-                  &2.25E+12,&  !SR_90
-                  &7.38E+16,&  !SR_91
-                  &3.11E+17,&  !SR_92
-                  &6.05E+18,&  !TC_104
-                  &1.68E+17,&  !TE_131
-                  &6.15E+15,&  !TE_131M
-                  &1.84E+16,&  !TE_132
-                  &1.66E+18,&  !TE_133
-                  &1.11E+18,&  !TE_133M
-                  &1.91E+18,&  !TE_134
-                  &1.59E+15,&  !Y_92
-                  &1.05E+17,&  !Y_93
-                  &3.78E+18,&  !Y_94
-                  &7.45E+18,&  !Y_95
-                  &1.69E+13,&  !ZR_95
-                  &8.76E+16/)  !ZR_97
+    type(Tblast_nuclide), dimension(:), allocatable, intent(out) :: blast_nuclides
+
+    integer, parameter :: number_of_nuclides = 56
+    
+    allocate(blast_nuclides(number_of_nuclides))
+
+    blast_nuclides(1:number_of_nuclides) = &
+              &(/ Tblast_nuclide('KR_85M ',  3.71E+16), &
+                & Tblast_nuclide('KR_85  ',  2.81E+10), &
+                & Tblast_nuclide('KR_87  ',  2.29E+17), &
+                & Tblast_nuclide('KR_88  ',  1.27E+17), &
+                & Tblast_nuclide('XE_133M',  2.47E+14), &
+                & Tblast_nuclide('XE_133 ',  3.51E+13), &
+                & Tblast_nuclide('XE_135M',  9.26E+17), &
+                & Tblast_nuclide('XE_135 ',  1.88E+16), &
+                & Tblast_nuclide('XE_137 ',  2.45E+19), &
+                & Tblast_nuclide('XE_138 ',  5.60E+18), &
+                & Tblast_nuclide('BA_140 ',  4.85E+15), &
+                & Tblast_nuclide('BA_141 ',  4.65E+18), &
+                & Tblast_nuclide('BA_142 ',  7.01E+18), &
+                & Tblast_nuclide('CE_141 ',  8.81E+10), &
+                & Tblast_nuclide('CE_143 ',  2.44E+14), &
+                & Tblast_nuclide('CE_144 ',  1.50E+14), &
+                & Tblast_nuclide('CO_58  ',  4.54E+13), &
+                & Tblast_nuclide('CO_58M ',  8.43E+15), &
+                & Tblast_nuclide('CS_137 ',  1.06E+12), &
+                & Tblast_nuclide('CS_138 ',  3.55E+17), &
+                & Tblast_nuclide('I_131  ',  2.91E+13), &
+                & Tblast_nuclide('I_132  ',  2.13E+16), &
+                & Tblast_nuclide('I_133  ',  1.74E+16), &
+                & Tblast_nuclide('I_134  ',  3.82E+17), &
+                & Tblast_nuclide('I_135  ',  2.58E+17), &
+                & Tblast_nuclide('LA_141 ',  4.93E+15), &
+                & Tblast_nuclide('LA_142 ',  4.93E+16), &
+                & Tblast_nuclide('LA_143 ',  5.12E+18), &
+                & Tblast_nuclide('MN_54  ',  8.45E+12), &
+                & Tblast_nuclide('MN_56  ',  7.65E+12), &
+                & Tblast_nuclide('MO_99  ',  2.53E+16), &
+                & Tblast_nuclide('MO_101 ',  7.65E+18), &
+                & Tblast_nuclide('RU_103 ',  2.02E+15), &
+                & Tblast_nuclide('RU_106 ',  1.36E+14), &
+                & Tblast_nuclide('SB_128 ',  1.14E+15), &
+                & Tblast_nuclide('SB_129 ',  9.20E+16), &
+                & Tblast_nuclide('SB_130 ',  2.43E+17), &
+                & Tblast_nuclide('SB_131 ',  2.10E+18), &
+                & Tblast_nuclide('SN_128 ',  2.24E+17), &
+                & Tblast_nuclide('SR_89  ',  3.98E+14), &
+                & Tblast_nuclide('SR_90  ',  2.25E+12), &
+                & Tblast_nuclide('SR_91  ',  7.38E+16), &
+                & Tblast_nuclide('SR_92  ',  3.11E+17), &
+                & Tblast_nuclide('TC_104 ',  6.05E+18), &
+                & Tblast_nuclide('TE_131 ',  1.68E+17), &
+                & Tblast_nuclide('TE_131M',  6.15E+15), &
+                & Tblast_nuclide('TE_132 ',  1.84E+16), &
+                & Tblast_nuclide('TE_133 ',  1.66E+18), &
+                & Tblast_nuclide('TE_133M',  1.11E+18), &
+                & Tblast_nuclide('TE_134 ',  1.91E+18), &
+                & Tblast_nuclide('Y_92   ',  1.59E+15), &
+                & Tblast_nuclide('Y_93   ',  1.05E+17), &
+                & Tblast_nuclide('Y_94   ',  3.78E+18), &
+                & Tblast_nuclide('Y_95   ',  7.45E+18), &
+                & Tblast_nuclide('ZR_95  ',  1.69E+13), &
+                & Tblast_nuclide('ZR_97  ',  8.76E+16) /)
+    
   end subroutine plutonium_stuk
 
 !============================================================================
-
 
   logical function if_activation_isotope(name)
     !
     !True if isotope is formed via activation of ground.
     !
     !Input
-    character(len=nuc_name_len) :: name
+    character(len=*) :: name
     !Internal
-    if ((trim(name) == 'CO_58') .or. &
-      & (trim(name) == 'CO_58M') .or. &
-      & (trim(name) == 'MN_54') .or. &
-      & (trim(name) == 'MN_56')) then
-       if_activation_isotope = .true.
-    else
-       if_activation_isotope = .false.
-    end if
+    select case(trim(name))
+      case('CO_58', 'CO_58M', 'MN_54', 'MN_56')
+        if_activation_isotope = .true.
+      case default
+        if_activation_isotope = .false.
+    end select
   
   end function if_activation_isotope
   
@@ -2138,210 +1977,169 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !
     implicit none
     
-    ! Inout
-    type(silam_bomb_source) :: b_src
+    ! Input parameter
+    type(silam_bomb_source), intent(inout) :: b_src
     
-    ! Internal
-    real, dimension(:), allocatable :: nuc_activities, bq_per_kt
-    character(len=nuc_name_len), dimension(:), allocatable :: nuc_names, names
-    integer :: n_nucs, n, i, m, final_n_spc
+    ! Local variables
+    integer :: n, i, m
     type(silam_species) :: species_tmp
-    real, dimension(max_species) :: species_fractions
-    type(Taerosol) :: aerosol_tmp
+    real, dimension(max_species) :: act_fractTmp
+    real :: totalFraction
     type(silam_material), pointer :: tmp_material
-    real, dimension(2) :: modes_r,stds,act_frac
-    integer :: nbins
-    real, dimension(b_src%bins_between) :: bin_d
-    real, dimension(b_src%bins_between+1) :: bin_f
-    ! The last bin is actually thrown out
-    nbins = b_src%bins_between + 1
+    real, dimension(2) :: act_frac_bomb_modes
+    integer :: iBombMode
+    type(Tblast_nuclide), dimension(:), allocatable :: blast_nuclides
+    type(Taerosol_mode), dimension(2) :: aerModesBomb
+    real :: fTmp
     !
     if(fu_fails(fu_true(b_src%defined),'Source not defined','set_cocktail_bomb_source'))return
     !
     ! Get nuclides and activities
     !
-    allocate(nuc_names(max_nuclides),nuc_activities(max_nuclides))
     if (b_src%bomb_type == 'URANIUM') then
-       call uranium_ind_stuk(nuc_names,nuc_activities)
+      call uranium_ind_stuk(blast_nuclides)
     else if (b_src%bomb_type == 'PLUTONIUM') then
-       call plutonium_stuk(nuc_names,nuc_activities)
+      call plutonium_stuk(blast_nuclides)
+    else if (b_src%bomb_type == 'PASSIVE') then
+       allocate(blast_nuclides(2))
+       blast_nuclides(1:2) = &
+              &(/ Tblast_nuclide('passive',  1e10), &
+                & Tblast_nuclide('PM  ',     1e10) /)
     else
-       call set_error('Invalid bomb type given','set_cocktail_bomb_source')
-       if (error) return
+      call set_error('Invalid bomb type given','set_cocktail_bomb_source')
     end if
-    ! How many different nuclides
-    do i = 1,max_nuclides
-       if ((nuc_names(i) == 'XXXXXXX') .and. (nuc_activities(i) == 0.0)) then
-          n_nucs = i - 1
-          exit
-       elseif (nuc_names(i) == 'XXXXXXX') then
-          call set_error('Activity-Nuclide list not mathcing','set_cocktail_bomb_source')
-       elseif (nuc_activities(i) == 0.0) then
-          call set_error('Activity-Nuclide list not mathcing','set_cocktail_bomb_source')
-       end if
-    end do
+    if (error) return
     !
-    allocate(names(n_nucs),bq_per_kt(n_nucs))
-    names = nuc_names(1:n_nucs)
-    bq_per_kt = nuc_activities(1:n_nucs)
-    ! Get the lognormal distributions depending on bomb elevation of the burst
-    call set_two_modes_bomb(b_src,modes_r,stds,act_frac)
-    ! Get bins for aerosols from lognormal modes
-    call get_bomb_bins_from_2_lognorm_modes(nbins,b_src%smallest_aerosol,b_src%largest_aerosol, &
-                                          & modes_r(1),modes_r(2),stds(1),stds(2),act_frac(1),act_frac(2),bin_d,bin_f)
-    ! Get the total number of species before setting them
-    final_n_spc = get_number_of_species_b_src(b_src,nuc_names,n_nucs,bin_f,nbins)
-    !Fix the extent of species
-    call enlarge_array(b_src%activities,final_n_spc)
+    ! Get the lognormal distributions for the given elevation of the blast
     !
-    ! Go through all the nucs and create the needed species
+    call set_two_modes_bomb(b_src, aerModesBomb, act_frac_bomb_modes)
+    if(error)return
+    !
+    ! scan the nuclides released by the blast, explore the aerosol bins for the particulates
+    ! We shall keep the budget and dump the un-allocated activity fraction to the log file
     !
     nullify(b_src%species)
     b_src%nSpecies = 0
-    do n = 1,n_nucs
-       !Activation species depend on the amount of activation of ground
-       if (if_activation_isotope(names(n)) .and. (b_src%fireball_fraction == 0.0)) cycle
-       if (if_activation_isotope(names(n)) .and. (b_src%fireball_fraction < 1.0)) then
-          bq_per_kt(n) = bq_per_kt(n) * b_src%fireball_fraction
+    do n = 1, size(blast_nuclides)
+      !
+      ! Nuclides can come from the boms or from the contaminated soil lifted in the air
+      ! Activation species depend on the amount of activation of the ground
+      !
+      if (if_activation_isotope(blast_nuclides(n)%nuc_name))then
+        if (b_src%fireball_buried_fraction == 0.0) cycle  ! no soil lifted to the air by the fireball
+        blast_nuclides(n)%bq_per_kt = blast_nuclides(n)%bq_per_kt * b_src%fireball_buried_fraction
        end if
-       aerosol_tmp%defined = silja_true
-       tmp_material => fu_get_material_ptr(trim(names(n)))
-       if (fu_if_noble_gas(trim(names(n))) .eqv. .true.) then !set gas (only noble gases are gases currently)
-          allocate(aerosol_tmp%modes(1))
-          aerosol_tmp%n_modes = 1
+      tmp_material => fu_get_material_ptr(trim(blast_nuclides(n)%nuc_name))
+      ! gas or aerosol?
+      if (fu_true(fu_if_gas(fu_get_material_ptr(trim(blast_nuclides(n)%nuc_name))))) then 
+        !set gas 
           call set_species(species_tmp, tmp_material, in_gas_phase)
           call addSpecies(b_src%species, b_src%nSpecies, (/species_tmp/), 1)
-          b_src%activities(b_src%nSpecies) = bq_per_kt(n) * &
-                                           & b_src%fission_yield ! Amount of activity is determined by fission yield, not total yield
-       else !set aerosol(s)
-          allocate(aerosol_tmp%modes(nbins-1))
-          aerosol_tmp%n_modes = nbins-1
-          do i = 1,(nbins-1) !Loop over bins
-!             write(aerosol_name,'(f10.2)') bin_d(i)
-             if (bin_f(i) > 0.0) then !Only bins that have a share
-                call set_aerosol_mode(aerosol_tmp%modes(i),&
-                                    & '', &      !aerosol_name, better leave empty, has special meaning, not for this case
-                                    & bin_d(i)*1.0e-6, & !mkm to meters
-                                    & 0.0, & !The is no standard deviation for explicit bins
-                                    & bin_d(i)*1.0e-6, & !mkm to meters
-                                    & 2.5e3, &           !KDFOC3
-                                    & fixed_diameter_flag, & !Diameter is fixed inside bins
-                                    & 1)
-                call set_species(species_tmp, tmp_material, aerosol_tmp%modes(i))
-                call addSpecies(b_src%species, b_src%nSpecies, (/species_tmp/), 1)
-                b_src%activities(b_src%nSpecies) = bin_f(i) * &       !Like in gas but each bin gets a fraction
-                                                 & bq_per_kt(n) * b_src%fission_yield
-             end if
+        act_fractTmp(b_src%nSpecies) = blast_nuclides(n)%bq_per_kt * b_src%fission_yield ! activity is determined by fission yield, not total yield
+      else 
+        ! if it can be aerosol set aerosol(s) 
+        ! evidently wrong for multi-phase species but for now this is the solution
+        ! only a fraction of total amount that falls within specified modes goes to SILAM
+        totalFraction = 0.0   ! will accumulate amounts for the modes  of the material
+        do i = 1,(b_src%aerosolSrc%n_modes)      ! Loop over bins of the required aerosol
+          ! add the species
+          call set_species(species_tmp, tmp_material,b_src%aerosolSrc%modes(i))
+          call addSpecies(b_src%species, b_src%nSpecies, (/species_tmp/), 1)
+
+          act_fractTmp(b_src%nSpecies) = 0
+          do iBombMode = 1, 2
+            fTmp = act_frac_bomb_modes(iBombMode) 
+            if (fTmp > 0) act_fractTmp(b_src%nSpecies) = act_fractTmp(b_src%nSpecies) + &
+                                         & fTmp * fu_integrate_volume(fu_min_d(b_src%aerosolSrc%modes(i)), &
+                                                             & fu_max_d(b_src%aerosolSrc%modes(i)), &
+                                                             & aerModesBomb(iBombMode)) 
           end do
-       end if
-    end do
-    ! Check that the the pre-predicted amount of species is same as achieved in the loop
-    if (final_n_spc /= b_src%nSpecies) call set_error('Numbers of species should match','set_cocktail_bomb_source')
-    if (error) return
+           ! collect what included
+          totalFraction = totalFraction + act_fractTmp(b_src%nSpecies)
+          ! ... and its activity
+          act_fractTmp(b_src%nSpecies) = act_fractTmp(b_src%nSpecies) * &
+                                       & blast_nuclides(n)%bq_per_kt * b_src%fission_yield
+        end do  ! b_src%aerosolSrc bins
+
+        ! If something is left behind, dump it to the log file
+        if(totalFraction < 1.0)then
+          call msg('>> Accounted fraction and amount for:' + trim(blast_nuclides(n)%nuc_name),&
+                 & totalFraction, &
+                 & totalFraction * blast_nuclides(n)%bq_per_kt * b_src%fission_yield)
+        endif
+      end if  ! gas or aerosol
+    end do  ! sizeof blast_nuclides
     !
-!    allocate(b_src%cocktail_descr(1)%f_descr_unit_2_species_unit(n_species), &
-!           & b_src%cocktail_descr(1)%iEmisCocktSpeciesMapping(n_species))
-!    b_src%cocktail_descr(1)%nSpecies = n_species
-!    b_src%cocktail_descr(1)%defined = silja_true
+    ! Allocate the main activity split and copy them from the temporary
     !
-    ! Write dumped too large aerosols to logfile i.e. 'last' bin.
-    ! Can't be included because e.g. diffusion isn't applicable at these sizes.
-    ! A significant amount usually as some the are much large particles.
-    ! Can be seen as an immediate deposition.
-    !
-    if (bin_f(nbins) > 0) then
-       call msg('Too large aerosols in bomb source are dumped, percentages from total', 100.0 * bin_f(nbins)) 
-       call msg('Activities (Bq) per nuclide:')
-       do n = 1,n_nucs
-          if (if_activation_isotope(names(n)) .and. (b_src%fireball_fraction == 0.0)) cycle
-          if (fu_if_noble_gas(trim(names(n))) .eqv. .false.) then
-             call msg(trim(names(n)),bin_f(nbins)*bq_per_kt(n)*b_src%fission_yield)
-          end if
-       end do
-    end if
+    allocate(b_src%activities(b_src%nSpecies))
+    b_src%activities(1:b_src%nSpecies) = act_fractTmp(1:b_src%nSpecies)
+    deallocate(blast_nuclides)
+
   end subroutine set_cocktail_bomb_source
-  
-  !==========================================================================
-  
-  integer function get_number_of_species_b_src(b_src,names_list,n_names,fractions,nbins)
-    !
-    !Get the number of species to be created in set_cocktail_bomb_source.
-    !Purpose of this is just to simplify that subroutine.
-    !
-    implicit none
-    integer :: n, n_names, i, j
-    character(len=nuc_name_len), dimension(:) :: names_list
-    type(silam_bomb_source) :: b_src
-    integer :: nbins
-    real, dimension(nbins) :: fractions
-    n = 0
-    do i = 1,n_names
-       if (if_activation_isotope(names_list(i)) .and. (b_src%fireball_fraction == 0.0)) cycle
-       if (fu_if_noble_gas(trim(names_list(i))) .eqv. .true.) then
-          n = n + 1
-       else
-          do j = 1,(nbins-1)
-             if (fractions(j) > 0.0) then
-                n = n + 1
-             end if
-          end do
-       end if
-    end do
-    get_number_of_species_b_src = n
-  end function get_number_of_species_b_src
-  
+
+
   !============================================================================
   
-  subroutine set_two_modes_bomb(b_src,modes_r,stds,act_frac)
+  subroutine set_two_modes_bomb(b_src, aerModesBomb, act_frac)
     !
-    !Determines correct aerosol activity distribution based on bomb source.
-    !Is based on KDFOC3 model.
+    ! Determines correct aerosol activity distribution based on bomb source.
+    ! Is based on KDFOC3 model.
     ! Values are in micrometers.
     !
     implicit none
     !Input
-    type(silam_bomb_source) :: b_src
+    type(silam_bomb_source), intent(in) :: b_src
     !Output
-    real, dimension(2) :: modes_r, stds, act_frac !1 is for smaller and 2 is for larger diameter
-    !Internal
-    !Values below from KDFOC3: A Nuclear Fallout Assessment Capability 1993 p.26-28
-    real, dimension(2) :: KDFOC_surf_r = (/14.44, 151.41/)
-    real, dimension(2) :: KDFOC_buri_r = (/90.02, 298.87/)
-    real, dimension(2) :: KDFOC_surf_s = (/4.01, 2.69/)
-    real, dimension(2) :: KDFOC_buri_s = (/2.01, 1.82/)
-    real, dimension(2) :: KDFOC_uL = (/0.23, 0.65/) !surface, buried
-    !Values below corresponding to MATCH for airburst
-    real :: MATCH_rA = 4.4, MATCH_sA = 1.5
+    real, dimension(2), intent(out) :: act_frac !1 is for smaller and 2 is for larger diameter
+    type(Taerosol_mode), dimension(2), intent(out) :: aerModesBomb
     
-    !Values below from Implications of Atmospheric Test Fallout Data for Nuclear Winter, Baker, 1987 and LANL report: User Guide fro the Air Force Nuclear Weapons Center Dust Cloud Calculator Version 1.0, St Ledger, John W. 2015
-    real, dimension(2) :: BAKER_r = (/0.42, 9.34/)
-    real, dimension(2) :: BAKER_s = (/2.0, 4.0/)
-    real :: BAKER_uL = 0.75
+    ! Local parameters
+    ! from KDFOC3: A Nuclear Fallout Assessment Capability 1993 p.26-28
+    real, dimension(2), parameter :: KDFOC_surf_r = (/14.44, 151.41/)
+    real, dimension(2), parameter :: KDFOC_buri_r = (/90.02, 298.87/)
+    real, dimension(2), parameter :: KDFOC_surf_s = (/4.01, 2.69/)
+    real, dimension(2), parameter :: KDFOC_buri_s = (/2.01, 1.82/)
+    real, dimension(2), parameter :: KDFOC_uL = (/0.23, 0.65/) !surface, buried
+    ! MATCH for airburst
+    real, parameter :: MATCH_rA = 4.4, MATCH_sA = 1.5
     
-    modes_r = 0.0
-    stds = 0.0
-    act_frac = 0.0
+    ! Implications of Atmospheric Test Fallout Data for Nuclear Winter, 
+    ! Baker, 1987 and LANL report: User Guide fro the Air Force Nuclear Weapons Center Dust 
+    ! Cloud Calculator Version 1.0, St Ledger, John W. 2015
+    real, dimension(2), parameter :: BAKER_r = (/0.42, 9.34/)  ! radius, um
+    real, dimension(2), parameter :: BAKER_s = (/2.0, 4.0/)  
+    real, parameter :: BAKER_uL = 0.75
+    
+    ! Local variables
+    real :: fTmp
+    real, dimension(2) :: modes_r, stds
+    integer :: iMode
+    
+    modes_r = real_missing
+    stds = real_missing
+    act_frac = real_missing
+    !
+    ! Have two lognormal modes, scan both. Explcit coefs for activity is not an accident
+    !
     if (b_src%dist_type == 'KDFOC3') then
-       if (b_src%blast_height_m <= -15.0) then !deep underground
-          modes_r(1) = KDFOC_buri_r(1)
-          modes_r(2) = KDFOC_buri_r(2)
-          stds(1) = KDFOC_buri_s(1)
-          stds(2) = KDFOC_buri_s(2)
-          act_frac(1) = 1.0 - KDFOC_uL(2)
-          act_frac(2) = KDFOC_uL(2)
-       else if (b_src%blast_height_m <= 0.0) then !shallow underground
-          !Linear change from surface burst mean and s to deep one in shallow bursts
-          modes_r(1) = (KDFOC_surf_r(1)) + ((KDFOC_buri_r(1) - KDFOC_surf_r(1))&
-                                           &*(b_src%blast_height_m/(-15.0)))
-          modes_r(2) = (KDFOC_surf_r(2)) + ((KDFOC_buri_r(2) - KDFOC_surf_r(2))&
-                                           &*(b_src%blast_height_m/(-15.0)))
-          stds(1) = KDFOC_buri_s(1) + ((KDFOC_surf_s(1) - KDFOC_buri_s(1))&
-                                      &*(1.0 - (b_src%blast_height_m/(-15.0))))
-          stds(2) = KDFOC_buri_s(2) + ((KDFOC_surf_s(2) - KDFOC_buri_s(2))&
-                                      &*(1.0 - (b_src%blast_height_m/(-15.0))))
-          act_frac(2) = KDFOC_uL(1) + ((KDFOC_uL(2) - KDFOC_uL(1))*(b_src%blast_height_m/(-15.0)))
-          act_frac(1) = 1.0 - act_frac(2)
-       else if (b_src%IfAir) then !Air burst, fireball doesn't touch the ground
+      select case(b_src%location_switch)
+        case(blast_underground)
+          if (b_src%blast_height_m <= -15.0) then !deep underground
+            modes_r(:) = KDFOC_buri_r(:)
+            stds(:) = KDFOC_buri_s(:)
+            act_frac(2) = KDFOC_uL(2)
+            act_frac(1) = 1.0 - act_frac(2)
+          else   ! (b_src%blast_height_m <= 0.0) then !shallow underground
+            ! Linear change from surface burst mean and s to deep one in shallow bursts
+            fTmp = b_src%blast_height_m / (-15.)
+            modes_r(:) = KDFOC_surf_r(:) - ((KDFOC_buri_r(:) + KDFOC_surf_r(:)) * fTmp)
+            stds(:) = KDFOC_buri_s(:) - ((KDFOC_surf_s(:) - KDFOC_buri_s(:)) * (1.0 - fTmp))
+            act_frac(2) = KDFOC_uL(1) + ((KDFOC_uL(2) - KDFOC_uL(1)) * fTmp)
+            act_frac(1) = 1.0 - act_frac(2)
+          endif
+          
+        case(blast_in_air)  !Air burst, fireball doesn't touch the ground
           !KDFOC3 description doesn't handle this case, but MATCH model that is based partly
           !on it makes bins from the given lognormal distribution. When handling air bursts it
           !concentrates all of the activity to the two smallest ones r = 2.2 and 4.4(micrometers).
@@ -2355,36 +2153,61 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
           stds(2) = 0.0
           act_frac(1) = 1.0
           act_frac(2) = 0.0
-       else if (b_src%IfSurface) then !Fireball touches the ground, linear interpolation between surface and air burst, based on fireball fraction
-          modes_r(1) = MATCH_rA + (KDFOC_surf_r(1) - MATCH_rA)*b_src%fireball_fraction
-          modes_r(2) = MATCH_rA + (KDFOC_surf_r(2) - MATCH_rA)*b_src%fireball_fraction
-          stds(1) = MATCH_sA + (KDFOC_surf_s(1) - 1.0)*b_src%fireball_fraction
+
+        case(blast_on_surface)
+          ! Fireball touches the ground, linear interpolation between surface and air burst, based on fireball fraction
+          modes_r(:) = MATCH_rA + (KDFOC_surf_r(:) - MATCH_rA) * b_src%fireball_buried_fraction
+          stds(1) = MATCH_sA + (KDFOC_surf_s(1) - 1.0)*b_src%fireball_buried_fraction
           stds(2) = KDFOC_surf_s(2)
-          act_frac(1) = KDFOC_uL(1) + ((1.0 - KDFOC_uL(1))*(1.0 - b_src%fireball_fraction))
+          act_frac(1) = KDFOC_uL(1) + ((1.0 - KDFOC_uL(1))*(1.0 - b_src%fireball_buried_fraction))
           act_frac(2) = 1.0 - act_frac(1)
-       end if
+        case default
+          call set_error('Unknown blast height / type','set_two_modes_bomb')
+          return
+      end select
+        
     else if (b_src%dist_type == 'BAKER') then
-       if (b_src%IfAir) then
+      
+      select case(b_src%location_switch)
+        case(blast_in_air)
           modes_r(1) = BAKER_r(1)
           modes_r(2) = 0.0
           stds(1) = BAKER_s(1)
           stds(2) = 0.0
           act_frac(1) = 1.0
           act_frac(2) = 0.0
-       else 
-          modes_r(1) = BAKER_r(1)
-          modes_r(2) = BAKER_r(2)
-          stds(1) = BAKER_s(1)
-          stds(2) = BAKER_s(2)
-          act_frac(1) = b_src%fireball_fraction*(1.0 - BAKER_uL)
+        case default  ! surface and underground
+          modes_r(1:2) = BAKER_r(1:2)
+          stds(1:2) = BAKER_s(1:2)
+          act_frac(1) = b_src%fireball_buried_fraction*(1.0 - BAKER_uL)
           act_frac(2) = 1.0 - act_frac(1)
-       end if
-    end if
+      end select
+    end if  ! types of parameterizations
+
+    do iMode = 1, 2
+      if (modes_r(iMode) > 0) then
+        fTmp = 2*modes_r(iMode) * 1e-6 ! diameter im meters
+        call set_aerosol_mode(aerModesBomb(iMode), &
+                   &'BombMode'//trim(b_src%dist_type)//trim(fu_str(iMode)), &     ! mode, chNm, 
+                   & fTmp, &      ! fp1
+                   & stds(iMode), &         ! fp2  -- dimensionless for lognormal
+                   & fTmp, 2.5e3, &      ! mass_mean_d, dens, 
+                   & lognormal_flag, 1)     ! distr_type, solubil
+        if(error)return
+      else
+        aerModesBomb(iMode) = aerosol_mode_missing
+      endif
+      call msg("Bomb mode", iMode)
+      call report(aerModesBomb(iMode))
+    end do
     
     if (sum(act_frac) > 1.00001) call set_error('Mass fraction sum illegal','set_two_modes_bomb')
     if (any(abs(act_frac) > 1.00001)) call set_error('Fraction cant be over unity','set_two_modes_bomb')
     if (error) return
     call msg('=============================================================')
+    if (b_src%location_switch == blast_in_air) call msg('Air blast, no, Distribution type: '//trim(b_src%dist_type))
+    if (b_src%location_switch == blast_on_surface) call msg('Surface blast, Distribution type: '//trim(b_src%dist_type))
+    if (b_src%location_switch == blast_underground) call msg('Underground blast, Distribution type: '//trim(b_src%dist_type))
     call msg('|LOGNORMAL DISTRIBUTIONS CREATED. Small        Larger')
     call msg(' |Radii (in micrometers)         :',(/modes_r(1), modes_r(2)/))
     call msg(' |Standard deviations            :',(/stds(1), stds(2)/))
@@ -2392,13 +2215,14 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     call msg('=============================================================')
     
   end subroutine set_two_modes_bomb
-  
+ 
+
   !============================================================================
-  subroutine init_bomb_derived_params(b_src,ifWater_)
+  
+  subroutine init_bomb_derived_params(b_src, ifWater)
     implicit none
     type(silam_bomb_source) :: b_src
-    logical, optional, intent(in) :: ifWater_
-    logical :: ifWater
+    logical, intent(in) :: ifWater
     real :: blast_height
     real :: j
     integer :: i
@@ -2411,24 +2235,21 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     ! Currently only water used land material information would enable using similar 
     ! logic for other medias of burial.
     !
-    ifWater = .false.
-    if (present(ifWater_)) ifWater = ifWater_
+!    ifWater = .false.
     if (ifWater .and. (b_src%blast_height_m < 0.0)) then
        blast_height = b_src%blast_height_m*(1.0/1.6)
     else
        blast_height = b_src%blast_height_m
     end if
-    
     !
     ! Venting fraction determined based on blast height and yield
     !
-    b_src%venting_fraction = fu_venting_fraction(b_src%total_yield, &
-                                               & blast_height)
+    b_src%venting_fraction = fu_venting_fraction(b_src%total_yield, blast_height)
     !
     ! Fireball fraction determined based on blast height and yield
     !
-    b_src%fireball_fraction = fu_fireball_fraction(b_src%total_yield, &
-                                                 & b_src%blast_height_m)
+    b_src%fireball_buried_fraction = fu_fireball_buried_fraction(b_src%total_yield, &
+                                                               & b_src%blast_height_m)
     !
     ! Parameter fission_yield determines the activities induced by the fission
     ! part of the bomb. The total_yield depicts the power of the bomb; reach of cloud etc.
@@ -2436,7 +2257,6 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     b_src%fission_yield = fu_fission_yield(b_src%total_yield, &
                                          & b_src%blast_height_m, &
                                          & b_src%fission_fraction)
-    !
     ! Fireball radius
     !
     b_src%fireball_radius = fu_fireball_radius(b_src%total_yield)
@@ -2444,34 +2264,26 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     ! Three logicals to easily check which type of detonation
     !
     if (b_src%blast_height_m < 0.0) then
-       b_src%ifUnderground = .true.
-       b_src%ifSurface     = .false.
-       b_src%ifAir         = .false.
-    else if (b_src%fireball_fraction == 0.0) then
-       b_src%ifUnderground = .false.
-       b_src%ifSurface     = .false.
-       b_src%ifAir         = .true.
+      b_src%location_switch = blast_underground
+    else if (b_src%fireball_buried_fraction == 0.0) then
+      b_src%location_switch = blast_in_air
     else
-       b_src%ifUnderground = .false.
-       b_src%ifSurface     = .true.
-       b_src%ifAir         = .false.
+      b_src%location_switch = blast_on_surface
     end if
-    !
-    ! Set the cocktail
-    !
-    call set_cocktail_bomb_source(b_src)
-    if(error)return
+    
   end subroutine init_bomb_derived_params
 
+  
   !============================================================================
 
-  subroutine get_bomb_bins_from_2_lognorm_modes(nbins,min_d,max_d,mu1,mu2,s1,s2,f1,f2,diameters,total_fractions)
+  subroutine get_bomb_bins_from_2_lognorm_modes(nbins, min_d, max_d, mu1, mu2, s1, s2, f1, f2, &
+                                              & diameters, total_fractions)
     !
     ! Creates number of bins requested from two lognormal modes.
     ! - Larger than max_d will be thrown out/instant deposition.
     ! - If nbins is 10, 9 bins will be created and the tenth 'bin' will be
     !   values higher than max_d and not included because SILAM
-    !   can't handle too large aerosols.
+    !   can't handle too large aerosols (FIXME Really???).
     ! - Smaller than min_d will be included in smallest bin.
     ! - Routine returns the representing bins and corresponding activity fractions.
     ! - The ratio of the sizes of parallel bins is constant.
@@ -2485,6 +2297,7 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !Output
     real, dimension(nbins), intent(out) :: total_fractions
     real, dimension(nbins-1), intent(out) :: diameters
+    
     !Internal
     real :: factor, min_r, max_r, fractions1, fractions2, radius
     real(r8k) :: erf_input1, erf_input2
@@ -2502,14 +2315,21 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     ! From two lognormal distributions get fractions for each bin
     ! Representing diameter is the average within a bin
     do i = 1,(nbins-1)
-       ! Error function input has to be real 8 kind
-       erf_input1 = (log(bounds(i+1)) - log(mu1))/(log(s1)*(2.0**(1.0/2.0)))
-       erf_input2 = (log(bounds(i+1)) - log(mu2))/(log(s2)*(2.0**(1.0/2.0)))
-       ! Cumulative lognormal distribution (fraction of total) under the given radius
-       fractions1 = (1.0 + ERF(erf_input1))/(2.0)
-       fractions2 = (1.0 + ERF(erf_input2))/(2.0)
        ! Total from both with given fractions f1 and f2 of the modes (not bins)
-       total_fractions(i) = (fractions1*f1) + (fractions2*f2)
+       total_fractions(i)  = 0.
+       if (f1 > 0) then
+         ! Error function input has to be real 8 kind
+         erf_input1 = (log(bounds(i+1)) - log(mu1))/(log(s1)*(2.0**(1.0/2.0)))
+         ! Cumulative lognormal distribution (fraction of total) under the given radius
+         fractions1 = (1.0 + ERF(erf_input1))/(2.0)
+         total_fractions(i) = total_fractions(i) + fractions1*f1
+       endif
+       if (f2 > 0) then
+         erf_input2 = (log(bounds(i+1)) - log(mu2))/(log(s2)*(2.0**(1.0/2.0)))
+         fractions2 = (1.0 + ERF(erf_input2))/(2.0)
+         total_fractions(i) = total_fractions(i) + fractions2*f2
+       endif
+
        ! Not the cumulative
        if (i > 1) then
           total_fractions(i) = total_fractions(i) - sum(total_fractions(:(i-1)))
@@ -2523,5 +2343,5 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     total_fractions(nbins) = 1.0 - sum(total_fractions(:(nbins - 1)))
   end subroutine get_bomb_bins_from_2_lognorm_modes
   
-  !============================================================================
+
 END MODULE source_terms_bomb

@@ -3,11 +3,13 @@
 SE=gnu
 DefaultSetup=DefaultSetup
 
-include ../build/Makefile.branch
+# Include if exists
+-include ../build/Makefile.branch
 
 PROGRAM=$(BRANCH)
 
 include $(DefaultSetup)
+
 
 
 #Fastest make by defult
@@ -68,7 +70,7 @@ puhti:
 	echo "SE=puhti" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
-DefaultSetup:
+$(DefaultSetup):
 	echo "SE=$(SE)" > $(DefaultSetup)	
 	echo Switching make to `cat $(DefaultSetup)`
 

@@ -24,25 +24,34 @@
 # to be a comment.
 #
 # Mikhail Sofiev, October 2001
-#
 # Updated, Sebastian Heinonen, 2018
+# Updated, RK, 2021
 #
 #
 #
 #
-BOMB_SOURCE_3
+BOMB_SOURCE_4
 #MANDATORY parameters:
 source_name = bomb                           # case name
 source_latitude = 60.1699                    # start geograph. lat., degrees and decimals, N positive
 source_longitude = 24.9384                   # start geograph. lon., degrees and decimals, E positive
 explosion_time = 2014 1 1 18 00 0.           # start: "NOW" or time UTC [yyyy mm dd hh min sec] (sec is real!!)
 bomb_yield = 10.0  kt                        # bomb yield and unit, e.g. [kilotons]
-blast_height = -33  m                        # [meters] positive(negative) above(below) ground
-bomb_type = URANIUM                          # Options: URANIUM,PLUTONIUM
+blast_height = 3000  m                        # [meters] positive(negative) above(below) ground
+bomb_type = PASSIVE                          # Options: URANIUM,PLUTONIUM, or PASSIVE
 particle_size_distribution = BAKER           # Options: KDFOC3,BAKER
-selected_particle_size_range = FULL_RANGE    # FULL_RANGE  or  <min_diam> <max_diam> <unit>, e.g. 0.05 100 mkm
-aerosol_bins = 7                             # How many bins to represent the aerosol distribution
-END_BOMB_SOURCE_3
 
-# End of BOMBSOURCE_3
+mode_distribution_type = FIXED_DIAMETER
+aerosol_mode = 1 0.05  10 2.5 um 
+
+## aerosol_mode = 1 0.01 0.1 0.05 mkm 
+## aerosol_mode = 2 0.1  1.0 0.30 mkm 
+## aerosol_mode = 3 1.0  2.50 1.5 mkm 
+## aerosol_mode = 4 2.5  10  6 mkm 
+## aerosol_mode = 5 10  30  20 mkm 
+
+
+
+END_BOMB_SOURCE_4
+
 

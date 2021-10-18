@@ -5112,26 +5112,28 @@ CONTAINS
         ! Now height_column is the level height above ground.
         ! Note thick layers: nLev+1 interfaces
         !
-        if (height < height_column(1)) then
+        if (height <= height_column(1)) then
           f_ind = 0.5*clipfactor
           return
-        else 
-          if (height_column(nlevs+1) < height_column(nlevs) .or. height_column(nlevs+1) > 2*height_column(nlevs)) then
-            !!! Less-dirty fix for meteolayers
-            do ilev = 1, nlevs-1
-              level_height = height_column(ilev)
-              next_level_height = height_column(ilev + 1)
-              if (height >= level_height .and. height <= next_level_height) then
-                f_ind = ilev + (height-level_height) / (next_level_height - level_height)
-                return
-              end if
-            end do
+        else
+          if (nlevs > 1) then 
+            if (height_column(nlevs+1) < height_column(nlevs) .or. height_column(nlevs+1) > 2*height_column(nlevs)) then
+              !!! Less-dirty fix for meteolayers
+              do ilev = 1, nlevs-1
+                level_height = height_column(ilev)
+                next_level_height = height_column(ilev + 1)
+                if (height >= level_height .and. height <= next_level_height) then
+                  f_ind = ilev + (height-level_height) / (next_level_height - level_height)
+                  return
+                end if
+              end do
 #ifdef DEBUG
-            call ooops("Wrong height column in " // sub_name)
+              call ooops("Wrong height column in " // sub_name)
 #endif
-            return
+              return
+            endif
           endif
-          if (height > height_column(nlevs+1)) then
+          if (height >= height_column(nlevs+1)) then
             f_ind = real(nlevs+0.5)*clipfactor
             return
           end if

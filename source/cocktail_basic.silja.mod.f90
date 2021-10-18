@@ -128,7 +128,7 @@ MODULE cocktail_basic
   ! of the mass map. In some cases (advection moment) they can be undefined. 
   ! 
   type Tmass_map
-    integer :: quantity                    ! E.g., deposition, concentration, moment, etc.
+    integer :: quantity                    ! E.g., deposition, mass, moment, etc.
     integer :: nx,ny,n3D,nSrc, nSpecies    !, nSubst  ! Dimensions of %arM
     integer :: nXBorder, nYBorder, n3DBorder, nSrcBorder
     type(silja_grid) :: gridTemplate

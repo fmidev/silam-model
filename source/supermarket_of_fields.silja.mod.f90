@@ -1494,10 +1494,10 @@ CONTAINS
                                  & indexVar, &
                                  & fu_data_time_features(input_unit), &
                                  & time_to_force))then        ! out: for monthly fields we can force valid time
-            if(ifVerbose)then
-              call msg('Reading grads field, time index', it)
-              call report(id)
-            endif
+              if(ifVerbose)then
+                call msg('Reading grads field, time index', it)
+                call report(id)
+              endif
 
               fs_grid=fu_number_of_gridpoints(fu_grid(id))
 

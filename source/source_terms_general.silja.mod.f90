@@ -216,7 +216,7 @@ MODULE source_terms_general
           & int_missing, int_missing, int_missing, int_missing, &
           & .False.)
 
-
+  integer, parameter :: maxMeteoDepndencies = 5
   TYPE silam_source
     INTEGER :: n_area=0, n_bio_voc=0, n_bomb=0, n_fire=0, n_point=0, &
              & n_pollen=0, n_sea_salt=0, n_volc=0, n_wb_dust=0, n_dms=0
@@ -240,6 +240,7 @@ MODULE source_terms_general
     integer, dimension(:,:), allocatable :: arSourceIdMapping
     character(len=10), dimension(:), allocatable :: chSplitNames
     logical :: ifNeedsTZindexMap, ifUseSourceIdMapping
+    integer, dimension(maxMeteoDepndencies) :: arMeteoDepndencies
   END TYPE silam_source
   
   public silam_source
@@ -313,10 +314,11 @@ MODULE source_terms_general
 
     ! Local variables
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: pSourceTerms, pDataItems
-    integer :: iTmp, iSrc, nSourceTerms, nDataFiles, iFile, status
+    integer :: iTmp, jTmp, iSrc, nSourceTerms, nDataFiles, iFile, status
     character(len=fnlen) :: chTmp
     integer, dimension(:), pointer :: nValLinesInventory
     type(Tsilam_namelist), pointer :: nlInventoryDataFilesGlobal
+    character(len=*), parameter :: sub_name = 'set_source_terms'
 
     !
     ! Get all the sources listed in the control file
@@ -351,9 +353,9 @@ MODULE source_terms_general
     if(error)return
 
     if(nSourceTerms < 1)then
-      call msg_warning('No emission_source lines in the control file','set_source_terms')
+      call msg_warning('No emission_source lines in the control file',sub_name)
       call report(nlEmission)
-      call set_error('No emission_source lines in the control file','set_source_terms')
+      call set_error('No emission_source lines in the control file',sub_name)
       return
     endif
 
@@ -370,9 +372,9 @@ MODULE source_terms_general
         call msg('')
         ifEmissionGiven = .false.
       else
-        call msg_warning('VOID_SOURCE is given but there are others','set_source_terms')
+        call msg_warning('VOID_SOURCE is given but there are others',sub_name)
         call report(nlEmission)
-        call set_error('VOID_SOURCE is given but there are others','set_source_terms')
+        call set_error('VOID_SOURCE is given but there are others',sub_name)
       endif
       return
     else
@@ -424,7 +426,7 @@ MODULE source_terms_general
     if(error)return
     if(nDataFiles < 1)then
       call report(nlInventoryDataFilesGlobal)
-      call set_error('No data files to be read in the above namelist','set_source_terms')
+      call set_error('No data files to be read in the above namelist',sub_name)
       return
     endif
     
@@ -502,7 +504,7 @@ MODULE source_terms_general
       elseif(chTmp == 'YEARLY_NEW_FILE')then
         em_source%DumpFilesArrangement = yearly_new_file
       else
-        call set_error('Unknown source_dump_time_split:' + chTmp, 'set_source_terms')
+        call set_error('Unknown source_dump_time_split:' + chTmp, sub_name)
         return
       end if
 
@@ -513,6 +515,32 @@ MODULE source_terms_general
 
     em_source%indexDumpFile = int_missing
 
+    !
+    ! When all sources are set, check the meteodependence for those anthropogenic ones that can have it.
+    ! Area and point are the ones to check
+    !
+    iTmp = 1
+    em_source%arMeteoDepndencies = int_missing
+    do iSrc = 1, em_source%n_area
+      jTmp  = fu_meteodep_model(em_source%a_ptr(iSrc)%a_src)
+      if (any(em_source%arMeteoDepndencies == jTmp)) cycle !already there
+      call msg("adding meteodependence for a_src", jTmp, maxMeteoDepndencies)
+      em_source%arMeteoDepndencies(min(iTmp,maxMeteoDepndencies)) = jTmp
+      iTmp = iTmp + 1 
+    end do
+    do iSrc = 1, em_source%n_point
+       jTmp  =   fu_meteodep_model(em_source%p_ptr(iSrc)%p_src) 
+       if (any(em_source%arMeteoDepndencies == jTmp)) cycle
+       call msg("adding meteodependence for p_src", jTmp, maxMeteoDepndencies)
+       em_source%arMeteoDepndencies(min(iTmp,maxMeteoDepndencies)) = jTmp
+       iTmp = iTmp + 1
+    end do
+    if (iTmp > maxMeteoDepndencies) then
+      call set_error("Too many meteo dependencies!!", sub_name)
+      return
+    endif
+    
+    
     !-------------------------------------------------------------------------
     !
     ! The sources have been consumed. Check and report the whole thing
@@ -1529,8 +1557,8 @@ MODULE source_terms_general
     type(silam_species), dimension(:), intent(in), allocatable :: expected_species
 
     ! Local variables
-    INTEGER :: iLocal, iStatus, iTmp, iSourceVersion
-    character(len=5) :: chTmp
+    INTEGER :: iLocal, iStatus, iTmp
+    character(len=clen) :: chSourceVersion
     character(len=fnlen) :: chDataDir
     type(Tsilam_namelist), pointer :: nlSrcLocal
     type(silam_sp) :: spNm, spSector, spContent
@@ -1601,8 +1629,8 @@ MODULE source_terms_general
 !           & source%src_info_lst(iSrcIndex)%chSrcNm + ',' + &
 !           & source%src_info_lst(iSrcIndex)%chSectorNm)
 
-    chTmp = chLabel(len_trim(chLabel):)
-    read(unit = chTmp, fmt='(I12)') iSourceVersion
+    iTmp = index(chLabel,"_SOURCE_")+8  !! After it
+    chSourceVersion = chLabel(iTmp:)
 
     !
     ! This index points at the existing point source, to which the information must be added.
@@ -1615,7 +1643,7 @@ MODULE source_terms_general
       !
       call fill_a_src_from_namelist(nlSrc, &
                                   & source%a_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%a_src, &
-                                  & iSourceVersion, &
+                                  & chSourceVersion, &
                                   & chDataDir)
 
     elseif(source%src_info_lst(iSrcIndex)%iSrcType == bio_voc_source)then
@@ -1633,7 +1661,8 @@ MODULE source_terms_general
       !
       call fill_b_src_from_namelist( &
                            & nlSrc, &
-                           & source%b_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%b_src)
+                           & source%b_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%b_src, &
+                           & chSourceVersion )
 
     elseif(source%src_info_lst(iSrcIndex)%iSrcType == fire_source)then
       !
@@ -1651,7 +1680,7 @@ MODULE source_terms_general
       call fill_p_src_from_namelist( &
                            & nlSrc, &
                            & source%p_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%p_src, &
-                           & iSourceVersion)
+                           & chSourceVersion)
 
     elseif(source%src_info_lst(iSrcIndex)%iSrcType == pollen_source)then
       !
@@ -1874,7 +1903,7 @@ MODULE source_terms_general
         call add_inventory_bio_voc_src(src%bvoc_ptr(i)%bvoc_src, species_list, nSpecies)
       end do
       do i = 1, src%n_bomb                                    !======== BOMB
-        call add_inventory_b_src(src%b_ptr(i)%b_src, species_list, nSpecies)
+        call add_source_species_b_src(src%b_ptr(i)%b_src, species_list, nSpecies)
       end do
       do i = 1, src%n_fire                                    !======== FIRE
         call add_inventory_fire_src(src%fire_ptr(i)%fire_src, species_list, nSpecies)
@@ -1911,7 +1940,7 @@ MODULE source_terms_general
       do i = 1, src%n_bomb                                    !======== BOMB
         if(dynamics_type == &
             & src%src_info_lst(fu_source_nbr(src%b_ptr(i)%b_src))%iDynamicEnvironment) &
-                            & call add_inventory_b_src(src%b_ptr(i)%b_src, species_list, nSpecies)
+                            & call add_source_species_b_src(src%b_ptr(i)%b_src, species_list, nSpecies)
       end do
       do i = 1, src%n_fire                                    !======== FIRE
         if(dynamics_type == &
@@ -5175,8 +5204,14 @@ call msg('Dumping Px')
     ! Scan the individual sources looking for meteo-independent explicitly given fluxes
     ! Should any is found, add to the concentration map together with the source position
     ! 
-    if(em_src%n_area>0)call prepare_inject_a_src(met_buf)
-
+    if(em_src%n_area > 0) call prepare_inject_a_src(met_buf)
+    !
+    ! If some of the sources are meteo-dependent, have to prepare the corresponding pointers
+    
+    ! Area source can pick stuff only from dispersion buffers
+    if(em_src%arMeteoDepndencies(1) /= int_missing) &
+                              & call prepare_injection_meteodep(disp_buf, em_src%arMeteoDepndencies)
+    
     islotStart => fu_work_int_array()
     islotEnd   => islotStart(em_src%n_area+1:2*em_src%n_area)
     fWork => fu_work_array(em_src%n_area*max_descriptors_in_source)
@@ -5185,9 +5220,10 @@ call msg('Dumping Px')
 
     !$OMP PARALLEL DEFAULT(none) &
     !$OMP & shared (em_src, mapEmis, mapCoordX_emis, mapCoordY_emis, mapCoordZ_emis, &
-    !$OMP &           met_buf, now, timestep, ifSpeciesMoment, fMassInjected, interpCoefMeteo2DispHoriz, &
+    !$OMP &           met_buf, now, timestep, ifSpeciesMoment, fMassInjected, &
+    !$OMP &           interpCoefMeteo2DispHoriz, islotEnd,  fMassTimeCommon, &
     !$OMP &           ifMetHorizInterp, interpCoefMeteo2DispVert, ifMetVertInterp, &
-    !$OMP &           nThreads, ny_dispersion, error, dinjectedmassthread, islotStart, islotEnd,  fMassTimeCommon) &
+    !$OMP &           nThreads, ny_dispersion, error, dinjectedmassthread, islotStart) &
     !$OMP & private (iSrc, iThread, iTmp, fMassInjectedThread) 
     !$OMP 
     !$OMP MASTER
@@ -5279,7 +5315,7 @@ call msg('Dumping Px')
     end do
 
     do iSrc=1,em_src%n_bomb                                        !========= BOMB
-      call inject_emission_euler_bomb_src(em_src%b_ptr(iSrc)%b_src, &
+      call inject_emission_euler_b_src(em_src%b_ptr(iSrc)%b_src, &
                                         & mapEmis, mapCoordX_emis, mapCoordY_emis, mapCoordZ_emis, &
                                         & met_buf, disp_buf, &
                                         & now, timestep, &
@@ -5305,7 +5341,7 @@ call msg('Dumping Px')
       if(error)return
     enddo
 
-    if(em_src%n_point>0)call prepare_inject_p_src(met_buf)
+    if(em_src%n_point > 0)call prepare_inject_p_src(met_buf)
     do iSrc=1,em_src%n_point                                       !========== POINT
       call inject_emission_euler_p_src(em_src%p_ptr(iSrc)%p_src, &
                                      & mapEmis, mapCoordX_emis, mapCoordY_emis, mapCoordZ_emis, &
@@ -5442,7 +5478,7 @@ call msg('Dumping Px')
     end do
 
     do iSrc=1,em_src%n_bomb                                        !========= BOMB
-      call inject_emission_lagr_bomb_src(em_src%b_ptr(iSrc)%b_src, &
+      call inject_emission_lagr_b_src(em_src%b_ptr(iSrc)%b_src, &
                                       & lpSet, arLowMassThresh,  & ! Lagrangian
                                       & ChemRunSetup,  &  ! translate emission species to transport
                                       & met_buf, disp_buf, &
@@ -5455,7 +5491,7 @@ call msg('Dumping Px')
       call set_error('Lagrangian emission for fire sources is not defined',subname)
     enddo
     
-    if(em_src%n_point>0)call prepare_inject_p_src(met_buf)
+    if(em_src%n_point > 0)call prepare_inject_p_src(met_buf)
     do iSrc=1,em_src%n_point                                       !========== POINT
       call inject_emission_lagr_p_src(em_src%p_ptr(iSrc)%p_src, &
                                      & lpSet, arLowMassThresh, & ! Lagrangian

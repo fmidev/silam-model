@@ -82,6 +82,7 @@ MODULE source_terms_area
   public add_inventory_a_src
   public unpack_a_src_from_nc
   public init_a_src_TZ_index
+  public fu_meteodep_model
 
   !
   ! PRIVATE routines
@@ -120,6 +121,8 @@ MODULE source_terms_area
   private fu_ifMultiLevelFixed_a_src
   private link_a_src_to_species
   private add_source_species_a_src
+
+  private fu_meteodep_model_a_src
 
   ! Generic names and operator-interfaces of some functions:
 
@@ -246,6 +249,10 @@ MODULE source_terms_area
   interface force_source_into_grid
     module procedure force_a_src_into_grid
   end interface
+  
+  interface fu_meteodep_model
+    module procedure fu_meteodep_model_a_src
+  end interface
 
   integer, private, parameter :: nc_tag_len = 4
 
@@ -301,9 +308,9 @@ MODULE source_terms_area
     type(grads_template), dimension(:), pointer :: chFieldFNmTemplates =>null() ! templates of the binary files 
     type(silja_time), dimension(:), pointer :: times =>null()
 !    type(silja_shopping_list), pointer :: pShopLst
-    type(silja_field_3d_pointer), dimension(:), pointer :: pFldEmis  =>null()         ! main storage place
+    type(silja_field_3d_pointer), dimension(:), pointer :: pFldEmis  =>null()   ! main storage place
     type(silja_logical) :: ifHorizInterp, ifVertInterp  ! if interpolation to dispersion grid is needed
-    type(THorizInterpStruct), pointer :: pHorizIS =>null() ! horizontal interpolation structure
+    type(THorizInterpStruct), pointer :: pHorizIS =>null()  ! horizontal interpolation structure
     type(TVertInterpStruct), pointer :: pVertIS  =>null()   ! vertical interpolation strcture
     logical :: ifFluxes = .False. !! True if field icomes as fluxes kg/s/m2 / false if Emission Rates (kg/s)
     integer :: slotOffForFile = int_missing !!! in time-vert-resolving sources offset of time index to be used for a file
@@ -318,7 +325,11 @@ MODULE source_terms_area
     character(len=tz_name_length) :: tz_name  ! Timezone name 
     integer :: tz_index ! Index of timezone to use with hourly/daily indices
                     ! can be LocalTimeIndex  or SolarTimeIndex
-
+    !
+    ! Environment for meteo-dependent variation
+    logical, public :: ifMeteoDependent  = .FALSE.          ! monthly variation coefficients are NOT ignored
+    type(TmeteoDepRules)  :: rulesMeteoDep  = meteoDepRulesMissing
+    
     type(silja_logical) :: defined = silja_false
   END TYPE silam_area_source
   public silam_area_source
@@ -417,6 +428,9 @@ CONTAINS
     nullify(a_src%fDescr2SpeciesUnit)
     nullify(a_src%pEmisSpeciesMapping)
 !    nullify(a_src%pShopLst)
+    
+    a_src%ifMeteoDependent = .false.
+    
     !
     ! Finally, mark the source as incomplete
     !
@@ -427,8 +441,7 @@ CONTAINS
 
   !***************************************************************************
 
-  subroutine add_input_needs_area_source(a_src, q_met_dynamic, q_met_static, &
-                                              & q_disp_dynamic, q_disp_static)
+  subroutine add_input_needs_area_source(a_src, q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
     !
     ! Returns input needs for the emission/transformation routines. 
     !
@@ -436,17 +449,21 @@ CONTAINS
 
     ! Imported parameters
     type(silam_area_source), intent(in) :: a_src
-    integer, dimension(:), intent(inout) :: q_met_dynamic, q_met_static, &
-                                            & q_disp_dynamic, q_disp_static
+    integer, dimension(:), intent(inout) :: q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st
     integer :: iTmp
     !
     ! Meteo data may be needed if the plume rise computations show up
     ! So far, nothing
     !
     if(a_src%tz_index == LocalTimeIndex)then !Use local time
-      iTmp = fu_merge_integer_to_array(timezone_index_flag, q_met_static)
+      iTmp = fu_merge_integer_to_array(timezone_index_flag, q_met_st)
     endif
-
+    !
+    ! Actual type of dependence and needed input is in source_terms_time_params module
+    !
+    if(a_src%ifMeteoDependent) call add_input_needs_meteo_dependence(a_src%rulesMeteoDep, &
+                                                                   & q_met_dynamic, q_met_st, &
+                                                                   & q_disp_dynamic, q_disp_st)
     return
 
   end subroutine add_input_needs_area_source
@@ -454,40 +471,72 @@ CONTAINS
 
   !****************************************************************
   
-  subroutine fill_a_src_from_namelist(nlSrc, a_src, iAreaSrcFileVersion, src_dir_name)
+  subroutine fill_a_src_from_namelist(nlSrc, a_src, chAreaSrcFileVersion, src_dir_name)
     !
     ! A dispatcher of the reading task to corrspondng subs, 
     ! depending on the source version
+    ! "2_1" is fully compatible with "2",  Made to break the run when temperature dependence 
+    !                                      is present in source but not supported (e.g. by rarlier Silam)
     !
     IMPLICIT NONE
     !
     ! Imported parameters
     TYPE(silam_area_source), intent(inout) :: a_src
     type(Tsilam_namelist), pointer :: nlSrc
-    integer, intent(in) :: iAreaSrcFileVersion   ! at present, 2, 3 or 4
-    character(len=*), intent(in) :: src_dir_name ! for finding the netcdf data file
+    character(len=*), intent(in) :: chAreaSrcFileVersion, &  !at present, "2", "2_1",  "3", '3_1' or "4"
+              & src_dir_name ! for finding the netcdf data file
+           
 
-    select case(iAreaSrcFileVersion)
-      case(2,3)
-        call fill_a_src_from_namelist_v2_3(nlSrc, a_src, iAreaSrcFileVersion, src_dir_name)
-      case(4)
+    integer :: iTmp
+    character(len=*), parameter :: sub_name = 'fill_a_src_from_namelist'
+    
+    select case(chAreaSrcFileVersion)
+      case('2','2_1')
+        call fill_a_src_from_namelist_v2_3(nlSrc, a_src, 2, src_dir_name)
+      case('3', '3_1')
+        call fill_a_src_from_namelist_v2_3(nlSrc, a_src, 3, src_dir_name)
+      case('4')
         call fill_a_src_from_namelist_v4(nlSrc, a_src, src_dir_name)
       case default
-        call set_error('Unknown area source version:' + fu_str(iAreaSrcFileVersion), &
-                     & 'fill_a_src_from_namelist')
+        call set_error('Unknown a_src version: "'// trim(chAreaSrcFileVersion)//'"', sub_name)
     end select
+      
+    !
+    ! Whatever the source version is, they all can depend on meteorology
+    !
+    a_src%ifMeteoDependent = fu_str_u_case(fu_content(nlSrc,'if_temperature_dependent_emission')) == 'YES'
 
+    if(a_src%ifMeteoDependent)then
+      call get_temp_dep_from_namelist(a_src%rulesMeteoDep, nlSrc)
+      if(error)then
+        call set_error('Failed meteo dependence for:' + a_src%src_nm + '___' + a_src%sector_nm, &
+                     & sub_name)
+        a_src%defined = silja_false
+        return
+      endif
+      if (any(chAreaSrcFileVersion == (/'2','3'/))) then
+          call msg_warning("Meteo-dependent source with no bakward lock", sub_name)
+          call msg("Please change a_src")
+      endif
+      if (chAreaSrcFileVersion == '4') then
+        call report_area_source(a_src)
+        call set_error("area_source_4 does not support meteo dependence ", sub_name)
+        return
+      endif
+
+    endif
+      
     if(.not. defined(a_src)  .or. a_src%nDescriptors < 1)then
       call report_area_source(a_src)
-      call set_error('Undefined or empty area source v'+trim(fu_str(iAreaSrcFileVersion)), &
-                                        &'fill_a_src_from_namelist')
+      call set_error('Undefined or empty area source v'+trim(chAreaSrcFileVersion), &
+                                        & sub_name)
       return
     endif
 
     if(a_src%nCells < 1 )then
       call report_area_source(a_src)
-      call msg_warning('Zero-cells area source v'+trim(fu_str(iAreaSrcFileVersion)), &
-                                        &'fill_a_src_from_namelist')
+      call msg_warning('Zero-cells area source v'+trim(chAreaSrcFileVersion), &
+                                        & sub_name)
     endif
       
   end subroutine fill_a_src_from_namelist
@@ -512,7 +561,7 @@ CONTAINS
     ! Imported parameters
     TYPE(silam_area_source), intent(inout) :: a_src
     type(Tsilam_namelist), pointer :: nlSrc
-    integer, intent(in) :: iAreaSrcFileVersion   ! at present, 2, 3 or 4
+    integer, intent(in) :: iAreaSrcFileVersion   ! at present, 2, 3
     character(len=*), intent(in) :: src_dir_name ! for finding the netcdf data file
 
     ! Local variables
@@ -527,11 +576,12 @@ CONTAINS
     type(silam_grid_position) :: posTmp
     type(silja_level) :: level
     character(len=substNmLen) :: chSubstNm
+    character(len=*), parameter :: sub_name = 'fill_a_src_from_namelist_v2_3'
 
 
     ! A bit of preparations
     !
-    !$ if (omp_in_parallel()) call set_error("OMP unsafe",'fill_a_src_from_namelist_v2_3')
+    !$ if (omp_in_parallel()) call set_error("OMP unsafe",sub_name)
     !$ if (error) return
 
     spContent%sp => fu_work_string()
@@ -549,10 +599,10 @@ CONTAINS
       ! The source has already been partly defined. Check namelist to be the right one
       !
       if(.not. fu_same_header())then
-        call msg_warning('The header and the namelist are different','fill_a_src_from_namelist_v2_3')
+        call msg_warning('The header and the namelist are different',sub_name)
         call report(a_Src)
         call report(nlSrc)
-        call set_error('The header and the namelist are different','fill_a_src_from_namelist_v2_3')
+        call set_error('The header and the namelist are different',sub_name)
         return
       endif
     else
@@ -582,7 +632,7 @@ CONTAINS
 
     if(nItems < 1)then
       call report(nlSrc)
-      call set_error('No parameter items in namelist','fill_a_src_from_namelist_v2_3')
+      call set_error('No parameter items in namelist',sub_name)
       return
     endif
 
@@ -592,7 +642,7 @@ CONTAINS
       !
       allocate(a_src%params(nItems), stat=iTmp)
       if(fu_fails(iTmp == 0, 'Failed to allocate parameters for area source', &
-                           & 'fill_a_src_from_namelist_v2_3'))return
+                           & sub_name))return
       call set_missing(a_src%params, nItems)
     endif
 
@@ -647,12 +697,12 @@ CONTAINS
                                        & a_src%ifSpecies)
         case default
           call msg('Wrong area source file version (must be 2 or 3):',iAreaSrcFileVersion)
-          call set_error('Wrong area source file version','fill_a_src_from_namelist_v2_3')
+          call set_error('Wrong area source file version',sub_name)
           return
       end select
       if(error)then
         call set_error('Failed source:' + a_src%src_nm + '_' + a_src%sector_nm, &
-                     & 'fill_a_src_from_namelist_v2_3')
+                     & sub_name)
         return
       endif
     end do   ! time slots
@@ -660,7 +710,7 @@ CONTAINS
     ! Copy the time moments of params to times array.
     !
     allocate(a_src%times(size(a_src%params)), stat=iTmp)
-    if(fu_fails(iTmp == 0, 'Failed times array allocation','fill_a_src_from_namelist_v2_3'))return
+    if(fu_fails(iTmp == 0, 'Failed times array allocation',sub_name))return
     do iTmp = 1, size(a_src%times)
       a_src%times(iTmp) = a_src%params(iTmp)%time
     end do
@@ -686,7 +736,7 @@ CONTAINS
         if(a_src%indHour(indDescriptorOfParLine(1),1) >= 0.0)then ! something reasonable found
           call set_error('The cocktail:' + fu_name(a_src%cocktail_descr_lst(indDescriptorOfParLine(1))) + &
                  & '- has already been assigned time variation for area source v2:' + a_src%src_nm + &
-                 & '_' + a_src%sector_nm,'fill_a_src_from_namelist_v2_3')
+                 & '_' + a_src%sector_nm,sub_name)
         endif
         !
         ! Put the variation to the corresponding indDescriptorOfParLine
@@ -744,7 +794,7 @@ CONTAINS
             call set_error('The species:' + &
                    & fu_name(a_src%cocktail_descr_lst(indDescriptorOfParLine(iDescr))) + &
                    & '- has already been assigned time variation for the area source 3:' + &
-                   & a_src%src_nm + '_' + a_src%sector_nm,'fill_a_src_from_namelist_v2_3')
+                   & a_src%src_nm + '_' + a_src%sector_nm,sub_name)
           endif
         enddo
         !
@@ -815,7 +865,7 @@ CONTAINS
         enddo
 
       case default
-        call set_error('Only AREA_SOURCE_2 and AREA_SOURCE_3 are supported','fill_a_src_from_namelist_v2_3')
+        call set_error('Wrong AREA_SOURCE version',sub_name)
         return
     end select
 
@@ -830,7 +880,7 @@ CONTAINS
       ifGeoCoords = .false.
     else
       call set_error('The content of coordinate_of_values must be GEOGRAPHICAL or GRID_INDICES', &
-                   & 'fill_a_src_from_namelist_v2_3')
+                   & sub_name)
       return
     endif
     
@@ -863,7 +913,7 @@ CONTAINS
           call msg('Descriptor, cell index:', iDescr, iCell)
           call msg('X, Y-coord:',a_src%cell_fx(iCell), a_src%cell_fy(iCell))
           call msg('Value:',a_src%cell_fx(iCell), a_src%cell_val(iDescr,iCell))
-          call set_error('This source has negative emission rate','fill_a_src_from_namelist_v2_3')
+          call set_error('This source has negative emission rate',sub_name)
           return
         endif
       end do
@@ -1101,6 +1151,8 @@ CONTAINS
       character(len=fnlen) :: ncfilename_hat, ncfilename
       logical :: read_from_nc
       real, dimension(:), pointer :: lats, lons, values
+
+       character(len=*), parameter :: sub_name = 'read_values'
        lats =>null()
        lons =>null()
        values =>null()
@@ -1119,13 +1171,13 @@ CONTAINS
         read(unit=spContent%sp, iostat=istat, fmt=*) nctag, ncsize_in_nl, ncfilename_hat
         ncfilename = fu_extend_grads_hat_dir(ncfilename_hat, src_dir_name)
 !        call replace_string(ncfilename, '^', trim(src_dir_name)//dir_slash)
-        if (fu_fails(istat == 0, 'Failed to parse data item: ' // trim(spcontent%sp), 'get_values')) return
+        if (fu_fails(istat == 0, 'Failed to parse data item: ' // trim(spcontent%sp), sub_name)) return
         values => fu_work_array()
         lons => fu_work_array()
         lats => fu_work_array()
         call unpack_a_src_from_nc('read', ncfilename, nctag, nDescriptorInParLine, num_cells, values, lons, lats)
         if (error) return
-        if (fu_fails(num_cells == ncsize_in_nl, 'Sizes in namelist and netcdf don''t match', 'get_values')) return
+        if (fu_fails(num_cells == ncsize_in_nl, 'Sizes in namelist and netcdf don''t match', sub_name)) return
       end if
           
       call grid_dimensions(a_src%grid,nx,ny)
@@ -1148,7 +1200,7 @@ CONTAINS
           read(unit=spContent%sp, iostat=iStat,fmt=*) fLon, fLat, &
                & (fVals(iDescr), iDescr=1,nDescriptorInParLine)
           if(iStat /= 0)then
-            call set_error('Failed to read the line:' + spContent%sp,'fill_a_src_from_namelist_v2_3')
+            call set_error('Failed to read the line:' + spContent%sp, sub_name)
           endif
           if(any(fVals(1:nDescriptorInParLine) < 0))then
             call msg('Problem:'+spContent%sp,fVals(1), fVals(2))
@@ -5031,8 +5083,10 @@ endif
         end select
       endif
     enddo
+
   end subroutine prepare_inject_a_src
 
+  
   !**************************************************************************
 
   subroutine inject_emission_area_source_field(a_src, &
@@ -5496,7 +5550,7 @@ endif
     ! Local variables
     integer :: iSlot, iLev, ix, iy, iSrc, iCell, nLevs, iCellX, iCellY, iDescr, iFile, fs, &
              & iSpecies, nSpecies,  iSpeciesEmis
-    real :: fMassTmp, fCellTotal, fWeightPast, fLevFraction, duration_sec, fTmp
+    real :: fMassTmp, fCellTotal, fWeightPast, fLevFraction, duration_sec, fTmp, fMetScaling
     real, pointer :: fPtr 
 
     type(silja_time), target :: timeStart, timeEnd
@@ -5517,6 +5571,8 @@ endif
        return
     endif
     fPtr => null()
+
+    fMetScaling = 1. ! No meteo dependence by default
 
     ! Do we have any emission this month at all???
     iMon = fu_mon(now) 
@@ -5586,6 +5642,10 @@ endif
         ptrCoord(1) = a_src%cellDispGrd_fx(iCell) - iCellX
         ptrCoord(2) = a_src%cellDispGrd_fy(iCell) - iCellY
 
+         
+        if (a_src%ifMeteoDependent )  fMetScaling = &
+              & fu_meteodep_emis_scaling(a_src%rulesMeteoDep, iCellX + nx_dispersion * (iCellY-1))
+
         !
         ! Scan the whole rectangular filtering the non-emitting
         ! subst-mode combinations via coding array
@@ -5606,6 +5666,9 @@ endif
           else
             fMassTmp = fMassTimeCommon(iDescr) * a_src%cellDispGrd_Val(iDescr,iCell)
           endif
+
+          fMassTmp = fMassTmp * fMetScaling
+
 #ifdef DEBUG          
           if (fMassTmp < 0 ) then
               call msg("a_src%cellDispGrd_Val(iDescr,iCell)", a_src%cellDispGrd_Val(iDescr,iCell))
@@ -5830,6 +5893,18 @@ endif
     descrLst => a_src%cocktail_descr_lst
   end function fu_cocktail_descr_of_a_src
 
+  !=========================================================================
+  integer function fu_meteodep_model_a_src(a_src)
+    implicit none
+    type(silam_area_source), intent(in) :: a_src
+    if(a_src%ifMeteoDependent)then
+      fu_meteodep_model_a_src = fu_meteodep_model(a_src%rulesMeteoDep)
+    else
+      fu_meteodep_model_a_src = int_missing
+    endif
+  end function fu_meteodep_model_a_src
+  
+  
   ! ***************************************************************
 
   SUBROUTINE report_area_source(as)

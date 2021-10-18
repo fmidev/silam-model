@@ -708,7 +708,7 @@ CONTAINS
       if (nx == int_missing) then
           nx = nint((lon_end - grid%lonlat%sw_corner_modlon)/dx) + 1
       elseif (dx == real_missing) then
-          dx = ( lon_end - grid%lonlat%sw_corner_modlon) / (ny-1)
+          dx = ( lon_end - grid%lonlat%sw_corner_modlon) / (nx-1)
       elseif (lon_end /= real_missing) then
         if (nint((lon_end - grid%lonlat%sw_corner_modlon)/dx) + 1 - nx /= 0) then
           call report(nlSetup)

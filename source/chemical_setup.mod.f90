@@ -369,7 +369,7 @@ module chemical_setup
      private
      character(len=substNmLen) :: name = ''
      integer :: distr_type =int_missing       ! distribution type or gas_phase_flag
-     integer :: solubility = int_missing ! 0=insoluble, 1=soluble, later: 1..100 reflects the solubility
+     integer :: solubility = int_missing ! 0=insoluble, 1=soluble, later: 0..100 reflects the solubility
      ! Shape parameters:
      !
      real :: fp1 = real_missing, fp2 = real_missing

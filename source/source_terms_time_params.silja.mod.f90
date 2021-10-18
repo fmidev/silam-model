@@ -23,7 +23,8 @@ MODULE source_terms_time_params
   ! 
 
   USE dispersion_server !chemistry_server
-
+!  use silam_namelist
+  
   IMPLICIT NONE
 
   ! The public functions and subroutines available in this module:
@@ -42,6 +43,9 @@ MODULE source_terms_time_params
   public get_source_aer_species
   public getTimeSlots_from_params
   public get_overlapping_slots
+  public add_input_needs_meteo_dependence
+  public fu_meteodep_model
+  public get_temp_dep_from_namelist
 
   private set_release_parameters
   private reset_release_parameters
@@ -50,6 +54,8 @@ MODULE source_terms_time_params
   private fu_descr_name
   private store_time_param_as_nl_params
   private store_time_param_as_nl_time
+  private fu_meteodep_model_time_params
+
 
   interface fu_time
     module procedure fu_time_from_time_param
@@ -62,6 +68,10 @@ MODULE source_terms_time_params
   interface store_time_param_as_namelist
     module procedure store_time_param_as_nl_params
     module procedure store_time_param_as_nl_time
+  end interface
+
+  interface fu_meteodep_model
+    module procedure fu_meteodep_model_time_params
   end interface
 
   ! Release cell types:  
@@ -102,9 +112,30 @@ MODULE source_terms_time_params
     integer :: nDescriptors
   end type silam_release_parameters
 
+  !
+  ! Some sources can depend on meteorological conditions. 
+  !
+  type TmeteoDepRules
+    integer :: indMeteoDepModelSwitch  ! Various dependenciess can be considered
+    !
+    ! Heating as a function of temperature deficit: linear regression with saturation.
+    ! 
+    ! EmissionScaling = fMinEmissionScaling + fTemprDeficit_2_emis * max(0, T2mDaily - fT0)
+    !
+    real :: fT0    !  Saturation: no heating when T2m >fT0 fT0=288 should be fine for all:) 
+    real :: fdEdT   ! slope, default. Dynamic part of dependence.
+    real :: fMinEmission         ! intercept: non-HDD part
+  end type TmeteoDepRules
+
+  type (TmeteoDepRules), public, parameter :: meteoDepRulesMissing = &
+      & TmeteoDepRules(int_missing, real_missing, real_missing, real_missing)
+  
   integer, public, parameter :: max_descriptors = 30
 
+  integer, private, parameter :: emis_heating_vs_T_linregr_mdl = 3101 ! linear regres. with saturation
 
+  real, dimension(:), private, save, pointer :: fldDailyTempr2m => Null()
+  
 CONTAINS
 
   !====================================================================
@@ -1536,7 +1567,6 @@ endif
     
   end subroutine get_source_aer_species
 
-  
   ! ***************************************************************
 
   subroutine getTimeSlots_from_params(params, time, iSlot1, iSlot2, fWeight_past)
@@ -1608,6 +1638,174 @@ endif
     if(error)return
     
   end subroutine get_overlapping_slots
+
+  !**************************************************************************************
+  !
+  ! Weather dependence of emission
+  !
+  !**************************************************************************************
+
+  !*********************************************************************
+  
+  
+  subroutine get_temp_dep_from_namelist(rulesMeteoDep, nlSrc)
+    !
+    ! Reads the parameters of the temperature dependence of emission for the given source term
+    !
+    implicit none
+  
+    type(TmeteoDepRules), intent(out) :: rulesMeteoDep
+    type(Tsilam_namelist), intent(in) :: nlSrc
+    CHARACTER(len=*), PARAMETER :: sub_name='get_temp_dep_from_namelist'
+
+    if(fu_str_u_case(fu_content(nlSrc,'tempr_dependence_model')) == 'TEMPR_DEFICIT_REGRESSION')then
+      !
+      ! Need standard temperature indoor, fraction of non-heating combustion and insulation quality
+      !
+      rulesMeteoDep%indMeteoDepModelSwitch = emis_heating_vs_T_linregr_mdl
+      rulesMeteoDep%fT0 = fu_content_real(nlSrc,'T0_K') 
+      ! slope, default. Dynamic part of dependence.
+      rulesMeteoDep%fdEdT = fu_content_real(nlSrc,'dEdT') 
+      ! intercept, default. Temperature-independent fraction
+      rulesMeteoDep%fMinEmission = fu_content_real(nlSrc,'frac_const')
+
+      !
+      ! All three should present
+      !
+      if(any ((/ rulesMeteoDep%fT0, rulesMeteoDep%fdEdT,  rulesMeteoDep%fMinEmission/) & 
+                &  == real_missing)) then
+        call msg_warning('Failed setup of temperature dependence',sub_name)
+        call msg('From namelist: T0_K, dEdT, frac_const' , &
+               & (/rulesMeteoDep%fT0, rulesMeteoDep%fdEdT, rulesMeteoDep%fMinEmission/))
+        call set_error('Failed setup of temperature dependence',sub_name)
+      endif
+    else
+      ! Unknown model
+      call set_error('Unknown Tempr dependence model:' + fu_content(nlSrc,'tempr_dependence_model'), sub_name)
+      call msg('Only TEMPR_DEFICIT_REGRESSION is allowed')
+    endif  !  Model of dependence
+      
+  end subroutine get_temp_dep_from_namelist
+  
+  
+  ! *******************************************************************
+  
+  subroutine add_input_needs_meteo_dependence(rulesMeteoDep, q_met_dynamic, q_met_st, &
+                                                           & q_disp_dynamic, q_disp_st)
+    !
+    ! Adds the needed input data, dynamic and static meteo fields
+    !
+    implicit none
+    
+    type(TmeteoDepRules), intent(in) :: rulesMeteoDep
+    integer, dimension(:), intent(inout) :: q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st
+    
+    ! Local variables
+    integer :: iTmp
+
+    select case(rulesMeteoDep%indMeteoDepModelSwitch)
+      case(emis_heating_vs_T_linregr_mdl)
+        iTmp = fu_merge_integer_to_array(day_mean_temperature_2m_flag, q_disp_st)
+      case(int_missing)
+      case default
+        call set_error('Unknown meteo-depence model:' + fu_str(rulesMeteoDep%indMeteoDepModelSwitch), &
+                     & 'add_input_needs_meteo_dependence')
+    end select
+  
+  end subroutine add_input_needs_meteo_dependence
+  
+
+  !*********************************************************************************************
+
+  integer function fu_meteodep_model_time_params(rules)
+    implicit none
+    type(TmeteoDepRules), intent(in) :: rules
+    fu_meteodep_model_time_params = rules%indMeteoDepModelSwitch
+  end function fu_meteodep_model_time_params
+
+  
+  !*********************************************************************************************
+  
+  subroutine prepare_injection_meteodep(dispBuf, arMeteoDepModels)
+    !
+    ! Stores the indices of the meteodata field(s). Called for each source type that has such
+    ! dependence. So, multiple calls are probable
+    !
+    implicit none
+    
+    ! Input parameters
+    type(Tfield_buffer), intent(in) :: dispBuf
+    integer, dimension(:), intent(in) :: arMeteoDepModels
+    
+    ! Local variables
+    integer, dimension(:), pointer :: met_q
+    integer :: iQ, iMdl, quant
+
+    ! nullify the pointer
+    nullify(fldDailyTempr2m)
+
+    ! Scan the meteo buffer and the dependence models
+    ! Each model may need own meteo data
+    !
+    met_q => dispBuf%buffer_quantities    
+    do iQ = 1, size(met_q)
+      quant = met_q(iQ)
+      if(quant == int_missing)exit  ! no more quantities to check
+      do iMdl = 1, size(arMeteoDepModels)   
+        select case(arMeteoDepModels(iMdl))
+          case(emis_heating_vs_T_linregr_mdl)
+            if(quant == day_mean_temperature_2m_flag) &
+               & fldDailyTempr2m => dispBuf%p2d(iQ)%present%ptr
+          case(int_missing)  ! all models scanned
+            exit
+          case default
+            call set_error('Unknown meteo-depence model:' + fu_str(arMeteoDepModels(iMdl)), &
+                         & 'prepare_injection_meteodep')
+            return
+        end select   ! dependence model type
+      enddo   ! dependence models
+    enddo  ! quantities
+    
+  end subroutine prepare_injection_meteodep
+  
+  
+  !********************************************************************************************
+  
+  real function fu_meteodep_emis_scaling(rulesMD, iDisp)
+    !
+    ! Determines the scaling of emission in what concerns the daily-mean temperature
+    !
+    implicit none
+    
+    ! Imported parameters
+    type(TmeteoDepRules), intent(in) :: rulesMD
+    integer, intent(in) :: iDisp    ! = ixDisp + nx_disp * (iyDisp-1)
+
+    ! Local variables
+    integer :: iMdl
+    real :: fTmp
+    
+    ! Action depends on the model
+    !
+    select case(rulesMD%indMeteoDepModelSwitch)
+      case(emis_heating_vs_T_linregr_mdl)
+        !
+        ! regression from temperature deficit to emission. A small hole is that the emission
+        ! is scaled with regard to yesterday's temperature but it might even make sense: houses
+        ! have inertia.
+        !
+        fTmp = rulesMD%fMinEmission
+        fu_meteodep_emis_scaling = fTmp  + (1. - fTmp) * &                ! min emission level
+                                 & rulesMD%fdEdT * max(0., rulesMD%fT0 - fldDailyTempr2m(iDisp)) 
+      case(int_missing)  ! all models scanned
+        return
+      case default
+        call set_error('Unknown meteo-depence model:' + fu_str(rulesMD%indMeteoDepModelSwitch), &
+                     & 'fu_meteodep_emis_scaling')
+        return
+    end select   ! dependence model type
+      
+  end function fu_meteodep_emis_scaling
   
   
 END MODULE source_terms_time_params
