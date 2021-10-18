@@ -62,6 +62,14 @@ newcray_mpi:
 	echo "SE=newcray_mpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
+mahti_mpi:
+	echo "SE=mahti_mpi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+mahti:
+	echo "SE=mahti" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
 puhti_mpi:
 	echo "SE=puhti_mpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
