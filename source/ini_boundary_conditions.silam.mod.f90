@@ -137,7 +137,7 @@ MODULE ini_boundary_conditions
     real, dimension(:), allocatable :: polarCapThickness       ! (iVertical)
     real :: polarCapArea
     type(silja_field_3d_pointer), dimension(:,:), pointer :: Fld3dPtr   ! dimension - past/future; 1:nSpTr
-    integer :: past_future_switch = 0      ! 1 or 0                              
+    integer :: past_future_switch = 0      !  0 -> [past, future], 1 ->  [future -> past]
     type(THorizInterpStruct), pointer :: meteo2BoundaryInterpHoriz => null()
     type(TVertInterpStruct), pointer :: meteo2BoundaryInterpVert => null()
     type(silam_vertical) :: vertical
@@ -2065,7 +2065,7 @@ MODULE ini_boundary_conditions
       ! Imported parameters
       type(Tini_boundary_rules),  intent(inout), target :: ibRules
       type(TboundaryStructPtr), dimension(:), pointer :: boundStructArray
-      type(silja_time ), intent(in) :: now
+      type(silja_time ), intent(in) :: now !! Mid-time-step
       type(mini_market_of_stacks), pointer :: miniMarketBC
       type(Tfield_buffer), pointer :: met_buf
       logical, intent(in) :: ifFirstTime
@@ -2846,16 +2846,13 @@ MODULE ini_boundary_conditions
         integer, dimension(:), intent(in) :: species_mapping_trn
         integer, intent(in) :: x1, x2, y1, y2, z1, z2, nSpecies
         logical, intent(in) :: ifPlain
-        type(silja_time), intent(in) :: now
+        type(silja_time), intent(in) :: now  !!! Should be mid-step here
         
         ! Local variables
         integer :: ix, iy, iz, iCell, izb, iSpecies, iSpeciesTrn !, i1b
         real, dimension(max_species) :: weight_past_boundary
         real, dimension(:), pointer :: val_past, val_future !, &
-!                                     & z_cell_size_past, z_cell_size_future
-!        real :: weight_past
 
-!        weight_past = dusp_buf%weight_past
 
         !
         ! Get the weight_past_boundary, which can be species-specific

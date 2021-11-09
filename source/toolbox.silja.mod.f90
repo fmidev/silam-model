@@ -90,6 +90,7 @@ MODULE toolbox
   public fu_get_default_mpi_buf_size
   public remapcon_1d
   public testremapcon_1d
+  public set_coastal_value
 
   public trim_precision
 
@@ -4915,7 +4916,64 @@ CONTAINS
 
   end subroutine get_chunk
 
-  
+  !*************************************************************
+
+  subroutine set_coastal_value(field, pLandFr, iMeteo, nx_meteo, ny_meteo, &
+       & value_in_cell, default_value, if_divide)
+
+    real, dimension(:), pointer, intent(in) :: field, pLandFr
+    integer, intent(in) :: iMeteo, nx_meteo, ny_meteo
+    real, intent(in) :: default_value
+    logical, intent(in) :: if_divide
+    real, intent(out) :: value_in_cell
+    real :: fTmp
+    integer :: iCount, jTmp, iTmp, iyMeteo, ixMeteo, iMeteoTmp
+
+    ! Sets the value of a field in a coastal cell to equal the average of the
+    ! mostly land-containing neighbors. In case no mostly land-containing neighbor
+    ! is found, the default_value is used. The values can also be divided by the 
+    ! land area (controlled by if_divide).
+
+    if (pLandFr(iMeteo) < 0.85) then !if (field(iMeteo) < 1e-4) then
+      iCount = 0
+      fTmp = 0.0
+      do jTmp = max(iyMeteo-1,1), min(iyMeteo+1, ny_meteo)
+        do iTmp =  max(ixMeteo-1,1), min(ixMeteo+1, nx_meteo)
+          iMeteoTmp = iTmp + nx_meteo * (jTmp -1)
+          if (iMeteo == iMeteoTmp) cycle
+          if (pLandFr(iMeteoTmp) >= 0.85) then
+            if (if_divide) then
+              fTmp = fTmp + field(iMeteoTmp)/max(0.0, min(1.0, pLandFr(iMeteoTmp)))
+            else
+              fTmp = fTmp + field(iMeteoTmp)
+            end if
+            iCount = iCount + 1
+          end if
+        end do
+      end do
+      if (iCount > 0) then
+        fTmp = fTmp/iCount
+        if (fTmp > field(iMeteo)) then
+          value_in_cell = fTmp
+        else
+          if (if_divide) then
+            value_in_cell = field(iMeteo)/max(0.0, min(1.0, pLandFr(iMeteo)))
+          else
+            value_in_cell = field(iMeteo)
+          end if
+        endif
+      else
+        value_in_cell = default_value  ! virtually anything: this is a kind-of isolated island
+      endif
+    else
+      if (if_divide) then
+        value_in_cell = field(iMeteo)/max(0.0, min(1.0, pLandFr(iMeteo)))
+      else
+        value_in_cell = field(iMeteo)
+      end if
+    end if ! value ~0
+  end subroutine set_coastal_value
+
   !!!!!!***********************************************************************************
   !!!!!!
   !!!!!! A bunch of subroutines needed for IS4FIRES.

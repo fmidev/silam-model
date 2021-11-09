@@ -129,7 +129,7 @@ MODULE source_terms_wind_blown_dust
 !                     & fSrfRoughSandOnly = 3.5e-5, &   ! too high emission over China, not sure about Africa. 
 !                     & fSrfRoughSandOnly = 4e-5, &   ! seems to be too high emission everywhere
                      & fDragPartitioningSandOnly = 1.0/log(0.35*(0.1/fSrfRoughSandOnly)**0.8), &
-                     & fLAI_critical = 1.0, &
+                     & fLAI_critical = 1.5, &
 !                     & u_star_excess_saturation = 0.1   ! m/s
 !                     & u_star_excess_saturation = 0.09   ! m/s
 !                     & u_star_excess_saturation = 0.06   ! m/s
@@ -953,7 +953,8 @@ CONTAINS
         arTmp(4) = 0.125
 
       case(simple_dust_flag)
-        call set_vertical(fu_set_layer_between_two(layer_btw_2_height, 1.0, 100.0), vertTmp)
+        ! All emission between 1 m and 500 m
+        call set_vertical(fu_set_layer_between_two(layer_btw_2_height, 1.0, 500.0), vertTmp)
         if(error)return
         arTmp(1) = 1.0
 
@@ -1012,7 +1013,8 @@ CONTAINS
              & iMeteo, iDisp, ix, iy, ixMeteo, iyMeteo, iStat, iMode, iTmp, jTmp, iMeteoTmp
     real :: fTmp, timestep_sec, fCellTotal, ro_soil_dry, fSoilMassWater, u_star_min, &
           & uStarMerged, fSaltation, fFluxTotal, fRoughness, fSoilMassWaterThresh, fWindSpeed, &
-          & zx, zy, zz, fSum, du_star_owen, uStarGustEff !, uStarSaturated
+          & zx, zy, zz, fSum, du_star_owen, uStarGustEff, &
+          & soil_moisture, snow_depth, lai, fWindThreshold !, uStarSaturated
     real, dimension(:), pointer :: ptrXSzDisp, ptrYSzDisp, pSoilVolumeWater, &
                                  & fMinDArray, fMaxDArray, fPartDensity, pSandMassFract, &
                                  & pErodibleFraction, pU10m, pV10m, pU_star, pLAI, &
@@ -1044,7 +1046,7 @@ CONTAINS
     !
     real, parameter :: fSandDensity = 2600, &
                      & fSandDensity_1_3 = fSandDensity ** 0.3333333, &
-                     & fSnowWEQDepthThreshold = 0.001, &     ! 1mm of snow => no dust
+                     & fSnowWEQDepthThreshold = 0.02, &     ! 2 cm of water-eq. snow -> no dust
                      & sqrt_density_air = sqrt(density_air_288K)
     logical, parameter :: ifWindGust = .true.
 
@@ -1222,7 +1224,6 @@ endif
 fArDump = 0.0
 #endif
  
-
     !
     ! Now scan the domain, for each grid cell find the dust emission parameters
     ! and fill-in the emission map
@@ -1240,7 +1241,7 @@ iArStatistics(1) = iArStatistics(1) + 1
           case(emis_sandblasting_v1_flag)
             if(pErodibleFraction(iDisp) < 1.0e-5)cycle
           case(simple_dust_flag)
-            if(pDustEmis0(iDisp) < 1.0e-18)cycle
+            if(pDustEmis0(iDisp) < 1.0e-14)cycle
           case default
         end select
 
@@ -1254,9 +1255,20 @@ iArStatistics(1) = iArStatistics(1) + 1
 
 iArStatistics(2) = iArStatistics(2) + 1
 
+        if (pLandFr(iMeteo) < 0.95) then
+          call set_coastal_value(pSoilVolumeWater, pLandFr, iMeteo, nx_meteo, ny_meteo, soil_moisture, 0.3, .true.)
+          call set_coastal_value(pLAI, pLandFr, iMeteo, nx_meteo, ny_meteo, lai, 2.0, .false.)
+          call set_coastal_value(pSnowWEQDepth, pLandFr, iMeteo, nx_meteo, ny_meteo, snow_depth, 0.0, .false.)
+        else
+          soil_moisture = pSoilVolumeWater(iMeteo)
+          lai = pLAI(iMeteo)
+          snow_depth = pSnowWEQDepth(iMeteo)
+        end if
+
         !
         !   ...and if soil covered with snow
         !
+        
         if(pSnowWEQDepth(iMeteo) > fSnowWEQDepthThreshold)cycle
 
 iArStatistics(3) = iArStatistics(3) + 1
@@ -1278,60 +1290,25 @@ iArStatistics(4) = iArStatistics(4) + 1
           case default
             iArStatistics(5) = iArStatistics(5) + 1
         end select
-            
-        !
-        ! Soil moisture can be tricky: for small islands and sea edges it can be set to zero. 
-        ! But it can also be zero for deserts. So, for partly sea-cells we will check the surrounding 
-        ! mainly land cells if they give any clue on actual moisture in the area
-        !
-        if(pLandFr(iMeteo) < 0.75)then
-          if(abs(pSoilVolumeWater(iMeteo)) < 1.0e-5)then
-if(ifTalking)call msg('Checking suspicious soil moisture:',ix,iy)
-            iCount = 0
-            fTmp = 0.0
-            do jTmp = max(iyMeteo-1,1), min(iyMeteo, ny_meteo)
-              do iTmp =  max(ixMeteo-1,1), min(ixMeteo, nx_meteo)
-                iMeteoTmp = iTmp + nx_meteo * (jTmp -1)
-                if(iMeteo == iMeteoTmp)cycle
-                if(pLandFr(iMeteoTmp) > 0.75)then
-                  fTmp = fTmp + pSoilVolumeWater(iMeteo)
-                  iCount = iCount + 1
-                endif
-              end do
-            end do
-            if(iCount > 0)then
-              fTmp = fTmp / real(iCount)
-              if(fTmp > 0.01)then
-                 pSoilVolumeWater(iMeteo) = fTmp  ! surrounding is wet: do not believe zero!
-if(ifTalking)call msg('Replace zero moisture at (' + fu_str(ix) + ',' + fu_str(iy) + ') with:', fTmp)
-              else
-if(ifTalking)call msg('Keep zero moisture')
-              endif
-            else
-if(ifTalking)call msg('Replace zero moisture at (' + fu_str(ix) + ',' + fu_str(iy) + ') with default 0.3')
-              pSoilVolumeWater(iMeteo) = 0.3  ! virtually anything: this is a kind-of isolated island
-            endif
-          endif ! soil moisture ~0
-        endif  ! significant part of water in cell 
         
         select case(wb_dust_src%emisMethod)
           case(simple_dust_flag)
             
             fWindSpeed = sqrt(pU10m(iMeteo)*pU10m(iMeteo)+pV10m(iMeteo)*pV10m(iMeteo))
-            fSaltation = max(1.4, fWindSpeed-4.1)**3 
-            fSaltation = fSaltation * max(0.0, ((1 - 5.*pSoilVolumeWater(iMeteo))))**2
+            fWindThreshold = 5 + 50*soil_moisture
+            fSaltation = max(1.4, fWindSpeed - fWindThreshold)**3
+
+            fSaltation = fSaltation * max(0.0, min(1.0, pLandFr(iMeteo)))
+            fSaltation = fSaltation * (max(0.0, fSnowWEQDepthThreshold - snow_depth)/fSnowWEQDepthThreshold)
 
             if(fSaltation <= 0) cycle
             
             ! pDustEmis0 refers to a precomputed scaling map that depends on the bare land fraction
             ! (i.e. source area mask), the surface rughness map and the sand fraction map.
-            ! Currently it equals scaling_factor * bare_land/roughness**0.5 * factor_based_on_land_features
-            ! 1/roughness**0.5 is numerically quite close to 1-log(roughness/some_roughness_scale),
-            ! but does not completely cut out the emission in rough areas (e.g. dust storms do occur
-            ! in the midwest USA). pDustEmis needed to be preprocessed to cut out mismatching map
-            ! pixels mainly along the coasts.
+            ! Currently it equals scaling_factor * bare_land_fraction * shape_function * ln(roughness/roughness_0)
+            ! The shape function represents alluvial deposits
 
-            fFluxTotal = 0.135 * pDustEmis0(iDisp) * fSaltation * timestep_sec * max(0.0, fLAI_critical-pLAI(iMeteo))
+            fFluxTotal = 0.178 * pDustEmis0(iDisp) * fSaltation * timestep_sec * max(0.0, fLAI_critical-lai)/fLAI_critical
 
             if(fSaltation > 0.0) iArStatistics(6) = iArStatistics(6) + 1
             if(fFluxTotal > 0.0) iArStatistics(7) = iArStatistics(7) + 1

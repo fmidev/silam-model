@@ -1480,7 +1480,8 @@ CONTAINS
       ! The main Eulerian advection
       !
       if(fu_ifBoundary(IniBoundaryRules))then
-        call boundary_conditions_now(cloud%boundaryStructures, cloud%pBoundaryBuffer, now)
+        !! Should be valid for mid-timestep
+        call boundary_conditions_now(cloud%boundaryStructures, cloud%pBoundaryBuffer, now + timestep*0.5)
         if(error)return
       endif
 #ifdef DEBUG

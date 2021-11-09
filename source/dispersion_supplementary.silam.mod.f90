@@ -413,44 +413,13 @@ contains
             call stop_count(chCounterNm = command_string)
           
           
-!          bc_lim1 = fu_closest_obstime(reftime, backwards, fu_obstime_interval(simRules%IniBoundaryRules))
-!          bc_lim2 = fu_closest_obstime(reftime, forwards, fu_obstime_interval(simRules%IniBoundaryRules))
-!          IF(now == simrules%startTime)THEN 
-!            !--- For the first time data must always be acquired
-!            bc_lim1_prev = bc_lim1 + simRules%timestep
-!            bc_lim2_prev = bc_lim2 + simRules%timestep
-!          endif
-!          IF (error) EXIT loop_over_time
-!          IF(.not.(fu_between_times(bc_lim1, bc_lim1_prev, bc_lim2_prev, .true.) &
-!           & .and. fu_between_times(bc_lim2, bc_lim1_prev, bc_lim2_prev, .true.)))THEN
-!
-!            command_string = 'Boundary_condition_acquisition'
-!            call msg(command_string)
-!            call start_count(chCounterNm = command_string)
-!            !
-!            ! ATTENTION. There used to be now, now+timestep*2. in both time boundaries
-!            ! However, I have not found any reason to keep it.
-!            !
-!            do iTmp = 1, fu_nr_boundary_inFiles(simRules%IniBoundaryRules)
-!              CALL fix_shopping_time_boundaries(fu_shplst(simRules%IniBoundaryRules, iTmp), &
-!                                              & now, (now + simRules%timestep))
-!!call msg('')
-!!call msg('BC Shopping list:')
-!!call report(fu_shplst(simRules%IniBoundaryRules, iTmp))
-!!call msg('')
-!            enddo
-!            CALL fill_boundary_market(BCMarketPtr, simRules%IniBoundaryRules, first_step)
-!            IF (error) EXIT loop_over_time
-!
-!            !command_string = 'Boundary_condition_acquisition'
-!            call stop_count(chCounterNm = command_string)
 
             command_string = 'Boundary_condition_processing'
             call msg(command_string)
             call start_count(chCounterNm = command_string)
 
             CALL fillBoundaryStruct(simRules%IniBoundaryRules, BCMarketPtr, &
-                                  & now, fu_boundaryStructures(cloud), meteo_ptr, first_step)
+                                  & reftime, fu_boundaryStructures(cloud), meteo_ptr, first_step)
             IF (error) EXIT loop_over_time
 
             !command_string = 'Boundary_condition_processing'

@@ -2760,7 +2760,7 @@ if(ifTalk)call msg('Starting vertical diffusion:',(/ix,iy,iLev,iSpecies/))
               ! Free bottom and top for diffusion       
               ! If we do not kill momens here -- we are in trouble
               passDiff(:,0) = 0.
-              passDiff(:,nz_dispersion+1) = 0.
+              passDiff(1:,nz_dispersion+1) = 0. !!! Keep mass above: Boundary-condition is there if diffusion goes first
             
                 
                 if (diffuse_cm_vert)  &
