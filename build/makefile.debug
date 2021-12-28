@@ -1,0 +1,85 @@
+#################################################################
+#
+# Makefile for for silam version 4.2
+#
+# author: J. Vira / FMI
+#
+#################################################################
+
+# The executable
+
+PROGRAM = silam_v5_0_debug
+SILAM_ROOT = /home/vira/silam/silam_v5_0/
+
+# Build platform
+ARCH = linux_intel
+
+# The compiler
+F90C = ifort
+# Flags for optimization, etc.
+OPTIMIZATION = #-xT -ip
+OPENMP =
+DEBUG = -traceback -g -check all -DDEBUG
+FIXED = -fixed
+PREPROCESS = -cpp
+FFLAGS = -automatic -fpscomp logicals -assume byterecl  $(OPTIMIZATION) $(DEBUG) \
+         -I$(OBJDIR) -I$(LIBDIR)f90 -I/usr/local/include/
+
+# DIRECTORIES
+
+# source code
+SRCDIR = $(SILAM_ROOT)source/
+# object and .mod files
+OBJDIR = $(SILAM_ROOT)obj/debug/
+# directory for the executable
+BINDIR = $(SILAM_ROOT)bin/
+# directory with makefiles
+BUILDDIR = $(SILAM_ROOT)build/
+# directory with libraries
+LIBDIR = /home/vira/silam/lib/
+
+# Libraries passed to ifort
+SILAM_LIBS = $(LIBDIR)libgribex.a $(LIBDIR)hila.a $(LIBDIR)libnetcdff.a $(LIBDIR)libnetcdf.a  \
+	   -lgrib_api_f90 -lgrib_api -ljasper -llapack
+# Libraries given as linker options
+LFLAGS = 
+
+# Build rules: if this is set to simple, every module is assumed to depend
+# on its own source only. Caveat emptor.
+RULES = full
+
+# The list of all object files
+include $(BUILDDIR)all_object_codes
+include $(BUILDDIR)lib_codes
+
+# build targets
+
+$(BINDIR)$(PROGRAM) : $(COMMON_OBJS)
+	cd $(OBJDIR)
+	$(F90C) $(FFLAGS) -o $(BINDIR)$(PROGRAM) $(LFLAGS) $(OPENMP) $(COMMON_OBJS) $(SILAM_LIBS)
+	chmod 750 $(BINDIR)$(PROGRAM)
+	@echo New $(BINDIR)$(PROGRAM) is ready
+	cd $(BUILDDIR)
+
+clean:
+	rm -f $(OBJDIR)*.o $(OBJDIR)*.mod $(BINDIR)$(PROGRAM)
+
+config: 	
+	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(ARCH)
+	rm $(BUILDDIR)/sourcelist
+	@echo Config OK.
+
+tags: $(SRCDIR)*.f90
+	cd $(SRCDIR)
+	make -f makefile.tags
+	cd $(BUILDDIR)
+
+lib : $(LIBRARY_OBJS)
+	ar rcs $(LIBDIR)libsilam.a $(LIBRARY_OBJS)
+
+dot : config
+	dot -Gratio=1.4 -Granksep=0.4 -Gnodesep=0.3 -Nfontsize=16 -Tsvg silam.dot > $(PROGRAM).svg
+
+# Build rules for modules
+include $(BUILDDIR)source_build_rules.$(RULES)

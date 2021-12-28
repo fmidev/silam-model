@@ -1,0 +1,9 @@
+#paramId: 500206
+#Leaf area index
+'500206' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 28 ;
+   typeOfFirstFixedSurface = 1 ;
+	}
+

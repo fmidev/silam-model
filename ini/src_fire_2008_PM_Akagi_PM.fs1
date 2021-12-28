@@ -1,0 +1,45 @@
+FIRE_SOURCE_V1
+source_name = fire_2008
+source_sector_name = fire_PM
+####fire_metadata_file = g:\data\emis\fires\fire_metadata_ecodata_Acagi_CO_v5_6.ini   
+fire_metadata_file = g:\data\emis\fires\fire_metadata_ecodata_Acagi_PM_calibr_2008_v5_6.ini
+
+mode_distribution_type = FIXED_DIAMETER   ! later also: GAMMA_FUNCTION
+
+!aerosol_mode = 1  0.01 0.1  0.05 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+!aerosol_mode = 2  0.1  1.5   0.5  mkm
+!aerosol_mode = 3  1.5   6.  3  mkm
+!aerosol_mode = 4  6.  15.  9.   mkm
+!aerosol_mode = 5  15.  30.  20.  mkm
+
+aerosol_mode = 1  0.01 0.02  0.015 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+aerosol_mode = 2  0.02 0.04  0.03  mkm
+aerosol_mode = 3  0.04  0.06  0.05  mkm
+aerosol_mode = 4  0.06  0.1  0.07  mkm
+aerosol_mode = 5  0.1  0.2  0.15   mkm
+aerosol_mode = 6  0.2  0.5  0.3  mkm
+aerosol_mode = 7  0.5  1.  0.7 mkm  ! mode_number Dmin, Dmax, Daver D_unit
+aerosol_mode = 8  1.   2.   1.5  mkm
+aerosol_mode = 9  2.   4.   3.  mkm
+aerosol_mode = 10  4.   7.   5.5   mkm
+aerosol_mode = 11  7.   10.  8.5  mkm
+aerosol_mode = 12  10.  30. 15.   mkm  ! mode_number Dmin, Dmax, Daver D_unit
+
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120515.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120516.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120517.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120518.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120519.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120520.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120521.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120522.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120523.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120524.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120525.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120526.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120527.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120528.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120529.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120530.fs1
+frp_dataset = g:\data\emis\fires\SILAM_src_fract_sets\Fire_MOD_MYD__TA_FRP_20120531.fs1
+END_FIRE_SOURCE_V1

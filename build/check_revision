@@ -1,0 +1,275 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+
+import subprocess, sys
+import os
+#import pwd
+import socket
+import re
+import datetime as dt
+import argparse
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('directory', help='Directory with source code')
+
+args = argparser.parse_args()
+directory = args.directory
+
+class RevisionError(Exception):
+    pass
+
+
+#
+#  Return revision string rXXXXXXX correspondig to lates SVN revision
+#  and a command to get diff from that revision 
+#
+
+def getRevisionSVN(directory):
+    
+    revno = None
+    revstr = None
+    diffcmd = None
+    branchname =None
+
+    try:
+        svn = subprocess.Popen(('svn', 'info'), cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
+
+        for line in svn.stdout:
+            # Get branch name from Relative URL
+            if line.startswith('Relative URL:'):
+                a = line.split('/')
+                for i,w in enumerate(a):
+                    if w == "SILAM":
+                        branchname = a[i+1].strip()
+            # Files in working tree can belong to different revisions
+            # Get last-changed as a reference     
+            if line.startswith('Last Changed Rev:'):
+                revno=line.split()[-1]
+        print ('Current svn revision is : %s' %(revno))
+        if svn.wait():
+            raise RevisionError('SVN returned nonzero')
+
+        if revno is None:
+            raise RevisionError('Failed to read revision')
+        revstr = "%s SVN (r%s)"%(branchname, revno)
+        diffcmd = "svn diff -r%s"%(revno)
+
+    except Exception as e:
+        print (e)
+        raise
+
+    return branchname, revstr, diffcmd  
+
+
+def getRevisionGIT(directory):
+    #GIT seems to not allow different revisions for different files...
+    revno=None
+    revstr = None
+    diffcmd= None
+    branchname =None
+    try:
+        git =  subprocess.Popen("git branch |grep '^*' | cut -b 3-", shell=True,
+                  cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
+        for l in git.stdout:
+            if l.startswith('silam'):
+                branchname = l.strip()
+        if git.wait():
+            raise RevisionError('git branch returned nonzero')
+
+        gitlog = subprocess.Popen(('git' , 'log'), cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
+        for line in gitlog.stdout:
+            if line.startswith('commit'):
+                gitrev = line.split()[-1]
+                continue
+            a=line.split()
+            if len(a) == 3:
+                if a[0]=="git-svn-id:":
+                   if a[2]=="250f1e8d-2010-0410-9efa-e22dadc992bd":  ##fmi svn domain
+                       revno=a[1].split('@')[-1]
+                       break
+                   else:
+                       raise ValueError("strange fmi svn domain")
+        gitlog.terminate() ## Just kill it, once we got enough
+
+        if revno is None:
+            raise RevisionError('Failed to read revision from git')
+        revstr = "%s GIT-SVN (r%s)"%(branchname, revno)
+        diffcmd = "git diff %s"%(gitrev)
+    except Exception as e:
+        print (e)
+        raise
+
+    return branchname, revstr, diffcmd
+
+def getRevisionDummy(directory):
+    ## Failsafe thing
+    branchname  = None
+    revstr  = "Unknown (could not get last revision)."
+    diffcmd = "true"
+    return branchname, revstr, diffcmd
+
+
+
+
+def isSameRevision(revstr, revfilename):
+    # returns true if the last word of the first line in file
+    # is the same as the last word of the string
+    old_revision = None
+    try:
+        # Read the previous revision from the first line of the f90 file.
+        with  open(revfilename, 'r') as revision_f90_old:
+            old_revision = revision_f90_old.readline()[2:].strip()
+    except (IndexError, ValueError,IOError):
+            print ('Failed to get the previous revision')
+
+    same_revision = (old_revision is not None and old_revision == revstr)
+    if (same_revision):
+        print ('Previously compiled same revision: %s' % old_revision)
+    else:
+        print ('Previously compiled revision: %s, current revision %s' % (old_revision, revstr))
+
+
+    return  same_revision
+
+def writeRevision(revstr, revfilename):
+
+    tmpfname=revfilename+".tmp"
+    with open(tmpfname, 'w') as revision_f90:
+        revision_f90.write("""! %(REV)s
+! automatically generated, by check_revision script. Will be overwritten at next recompile.
+module revision
+implicit none
+
+private
+character(len=*), public, parameter :: revision_str = '%(REV)s'
+contains
+end module revision
+""" % dict(REV=revstr))
+    if os.path.exists(revfilename): 
+        os.unlink(revfilename)
+    os.rename(tmpfname, revfilename)
+
+def writeDiff(diff_f90_filename, revstr, diffcmd):
+    tmpfname=diff_f90_filename+".tmp"
+
+
+    with open(tmpfname, 'w') as diff_f90:
+        now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        host =  socket.gethostname()
+        cwd = os.getcwd()
+        try:
+            whoami = subprocess.check_output("whoami".split(), universal_newlines=True)
+        except:
+           whoami = None
+
+        if not whoami:
+             whoami = "No info"
+
+        pardict = dict(REV=revstr,  HOST=host, DATE=now, CWD=cwd, WHOAMI=whoami[:-1])     
+        diff_f90.write("""
+! automatically generated, by check_revision script. Will be overwritten at next recompile.
+module svndiff
+
+use globals
+
+implicit none
+
+private
+public print_svn_diff
+
+contains
+! Output of svn diff and some other relevant info...
+  subroutine  print_svn_diff()
+  implicit none
+
+    call msg("The binary was compiled at %(HOST)s  on  %(DATE)s")
+    call msg("Compile-time CWD: %(CWD)s")
+    call msg("Compile-time WHOAMI: %(WHOAMI)s")
+
+""" % pardict)
+           
+
+        svncmd=diffcmd + ' .'
+        for dir in [os.path.join(directory,'..','build'), directory]:
+          try:
+            with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir, universal_newlines=True ).stdout as inf:
+                diff_f90.write("call msg(\"Output of svn diff at "+dir+"\")\n")
+                for l in inf:
+                    l=re.sub("\r","",l[:-1])
+                    l=re.sub("'","' // \"'\" // '",l)
+                    diff_f90.write("call msg('"+l+"')\n")
+
+            diff_f90.write("    call msg('')\n")
+            diff_f90.write("    call msg('')\n")
+            diff_f90.write("    call msg('')\n")
+            diff_f90.write("    call msg('')\n")
+          except subprocess.CalledProcessError:
+            diff_f90.write("      call msg('No diff info: Error running \""+svncmd+"\" in "+dir+"')\n")
+
+        diff_f90.write("  end  subroutine  print_svn_diff\n")
+        diff_f90.write("end module svndiff\n")
+    if os.path.exists(diff_f90_filename): os.unlink(diff_f90_filename)
+    os.rename(tmpfname, diff_f90_filename)
+
+
+def writeBranch(branch, branchfname):
+    if branch is None:
+        print("Could not detect the branch name, relying on the existing one")
+        return
+    branchstr="BRANCH=%s"%(branch)
+    oldbranchstr = ""
+    try:
+        with open(branchfname, 'r') as branchf:
+            for l in branchf:
+                if l.startswith("BRANCH"):
+                    oldbranchstr = l
+    except IOError:
+        oldbranchstr = None
+        pass
+    if ( oldbranchstr != branchstr ):
+        tmpfname = branchfname + ".tmp"
+        with open(tmpfname, 'w') as branchf:
+            branchf.write(branchstr)
+        os.rename(tmpfname, branchfname)
+        print("%s has been updated. please re-run your make command"%(branchfname,))
+        sys.exit(255)
+    return
+
+
+    
+# Split the revision module in two: the revision.mod.f90 can be used lower down in the
+# code, while svndiff.mod.f90 is updated each time something is changed and should be used
+# only from top level.
+
+revision_f90_filename = os.path.join(directory, 'revision.mod.f90')
+diff_f90_filename = os.path.join(directory, 'svndiff.mod.f90')
+branch_filename = os.path.join(directory, '..','build','Makefile.branch')
+
+if os.path.exists( os.path.join(directory, '..','.svn')):
+    print ("SVN detected")
+    branch, revstr, diffcmd =  getRevisionSVN(directory)
+elif os.path.exists( os.path.join(directory, '..','.git')):
+    print ("GIT detected")
+    branch, revstr, diffcmd =  getRevisionGIT(directory)
+else:
+    print ("Silam source seems to be out of revstr control...")
+    branch, revstr, diffcmd = getRevisionDummy(directory)
+
+print ("Detected branch:", branch)
+print ("Detected revision:", revstr)
+print ("Diffcmd:", diffcmd)
+
+writeBranch(branch, branch_filename)
+
+if not isSameRevision(revstr, revision_f90_filename):
+    writeRevision(revstr, revision_f90_filename)
+
+
+writeDiff(diff_f90_filename, revstr, diffcmd)
+
+
+
+
+    
+    

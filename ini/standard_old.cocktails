@@ -1,0 +1,1567 @@
+!
+! This file contains the list of all standard cocktails defined for
+! SILAM model.
+! The cocktail starts from its name, by which it can be referred
+! from the source term file.
+! The second line is the cocktail type: [PASSIVE] / [RADIOACTIVE]
+! The rest is just a list components with their mass fractions.
+!
+! Empty lines and comments are ignored. Comments start from "#" or " !"
+!
+! Cocktail description always starts from "COCKTAIL_DESCRIPTION_V3"
+! and ends by "END_COCKTAIL_DESCRIPTION"
+!
+! Address questions to Mikhail Sofiev mikhail.sofiev@fmi.fi
+!
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = N2O_COCKTAIL
+mass_unit     = mole
+gas_phase = YES
+component_fraction = N2O  1.     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = SF6_COCKTAIL
+mass_unit     = kg
+gas_phase = YES
+if_normalise = no
+component_fraction = SF6  1.     ! Component name and its mass fraction
+component_fraction = SF6a  1.     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = N2O_COCKTAIL
+mass_unit     = mole
+gas_phase = YES
+component_fraction = N2O  1.     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = PASSIVE_COCKTAIL
+mass_unit     = kg
+gas_phase = YES
+component_fraction = passive   1.     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = TIME_COCKTAIL
+mass_unit     = kg
+gas_phase = YES
+component_fraction = timetag   1.     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = PROBABILITY_COCKTAIL
+mass_unit     = kg
+gas_phase = YES
+
+component_fraction = probability   1.     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AEROSOL_5_MODES_COCKTAIL  # PM 0.1 - PM 10_30 
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.001  0.1  0.03  mkm  1000  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  2  0.1    1.0  0.3  mkm   1000  kg/m3 
+aerosol_mode =  3  1.0    2.5  1.5  mkm   1000  kg/m3 
+aerosol_mode =  4  2.5   10.   6.   mkm   1500  kg/m3 
+aerosol_mode =  5 10.    30.  20.   mkm   2000  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM     0.2 0.2 0.2 0.2 0.2
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = PM10  
+mass_unit     = kg
+gas_phase = NO     
+
+aerosol_mode = 1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1500  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM  0.5 0.5
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AEROSOL_2MODE_COCKTAIL  
+mass_unit     = kg
+gas_phase = NO     
+
+aerosol_mode = 1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1500  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM  0.5 0.5
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AEROSOL_FINE_COCKTAIL  # PM 0.1 - PM 10_30 
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1000  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM    1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AEROSOL_COARSE_COCKTAIL  # PM 2.5
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode = 1  2.5   10.   6.   mkm   1500  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM2_5 1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AEROSOL_2MODE_COCKTAIL  
+mass_unit     = kg
+gas_phase = NO     
+
+aerosol_mode = 1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1500  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM  0.5 0.5
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = AEROSOL_2_5_COCKTAIL  
+mass_unit     = kg
+gas_phase = NO     
+aerosol_mode = 1  0.01   2.5  0.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = PM  1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = SOX
+mass_unit     = mole
+gas_phase = YES
+aerosol_mode =  1  0.1    0.3  0.2  mkm   1000  kg/m3 
+mode_distribution_type = FIXED_DIAMETER
+
+component_fraction = SO2   0.0 0.95     ! Component name and its mass fraction
+component_fraction = SO4   0.05 0.0    ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+!************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = SO2
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = SO2   1.0
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ACID_BASIC_COCKTAIL_SOX_2
+mass_unit     = mole
+gas_phase = YES
+
+aerosol_mode =  1  0.1  0.3  0.2  mkm   1000  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = SO2   0.  0.95   ! Component name and its mass fraction
+component_fraction = SO4   0.05  0.   ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C5H8
+mass_unit     = mole
+gas_phase = YES
+component_fraction = C5H8   1.0     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C5H8_2
+mass_unit     = mole
+gas_phase = YES
+component_fraction = C5H8_2   1.0     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ACID_BASIC_COCKTAIL_SO2_2
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = SO2   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ACID_BASIC_COCKTAIL_SO4_1
+mass_unit     = mole
+gas_phase = NO
+
+aerosol_mode =  1  0.1    1.0  0.3  mkm   1000  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = SO4   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ACID_BASIC_COCKTAIL_SO4_2
+mass_unit     = mole
+gas_phase = NO
+
+aerosol_mode =  1  0.1    1.0  0.3  mkm   1000  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = SO4   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ACID_BASIC_COCKTAIL_NOX_2
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = NO   0.9     ! Component name and its mass fraction
+component_fraction = NO2   0.1    ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = ACID_BASIC_COCKTAIL_NH3_2
+mass_unit     = mole
+gas_phase = YES
+component_fraction = NH3   1.0    ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = ACID_BASIC_COCKTAIL_CO_2
+mass_unit     = mole
+gas_phase = YES
+component_fraction = CO   1.0     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = RADON_COCKTAIL
+mass_unit     = Bq
+gas_phase = YES
+
+aerosol_mode = 1 0.1  1. 0.3 mkm 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+aerosol_default_density = 1500 kg/m3 ! Value with unit
+
+component_fraction = RN_222   0. 1.     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = CESIUM_COCKTAIL
+mass_unit     = Bq
+gas_phase = NO
+
+aerosol_mode = 1 0.1  1. 0.3 mkm  1500 kg/m3
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = CS_137   1.     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = PLUTONIUM_COCKTAIL
+mass_unit     = Bq
+gas_phase = NO
+
+aerosol_mode = 1 0.1  1. 0.3 mkm  1500 kg/m3
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PU_241   1.      ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = TEST_COCKTAIL
+mass_unit     = Bq
+
+gas_phase = YES
+
+aerosol_mode = 1 10 20 15  mkm   ! Mode nbr, Min, max and average diameter with unit
+aerosol_mode = 2 2.5  10 5  mkm    ! Mode nbr, Min, max and average diameter with unit
+aerosol_mode = 3 1 2.5 1.5  mkm ! Mode nbr, min, max, aver 
+aerosol_mode = 4 0.1 1 0.4  mkm ! Mode nbr, min, max, aver 
+
+aerosol_default_density = 2800 kg/m3 ! Value with unit
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = CS_137   .1  .2  .3  .4  0.
+component_fraction = I_131   0.  .0  .0  .0  1.
+component_fraction = K_42   .9 1.0 1.1 1.2   0.
+component_fraction = SR_91  1.3 14 1.5 1.6  0.
+
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = FIRE_ACID_COCKTAIL  
+cocktail_type = ACID_BASIC
+mass_unit     = g
+
+gas_phase = YES
+
+!aerosol_mode =  1 0.01  1.  0.35  mkm    ! Mode nbr, Min, max and average diameter with unit
+!aerosol_density = 1000 kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+
+aerosol_mode = 1 0.01  1.  0.35  mkm  1000  kg/m3   ! Min, max and average diameter with unit
+
+component_fraction = CO     0. 0.94 
+component_fraction = HCHO   0. 0.013 
+#component_fraction = NOX    0. 0.029
+component_fraction = NO2    0. 0.029
+component_fraction = NH3    0. 0.014
+component_fraction = SO2    0. 0.004
+component_fraction = SO4      0.  0. 
+component_fraction = SOX      0.  0. 
+component_fraction = C5H8     0.  0.
+component_fraction = C5H8_2   0.  0.
+
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = FIRE_PM_COCKTAIL 
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1100  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM_FRP  0.75 0.25
+
+### to be fixed joana
+!aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+!aerosol_mode = 2  2.5   10.   6.   mkm   1500  kg/m3 
+!aerosol_mode = 3  10.   30.   18.  mkm   2000  kg/m3
+
+!mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+!component_fraction = TC 0.3150 0.0900 0.0450
+!component_fraction = OC 0.2800	0.0800	0.0400
+!component_fraction = EC 0.0525	0.0150	0.0075
+!component_fraction = SIA 0.0525	0.0150	0.0075
+
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_PM2_5_COCKTAIL
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = PM_FRP  1.
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_BC_COCKTAIL
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   2.5  0.9  mkm
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = BC_fire  1.
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_OC_COCKTAIL
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   2.5  0.9  mkm
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = OC_fire  1.
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = PM_GFAS
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = PM_GFAS  1.
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_PM10_COCKTAIL
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = PM_FRP  0.7 0.3
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = FIRE_PM_COCKTAIL_GRASS 
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1100  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM_FRP_GRASS  0.5 0.5
+
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = FIRE_PM_COCKTAIL_FOREST
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1100  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM_FRP_FOREST  0.5 0.5
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_CO_COCKTAIL
+cocktail_type = ACID_BASIC
+mass_unit = kg
+gas_phase = YES
+component_fraction = CO  1.0
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = FIRE_PM_COCKTAIL_PIT 
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1100  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM_FRP_PIT  0.5 0.5
+
+END_COCKTAIL_DESCRIPTION
+
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = FIRE_PM_COCKTAIL_MIXED
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+aerosol_mode = 2  2.5   10.   6.   mkm   1100  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM_FRP_MIXED  0.5 0.5
+END_COCKTAIL_DESCRIPTION
+
+
+
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = CO
+mass_unit     = mole
+gas_phase = YES      
+component_fraction = CO   1.0     ! Component name and its mass fraction
+END_COCKTAIL_DESCRIPTION
+
+
+
+
+!==============================================================Crazy CO2 cocktails
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = CO2
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = CO2   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = CO2nplus
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = CO2nplus   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = CO2nminus
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = CO2nminus   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = CO2bg
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = CO2bg   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+!==============================================================Crazy CO2 cocktails END
+
+
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = NH3
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = NH3   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = NOX
+mass_unit     = kg
+gas_phase = YES
+component_fraction = NO2   0.1
+component_fraction = NO    0.9
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = pm25_cnc_pm2_5
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = PM    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = PM_FINE
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = PM    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = PM_VERY_COARSE
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  20.   20.  20.  mkm   1000  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = PM    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = PM_COARSE
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  2.5   10.0  6.0  mkm   1500  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = PM    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = PM_COARSE
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  2.5   10.0  6.0  mkm   1500  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = PM    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = EC_FINE
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = EC    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = nonEC_FINE
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = nonBC    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = BaP
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = BaP    1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FAKE_DUST  # PM 0.1 - PM 10_30 
+mass_unit  = g
+gas_phase = NO
+aerosol_mode =  1  1.0     2.5   1.5  mkm   1700  kg/m3 
+aerosol_mode =  2  2.5     10.   6.   mkm   1700  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = dust  0.5 0.5 
+END_COCKTAIL_DESCRIPTION
+!************************************************************************************
+! Dust cocktail for the MACC dust boundaries. Bin boundaries are those given  in BCs, 
+! mean diameters computed assuming the distribution given in source_terms_wind_blown_dust.
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = DUST_COCKTAIL
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.03   0.55 3.7E-001   mkm
+aerosol_mode =  2  0.55   0.9  7.3E-001   mkm
+aerosol_mode =  3  0.9   20.0  1.1E+001   mkm
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = dust  1.0 1.0 1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+! As above, but with the largest bin truncated to 10 micrometers. The coefficient 
+! for bc influx is 0.423390236073.
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = DUST_COCKTAIL_ALT
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.03   0.55 3.7E-001   mkm
+aerosol_mode =  2  0.55   0.9  7.3E-001   mkm
+aerosol_mode =  3  0.9   10.0  6.9E+000   mkm
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+component_fraction = dust  1.0 1.0 1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+! v5_6 operational dust cocktail to enable the species in regional runs
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = V55_DUST_COCKTAIL
+mass_unit     = kg
+gas_phase = NO
+aerosol_mode = 1  0.01  1.   0.3  mkm
+aerosol_mode = 2  1.   2.5  1.5  mkm
+aerosol_mode = 3  2.5  10.  6.   mkm
+aerosol_mode = 4  10.  30.  20.  mkm
+mode_distribution_type = FIXED_DIAMETER   ! later also: GAMMA_FUNCTION
+component_fraction = dust  1.0 1.0 1.0 1.0 #Whatever  Not to be actually emitted
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ALUM_OTHERS  # PM 0.003 - PM 10
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.002  0.04  0.02  mkm   2000  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  2  0.04  0.1   0.07  mkm   2000  kg/m3
+aerosol_mode =  3  0.1   0.3   0.2   mkm   2000  kg/m3
+aerosol_mode =  4  0.3   0.8   0.4   mkm   2000  kg/m3
+aerosol_mode =  5  0.8   2.    1.    mkm   2000  kg/m3
+aerosol_mode =  6  2.    4.    3.    mkm   2000  kg/m3
+aerosol_mode =  7  4.   10.    5.    mkm   2000  kg/m3
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = ALUM_OTHERS      2E-5 0.02 0.15 0.04 0.61 0.17 0.01
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ALUM_ESA  # PM 0.003 - PM 10
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.002  0.04  0.02  mkm   2000  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  2  0.04  0.1   0.07  mkm   2000  kg/m3
+aerosol_mode =  3  0.1   0.3   0.2   mkm   2000  kg/m3
+aerosol_mode =  4  0.3   0.8   0.4   mkm   2000  kg/m3
+aerosol_mode =  5  0.8   2.    1.    mkm   2000  kg/m3
+aerosol_mode =  6  2.    4.    3.    mkm   2000  kg/m3
+aerosol_mode =  7  4.   10.    5.    mkm   2000  kg/m3
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = ALUM_ESA      2E-5 0.02 0.15 0.04 0.61 0.17 0.01
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = SOOT_OTHERS  # PM 0.003 - PM 10
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.01  0.05  0.04  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  2  0.05  0.075  0.06  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  3  0.075  0.1  0.09  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  4  0.1  0.27  0.18  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+! A rough approximation of Simmons, 2000 (first to lognorm-number 0.63 : 0.29 : 0.07 : 0.01, then to mass)
+component_fraction = SOOT_OTHERS    0.2 0.4 0.3 0.1
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = SOOT_ESA  # PM 0.003 - PM 10
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.01  0.05  0.04  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  2  0.05  0.075  0.06  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  3  0.075  0.1  0.09  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  4  0.1  0.27  0.18  mkm   1100  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+! A rough approximation of Simmons, 2000 (first to lognorm-number 0.63 : 0.29 : 0.07 : 0.01, then to mass)
+component_fraction = SOOT_ESA    0.2 0.4 0.3 0.1
+
+END_COCKTAIL_DESCRIPTION
+
+!******************************************************************** 
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = CESIUM_IODINE_COCKTAIL
+mass_unit     = Bq
+
+gas_phase = YES
+
+aerosol_mode = 1 10 20 15  mkm   ! Mode nbr, Min, max and average diameter with unit
+aerosol_mode = 2 2.5  10 5  mkm    ! Mode nbr, Min, max and average diameter with unit
+aerosol_mode = 3 1 2.5 1.5  mkm ! Mode nbr, min, max, aver 
+aerosol_mode = 4 0.1 1 0.4  mkm ! Mode nbr, min, max, aver 
+
+aerosol_default_density = 2800 kg/m3 ! Value with unit
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = I_131   0.  .0  .0  .0  1.
+component_fraction = CS_137  0.  0.  0.  1.0 0.
+component_fraction = SR_90  0.  0.  0.  1.0 0.
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = CO
+mass_unit     = mole
+gas_phase = YES      
+component_fraction = CO   1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = SO2
+mass_unit     = mole
+gas_phase = YES      
+component_fraction = SO2   1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = BIG_ALK
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+
+component_fraction = PAR   4.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = BIG_ENE
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+
+component_fraction = OLE   1.0     ! Component name and its mass fraction
+component_fraction = PAR   2.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = ETH
+mass_unit     = mole
+gas_phase = YES      
+component_fraction = ETH   1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C2H6
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = YES  ! no matter for this one
+component_fraction = PAR  1.0 
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C3H6
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+
+component_fraction = PAR 1. 
+component_fraction = OLE 1.
+#component_fraction = PAR  0.714  # 0.030. * 1.0 / 0.042  mole_mass_PAR * fraction_mole / mole_mass_C3H6
+#component_fraction = OLE  1.0    # 0.042. * 1.0 / 0.042
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C3H8
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+component_fraction = PAR 3.
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C4H10
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+component_fraction = PAR 3. 
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = C5H12
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+component_fraction = PAR  4.
+#component_fraction = PAR  1.6667   # 0.030 * 4.0 / 0.072  mole_mass_PAR * fraction_mole / mole_mass_C5H12
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = C6H14
+mass_unit     = mole
+gas_phase = YES      
+if_normalise  = NO
+
+component_fraction = PAR  5.
+#component_fraction = PAR  1.744    # 0.030 * 5.0 / 0.086  mole_mass_PAR * fraction_mole / mole_mass_C6H14
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = OLE
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = OLE   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = PAR
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = PAR   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = HCHO
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = HCHO   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ALD2
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = ALD2   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = TOLUENE
+mass_unit     = mole
+gas_phase = YES      
+
+component_fraction = TOL   1.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = XYLENE
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = XYL 1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = TRIMETHYLBENZENE
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = XYL 1.0
+component_fraction = PAR 1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ARO
+mass_unit     = mole
+gas_phase = YES
+if_normalise = NO
+
+component_fraction = XYL 1.0
+component_fraction = PAR 2.0
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = MONOTERPENE
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = C5H8_2 1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = HIALKENES
+mass_unit     = mole
+gas_phase = YES
+if_normalise  = NO
+
+component_fraction = OLE    1.0     ! Component name and its mass fraction
+component_fraction = PAR    3.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!*********************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = HIALKANES
+mass_unit     = mole
+gas_phase = YES
+if_normalise  = NO
+
+component_fraction = PAR    4.0     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!*********************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = ISOP
+mass_unit     = mole
+gas_phase = YES
+
+component_fraction = C5H8 1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = NOX
+mass_unit     = kg
+gas_phase = YES
+
+component_fraction = NO2   0.1     ! Component name and its mass fraction
+component_fraction = NO    0.9     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+!*********************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = NO2
+mass_unit = kg
+gas_phase = YES
+component_fraction =  NO2 1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = EC
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+
+aerosol_mode = 1  0.01   2.5  1.5  mkm   1100  kg/m3 
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = EC  1.0
+
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = BC
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   1.0  0.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = BC  1.0
+END_COCKTAIL_DESCRIPTION
+
+!***********************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = OC
+cocktail_type = INERT_AEROSOL
+mass_unit = kg
+gas_phase = NO
+aerosol_mode = 1  0.01   1.0  0.5  mkm   1100  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = OC  1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOLCANO_ASH_COCKTAIL
+cocktail_type = INERT_AEROSOL
+mass_unit     = g
+gas_phase = NO
+aerosol_mode = 1  0.5 5.0 3.0  mkm    ! Mode nbr, Min, max and average diameter with unit
+aerosol_default_density = 2800 kg/m3 ! Value with unit
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = ash 1.0
+END_COCKTAIL_DESCRIPTION
+
+!************************************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = NOX_S7
+mass_unit     = kg
+gas_phase = YES
+
+component_fraction = NO2   0.1     ! Component name and its mass fraction
+component_fraction = NO    0.9     ! Component name and its mass fraction
+
+END_COCKTAIL_DESCRIPTION
+
+
+# VOC Cocktails
+#
+# EMEP speciation, by mass.
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S1
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.017600
+component_fraction = ETH 0.161000
+component_fraction = XYL 0.027700
+component_fraction = ALD2 0.019300
+component_fraction = OLE 0.085500
+component_fraction = PAR 0.959396
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S2
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.017600
+component_fraction = ETH 0.161000
+component_fraction = XYL 0.027700
+component_fraction = ALD2 0.019300
+component_fraction = OLE 0.085500
+component_fraction = PAR 0.959396
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S3
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.017600
+component_fraction = ETH 0.161000
+component_fraction = XYL 0.027700
+component_fraction = ALD2 0.019300
+component_fraction = OLE 0.085500
+component_fraction = PAR 0.959396
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S4
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.000000
+component_fraction = ETH 0.018800
+component_fraction = XYL 0.008280
+component_fraction = ALD2 0.000000
+component_fraction = OLE 0.000000
+component_fraction = PAR 0.026328
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S5
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.000000
+component_fraction = ETH 0.024100
+component_fraction = XYL 0.023900
+component_fraction = ALD2 0.000000
+component_fraction = OLE 0.109600
+component_fraction = PAR 1.775044
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S6
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.000000
+component_fraction = ETH 0.000000
+component_fraction = XYL 0.273000
+component_fraction = ALD2 0.000000
+component_fraction = OLE 0.000000
+component_fraction = PAR 0.882371
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S7
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.016400
+component_fraction = ETH 0.086300
+component_fraction = XYL 0.367600
+component_fraction = ALD2 0.010600
+component_fraction = OLE 0.070000
+component_fraction = PAR 0.785890
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S8
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.059000
+component_fraction = ETH 0.120000
+component_fraction = XYL 0.106000
+component_fraction = ALD2 0.040000
+component_fraction = OLE 0.046000
+component_fraction = PAR 0.519271
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S9
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.031800
+component_fraction = ETH 0.000000
+component_fraction = XYL 0.000000
+component_fraction = ALD2 0.000000
+component_fraction = OLE 0.000000
+component_fraction = PAR 1.969786
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = VOC_S10
+mass_unit     = kg
+gas_phase     = YES
+if_normalise  = NO
+component_fraction = HCHO 0.017600
+component_fraction = ETH 0.161000
+component_fraction = XYL 0.027700
+component_fraction = ALD2 0.019300
+component_fraction = OLE 0.085500
+component_fraction = PAR 0.959396
+END_COCKTAIL_DESCRIPTION
+
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AIR_AGE_COCKTAIL
+mass_unit     = Bq
+gas_phase = YES
+
+component_fraction = H_4  0.5   ! lifetime 3915 days
+component_fraction = H_5 0.5      ! lifetime 4485 days
+
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = NH4NO3_COCKTAIL 
+cocktail_type = ACID_BASIC
+mass_unit     = g
+gas_phase = YES
+
+aerosol_mode =  1  0.1  1.0  0.3  mkm  1000  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = NH4NO3 0.9996 0.
+component_fraction = NO2 0. 1e-4 
+component_fraction = NH3 0. 1e-4 
+component_fraction = O3 0. 1e-4 
+component_fraction = HNO3 0. 1e-4 
+
+
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = PM_ESA  # PM 0.003 - PM 10
+mass_unit     = g
+gas_phase = NO
+
+aerosol_mode =  1  0.002  0.04  0.02  mkm   2000  kg/m3   ! Mode nbr, Min, max, average diameter with unit, density with unit
+aerosol_mode =  2  0.04  0.1   0.07  mkm   2000  kg/m3
+aerosol_mode =  3  0.1   0.3   0.2   mkm   2000  kg/m3
+aerosol_mode =  4  0.3   0.8   0.4   mkm   2000  kg/m3
+aerosol_mode =  5  0.8   2.    1.    mkm   2000  kg/m3
+aerosol_mode =  6  2.    4.    3.    mkm   2000  kg/m3
+aerosol_mode =  7  4.   10.    5.    mkm   2000  kg/m3
+
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+
+component_fraction = PM_ESA      2E-5 0.02 0.15 0.04 0.61 0.17 0.01
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_PM_TA_COCKTAIL
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_mode =  2  2.5   10.0  6.0  mkm   1100  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+
+component_fraction = PM_TA   0.74 0.26
+END_COCKTAIL_DESCRIPTION
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = FIRE_PM_FRP_COCKTAIL
+mass_unit     = g
+gas_phase = NO
+aerosol_mode =  1  0.01   2.5  0.5  mkm   1100  kg/m3 
+aerosol_mode =  2  2.5   10.0  6.0  mkm   1100  kg/m3 
+aerosol_distribution_shape = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+mode_distribution_type = FIXED_DIAMETER
+
+component_fraction = PM_FRP  0.74  0.26
+END_COCKTAIL_DESCRIPTION
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+
+cocktail_name = AEROSOL_xx_MODES_COCKTAIL
+mass_unit     = g
+gas_phase = NO
+
+    aerosol_mode = 1  0.01  0.1  0.07  mkm
+#    aerosol_mode = 2  0.1  0.12   0.11  mkm
+#    aerosol_mode = 3  0.12  0.14  0.12  mkm
+#    aerosol_mode = 4  0.14  0.16  0.14  mkm
+#    aerosol_mode = 5  0.16  0.18  0.16  mkm
+#    aerosol_mode = 6  0.18  0.20   0.18  mkm
+#    aerosol_mode = 7  0.20  0.22  0.2  mkm
+#    aerosol_mode = 8  0.22  0.24  0.22  mkm
+#    aerosol_mode = 9  0.24  0.26  0.24  mkm
+#    aerosol_mode = 10  0.26  0.28   0.26  mkm
+#    aerosol_mode = 11  0.28  0.30  0.28  mkm
+#    aerosol_mode = 12  0.30  0.32  0.3  mkm
+#    aerosol_mode = 13  0.32  0.34  0.32  mkm
+#    aerosol_mode = 14  0.34  0.36   0.34  mkm
+#    aerosol_mode = 15  0.36  0.38  0.36  mkm
+#    aerosol_mode = 16  0.38  0.40  0.38  mkm
+#    aerosol_mode = 17  0.40  0.42  0.4  mkm
+#    aerosol_mode = 18  0.42  0.44   0.42  mkm
+#    aerosol_mode = 19  0.44  0.46  0.44  mkm
+#    aerosol_mode = 20  0.46  0.48  0.46  mkm
+#    aerosol_mode = 21  0.48  0.50  0.48  mkm
+#    aerosol_mode = 22  0.50  0.52   0.5  mkm
+#    aerosol_mode = 23  0.52  0.54  0.52  mkm
+#    aerosol_mode = 24  0.54  0.56  0.54  mkm
+#    aerosol_mode = 25  0.56  0.58  0.56  mkm
+#    aerosol_mode = 26  0.58  0.60   0.58  mkm
+#    aerosol_mode = 27  0.60  0.62  0.6   mkm
+#    aerosol_mode = 28  0.62  0.64  0.62   mkm
+#    aerosol_mode = 29  0.64  0.66  0.64  mkm
+#    aerosol_mode = 30  0.95  0.97   0.96  mkm
+#    aerosol_mode = 31  0.97  0.99   0.98  mkm
+#    aerosol_mode = 32  0.99  1.01   1.0  mkm
+#    aerosol_mode = 33  1.01  1.03   1.02  mkm
+#    aerosol_mode = 34  1.03  1.05  1.04  mkm
+#    aerosol_mode = 35  1.05  1.07  1.06  mkm
+#    aerosol_mode = 36  1.07  1.09  1.08  mkm
+#    aerosol_mode = 37  1.09  1.11   1.1  mkm
+#    aerosol_mode = 38  1.11  1.13  1.12  mkm
+#    aerosol_mode = 39  1.13  1.15  1.14  mkm
+#    aerosol_mode = 40  1.15  1.17  1.16  mkm
+#    aerosol_mode = 41  1.17  1.19   1.18  mkm
+#    aerosol_mode = 42  1.19  1.21  1.2  mkm
+#    aerosol_mode = 43  1.21  1.23  1.22  mkm
+#    aerosol_mode = 44  1.23  1.25  1.24  mkm
+#    aerosol_mode = 45  1.25  1.27   1.26  mkm
+#    aerosol_mode = 46  1.27  1.29  1.28  mkm
+#    aerosol_mode = 47  1.29  1.31  1.3  mkm
+#    aerosol_mode = 48  1.31  1.33  1.32  mkm
+#    aerosol_mode = 49  1.33  1.35   1.34  mkm
+#    aerosol_mode = 50  1.35  1.37  1.36  mkm
+#    aerosol_mode = 51  1.37  1.39  1.38  mkm
+#    aerosol_mode = 52  1.39  1.41  1.4  mkm
+#    aerosol_mode = 53  1.41  1.43   1.42  mkm
+#    aerosol_mode = 54  1.43  1.45  1.44  mkm
+#    aerosol_mode = 55  1.45  1.47  1.46  mkm
+#    aerosol_mode = 56  1.47  1.49  1.48  mkm
+#    aerosol_mode = 57  1.49  1.51   1.5  mkm
+#    aerosol_mode = 58  1.51  1.53  1.52  mkm
+#    aerosol_mode = 59  1.53  1.55  1.54  mkm
+#    aerosol_mode = 60  1.55  1.57  1.56  mkm
+#    aerosol_mode = 61  1.57  1.59   1.58  mkm
+#    aerosol_mode = 62  1.59  1.61  1.6   mkm
+#    aerosol_mode = 63  1.61  1.63  1.62   mkm
+#    aerosol_mode = 64  1.63  1.65  1.64  mkm
+
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+aerosol_default_density = 1000 kg/m3
+if_normalise = YES
+
+component_fraction = PM    1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 1. 1.   1. 1. 1. 1. 1. 1. 
+
+END_COCKTAIL_DESCRIPTION
+
+!********************************************************************
+
+COCKTAIL_DESCRIPTION_V3_2
+cocktail_name = BIRCH_POLLEN_ADJOINT_COCKTAIL
+mass_unit     = kg
+gas_phase = NO     
+aerosol_mode = 1  18.0   18.  18.  mkm   800  kg/m3 
+mode_distribution_type = FIXED_DIAMETER ! or GAMMA_FUNCTION - later
+component_fraction = PM  1.0
+END_COCKTAIL_DESCRIPTION
+

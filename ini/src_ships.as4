@@ -1,0 +1,72 @@
+#
+# This is a file describing the source term for SILAM
+# It consists of a set of separate source terms, which
+# at the moment can be of type point-source v.4,
+# bomb-source v.3, area_source v.2, and area_source.v3
+#
+# A POINT_SOURCE defines one release to the atmosphere from a horizontal
+# location, but can be vertically and temporally divided between
+# two vertical levels and a time interval. 
+# The source may have time-varying strength and composition.
+# There is an option enabling buoyant plume rise computation.
+#
+# A BOMB_SOURCE defines one release to the atmosphere from a nuclear bomb explosion
+# Release duration is always 1 minute, vertical and horizontal distribution are
+# computed from the yield. It begins from the word BOMBSOURCE_3 .
+#
+# An AREA_SOURCE defines gridded emission data. Definition of vertical, time and 
+# cocktail closely follow those of point_source v.3
+# Cocktail fractions are allowed specific for every grid cell
+# Time variation is allowed to be in hourly-daily-monthly variation coefs
+#
+# Give positive values to all timesteps/intervals. If inverse problem, it
+# will be reflected in the control file
+#
+# All lines beginning with "#" or "!" are comment lines, as well as empty ones.
+# Also inside a line everything from a "#" or " !" to line's end is a comment.
+#
+# Mikhail Sofiev, October 2009
+#
+#############################################################################
+#
+#   The AREA source
+#
+AREA_SOURCE_4 # area-source starts
+
+source_name = area2          # source name
+source_sector_name = ship_STEAM        # source sector name, e.g. SNAP_10. May be empty
+
+release_rate_unit = g/hr  ! Unit of the release rate: <mass>/<time> 
+                           ! [kg][g][ton][bq][mole][number] - mass(radioactivity); [yr][mon][day][hr][min][sec] - time units
+vertical_unit = hpa
+
+# Time-strength-composition data. 
+# Arbitrary number of lines. The last line determines the end of the release
+# If there is only one line, it may be just: 
+# NOW  <duration [min]> <rate_scale> <bottom> <top> <cocktail_name>
+# Otherwise each line contains: 
+#  y4 m2 d2 h2 m2 sec(real) <bottom> <top> <cocktail_name> <rate_scale>
+# Note:
+# rate_scale a unitless time dependence of the emission. It will be multiplied with actual rate in
+# each grid cell. if time_variation = INDICES then it will be scaled with corresponding indices
+
+#par_str_area = NOW  10. hr  925. 900.   AEROSOL_5_MODES_COCKTAIL  4. PASSIVE_COCKTAIL 5. 
+par_str_area = 1900 1 1 6 0 0.    925. 900.   SOX  1. CO  1. EC  1. OC  1. NOX  1. 
+par_str_area = 2200 1 2 6 0 0.    925. 900.   SOX  1. CO  1. EC  1. OC  1. NOX  1. 
+
+
+if_time_and_vertical_resolved_field_file = YES
+
+! field_emission_file = GRADS f:\data\emission\ships\HELCOM_ash_Mar_2011.super_ctl
+ field_emission_file = GRADS f:\data\emission\ships\HELCOM_co_Mar_2011.super_ctl
+ field_emission_file = GRADS f:\data\emission\ships\HELCOM_ec_Mar_2011.super_ctl
+ field_emission_file = GRADS f:\data\emission\ships\HELCOM_oc_Mar_2011.super_ctl
+ field_emission_file = GRADS f:\data\emission\ships\HELCOM_nox_Mar_2011.super_ctl
+ field_emission_file = GRADS f:\data\emission\ships\HELCOM_sox_Mar_2011.super_ctl
+
+
+END_AREA_SOURCE_4   # MANDATORY 
+
+
+# End of first AREA SOURCE
+

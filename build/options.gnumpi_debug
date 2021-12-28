@@ -1,0 +1,22 @@
+ARCH = linux_gnu
+
+F90C = mpif90
+OPTIMIZATION = -O0 -fopenmp # -Wall
+#OPTIMIZATION = -O3 -fopenmp 
+OPENMP = 
+#DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888  -DDEBUG
+DEBUG =  -g  -fbacktrace -fallow-argument-mismatch   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG -DDEBUG_V5
+FIXED = -ffixed-form
+PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -D WITH_PNETCDF -DSILAM_MPI
+FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none -mno-avx
+INCLUDE = -I$(OBJDIR) -I/usr/include -I /usr/include/x86_64-linux-gnu
+
+# netcdf install directory
+NCDIR = 
+# grib api install directory
+GRDIR = 
+
+# Libraries passed to ifort
+SILAM_LIBS = 
+# Libraries given as linker options
+LFLAGS = -fopenmp -llapack -lblas -llapack -leccodes_f90 -leccodes  -lnetcdff -lnetcdf -lpnetcdf -lbz2

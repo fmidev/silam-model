@@ -1,0 +1,476 @@
+\documentclass[a4paper]{article}
+\usepackage{graphicx}
+\usepackage{amsfonts}   
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url} % tai \usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{enumerate}% http://ctan.org/pkg/enumerate
+\usepackage{enumitem}
+\usepackage{lmodern}
+\usepackage{pstricks}
+\usepackage{calc}% http://ctan.org/pkg/calc
+%\usepackage{ucs}
+\usepackage{xspace}
+\usepackage{pdfpages}
+%\usepackage[latin1]{inputenc}
+\usepackage{latexsym}
+\usepackage{wasysym}
+\usepackage{graphicx}
+% bibtex
+\usepackage[authoryear,round]{natbib}
+% biblatex
+%\usepackage[natbib=true, citestyle=authoryear, maxnames=2, uniquename=false,
+%uniquelist=false]{biblatex}
+%\usepackage[natbib=true, style=apa]{biblatex}
+\usepackage{booktabs}
+\usepackage[strings]{underscore}
+\usepackage[T1]{fontenc}
+\usepackage{ae,aecompl}
+\usepackage{bm}
+\usepackage{subfigure}
+\usepackage{tabularx}			
+\usepackage{setspace}			
+\usepackage{nomencl}
+\usepackage[version=4]{mhchem}
+\usepackage{lineno}
+
+\usepackage[utf8]{inputenc}
+
+% biblatex
+%\addbibresource{references.bib}
+
+\tolerance 4000
+
+
+\input cyracc.def
+\font\tencyr=wncyr10
+\def\cyr{\tencyr\cyracc}
+
+\begin{document}
+
+\title{Notes on data assimilation in SILAM}
+\author{Julius Vira}
+\maketitle
+
+\section{Variational methods}
+
+These methods are enabled in SILAM when \verb|method| namelist option is set to either
+\verb|4D|, \verb|3D| or \verb|4D_SEQ|. The options correspond to assimilation with 3D-Var,
+4D-Var with a single window covering the entire \verb|computed_period|, or to 4D-Var
+covering \verb|computed_period| with multiple shorter windows. In the two latter cases,
+the \verb|assimilation_window| will control the number of analyses performed during the
+entire simulation.
+
+In the 3D-Var mode, the observations are considered instant and attributed to the nearest
+analysis time. In the 4D-Var modes, the observations are applied on their valid time
+within the assimilation window. Temporally averaged observations are handled, as long as
+the averaging period is entirely within the assimilation window.
+
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\by}{\mathbf{y}}
+
+\newcommand{\bb}{\mathbf{B}}
+\newcommand{\br}{\mathbf{R}}
+
+The variational assimilation methods are based on optimising cost functions of type
+\begin{eqnarray}
+\label{eq:map}
+ \mathcal{J}_{3D}(\bx) &=& \frac{1}{2}(\by - \mathcal{H}(\bx))^T \mathbf{R}^{-1}(\by -
+ \mathcal{H}(\bx)) \nonumber \\
+&+&
+ \frac{1}{2}(\bx - \mathbf{x_b})^T \mathbf{B}^{-1} (\bx - \mathbf{x_b}).
+\end{eqnarray}
+in 3D-Var, or 
+\begin{eqnarray}
+\label{eq:cost4d}
+\mathcal{J}_{4D}(\bx_0) &=& \frac{1}{2} 
+\sum_{k=0}^{n} (\by_k -\mathcal{H}_k(\bx_k))^T \mathbf{\br_k}^{-1}(\mathbf{y_k} -\mathcal{H}_k(\bx_k))
+\nonumber \\ &+& \frac{1}{2} (\bx_0 - \mathbf{\bx_b})^T \bb^{-1} (\bx_0 - \mathbf{\bx_b}),
+\end{eqnarray}
+in 4D-Var, where $\mathbf{M}_k^*$ and $\mathbf{H}^*$ are the adjoint model and observation
+operators.
+
+SILAM has three codes available for solving the optimisation problem. The method is
+determined by the \verb|search_method| option. The possible choices are
+\begin{itemize}
+\item \verb|steepest_descent|. Gradient descent with a primitive line search. I do not
+  recommend this option expect for some diagnostic/debugging use.
+\item \verb|m1qn3|. A quasi-Newton code by \citet{Gilbert1989}, popular in DA systems. I
+  have used this option for 3D-Var analyses.
+\item \verb|l_bfgs_b|. A optimiser which allows for ``box'' constraints of type $a < x_i <
+  b$. I have used this option for emission inversions, where the non-negativity constraint
+  is enabled automatically whenever possible. If the non-negativity constraint cannot be
+  used, the negative values will be truncated either between iterations (in 4D-Var) or
+  after the iteration (3D-Var). While the constraint is highly useful, it is only
+  available when the background error covariance matrix is diagonal.
+\end{itemize}
+
+\subsection{Observation operators}
+
+The two supported types of observations are, as of writing, surface-based in-situ
+observations and vertically integrated (column or profile) observations.
+
+The in-situ observations are defined on a set of stations defined in a separate file. The
+observations may be instant or averaged over periods of time, and may add up one or more
+species (defined in a corresponding cocktail).
+
+The ``vertical'' observation type corresponds to a general linear operator acting on a
+single column at time. The observations are always taken instant. The operator is in form
+\begin{equation}
+\mathbf{y}_i  = \mathbf{A}\mathbf{V} \mathbf{x},
+\end{equation}
+where $\mathbf{y}_i$ is the simulated observation, $\mathbf{x}$ is the simulated layer
+masses (in model vertical), $\mathbf{V}$ is vertical interpolation, and $\mathbf{A}$ is
+the averaging kernel. A simple example would be the ideal column density observation,
+where $\mathbf{V} = \mathbf{I}$ is a unit matrix and $\mathbf{A} = \mathbf{1}$ is a row
+vector of ones.
+
+Satellite retrievals of trace gases (and absorbing aerosols, such as volcanic ash) have a
+varying sensitivity depending on the height of the absorbing layer. While the paper of
+\citet{Vira2016} discusses an approach based on explicitly retrieved plume heights, it is
+more common that the plume height is not retrieved but instead, its effect is encoded into
+the operator $\mathbf{A}$. In this case $\mathbf{A}$ is a vector with values (typically)
+close to 1 at the topmost layers, and small values close to the surface. 
+
+As a second example, typicaly satellite-retrieved profiles have a finite, sometimes
+relatively low vertical resolution. This is modelled by making $\mathbf{A}$ a
+convolution-like operator, which maps a high-resolution ``natural'' vertical into a
+low-resolution ``retrieval'' vertical. 
+
+In either case, vertical interpolation is needed to map the model vertical grid into the
+one used to define $\mathbf{A}$. The interpolation is mass-conserving and defined as the
+observations are loaded, accoding to the vertical grid defined in the observation data
+file.
+
+\subsection{Adjoint codes}
+\label{sec:adjoint}
+
+All variational methods require adjoint observation operators. The current observations
+are all linear, which makes this straightforward.
+
+Running 4D-Var requires adjoint codes for all processes present in the run. Currently, the
+following are included:
+\begin{itemize}
+\item Transport (advection, diffusion)
+\item Inventory-based emissions (point, area)
+\item Natural emissions of sea salt, DMS, biogenic VOCs
+\item CB4 and DMAT sulphur chemistry
+\item The ``old'' wet deposition with scavenging coefficients.
+\end{itemize}
+As of writing, the following processes do not work correctly in adjoint:
+\begin{itemize}
+\item Acid-basic chemistry (no adjoint code)
+\item Secondary inorganic aerosols (the ``simple'' aerosol dynamics in presence of ammonia
+  and NOx). No adjoint code for the equilibrium computations.
+\item Secondary organic aerosols (no adjoint for the gas-aerosol partitioning)
+\item The ``new'' wet deposition based on on Henry's law etc. No adjoint code for the
+  saturation effects.
+\item Pollen emission. The heatsum accumulation is not handled correctly.
+\end{itemize}
+
+Adjoints for nonlinear processes (CB4) require tangent linearisation. This is handled by
+the \verb|tangent_linear| module; if needed, the linearisation state is stored into files in the
+working directory.
+
+The adjoint transport is evaluated following the ``continuous adjoint'' approach, that is,
+by solving the adjoint differential equations. While a number of papers discuss this
+approach (see referenes in \citet{vira2017data}), there exists a subtle issue related to
+the choice of inner products.
+
+Given a linear operator $\mathbf{A}: \mathbb{R}^n \to \mathbb{R}^m$, the adjoint operator
+$\mathbf{A}^*$ is defined by the relation
+\begin{equation}
+\label{eqn:adjoint}
+\langle \mathbf{x}, \mathbf{Ay} \rangle = \langle \mathbf{A}^*\mathbf{x}, \mathbf{y} \rangle,
+\end{equation}
+with any $\mathbf{x} \in \mathbb{R}^m$ and $\mathbf{y} \in \mathbb{R}^n$. Typically, the
+Cartesian inner product is assumed:
+\begin{equation}
+\label{eqn:inner}
+\langle \mathbf{x}_1, \mathbf{x}_2 \rangle = \sum_{i=1}^m \mathbf{x}_i\mathbf{y}_i.
+\end{equation}
+This is the case with the SILAM DA module, which evaluates the background cost as
+\begin{equation}
+\|\mathbf{x}\|^2 = \sum_{i=1}^m |x_i|^2.
+\end{equation} 
+Also the optimisation codes assume the inner product defined by \ref{eqn:inner}. 
+
+However, the continuous adjoint operators are defined by the L2 inner product
+\begin{equation}
+\label{eqn:inner-cont}
+\langle f, g \rangle = \int fgdx,
+\end{equation}
+where the integral is taken ovel the model domain. Eq. (\ref{eqn:inner-cont}) has the
+obvious discrete analogue
+\begin{equation}
+\label{eqn:inner-weighted}
+\langle \mathbf{f}, \mathbf{g} \rangle_W = \sum_k f_k g_k w_k,
+\end{equation}
+where the weights $w_k$ are the cell volumes. The distinction between inner products
+(\ref{eqn:inner}) and (\ref{eqn:inner-weighted}) has to be taken into account when
+continuous adjoint operators are used. 
+
+In SILAM, the discrete advection operator $\mathbf{A}: m_k \mapsto m_{k+1}$ updates the
+grid cell masses between timesteps. Thus, the operator mapping the concentrations (in
+analogue to the continuous equations) is $\mathbf{T} = \mathbf{W}^{-1} \mathbf{AW}$, where
+$\mathbf{W}$ is the diagonal matrix with the weights $w_k$. Given the continous adjoint
+operator $\mathbf{A}^*$ it would seem reasonable to define the the Cartesian adjoint
+operator as $\mathbf{T}^T = \mathbf{W} \mathbf{A}^* \mathbf{W}^{-1}$. However, this
+definition is not consistent with the weighted inner product (\ref{eqn:inner-weighted}).
+
+For an incompressible atmosphere, the continuous adjoint operator for advection is
+obtained by ``reversing the time'', or switching the wind vector $\mathbf{v}$ to
+$-\mathbf{v}$ \citep{Marchuk1995,Elbern1999}. Denote the discrete operator obtained this
+way with $\mathbf{A}^*$. Then, the pair of operators
+\begin{eqnarray}
+\mathbf{T} = \mathbf{W}^{-1} \mathbf{AW} \nonumber \\ 
+\mathbf{T}^* = \mathbf{W}^{-1} \mathbf{A}^* \mathbf{W} 
+\end{eqnarray}
+correspond to approximately solving the forward and adjoint advection equations. Using the
+defintion of adjoint operator (\ref{eqn:adjoint}) we find that the Cartesian adjoint
+operator for $\mathbf{T}$ is 
+\begin{equation}
+\mathbf{T}^T = \mathbf{WT}^* \mathbf{W}^{-1} = \mathbf{A}^*.
+\end{equation}
+This leads to the somewhat surprising conclusion that in adjoint simulations, the
+``concentration-like'' adjoint variable is advected as if it was the cell mass.
+
+Similar considerations hold for the diffusion, which is self-adjoint with regard to the
+weighted (but not Cartesian) inner product. The Cartesian adjoint diffusion operator is
+found to be
+\begin{equation}
+\mathbf{D}^T = \mathbf{W} \mathbf{D} \mathbf{W}^{-1}.
+\end{equation}
+
+\subsection{Background error covariance matrices}
+
+The background error covariance matrices can be specified for the field-like control
+variables (emission and initial state). The covariance model requires spatially
+homogeneous correlation distances but allows variable standard deviations, although this
+has not been used so far. Details of the covariance model and a procedure for estimating
+the parameters is described in the article of \citet{Vira2015a}.
+
+The current approach is based on Gaussian correlation functionl. The approach is simple to
+implement and use and has reasonably good computational efficiency. The most obvious
+limitation is that the (constant) correlation distances are specified in degrees, i.e. in
+a Cartesian geometry. This is clearly not ideal for global runs. The work of
+\cite{Singh2011} could probably be used to take spherical geometry into account without
+changing the correlation model entirely.
+
+For non-homogeneous spatial correlations, a different approach is needed. The technique
+using diffusion operators \citep{Weaver2001} was previously tested with the SILAM 3D-Var,
+however, at that point, the approach did not show enough improvement in analysis scores to
+justify the added complexity. Nevertheless, the code is included in SILAM v5.1 repository
+version (\verb|tdv_engine_v5_0| and the related modules). The main complication with that
+approach is that the diffusion operators need to be normalised, and evaluating the
+normalisation is a computationally heavy task that has to be repeated every time the
+configuration (model grid or the BECM) is changed.
+
+\subsection{Control variables}
+
+\verb|initial_state| Initial state can be a control variable in all modes. A
+non-diagonal background error covariance matrix (BECM) is normally used; this is defined
+in a separate file referred in the control file. The BECM can then be made time-dependent
+by using a time template in the file path. The default background value is 0.
+\verb|emission_correction| The two-dimensional, multiplicative correction
+factor can be used in the \verb|4D| and \verb|4D_SEQ| modes. The correction is constant
+though the assimilation window, and can have similar background error covariance model as
+the initial state. The default background value is is 1.0.
+\verb|emission_time_height| This control variable is normally used to estimate
+point source emissions as function of time and height. However, the control variable
+affects the emission in the whole domain. In order to restrict the emission to a single
+point, a point source must be used as the source term of the run. This option has several
+sub-modes, see below. The default background value depends on the sub-mode.
+\verb|emission_and_initial| This mode combines the \verb|emission_correction|
+and \verb|initial_state| modes. Combining \verb|emission_time_height| and
+\verb|initial_state| is currently not possible.
+
+\subsubsection{Sub-modes for emission\_time\_height}
+
+The time-height emission sub-modes are controlled with the option
+\verb|time_height_mode|:
+\verb|scale|. In this mode, the control variable acts multiplicatively,
+similarly to the \verb|emission_correction| mode.
+\verb|force| and \verb|force_weighted|. In this mode, the control variable is
+an additive forcing. The orginal emission source in the run is used only as a mask,
+i.e. the forcing is applied in only gridcells with nonzero emission. 
+
+In the \verb|force| mode, the control variable is equal to emission rate $E_i$ (kg/s) in
+the each layer $i$. In the \verb|force_weighted| mode, the control variable is $E_i'$
+defined by
+\begin{equation}
+\label{eqn:force-weighted}
+E_i' = E_i / \sqrt{\Delta z_i},
+\end{equation}
+where $\Delta z_i$ is the thickness (m) of the $i$th layer. 
+
+Eq. (\ref{eqn:force-weighted}) follows from considerations that resemble those described in
+Section \ref{sec:adjoint} for continuous adjoints. Namely, the Cartesian norm for a
+control variable of type (\ref{eqn:force-weighted}) is
+\begin{equation}
+\|\mathbf{E}'\|^2 = \sum_i |E_i'|^2 = \sum_i |f_i|^2\Delta z_i,
+\end{equation}
+where $f_i = E_i / \Delta z_i$ is the emission density. Again, this choice makes the
+Cartesian norm consistent with the continuous L2 norm
+\begin{equation}
+\|f\|^2 = \int |f|^2 dx,
+\end{equation}
+which in turn is desirable because the otherwise the background term $\|\mathbf{E}\|^2$
+depends on the model (vertical) grid. If the weighting is not used, the solution will
+spuriously prefer assigning the same total emission into thinner layers. This happens even
+if the background term is not explicitly included (the \verb|disable_background|) option,
+since the iterative minimisation has a similar effect as the L2 type penalty function.
+
+\subsubsection{Physical and control space representations}
+
+The SILAM variational assimilation follows the standard approach of preconditioning the
+minimisation with a symmetric factorisation of the BECM $\mathbf{B}$. This means that the
+minimisation is performed for a transformed variable $\mathbf{\tilde{x}}$ such that
+\begin{equation}
+\label{eqn:cov-transf}
+\mathbf{x} = \mathbf{SL\tilde{x}} + \mathbf{x}_b
+\end{equation}
+where $\mathbf{x}_b$ is the background state and $\mathbf{S}$ is the matrix of background
+standard deviations so that the BECM is given by $\mathbf{B} = \mathbf{SLL}^T\mathbf{S}$.
+
+Note that the inverse (\ref{eqn:cov-transf}) does not necessarily exist and is not
+needed. Instead, the dual operation $\mathbf{x} \mapsto \mathbf{L}^T\mathbf{Sx}$ is needed
+for evaluating the cost function gradient. In SILAM code, the variable $\mathbf{x}$ is
+referred as the physical space representation of the control variable, and
+$\mathbf{\tilde{x}}$ is called the control space representation. When working with the
+control variables, the following rules apply:
+\begin{itemize}
+\item The minisation codes should only see the control space variables
+\item The CTM should only see physical space variables 
+\item The same variable may have different dimension in physical and control space.
+\end{itemize}
+The last point follows from the fact that BECM does not need to be of full rank. The BECM
+becomes rank-deficient in presence of long-range correlations along any dimensional axis,
+and in this case the control variable has fewer real degrees of freedom than its dimension
+in the gridpoint representation.
+
+\section{Ensemble methods}
+
+SILAM contains an enesemble assimilation module based on the Ensemble Kalman Filter (EnKF)
+code of the TOPAZ ocean assimilation system \citep{Sakov2012}. The EnKF variants
+implemented by the module are the EnKF with perturbed observations (``stochastic EnKF'';
+\cite{Burgers1998}) and the ``deterministic EnKF'' (DEnKF) scheme of
+\cite{Sakov2008a}. The DEnKF scheme resembles the popular square-root filters
+\cite{Hunt2007} in not requiring additional perturbations to the observations; however,
+DEnKF uses a simplified form of the update equation which allows for implementing the
+scheme in a computatinally efficient local form.
+
+Data assimilation using the EnKF is conceptually simple. To evaluate the analysis, the
+filter receives an ensemble of state vectors (the forecast ensemble) and an ensemble of
+simulated observations. Updating the forecast ensemble to the analysis ensemble depends on
+the (sampled) covariances between the state variables and observables. Contrary to 4D-Var,
+the model itself is not involved in the analysis scheme.
+
+The limitations of EnKF are related to the finite ensemble size and to the linear-Gaussian
+assumptions undelying the Kalman filter. The low ensemble size may result in sampling errors,
+which, if not compenstated, cause the ensemble to collapse into a single state. The
+Gaussianity assumption may cause the analysis to produce unphysical negative values;
+currently these are simply truncated to zero.
+
+The problems related to sampling errors are traditionally addressed with localisation and
+inflation. Localisation effectively increases the rank of of the sampled background error
+covariance matrix by removing long-range correlations. In SILAM, so-called R-localisation
+is used. This means that the analysis is performed pointwise using a set of observations
+within a localisation radius. The impact of each observation is controlled by modulating
+the observation error variances so that impact of the observation vanishes as the distance
+approaches the localisation radius. The localisation is currently two-dimensional; the
+localisation distance is evaluated along the great circle.
+
+Inflation refers to techniques aiming to compensate for the spurious loss of ensemble
+spread. The only explicit inflation technique included (and so far almost unused) is
+currently the approach termed ``moderation'' in \citet{Sakov2012}. This means that when
+updating the ensemble anomalies (adjusting the ensemble spread within the analysis
+procedure), a larger observation error is assumed than when updating the ensemble
+mean. The other common inflation techniques are additive and multiplicative inflation;
+implementing these techniques in SILAM would be simple if needed.
+
+An aspect of ensemble data assimilation which is superficially similar but philosophically
+different from inflation is the representation of model errors. In principle, the model
+errors could be simulated in a number of ways (perturbed parameters, perturbed inputs,
+explicit error forcing,...), but independently of the ensemble size. However, in practice,
+the simulated model errors are likely to have a similar effect as inflation, and it seems
+that in many systems, the two aspects are not considered separately.
+
+In the SILAM studies so far, the model uncertainty has been represented by using
+temporally shifted meteorological inputs for each ensemble member. As noted above, it is
+possible that these perturbation are also to some extent filling the role of ensemble
+inflation. The shifted meteorological fields are produced by pre-processing the input GRIB
+files using the \verb|make_lagged| tool included with the SILAM sources.
+ 
+Regardless of the EnKF details, SILAM includes two modes for running the EnKF
+assimilation. The simpler, initial version is enabled by the \verb|method = ENKF| option,
+while a newer version is enable with \verb|method = ENKS|. The \verb|ENKF| mode is based
+on the 3D-Var mode, and attributes all observations within the assimilation window to the
+analysis times. The \verb|ENKS| mode resembles the \verb|4D_SEQ| mode and exploits the
+flexibility of EnKF-type methods to update state vectors using observations from a different time.
+
+The \verb|ENKS| mode proceeds in assimilation windows where the observations are evaluated
+at their valid times. At the analysis time (end of assimilation window), the observations
+are collected and given to the analysis procedure along with the current state vector
+ensemble. In addition to the current state, the state vector can be extended to include
+past model states, which results in the smoother algorigthm called EnKS in
+\cite{evensen2009data}.
+
+While the interval between EnKF analyses can be made long this way, it seems recommendable
+to keep the lag between observation and analysis times short. First, the using the
+observations asynchronously requires that the system evolution is linear between the
+observation and analysis times. Second, the localisation is evaluated at analysis time. If
+the lag between analysis and observation is long, it would seem appropriate to localise
+the observation at some point downstream from the observed location.
+
+\subsection{Ensemble perturbations}
+
+Similarly to 4D-Var, the EnKF allows for various control variables. In the EnKF context,
+the control variable means all parameters that are included in the state vector. 
+
+The 4D-Var modes can have several control variables, and similarly, the EnKF modes can
+have different \emph{state} variables. If not defined by the \verb|state_variable| option,
+the current model state is taken as default.  In principle, EnKF should be able to use
+easily at least all the control variables available for 4D-Var, but this has not been
+tested much.
+
+In addition to control variables, an EnKF run will usually have one or more perturbed
+variables (\verb|perturb_variable| entries in the namelist). This describes the model
+parameters that are (in way or other) perturbed randomly during the ensemble
+integration. The perturbed variables may be control variables, but this is not needed:
+while the ensemble of control variables needs sufficient spread, this may be an implicit
+result of perturbing some other model parameters. In principle, the uncertainty might also
+be generated only by input data and in this case there would be no explicit perturbed
+variables.
+
+So far, the only perturbed variable has been the parameterised volcanic emissions
+(\verb|emission_volc|). Some fragments of support for other perturbed variables are
+included in the \verb|perturbations| module. Later, the correlation models for background
+covariance matrices could be used for generating correlated noise in the EnKF runs.
+
+\subsection{Practical aspects}
+
+The EnKF simulations are always set up with MPI. Every ensemble member corresponds to a
+single process, and the OpenMP shared memory parallelism can be used to speed up both
+the analysis and the model integrations. The OpenMP is especially useful if the maximum
+number of processes per HPC node cannot be used due to memory limitations.
+
+Each ensemble member generates its own output. The \verb|%task| output template should be
+direct the outputs into separate files. In addition to the regular output, if the smoother
+is used (by setting the \verb|smoother_output_step|), additional Netcdf format files will
+appear in the DA output directory, one for each smoother step.
+
+
+
+
+%The only application of EnKF with SILAM has so far been with volcanic eruptions, 
+
+\bibliographystyle{apalike}
+
+
+\bibliography{references}{}
+
+
+\end{document}

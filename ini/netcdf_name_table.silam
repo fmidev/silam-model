@@ -1,0 +1,1249 @@
+#
+NETCDF_NAME_TABLE
+!
+! This file contains a table connecting variables in netcdf input files and SILAM internal variables.
+! File structure:
+!
+! The file contains different tables for files from different sources and a standard table in case the
+! source can't be tetermined. That will only work if the file follows exactly cf conventions.
+! The files are recognized by title. Each table can have several possible title lines.
+! This is inconvinient but the files have to be told apart somehow because the same variable names can be used
+! for different variables in different files.
+!
+! Each table contains a set of variable lines of space-delimited fields:
+! var = varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+! If a field is not needed, it should be filled by XXX for text and -1 for numeric value:
+! var = varname   silam_quantity         *                   -1                *           -1           -1          1        0
+! All the quantities are assumed to have SI units. Factor and offset fields can be used to deal with unit conversions
+! and oddities in the file.
+! Level type and value should be used only for 2d variables, for 3d variables the level type should be *
+! For vertical dimension the vertical type should be set at dimension definition because it can have no dimension variable 
+!
+! Each table can contain a set of lines to define the dimensions of the file:
+! dim = dimname   axis   dimvar   type 
+! Values for axis: x, y, z, t
+! Some dimensions may not have a dimension variable
+! dim = dimname   axis      *      *
+!
+! Variables defining grids of anygrid type:
+! gridvar = var_name_in_file var var_to_use_for_staggered_grids
+! for staggered grids only dimensions are taken from the first field given and
+! values are interpolated from the second one
+!
+! If no dimension lines are present, the cf conventions will be assumed:
+! SILAM will look for dimension variables with same name as dimension. 
+! Units "degrees_north" and "degrees_east" will indicate lat and lon,
+! for vertical coordinate the standard name attribute is requred to determine the type of the vertical levels.
+! The unlimited dimension will be assumed to be time, with units "something since some_time".
+!
+! Dimension variables don't have to be defined separately, unless they are necessary
+! SILAM quantities (pressure for instance).
+!
+! The dimensions with variables with different name than themselves have to be defined here.
+! If a dimension is not defined in this table and does not follow CF conventions, it will be ignored. 
+! Unless the undefined dimension is string length, any variables with that dimension will be unavailible. 
+! If a variable is not defined, the standard name attribute is checked and the variable name is checked to be a SILAM quantity.
+!
+! Rules for filling the codes:
+! 1. If the silam quantity name is fully defined by the variable name - set to level
+! type and levels. Example - temperature (3D, any level) or precipitation
+! amount (always surface field)
+! 2. For 2d quantities with missing dimension set it exactly.
+! Example: 2m temperature, which must be at 2m above the ground.
+!
+! ATTENTION!!! 
+! As variable names in netcdf files usually don't follow any standard, this table is really file specific and has to be updated
+! for each new type of ntcdf files!!!
+!
+! for hybrid vertical, coefficient variables or coefficient values can also be set in this file:
+! a, b, aP0, P0;     
+! a = dim val1 val2 val3 ...
+! aVar, bVar, P0Var, PsVar.
+! aVar = dim aVar
+!
+! Hybrid levels can be defined either by one or two coefficients.
+! If one coefficient is given it has to be defined here as b or bVar and will be treated in following way:
+! a = 0; b = coef/1000
+! pressure = b*surface_pressure
+!'
+
+###################################################
+
+LIST = ALARO
+
+!---------------------------------
+! wrf output
+!---------------------------------
+
+     title   =    ALARO 
+
+     dim     =     lon    x     lon     *
+     dim     =     lat    y     lat     *
+     dim     =     time   t     time    *
+     dim     =     lev    z     lev    hybrid
+     dim     =     depth      z     height_3   HEIGHT_FROM_SURF   # No underground levels in SILAM
+     dim     =     height     z     height     HEIGHT_FROM_SURF
+     dim     =     height_2   z     height_2   HEIGHT_FROM_SURF
+     dim     =     height_3   z     height_3   HEIGHT_FROM_SURF
+     
+     analysis_time = TIME_DIMENSION_START  # TIME_DIMENSION_START / FIRST_TIME_IN_FILE / y m d h m s.
+     
+     # line length limited to 500 characters 
+     a = lev 100.0 524.0 1357.5 2497.4 3855.8 5396.2 7096.2 8923.7 10811.9 12688.2 14497.1 16187.3 17711.0 19024.5 20089.0 20872.3 21350.2 21507.6 21343.4 20880.3 20159.3 19225.5 18124.7 16901.9 15599.4 14256.0 12905.8 11578.1 10297.4 9082.8 7948.7 6905.1 5957.9 5109.4 4359.2 3704.1 3139.3 2658.4 2254.4 1913.2 1616.2 1353.8 1123.4 922.7 749.2 600.5 474.3 368.3 280.5 208.7 151.1 105.7 70.9 45.0 26.5 14.0 6.2 2.0 0.3 0.0
+     b = lev 0 0 0 0 0 0 0 0.000164 0.001034 0.003235 0.007242 0.013498 0.022421 0.034398 0.049772 0.068823 0.091761 0.118704 0.149395 0.183091 0.219101 0.256930 0.296075 0.336042 0.376361 0.416595 0.456346 0.495262 0.533036 0.569407 0.604159 0.637117 0.668145 0.697138 0.724026 0.748760 0.771317 0.791691 0.809891 0.826265 0.841489 0.855909 0.869549 0.882428 0.894569 0.905992 0.916716 0.926759 0.936139 0.944872 0.952971 0.960449 0.967318 0.973585 0.979257 0.984338 0.988824 0.992709 0.995967 0.998717
+     
+     var     =     var33_2          u                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     var34_2          v                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     var11_4          temperature                XXX                 -1      XXX     -1     -1     1     0
+     var     =     var51_2          specific_humidity          XXX                 -1      XXX     -1     -1     1     0
+     var     =     var11_3          temperature_2m             HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     var33            u_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     var34            v_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     var1             ground_pressure            SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var202           convective_accum_rain      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var203           large_scale_accum_rain     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var81            fraction_of_land           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var11_2          underground_temperature    SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var152           relative_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     var152_2         relative_humidity          XXX                 -1      XXX     -1     -1     1     0
+     var     =     var171           total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var176           geopotential_surface       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var2             msl_pressure               SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var223           surf_sw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var224           surf_lw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var227           nwp_sensible_heatflux_ac   SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     var242           turb_kinetic_energy_NWP    XXX                 -1      XXX     -1     -1     1     0
+     var     =     var51            specific_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     var6             geopotential               XXX                 -1      XXX     -1     -1     1     0
+     var     =     var67            nwp_abl_height_m           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+       
+END_LIST = ALARO
+
+###################################################
+
+LIST = STEAM
+
+!---------------------------------
+! Ship emissions
+!---------------------------------
+     title = STEAM
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     longitude     x     longitude    *
+     dim     =     latitude      y     latitude    *
+     dim     =     time     t     time    *
+     
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = YES
+     
+     time_label_position = start_of_period
+
+     var     =     CO     emission_rate  HEIGHT_LYR_FROM_SURF  25  CO       -1     -1     1     0 
+     var     =     CO2    emission_rate  HEIGHT_LYR_FROM_SURF  25  CO2      -1     -1     1     0 
+     var     =     NOx    emission_rate  HEIGHT_LYR_FROM_SURF  25  NOX      -1     -1     1     0 
+     var     =     PM25   emission_rate  HEIGHT_LYR_FROM_SURF  25  PM25     -1     -1     1     0 
+     var     =     SOx    emission_rate  HEIGHT_LYR_FROM_SURF  25  SOX      -1     -1     1     0 
+     var     =     Ash    emission_rate  HEIGHT_LYR_FROM_SURF  25  ASH      -1     -1     1     0 
+     var     =     SO4    emission_rate  HEIGHT_LYR_FROM_SURF  25  PSO4     -1     -1     1     0 
+     var     =     EC     emission_rate  HEIGHT_LYR_FROM_SURF  25  EC       -1     -1     1     0 
+     var     =     OC     emission_rate  HEIGHT_LYR_FROM_SURF  25  OC       -1     -1     1     0 
+
+END_LIST = STEAM
+
+###################################################
+LIST = EDGAR
+
+!---------------------------------
+! emissions
+!---------------------------------
+
+     title = EDGAR
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     time    t     time   *
+     
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = YES
+
+     var     =     emi_pm10_1A1a          emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_1A1a       -1     -1     1     0 
+     var     =     emi_pm10_1A2           emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_1A2       -1     -1     1     0 
+     var     =     emi_pm10_1A3a_c_d_e    emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_1A3a_c_d_e       -1     -1     1     0 
+     var     =     emi_pm10_1A3b          emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_1A3b       -1     -1     1     0 
+     var     =     emi_pm10_1A4           emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_1A4       -1     -1     1     0 
+     var     =     emi_pm10_1B2a_c_1A1b_c emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_1B2a_c_1A1b_c       -1     -1     1     0 
+     var     =     emi_pm10_2_3           emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_2_3       -1     -1     1     0 
+     var     =     emi_pm10_4B            emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_4B       -1     -1     1     0 
+     var     =     emi_pm10_4C_4D         emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_4C_4D       -1     -1     1     0 
+     var     =     emi_pm10_4F            emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_4F       -1     -1     1     0 
+     var     =     emi_pm10_5A_C_D_F_4E   emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_5A_C_D_F_4E       -1     -1     1     0 
+     var     =     emi_pm10_6A_6C         emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_6A_6C       -1     -1     1     0 
+     var     =     emi_pm10_7A            emission_rate  HEIGHT_LYR_FROM_SURF  25  PM10_7A       -1     -1     1     0 
+     
+END_LIST = EDGAR
+
+
+
+LIST = IFS_CO2
+
+!---------------------------------
+! CO2 natural emissions/fixing
+!---------------------------------
+
+     title =  Hacked IFS CO2 emissions translated from GRIB
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     longitude     x     longitude    *
+     dim     =     latitude      y     latitude    *
+     dim     =     time     t     time    *
+     
+     time_label_position = start_of_period
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = YES
+     
+     var     =     CO2nplus    emission_rate  HEIGHT_LYR_FROM_SURF  25  CO2nplus      -1     -1     1     0 
+     var     =     CO2nminus   emission_rate  HEIGHT_LYR_FROM_SURF  25  CO2nminus     -1     -1     1     0 
+
+END_LIST = IFS_CO2
+
+###################################################
+
+LIST = INVSAT
+
+
+     title = INVSAT
+
+     dim     =     longitude    x     longitude     *
+     dim     =     latitude    y     latitude     *
+     dim     =     eta   z     eta    hybrid_lyr
+     dim     =     time   t     time    *
+
+
+     aHalfVar = eta ap
+     bHalfVar = eta bp
+
+     time_label_position = start_of_period
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = NO
+
+     var     =     CO2       volume_mixing_ratio     XXX     -1    CO2bg           -1         -1     1e-6     0
+     
+     
+END_LIST = INVSAT
+
+###################################################
+LIST = TRANSFORM_BOUNDARIES
+
+
+     title = Mixing ratios of aerosol and precursor gases
+
+     dim     =     lon    x     lon     *
+     dim     =     lat    y     lat     *
+     dim     =     mlev   z     mlev    hybrid
+     dim     =     time   t     time    *
+
+     aVar    =     mlev   hyam
+     bVar    =     mlev   hybm
+
+     var     =     CO       volume_mixing_ratio     XXX     -1     CO           -1         -1     1     0
+     var     =     SO2      volume_mixing_ratio     XXX     -1     SO2          -1         -1     1     0
+     var     =     HNO3     volume_mixing_ratio     XXX     -1     HNO3         -1         -1     1     0
+     var     =     NH3      volume_mixing_ratio     XXX     -1     NH3          -1         -1     1     0
+     var     =     NO       volume_mixing_ratio     XXX     -1     NO           -1         -1     1     0
+     var     =     NO2      volume_mixing_ratio     XXX     -1     NO2          -1         -1     1     0
+     var     =     O3       volume_mixing_ratio     XXX     -1     O3           -1         -1     1     0
+     var     =     HCHO     volume_mixing_ratio     XXX     -1     HCHO         -1         -1     1     0
+     var     =     SO4_i    volume_mixing_ratio     XXX     -1     SO4          0.1e-6     -1     1     0
+     var     =     NH4_i    volume_mixing_ratio     XXX     -1     NH4          0.1e-6     -1     1     0
+     var     =     NO3_i    volume_mixing_ratio     XXX     -1     NO3          0.1e-6     -1     1     0
+     var     =     BC_i     volume_mixing_ratio     XXX     -1     BC_S         0.1e-6     -1     1     0
+     var     =     BC2_i    volume_mixing_ratio     XXX     -1     BC_I         0.1e-6     -1     1     0
+     var     =     POM_i    volume_mixing_ratio     XXX     -1     OM_S         0.1e-6     -1     1     0
+     var     =     POM2_i   volume_mixing_ratio     XXX     -1     OM_I         0.1e-6     -1     1     0
+     var     =     SO4_j    volume_mixing_ratio     XXX     -1     SO4          1.5e-6     -1     1     0
+     var     =     NH4_j    volume_mixing_ratio     XXX     -1     NH4          1.5e-6     -1     1     0
+     var     =     NO3_j    volume_mixing_ratio     XXX     -1     NO3          1.5e-6     -1     1     0
+     var     =     BC_j     volume_mixing_ratio     XXX     -1     BC_S         1.5e-6     -1     1     0
+     var     =     BC2_j    volume_mixing_ratio     XXX     -1     BC_I         1.5e-6     -1     1     0
+     var     =     POM_j    volume_mixing_ratio     XXX     -1     OM_S         1.5e-6     -1     1     0
+     var     =     POM2_j   volume_mixing_ratio     XXX     -1     OM_I         1.5e-6     -1     1     0
+     var     =     SS_j     volume_mixing_ratio     XXX     -1     SSLT         1.5e-6     -1     1     0
+     var     =     DU_j     volume_mixing_ratio     XXX     -1     DUST         1.5e-6     -1     1     0
+     var     =     SS_c     volume_mixing_ratio     XXX     -1     SSLT         6.0e-6     -1     1     0
+     var     =     DU_c     volume_mixing_ratio     XXX     -1     DUST         6.0e-6     -1     1     0
+     
+     
+END_LIST = TRANSFORM_BOUNDARIES
+
+###################################################
+
+LIST = MEGAPOLI_BOUNDARIES
+     title = MEGAPOLI
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     lev     z     lev    hybrid
+     dim     =     time     t     time    *
+
+     aVar = lev hyam
+     bVar  = lev hybm
+
+     var     =     O3     volume_mixing_ratio     XXX     -1     O3         -1     -1     1     0
+     var     =     CO     volume_mixing_ratio     XXX     -1     CO         -1     -1     1     0
+     var     =     CH2O   volume_mixing_ratio     XXX     -1     HCHO       -1     -1     1     0
+     var     =     NO     volume_mixing_ratio     XXX     -1     NO         -1     -1     1     0
+     var     =     NO2    volume_mixing_ratio     XXX     -1     NO2        -1     -1     1     0
+     var     =     HNO3   volume_mixing_ratio     XXX     -1     HNO3       -1     -1     1     0
+     var     =     N2O5   volume_mixing_ratio     XXX     -1     N2O5       -1     -1     1     0
+     var     =     C4H10  volume_mixing_ratio     XXX     -1     PAR        -1     -1     1     0
+     var     =     PAN    volume_mixing_ratio     XXX     -1     PAN        -1     -1     1     0
+     var     =     CH3CHO volume_mixing_ratio     XXX     -1     ALD2       -1     -1     1     0
+     var     =     ISOP   volume_mixing_ratio     XXX     -1     C5H8       -1     -1     1     0
+     var     =     NO3    volume_mixing_ratio     XXX     -1     NO3        -1     -1     1     0
+     var     =     CH3OOH volume_mixing_ratio     XXX     -1     CH3OOH     -1     -1     1     0
+     
+END_LIST = MEGAPOLI_BOUNDARIES
+
+###################################################
+
+LIST = DEHM_BOUNDARIES
+
+!---------------------------------
+! DEHM boundaries
+!---------------------------------
+
+     title = DEHM run, model run =EnsClimSS
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     lev     z     lev     hybrid
+     dim     =     time     t     time    *
+
+     bVar  = lev lev
+!    var  =   varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     ssltF    concentration     XXX     -1     sslt    0.5e-6  -1    1 0 # ug/m3 
+     var     =     ssltC    concentration     XXX     -1     sslt    5.0e-6  -1    1 0 # ug/m3 
+     
+END_LIST = DEHM_BOUNDARIES
+
+###################################################
+LIST = WRF_OUTPUT
+
+!---------------------------------
+! wrf output
+!---------------------------------
+     time_label_position = instant
+
+     title   =     OUTPUT FROM WRF V3.0 MODEL
+     title   =     OUTPUT FROM WRF V3.1 MODEL
+     title   = WRF_OUTPUT
+
+     dim     =     Time     t     Times     char      
+     dim     =     west_east     x     XLONG     *
+     dim     =     south_north     y     XLAT    * 
+     dim     =     bottom_top     z     ZNU     SIGMA_LEVEL
+     dim     =     bottom_top_stag     z    ZNW    SIGMA_LEVEL
+     dim     =     west_east_stag     x    XLONG_U    * 
+     dim     =     south_north_stag     y     XLAT_V    *
+     dim     =     soil_layers_stag    z  ZS HEIGHT_FROM_SURF #HACK! Only surface needed: depth=0 is the same as height=0
+     
+     gridvar =     SINALPHA      sin_map_rot     XXX
+     gridvar =     COSALPHA      cos_map_rot     XXX
+     gridvar =     MAPFAC_MX     dx              XXX
+     gridvar =     MAPFAC_MY     dy              XXX
+     gridvar =     XLONG         lon             XXX
+     gridvar =     XLAT          lat             XXX
+     gridvar =     XLONG_U       lon             XLONG
+     gridvar =     XLAT_U        lat             XLAT
+     gridvar =     XLONG_V       lon             XLONG
+     gridvar =     XLAT_V        lat             XLAT
+     gridvar =     MAPFAC_UX     dx              MAPFAC_MX
+     gridvar =     MAPFAC_UY     dy              MAPFAC_MY
+     gridvar =     MAPFAC_VX     dx              MAPFAC_MX
+     gridvar =     MAPFAC_VY     dy              MAPFAC_MY
+! and now some cheating - claim some random fielde to be map rotations 
+! for staggered grids (only dimensions taken) and force them to be overwritten 
+! by interpolated map rotations of the reference grid
+     gridvar =     XLONG_U       sin_map_rot     SINALPHA
+     gridvar =     XLAT_U        cos_map_rot     COSALPHA
+     gridvar =     XLONG_V       sin_map_rot     SINALPHA
+     gridvar =     XLAT_V        cos_map_rot     COSALPHA
+     
+    
+     var     =     U          u                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     V          v                          XXX                 -1      XXX     -1     -1     1     0
+!     var     =     W          omega                     XXX                 -1      XXX     -1     -1     1     0
+     var     =     T          perturb_pot_temperature    XXX                 -1      XXX     -1     -1     1     0
+     var     =     QVAPOR     specific_humidity          XXX                 -1      XXX     -1     -1     1     0
+     var     =     QCLOUD     cloud_water                XXX                 -1      XXX     -1     -1     1     0
+     var     =     QICE       cloud_ice                  XXX                 -1      XXX     -1     -1     1     0
+     var     =     CLDFRA     cloud_cover                XXX                 -1      XXX     -1     -1     1     0
+     var     =     T2         temperature_2m             HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     Q2         specific_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     U10        u_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     V10        v_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     CLDCVR     total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     PSFC       ground_pressure            SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     RAINC      convective_accum_rain      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     RAINNC     large_scale_accum_rain     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     LANDMASK   fraction_of_land           SURFACE_LEVEL       -1      XXX     -1     -1     1     0 !(LAND MASK (1 FOR LAND, 0 FOR WATER)
+     var     =     XLAND      fraction_of_land           SURFACE_LEVEL       -1      XXX     -1     -1    -1     2 !LAND MASK (1 FOR LAND, 2 FOR WATER)
+     var     =     HGT        relief_height              SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     SST        water_surface_temp         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     PBLH       nwp_abl_height_m           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     HFX        nwp_sensible_heatflux      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     LH         nwp_latent_heatflux        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     LAI        lai                        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     GLW        surf_sw_down_radiation     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     ALBEDO     albedo                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     CLDCVR     total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     ACSNOW     weq_snow_depth             SURFACE_LEVEL       -1      XXX     -1     -1     1e-3     0
+     var     =     SNOW       weq_snow_depth             SURFACE_LEVEL       -1      XXX     -1     -1     1e-3     0
+     var     =     SMOIS      soil_moisture_content      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     AFWA_CAPE  cape                       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+       
+END_LIST = WRF_OUTPUT
+
+
+###################################################
+
+LIST = MACC_BOUNDARIES54
+# Species for the full mozart files incl. chlorine species. Seems to work with raq-bc files as well.
+# The hybrid levels defined below are for the 60-level IFS vertical cut to 54 levels. 
+     time_label_position = instant
+     title = MZ3-IFS54
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     lev     z     lev    hybrid
+     dim     =     time     t     time    *
+     a = lev 207.68 266.64 336.23 419.30 520.13 644.43 798.44 989.25 1225.65 1518.56 1881.46 2331.08 2888.16 3578.36 4433.50 5462.36 6662.33 8035.84 9570.59 11226.79 12926.38 14577.56 16099.64 17432.33 18536.44 19391.40 19988.66 20326.03 20407.17 20240.94 19840.87 19224.54 18413.05 17430.41 16302.96 15058.79 13727.17 12337.99 10921.13 9505.93 8120.58 6791.56 5543.05 4396.35 3369.30 2475.74 1724.85 1120.64 661.35 338.86 138.14 36.63 3.68 0.00
+     b = lev 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00004 0.00027 0.00114 0.00345 0.00811 0.01591 0.02740 0.04291 0.06261 0.08660 0.11485 0.14720 0.18343 0.22320 0.26613 0.31174 0.35952 0.40893 0.45937 0.51024 0.56094 0.61086 0.65941 0.70603 0.75019 0.79142 0.82931 0.86352 0.89377 0.91991 0.94188 0.95973 0.97365 0.98397 0.99114 0.99582 0.99882
+
+     # var     =     PS     ground_pressure     SURFACE_LEVEL     -1     XXX     -1     -1     1     0
+     # var     =     T      temperature     XXX     -1     XXX     -1     -1     1     0
+     var     =     O3       volume_mixing_ratio     XXX     -1     O3          -1     -1     1     0
+     var     =     CO       volume_mixing_ratio     XXX     -1     CO          -1     -1     1     0
+     var     =     CH2O     volume_mixing_ratio     XXX     -1     HCHO        -1     -1     1     0
+     var     =     NO       volume_mixing_ratio     XXX     -1     NO          -1     -1     1     0
+     var     =     NO2      volume_mixing_ratio     XXX     -1     NO2         -1     -1     1     0
+     var     =     HNO3     volume_mixing_ratio     XXX     -1     HNO3        -1     -1     1     0
+     var     =     HO2NO2   volume_mixing_ratio     XXX     -1     HO2NO2      -1     -1     1     0
+     var     =     H2O2     volume_mixing_ratio     XXX     -1     H2O2        -1     -1     1     0
+     var     =     PAN      volume_mixing_ratio     XXX     -1     PAN         -1     -1     1     0
+     var     =     CH4      volume_mixing_ratio     XXX     -1     CH4         -1     -1     1     0
+     var     =     CH3CHO   volume_mixing_ratio     XXX     -1     CH3CHO      -1     -1     1     0
+     var     =     C2H6     volume_mixing_ratio     XXX     -1     C2H6        -1     -1     1     0
+     var     =     ISOP     volume_mixing_ratio     XXX     -1     C5H8        -1     -1     1     0
+     var     =     TOLUENE  volume_mixing_ratio     XXX     -1     TOLUENE     -1     -1     1     0
+     var     =     BIGENE   volume_mixing_ratio     XXX     -1     BIG_ENE     -1     -1     1     0
+     var     =     BIGALK   volume_mixing_ratio     XXX     -1     BIG_ALK     -1     -1     1     0
+     var     =     SO2      volume_mixing_ratio     XXX     -1     SO2         -1     -1     1     0
+     var     =     CLO      volume_mixing_ratio     XXX     -1     ClO         -1     -1     1     0 
+     var     =     CL2O2    volume_mixing_ratio     XXX     -1     Cl2O2       -1     -1     1     0 
+     var     =     HCL      volume_mixing_ratio     XXX     -1     HCl         -1     -1     1     0 
+     var     =     CLONO2   volume_mixing_ratio     XXX     -1     ClONO2      -1     -1     1     0
+ 
+     var     =     N2O      volume_mixing_ratio     XXX     -1     N2O         -1     -1     1     0 
+#     var     =     GLYOXAL  volume_mixing_ratio     XXX     -1     GLY         -1     -1     1     0 
+  
+
+END_LIST = MACC_BOUNDARIES54
+
+LIST = MACC_BOUNDARIES60
+# Species for the full mozart files incl. chlorine species. Seems to work with raq-bc files as well.
+# The hybrid levels defined below are for the 60-level IFS vertical. 
+     time_label_position = instant
+     title = MZ3-IFS60
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     lev     z     lev    hybrid
+     dim     =     time     t     time    *
+     a = lev 10.00 29.21 51.04 79.64 115.06 157.53 207.68 266.64 336.23 419.30 520.13 644.43 798.44 989.25 1225.65 1518.56 1881.46 2331.08 2888.16 3578.36 4433.50 5462.36 6662.33 8035.84 9570.59 11226.79 12926.38 14577.56 16099.64 17432.33 18536.44 19391.40 19988.66 20326.03 20407.17 20240.94 19840.87 19224.54 18413.05 17430.41 16302.96 15058.79 13727.17 12337.99 10921.13 9505.93 8120.58 6791.56 5543.05 4396.35 3369.30 2475.74 1724.85 1120.64 661.35 338.86 138.14 36.63 3.68 0.00
+     #bVar  = lev hybm
+     b = lev 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00000 0.00004 0.00027 0.00114 0.00345 0.00811 0.01591 0.02740 0.04291 0.06261 0.08660 0.11485 0.14720 0.18343 0.22320 0.26613 0.31174 0.35952 0.40893 0.45937 0.51024 0.56094 0.61086 0.65941 0.70603 0.75019 0.79142 0.82931 0.86352 0.89377 0.91991 0.94188 0.95973 0.97365 0.98397 0.99114 0.99582 0.99882
+
+     # var     =     PS     ground_pressure     SURFACE_LEVEL     -1     XXX     -1     -1     1     0
+     # var     =     T      temperature     XXX     -1     XXX     -1     -1     1     0
+     var     =     O3       volume_mixing_ratio     XXX     -1     O3          -1     -1     1     0
+     var     =     CO       volume_mixing_ratio     XXX     -1     CO          -1     -1     1     0
+     var     =     CH2O     volume_mixing_ratio     XXX     -1     HCHO        -1     -1     1     0
+     var     =     NO       volume_mixing_ratio     XXX     -1     NO          -1     -1     1     0
+     var     =     NO2      volume_mixing_ratio     XXX     -1     NO2         -1     -1     1     0
+     var     =     HNO3     volume_mixing_ratio     XXX     -1     HNO3        -1     -1     1     0
+     var     =     HO2NO2   volume_mixing_ratio     XXX     -1     HO2NO2      -1     -1     1     0
+     var     =     H2O2     volume_mixing_ratio     XXX     -1     H2O2        -1     -1     1     0
+     var     =     PAN      volume_mixing_ratio     XXX     -1     PAN         -1     -1     1     0
+     var     =     CH4      volume_mixing_ratio     XXX     -1     CH4         -1     -1     1     0
+     var     =     CH3CHO   volume_mixing_ratio     XXX     -1     CH3CHO      -1     -1     1     0
+     var     =     C2H6     volume_mixing_ratio     XXX     -1     C2H6        -1     -1     1     0
+     var     =     ISOP     volume_mixing_ratio     XXX     -1     C5H8        -1     -1     1     0
+     var     =     TOLUENE  volume_mixing_ratio     XXX     -1     TOLUENE     -1     -1     1     0
+     var     =     BIGENE   volume_mixing_ratio     XXX     -1     BIG_ENE     -1     -1     1     0
+     var     =     BIGALK   volume_mixing_ratio     XXX     -1     BIG_ALK     -1     -1     1     0
+     var     =     SO2      volume_mixing_ratio     XXX     -1     SO2         -1     -1     1     0
+     var     =     CLO      volume_mixing_ratio     XXX     -1     ClO         -1     -1     1     0 
+     var     =     CL2O2    volume_mixing_ratio     XXX     -1     Cl2O2       -1     -1     1     0 
+     var     =     HCL      volume_mixing_ratio     XXX     -1     HCl         -1     -1     1     0 
+     var     =     CLONO2   volume_mixing_ratio     XXX     -1     ClONO2      -1     -1     1     0
+ 
+     var     =     N2O      volume_mixing_ratio     XXX     -1     N2O         -1     -1     1     0 
+#     var     =     GLYOXAL  volume_mixing_ratio     XXX     -1     GLY         -1     -1     1     0 
+  
+
+END_LIST = MACC_BOUNDARIES60
+
+###################################################
+
+LIST = IFS
+# IFS aerosols for MACC R-EVA boundary conditions.
+title = IFS_AEROSOL
+
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     lev     z     lev    hybrid
+     dim     =     time     t     time    *
+     a = lev 207.682 266.637 336.234 419.295 520.135 644.435 798.439 989.248 1225.655 1518.557 1881.457 2331.081 2888.155 3578.357 4433.499 5462.363 6662.326 8035.844 9570.590 11226.785 12926.385 14577.564 16099.639 17432.328 18536.439 19391.402 19988.656 20326.033 20407.172 20240.941 19840.865 19224.539 18413.055 17430.414 16302.959 15058.787 13727.172 12337.988 10921.129 9505.928 8120.580 6791.561 5543.047 4396.345 3369.305 2475.738 1724.846 1120.637 661.348 338.864 138.142 36.628 3.684 0.000
+     b = lev 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.001 0.003 0.008 0.016 0.027 0.043 0.063 0.087 0.115 0.147 0.183 0.223 0.266 0.312 0.360 0.409 0.459 0.510 0.561 0.611 0.659 0.706 0.750 0.791 0.829 0.864 0.894 0.920 0.942 0.960 0.974 0.984 0.991 0.996 0.999
+
+# Here the mode value is the *lower boundary*. It will be restated in the boundary header,
+# so here I'll just just use values that are easy to write.
+
+var = var1 concentration XXX -1 sslt 3.00E-008 -1 1 0
+var = var2 concentration XXX -1 sslt 5.00E-007 -1 1 0
+var = var3 concentration XXX -1 sslt 5.00E-006 -1 1 0
+var = var4 concentration XXX -1 dust 3.00E-008 -1 1 0
+var = var5 concentration XXX -1 dust 5.50E-007 -1 1 0
+var = var6 concentration XXX -1 dust 9.00E-007 -1 1 0
+var = var8 concentration XXX -1 OC 5.00E-007 -1 1 0
+var = var10 concentration XXX -1 BC 5.00E-007 -1 1 0
+var = var11 concentration XXX -1 SO4 3.00E-007 -1 1 0
+
+END_LIST = IFS
+
+###################################################
+
+LIST = TIMEZONES
+
+
+title = TZ_index
+
+! ! dim = dimname   axis   dimvar   type
+!     dim     =     longitude    x     longitude   *
+!     dim     =     latitude     y     latitude    * 
+     
+! var = varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     tz_index         tz_index          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+END_LIST = TIMEZONES
+
+###################################################
+LIST = PHENOANALYSIS
+
+
+title = PhenoAnalysis
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+     
+!        var = varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     LAI   lai          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     lai   lai          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+END_LIST = PHENOANALYSIS
+
+###################################################
+
+LIST = LANDUSETYPE
+
+title = LandUseType
+! ! dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+     
+!        var = varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     lutype   landuse          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+END_LIST = LANDUSETYPE
+
+###################################################
+
+
+LIST = REMO
+
+
+title = REMO
+#                rotated_pole:grid_north_pole_latitude = 39.25 ;
+#                rotated_pole:grid_north_pole_longitude = -162. ;
+        south_pole_lat = -39.25
+        south_pole_lon =18.
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     rlon    x     rlon   *
+     dim     =     rlat    y     rlat   * 
+     
+! var =             varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     var129         fraction_of_land           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+END_LIST = REMO
+###################################################
+
+LIST = NorESM
+
+
+title = NorESM
+
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     time  t    time     *      
+     dim     =     lon   x     lon     *
+     dim     =     lat   y     lat    * 
+     dim     =     lev   z     lev     hybrid
+     
+ a = lev 219.4067 489.5209 988.2418 1805.201 2983.724 4462.334 6160.587 7851.243 7731.271 7590.131 7424.086 7228.744 6998.933 6728.574 6410.509 6036.322 5596.111 5078.225 4468.96 3752.191 2908.949 2084.739 1334.443 708.499 252.136 0.  0. 
+    
+ b = lev 0 0 0 0 0 0 0 0 0.01505309 0.03276228 0.05359622 0.07810627 0.1069411 0.1408637 0.180772 0.227722 0.2829562 0.3479364 0.4243822 0.5143168 0.6201202 0.7235355 0.8176768 0.8962153 0.9534761 0.9851122 1 
+
+
+
+
+!    var  =   varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     var129         fraction_of_land           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+  
+     var     =     U         u                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     V         v                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     T         temperature                XXX                 -1      XXX     -1     -1     1     0
+     var     =     Q         specific_humidity          XXX                 -1      XXX     -1     -1     1     0
+     
+     var     =     TREFHT        temperature_2m             HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     TREFHT        water_surface_temp             SURFACE_LEVEL        -1 XXX -1 -1 1 0  
+     var     =     U10           windspeed_10m              HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     PS            ground_pressure            SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     PBLH          nwp_abl_height_m          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     LANDFRAC      fraction_of_land          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     CLDTOT        total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     SHFLUX        nwp_sensible_heatflux     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     SHFLUX        nwp_latent_heatflux       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+                         
+     var     =     PRECC         convective_accum_rain      SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0  #m/s*3h
+     var     =     PRECL         large_scale_accum_rain     SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0  #
+
+     var     =     FLDS          surf_lw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08e7     0 # only in .h3
+     var     =     FSDS          surf_sw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0
+
+     var     =     FLNS          surf_lw_net_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08e7     0 # only in .h3
+     var     =     FSNS          surf_sw_net_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0
+
+     var     =     QREFHT        specific_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     
+     
+END_LIST = NorESM
+     
+###################################################
+LIST = NorESM_fake
+
+
+title = NorESM_fake
+
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     t  t    t     *      
+     dim     =     longitude   x     longitude     *
+     dim     =     latitude   y     latitude    * 
+     dim     =     surface   z     surface    * 
+     
+!    var  =   varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+   
+     var     =     FSR            land_roughness_met    SURFACE_LEVEL -1 XXX -1 -1 1 0  
+     
+
+END_LIST = NorESM_fake
+###################################################
+
+LIST = NorESM_sst
+
+
+title = NorESM_sst
+
+
+     dim     =     time  t    time     *      
+     dim     =     lon   x     lon     *
+     dim     =     lat   y     lat    * 
+     dim     =     lev   z     lev     hybrid
+     
+ a = lev 219.4067 489.5209 988.2418 1805.201 2983.724 4462.334 6160.587 7851.243 7731.271 7590.131 7424.086 7228.744 6998.933 6728.574 6410.509 6036.322 5596.111 5078.225 4468.96 3752.191 2908.949 2084.739 1334.443 708.499 252.136 0.  0. 
+    
+ b = lev 0 0 0 0 0 0 0 0 0.01505309 0.03276228 0.05359622 0.07810627 0.1069411 0.1408637 0.180772 0.227722 0.2829562 0.3479364 0.4243822 0.5143168 0.6201202 0.7235355 0.8176768 0.8962153 0.9534761 0.9851122 1 
+
+     var     =     TREFHT          water_surface_temp    SURFACE_LEVEL -1 XXX -1 -1 1 0  
+     
+
+END_LIST = NorESM_sst
+           
+###################################################
+
+LIST = CF
+
+!---------------------------------
+! CF standard names
+!---------------------------------
+
+title = *
+
+
+     var     =     tz_index         tz_index          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+END_LIST = CF
+
+###################################################
+
+LIST = MACC_BOUNDARIES_451
+# MACC boundaries, C-IFS, September 2014. NetCDF files with both gas
+# and aerosol BCs. This only defines gases.  Values given in
+# kg/kg. Convert gases (in silam mol/m3) to VMR as VMR = MMR *
+# M_air/M_species. Aerosols (in silam kg/m3) go as cnc = MMR * M_air *
+# cnc_air -> multiply with M_air and pretend them to be VMR.
+# 
+# 
+#
+# Hybrid coefs given but only for half-levels so fix them here. IFS 60 level setup,
+# use python script to print the defs.
+     dim     =     longitude     x     longitude    *
+     dim     =     latitude     y     latitude    *
+     dim     =     level     z     level    hybrid_lyr
+     dim     =     time     t     time    *
+title = C_IFS
+
+# note: full 60 levels, not 54 as in r-eva bc files!
+#a = level 10.000 29.213 51.037 79.642 115.060 157.534 207.682 266.637 336.234 419.295 520.135 644.435 798.439 989.248 1225.655 1518.557 1881.457 2331.082 2888.155 3578.357 4433.500 5462.364 6662.326 8035.843 9570.592 11226.790 12926.390 14577.570 16099.640 17432.325 18536.440 19391.405 19988.660 20326.035 20407.170 20240.940 19840.865 19224.540 18413.055 17430.415 16302.960 15058.785 13727.170 12337.990 10921.130 9505.928 8120.579 6791.559 5543.047 4396.346 3369.305 2475.739 1724.847 1120.637 661.348 338.864 138.142 36.628 3.684 0.000
+#b = level 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.000 0.001 0.003 0.008 0.016 0.027 0.043 0.063 0.087 0.115 0.147 0.183 0.223 0.266 0.312 0.360 0.409 0.459 0.510 0.561 0.611 0.659 0.706 0.750 0.791 0.829 0.864 0.894 0.920 0.942 0.960 0.974 0.984 0.991 0.996 0.999
+
+     aHalfVar    =     level   a
+     bHalfVar    =     level   b
+time_label_position = instant
+
+var = go3 volume_mixing_ratio XXX -1 O3 -1 -1 0.6035 0
+var = co volume_mixing_ratio XXX -1 CO -1 -1 1.0346 0
+var = hcho volume_mixing_ratio XXX -1 HCHO -1 -1 0.9657 0
+var = no volume_mixing_ratio XXX -1 NO -1 -1 0.9657 0
+var = no2 volume_mixing_ratio XXX -1 NO2 -1 -1 0.6298 0
+var = hno3 volume_mixing_ratio XXX -1 HNO3 -1 -1 0.4598 0
+var = pan volume_mixing_ratio XXX -1 PAN -1 -1 0.2394 0
+var = ch4 volume_mixing_ratio XXX -1 CH4 -1 -1 1.8106 0
+var = n2o5 volume_mixing_ratio XXX -1 N2O5 -1 -1 0.26852 0
+var = c2h6 volume_mixing_ratio XXX -1 C2H6 -1 -1 0.9657 0
+var = c5h8 volume_mixing_ratio XXX -1 C5H8 -1 -1 0.4260 0
+var = so2 volume_mixing_ratio XXX -1 SO2 -1 -1 0.4527 0
+
+# Aerosol boundaries. Include dust, SO4 , OC, BC.  Here only
+# conversion to "volume mixing ratio" (see above). Mode projection is
+# in boundary header. Here the mode value is the *lower boundary*. It
+# will be restated in the boundary header, so here I'll just just use
+# values that are easy to write.
+
+var = aerlrg  volume_mixing_ratio  XXX -1 PM        10e-6  -1 28.97e-3 0 #"Aerosol large mode mixing ratio" 
+var = aermr01 volume_mixing_ratio  XXX -1 sslt    0.03e-6  -1 28.97e-3 0 #"Sea Salt Aerosol (0.03 - 0.5 um) Mixing Ratio"
+var = aermr02 volume_mixing_ratio  XXX -1 sslt     0.5e-6  -1 28.97e-3 0 #"Sea Salt Aerosol (0.5 - 5 um) Mixing Ratio"
+var = aermr03 volume_mixing_ratio  XXX -1 sslt       5e-6  -1 28.97e-3 0 #"Sea Salt Aerosol (5 - 20 um) Mixing Ratio" 
+
+# dust, 3 bins
+var = aermr04 volume_mixing_ratio XXX -1 dust 3.00E-008 -1 28.97e-3 0 #"Dust Aerosol (0.03 - 0.55 um) Mixing Ratio" 
+var = aermr05 volume_mixing_ratio XXX -1 dust 5.50E-007 -1 28.97e-3 0 # "Dust Aerosol (0.55 - 0.9 um) Mixing Ratio"
+var = aermr06 volume_mixing_ratio XXX -1 dust 9.00E-007 -1 28.97e-3 0 #"Dust Aerosol (0.9 - 20 um) Mixing Ratio" 
+
+# Hydrophobic Organic Matter
+var = aermr07 volume_mixing_ratio XXX -1 OC 5.00E-007 -1 28.97e-3 0
+# Hydrophilic Organic Matter
+var = aermr08 volume_mixing_ratio XXX -1 OC 6.00E-007 -1 28.97e-3 0  #Just make it different from above
+# Hydrophobic Black Carbon
+var = aermr09 volume_mixing_ratio XXX -1 BC 5.00E-007 -1 28.97e-3 0
+# Hydrophilic Black Carbon
+var = aermr10 volume_mixing_ratio XXX -1 BC 6.00E-007 -1 28.97e-3 0 #Same
+# Sulphate (converted to mol/m3 in boundary header)
+var = aermr11 volume_mixing_ratio XXX -1 SO4 3.00E-007 -1 28.97e-3 0
+
+END_LIST = MACC_BOUNDARIES_451
+
+LIST = gfas
+
+#---------------------------------
+# fire emissions
+#---------------------------------
+
+     title = gfas
+
+     dim     =     x     x    x    *
+     dim     =     y     y    y    *
+     dim     =     time  time time    *
+     
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = YES
+###These come in numbers /cell/sec. All units are in source files
+
+     var     =     cofire    emission_rate  HEIGHT_LYR_FROM_SURF  25  CO       -1     -1     1     0 
+     var     =     noxfire      emission_rate  HEIGHT_LYR_FROM_SURF  25  NOX      -1     -1     1     0 
+     var     =     pm2p5fire     emission_rate  HEIGHT_LYR_FROM_SURF  25  PM_GFAS     -1     -1     1     0 
+     var     =     ch2ofire    emission_rate  HEIGHT_LYR_FROM_SURF  25  HCHO     -1     -1     1     0 
+     var     =     toluenefire    emission_rate  HEIGHT_LYR_FROM_SURF  25  TOLUENE     -1     -1     1     0 
+     # HIALKENES = OLE + 3*PAR
+     var     =     hialkenesfire    emission_rate  HEIGHT_LYR_FROM_SURF  25  HIALKENES     -1     -1     1     0 
+     # HIALKANES = 4*PAR
+     var     =     hialkanesfire    emission_rate  HEIGHT_LYR_FROM_SURF  25  HIALKANES     -1     -1     1     0 
+     var     =     c5h8fire    emission_rate  HEIGHT_LYR_FROM_SURF  25  C5H8     -1     -1     1     0 
+     # c3h8 -> 3*PAR
+     var     =     c3h8fire    emission_rate  HEIGHT_LYR_FROM_SURF  25  C3H8     -1     -1     1     0 
+     # c3h6 -> OLE+PAR
+     var     =     c3h6fire    emission_rate  HEIGHT_LYR_FROM_SURF  25  C3H6     -1     -1     1     0 
+     # c2h6 -> 2*PAR
+     var     =     c2h6fire    emission_rate  HEIGHT_LYR_FROM_SURF  25  C2H6     -1     -1     1     0 
+     var     =     c2h4ofire    emission_rate  HEIGHT_LYR_FROM_SURF  25  ALD2     -1     -1     1     0 
+     var     =     c2h4fire    emission_rate  HEIGHT_LYR_FROM_SURF  25  ETH     -1     -1     1     0 
+     var     =     so2fire     emission_rate  HEIGHT_LYR_FROM_SURF  25  SO2     -1     -1     1     0 
+     var     =     nh3fire     emission_rate  HEIGHT_LYR_FROM_SURF  25  NH3     -1     -1     1     0 
+
+END_LIST = gfas
+
+LIST = gfas_fluxes
+
+#---------------------------------
+# fire emissions GFAS test for 2016 had mid_of_period interval
+#---------------------------------
+
+     title = gfas_fluxes
+###These come in "Cocktail mass units/m2/sec". 
+
+     dim     =     lon    x     lon     *
+     dim     =     lat    y     lat     *
+     dim     =     time  time time    *
+     
+     time_label_position = mid_of_period
+     ifCocktails = YES
+
+     var     =     cofire        emission_flux  HEIGHT_LYR_FROM_SURF  550  CO          -1     -1     35.7       0 
+     var     =     noxfire       emission_flux  HEIGHT_LYR_FROM_SURF  550  NOX         -1     -1     1          0  ##NOX cocktail in KG
+     var     =     pm2p5fire     emission_flux  HEIGHT_LYR_FROM_SURF  550  PM_GFAS     -1     -1     1          0 
+     var     =     ch2ofire      emission_flux  HEIGHT_LYR_FROM_SURF  550  HCHO        -1     -1     33.3       0 
+     var     =     toluenefire   emission_flux  HEIGHT_LYR_FROM_SURF  550  TOLUENE     -1     -1     10.8       0 
+     # HIALKENES = OLE + 3*PAR                                                                             
+     var     =     hialkenesfire emission_flux  HEIGHT_LYR_FROM_SURF  550  HIALKENES   -1     -1     14         0 
+     # HIALKANES = 4*PAR                                                                                   
+     var     =     hialkanesfire emission_flux  HEIGHT_LYR_FROM_SURF  550  HIALKANES   -1     -1     14         0 
+     var     =     c5h8fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C5H8        -1     -1     15         0 
+     # c3h8 -> 3*PAR                                                                                       
+     var     =     c3h8fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C3H8        -1     -1     23         0 
+     # c3h6 -> OLE+PAR                                                                                     
+     var     =     c3h6fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C3H6        -1     -1     24         0 
+     # c2h6 -> 2*PAR                                                                                       
+     var     =     c2h6fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C2H6        -1     -1     33.3       0 
+     var     =     c2h4ofire     emission_flux  HEIGHT_LYR_FROM_SURF  550  ALD2        -1     -1     23         0 
+     var     =     c2h4fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  ETH         -1     -1     36         0 
+     var     =     so2fire       emission_flux  HEIGHT_LYR_FROM_SURF  550  SO2         -1     -1     16         0 
+     var     =     nh3fire       emission_flux  HEIGHT_LYR_FROM_SURF  550  NH3         -1     -1     59         0 
+
+END_LIST = gfas_fluxes
+
+LIST = gfas_hrly
+
+#---------------------------------
+# fire emissions
+# fire emissions GFAS test for JUN 2017 and oper since Dec 2018 had end_of_period labels
+#---------------------------------
+
+     title = gfas_hrly
+
+     dim     =     lon    x     lon     *
+     dim     =     lat    y     lat     *
+     dim     =     time  time time    *
+     
+     time_label_position = start_of_period
+     ifCocktails = YES
+##Comes in kg
+#Source assumes BasicMassUnits/m2/sec, so  scaling to  moles for molar cocktails 1/molar_mass for molar cocktails
+                                                                # 0 -- 1100 m layer
+     var     =     cofire        emission_flux  HEIGHT_LYR_FROM_SURF  550  CO          -1     -1     35.7     0 
+     var     =     noxfire       emission_flux  HEIGHT_LYR_FROM_SURF  550  NOX         -1     -1     1        0 ##NOX cocktail in KG
+     var     =     pm2p5fire     emission_flux  HEIGHT_LYR_FROM_SURF  550  PM_GFAS     -1     -1     1        0 
+     var     =     ch2ofire      emission_flux  HEIGHT_LYR_FROM_SURF  550  HCHO        -1     -1     33.3     0 
+     var     =     toluenefire   emission_flux  HEIGHT_LYR_FROM_SURF  550  TOLUENE     -1     -1     10.8     0 
+     # HIALKENES = OLE + 3*PAR
+     var     =     hialkenesfire emission_flux  HEIGHT_LYR_FROM_SURF  550  HIALKENES   -1     -1     14       0 ## 3PAR+1OLE ~=  C5H10...
+     # HIALKANES = 4*PAR
+     var     =     hialkanesfire emission_flux  HEIGHT_LYR_FROM_SURF  550  HIALKANES   -1     -1     14       0  ##4PAR   ~=C5H12
+     var     =     c5h8fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C5H8        -1     -1     15       0 
+     # c3h8 -> 3*PAR                                                                                         
+     var     =     c3h8fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C3H8        -1     -1     23       0 #3PAR 
+     # c3h6 -> OLE+PAR                                                                                       
+     var     =     c3h6fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C3H6        -1     -1     24       0  #PAR+OLE
+     # c2h6 -> 2*PAR                                                                                         
+     var     =     c2h6fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  C2H6        -1     -1     33.3     0  ##PAR
+     var     =     c2h4ofire     emission_flux  HEIGHT_LYR_FROM_SURF  550  ALD2        -1     -1     23       0 
+     var     =     c2h4fire      emission_flux  HEIGHT_LYR_FROM_SURF  550  ETH         -1     -1     36       0 
+     var     =     so2fire       emission_flux  HEIGHT_LYR_FROM_SURF  550  SO2         -1     -1     16       0 
+     var     =     nh3fire       emission_flux  HEIGHT_LYR_FROM_SURF  550  NH3         -1     -1     59       0 
+
+END_LIST = gfas_hrly
+
+LIST = dms
+
+#---------------------------------
+# dms input files
+#---------------------------------
+
+     title = dms_clim
+
+     dim     =     x     x    x    *
+     dim     =     y     y    y    *
+     dim     =     time  time time    *
+     
+     analysis_time = TIME_DIMENSION_START
+     var     =     cnc_DMS_gas    concentration  SURFACE_LEVEL  -1  DMS       -1     -1     1     0 
+     var     =     fraction_of_water    fraction_of_water  SURFACE_LEVEL  -1  XXX      -1     -1     1     0 
+
+END_LIST = dms
+
+
+###################################################
+LIST = MEPS_RLL2018
+
+
+title = MEPS_RLL2018
+
+        south_pole_lat = -30.
+        south_pole_lon =15.
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     rlon    x     rlon   *
+     dim     =     rlat    y     rlat   * 
+     
+! var =             varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     frac_hv         frac_hv           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     frac_lv         frac_lv           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+END_LIST = MEPS_RLL2018
+###################################################
+LIST = MEPS_RLL
+
+
+title = MEPS_RLL
+#        rotated_pole:grid_north_pole_longitude = -165. ;
+#        rotated_pole:grid_north_pole_latitude = 27. ;
+
+        south_pole_lat = -27.
+        south_pole_lon =15.
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     rlon    x     rlon   *
+     dim     =     rlat    y     rlat   * 
+     
+! var =             varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+     var     =     frac_hv         frac_hv           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     frac_lv         frac_lv           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+END_LIST = MEPS_RLL
+###################################################
+#
+LIST = CESM
+
+
+title = CESM
+
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     time  t    time     *      
+     dim     =     lon   x     lon     *
+     dim     =     lat   y     lat    * 
+     dim     =     lev   z     lev    hybrid_lyr
+     dim     =    ilev   none     * 
+     
+     aHalfVar    =     lev   hyai
+     bHalfVar    =     lev   hybi
+#     aVar    =     lev   hyam
+#     bVar    =     lev   hybm
+#Risto test
+     P0       =     lev   100000
+
+     analysis_time = TIME_DIMENSION_START
+
+
+
+
+#    var  =   varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+#     var     =     var129         fraction_of_land           SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+  
+     var     =     U         u                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     V         v                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     T         temperature                XXX                 -1      XXX     -1     -1     1     0
+     var     =     Q         specific_humidity          XXX                 -1      XXX     -1     -1     1     0
+     var     =     CLDICE    cloud_ice                  XXX                 -1      XXX     -1     -1     1     0
+     var     =     CLDLIQ    cloud_water                XXX                 -1      XXX     -1     -1     1     0
+     var     =     CLOUD     cloud_cover                XXX                 -1      XXX     -1     -1     1     0
+    
+     
+     var     =     TREFHT     temperature_2m             HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     QREFHT     specific_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     TS         water_surface_temp         SURFACE_LEVEL        -1 XXX -1 -1 1 0  
+
+##These are fakes made from U10
+#     var     =     u10m        u_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+#     var     =     v10m        v_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     U10         windspeed_10m              HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+##
+
+     var     =     PS            ground_pressure            SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     PBLH          nwp_abl_height_m          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     CLDTOT        total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     SNOWHLND      weq_snow_depth    SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     SHFLUX        nwp_sensible_heatflux     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     SHFLUX        nwp_latent_heatflux       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+                         
+     var     =     PRECC         convective_accum_rain      SURFACE_LEVEL       -1      XXX     -1     -1     1     0  #
+     var     =     PRECL         large_scale_accum_rain     SURFACE_LEVEL       -1      XXX     -1     -1     1     0  #
+
+#     var     =     FLDS          surf_lw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08e7     0 # only in .h3
+#     var     =     FSDS          surf_sw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0
+
+#     var     =     FLNS          surf_lw_net_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08e7     0 # only in .h3
+#     var     =     FSNS          surf_sw_net_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0
+
+#     var     =     RHREFHT       relative_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1    0.01     0
+
+# H2OSOI has to be extracted from soil vertical
+     var     =     H2OSOI        soil_moisture_content      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     TLAI          lai                        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     Z0M           land_roughness_met         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+     var     =     landfrac      fraction_of_land          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     ATM_TOPO      relief_height          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#Albedo for CESM is diffuse albedo. Note that it has large values at regions of no sunlight! 
+     var     =     ASDIF         albedo                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+     
+     
+END_LIST = CESM
+
+LIST = GEIA-Volcanoes_Glb
+     title = GEIA_SO2
+
+     dim     =     lon    x     lon     *
+     dim     =     lat    y     lat     *
+     dim     =     time  time time    *
+     
+     time_label_position = instant_fields
+     ifCocktails = YES
+##Comes in kg
+#Source assumes BasicMassUnits/m2/sec, so  scaling to  moles for molar cocktails 1/molar_mass for molar cocktails
+                                                                # 0 -- 1100 m layer
+     var     =     emiss_con     emission_flux  HEIGHT_LYR_FROM_SURF  550  SO2          -1     -1     1     0 
+
+END_LIST = GEIA-Volcanoes_Glb
+
+###################################################
+LIST = dust_emis_0
+
+title = dust_emis_0
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  dust_emis_0   dust_emis_0       SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = dust_emis_0
+###########################################################
+
+LIST = c4_frac
+
+title = c4_frac
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  c4_frac       c4_frac          SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = c4_frac
+###########################################################
+
+LIST = irrigated_area
+
+title = irrigated_area
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  irrigated_area   irrigated_area  SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = irrigated_area
+###########################################################
+
+
+
+###################################################
+
+LIST = IS4FIRES_v3_0
+
+!---------------------------------
+! FFM emissions
+!---------------------------------
+     title = IS4FIRES_v3_0
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     lon   x     lon    *
+     dim     =     lat   y     lat    *
+     dim     =     time  t     time   *
+     dim     =     height z height HEIGHT_FROM_SURF
+     
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = YES
+     
+     time_label_position = start_of_period
+     var     = AF_crop_residue_FRP      emission_rate   SURFACE_LEVEL -1    FIRE_AF_crop_residue          -1     -1     1     0  
+     var     = AF_grass_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_AF_grass                 -1     -1     1     0  
+     var     = AF_boreal_forest_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_AF_boreal_forest         -1     -1     1     0 
+     var     = AF_nshrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_AF_nshrub                -1     -1     1     0  
+     var     = AF_shrub_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_AF_shrub                 -1     -1     1     0  
+     var     = AF_temperate_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_AF_temperate_forest      -1     -1     1     0  
+     var     = AF_tropical_forest_FRP   emission_rate   SURFACE_LEVEL -1    FIRE_AF_tropical_forest       -1     -1     1     0  
+     var     = ASE_boreal_forest_FRP    emission_rate   SURFACE_LEVEL -1    FIRE_ASE_boreal_forest        -1     -1     1     0  
+     var     = ASE_crop_residue_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_ASE_crop_residue         -1     -1     1     0  
+     var     = ASE_grass_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_ASE_grass                -1     -1     1     0  
+     var     = ASE_nshrub_FRP           emission_rate   SURFACE_LEVEL -1    FIRE_ASE_nshrub               -1     -1     1     0  
+     var     = ASE_shrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_ASE_shrub                -1     -1     1     0  
+     var     = ASE_temperate_forest_FRP emission_rate   SURFACE_LEVEL -1    FIRE_ASE_temperate_forest     -1     -1     1     0  
+     var     = ASE_tropical_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_ASE_tropical_forest      -1     -1     1     0  
+     var     = AS_boreal_forest_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_AS_boreal_forest         -1     -1     1     0  
+     var     = AS_crop_residue_FRP      emission_rate   SURFACE_LEVEL -1    FIRE_AS_crop_residue          -1     -1     1     0  
+     var     = AS_grass_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_AS_grass                 -1     -1     1     0  
+     var     = AS_nshrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_AS_nshrub                -1     -1     1     0  
+     var     = AS_shrub_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_AS_shrub                 -1     -1     1     0  
+     var     = AS_temperate_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_AS_temperate_forest      -1     -1     1     0  
+     var     = AS_tropical_forest_FRP   emission_rate   SURFACE_LEVEL -1    FIRE_AS_tropical_forest       -1     -1     1     0  
+     var     = AU_boreal_forest_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_AU_boreal_forest         -1     -1     1     0  
+     var     = AU_crop_residue_FRP      emission_rate   SURFACE_LEVEL -1    FIRE_AU_crop_residue          -1     -1     1     0  
+     var     = AU_grass_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_AU_grass                 -1     -1     1     0  
+     var     = AU_nshrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_AU_nshrub                -1     -1     1     0  
+     var     = AU_shrub_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_AU_shrub                 -1     -1     1     0  
+     var     = AU_temperate_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_AU_temperate_forest      -1     -1     1     0  
+     var     = AU_tropical_forest_FRP   emission_rate   SURFACE_LEVEL -1    FIRE_AU_tropical_forest       -1     -1     1     0  
+     var     = EU_boreal_forest_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_EU_boreal_forest         -1     -1     1     0  
+     var     = EU_crop_residue_FRP      emission_rate   SURFACE_LEVEL -1    FIRE_EU_crop_residue          -1     -1     1     0  
+     var     = EU_grass_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_EU_grass                 -1     -1     1     0  
+     var     = EU_nshrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_EU_nshrub                -1     -1     1     0  
+     var     = EU_shrub_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_EU_shrub                 -1     -1     1     0  
+     var     = EU_temperate_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_EU_temperate_forest      -1     -1     1     0  
+     var     = EU_tropical_forest_FRP   emission_rate   SURFACE_LEVEL -1    FIRE_EU_tropical_forest       -1     -1     1     0  
+     var     = NA_boreal_forest_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_NA_boreal_forest         -1     -1     1     0  
+     var     = NA_crop_residue_FRP      emission_rate   SURFACE_LEVEL -1    FIRE_NA_crop_residue          -1     -1     1     0  
+     var     = NA_grass_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_NA_grass                 -1     -1     1     0  
+     var     = NA_nshrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_NA_nshrub                -1     -1     1     0  
+     var     = NA_shrub_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_NA_shrub                 -1     -1     1     0  
+     var     = NA_temperate_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_NA_temperate_forest      -1     -1     1     0  
+     var     = NA_tropical_forest_FRP   emission_rate   SURFACE_LEVEL -1    FIRE_NA_tropical_forest       -1     -1     1     0  
+     var     = SA_boreal_forest_FRP     emission_rate   SURFACE_LEVEL -1    FIRE_SA_boreal_forest         -1     -1     1     0  
+     var     = SA_crop_residue_FRP      emission_rate   SURFACE_LEVEL -1    FIRE_SA_crop_residue          -1     -1     1     0  
+     var     = SA_grass_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_SA_grass                 -1     -1     1     0  
+     var     = SA_nshrub_FRP            emission_rate   SURFACE_LEVEL -1    FIRE_SA_nshrub                -1     -1     1     0  
+     var     = SA_shrub_FRP             emission_rate   SURFACE_LEVEL -1    FIRE_SA_shrub                 -1     -1     1     0  
+     var     = SA_temperate_forest_FRP  emission_rate   SURFACE_LEVEL -1    FIRE_SA_temperate_forest      -1     -1     1     0  
+     var     = SA_tropical_forest_FRP   emission_rate   SURFACE_LEVEL -1    FIRE_SA_tropical_forest       -1     -1     1     0  
+     var     = void_FRP                 emission_rate   SURFACE_LEVEL -1    FIRE_void                     -1     -1     1     0  
+
+
+END_LIST = IS4FIRES_v3_0
+ 
+ 
+LIST = IS4FIRES_v3_0km
+
+!---------------------------------
+! FFM emissions
+!---------------------------------
+     title = IS4FIRES_v3_0km
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     lon   x     lon    *
+     dim     =     lat   y     lat    *
+     dim     =     time  t     time   *
+     dim     =     height z height HEIGHT_FROM_SURF
+     
+     analysis_time = TIME_DIMENSION_START
+     ifCocktails = YES
+     
+     time_label_position = start_of_period
+     var     = AF_crop_residue_FRP      emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_crop_residue          -1     -1     1     0  
+     var     = AF_grass_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_grass                 -1     -1     1     0  
+     var     = AF_boreal_forest_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_boreal_forest         -1     -1     1     0 
+     var     = AF_nshrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_nshrub                -1     -1     1     0  
+     var     = AF_shrub_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_shrub                 -1     -1     1     0  
+     var     = AF_temperate_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_temperate_forest      -1     -1     1     0  
+     var     = AF_tropical_forest_FRP   emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AF_tropical_forest       -1     -1     1     0  
+     var     = ASE_boreal_forest_FRP    emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_boreal_forest        -1     -1     1     0  
+     var     = ASE_crop_residue_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_crop_residue         -1     -1     1     0  
+     var     = ASE_grass_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_grass                -1     -1     1     0  
+     var     = ASE_nshrub_FRP           emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_nshrub               -1     -1     1     0  
+     var     = ASE_shrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_shrub                -1     -1     1     0  
+     var     = ASE_temperate_forest_FRP emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_temperate_forest     -1     -1     1     0  
+     var     = ASE_tropical_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_ASE_tropical_forest      -1     -1     1     0  
+     var     = AS_boreal_forest_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_boreal_forest         -1     -1     1     0  
+     var     = AS_crop_residue_FRP      emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_crop_residue          -1     -1     1     0  
+     var     = AS_grass_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_grass                 -1     -1     1     0  
+     var     = AS_nshrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_nshrub                -1     -1     1     0  
+     var     = AS_shrub_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_shrub                 -1     -1     1     0  
+     var     = AS_temperate_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_temperate_forest      -1     -1     1     0  
+     var     = AS_tropical_forest_FRP   emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AS_tropical_forest       -1     -1     1     0  
+     var     = AU_boreal_forest_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_boreal_forest         -1     -1     1     0  
+     var     = AU_crop_residue_FRP      emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_crop_residue          -1     -1     1     0  
+     var     = AU_grass_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_grass                 -1     -1     1     0  
+     var     = AU_nshrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_nshrub                -1     -1     1     0  
+     var     = AU_shrub_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_shrub                 -1     -1     1     0  
+     var     = AU_temperate_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_temperate_forest      -1     -1     1     0  
+     var     = AU_tropical_forest_FRP   emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_AU_tropical_forest       -1     -1     1     0  
+     var     = EU_boreal_forest_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_boreal_forest         -1     -1     1     0  
+     var     = EU_crop_residue_FRP      emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_crop_residue          -1     -1     1     0  
+     var     = EU_grass_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_grass                 -1     -1     1     0  
+     var     = EU_nshrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_nshrub                -1     -1     1     0  
+     var     = EU_shrub_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_shrub                 -1     -1     1     0  
+     var     = EU_temperate_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_temperate_forest      -1     -1     1     0  
+     var     = EU_tropical_forest_FRP   emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_EU_tropical_forest       -1     -1     1     0  
+     var     = NA_boreal_forest_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_boreal_forest         -1     -1     1     0  
+     var     = NA_crop_residue_FRP      emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_crop_residue          -1     -1     1     0  
+     var     = NA_grass_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_grass                 -1     -1     1     0  
+     var     = NA_nshrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_nshrub                -1     -1     1     0  
+     var     = NA_shrub_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_shrub                 -1     -1     1     0  
+     var     = NA_temperate_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_temperate_forest      -1     -1     1     0  
+     var     = NA_tropical_forest_FRP   emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_NA_tropical_forest       -1     -1     1     0  
+     var     = SA_boreal_forest_FRP     emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_boreal_forest         -1     -1     1     0  
+     var     = SA_crop_residue_FRP      emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_crop_residue          -1     -1     1     0  
+     var     = SA_grass_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_grass                 -1     -1     1     0  
+     var     = SA_nshrub_FRP            emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_nshrub                -1     -1     1     0  
+     var     = SA_shrub_FRP             emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_shrub                 -1     -1     1     0  
+     var     = SA_temperate_forest_FRP  emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_temperate_forest      -1     -1     1     0  
+     var     = SA_tropical_forest_FRP   emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_SA_tropical_forest       -1     -1     1     0  
+     var     = void_FRP                 emission_rate   HEIGHT_LYR_FROM_SURF  500   FIRE_void                     -1     -1     1     0  
+
+
+END_LIST = IS4FIRES_v3_0km
+
+
+END_NETCDF_NAME_TABLE
+
+

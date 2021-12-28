@@ -1,0 +1,57 @@
+#
+# This is a file describing the source term for SILAM-PASI program
+# It consists of a set of separate source terms, which
+# at the moment can be of type point-source or bomb-source.
+#
+# ATTENTION. So far only one-source simulations are possible, multiple-
+#            source model version is coming.
+#
+# A point-source defines one release to the atmosphere from a horizontal
+# location, but can be vertically and temporally divided between
+# two vertical levels and a time interval. Between these levels and within
+# the time interval the release is considered to be constant. Each new point 
+# source begins with the word POINTSOURCE_2, in uppercase letters.
+#
+# A bomb-source defines one release to the atmosphere from a nuclear bomb explosion
+# Release duration is always 1 minute, vertical and horizontal distribution are
+# computed from the yield. It begins from the word BOMBSOURCE_2 .
+#
+# Give positive values to all timesteps/intervals. If backtracking
+# trajectories: direction in time = backwards (see control file)
+#
+# All lines beginning with # are comment lines, as well as empty ones.
+# Also inside a line everything from a # to line's end is considered to
+# to be a comment.
+#
+# Mikhail Sofiev, October 2001
+# Updated, Sebastian Heinonen, 2018
+# Updated, RK, 2021
+#
+#
+#
+#
+BOMB_SOURCE_4
+#MANDATORY parameters:
+source_name = bomb                           # case name
+source_latitude = 60.1699                    # start geograph. lat., degrees and decimals, N positive
+source_longitude = 24.9384                   # start geograph. lon., degrees and decimals, E positive
+explosion_time = 2014 1 1 18 00 0.           # start: "NOW" or time UTC [yyyy mm dd hh min sec] (sec is real!!)
+bomb_yield = 10.0  kt                        # bomb yield and unit, e.g. [kilotons]
+blast_height = 3000  m                        # [meters] positive(negative) above(below) ground
+bomb_type = PASSIVE                          # Options: URANIUM,PLUTONIUM, or PASSIVE
+particle_size_distribution = BAKER           # Options: KDFOC3,BAKER
+
+mode_distribution_type = FIXED_DIAMETER
+aerosol_mode = 1 0.05  10 2.5 um 
+
+## aerosol_mode = 1 0.01 0.1 0.05 mkm 
+## aerosol_mode = 2 0.1  1.0 0.30 mkm 
+## aerosol_mode = 3 1.0  2.50 1.5 mkm 
+## aerosol_mode = 4 2.5  10  6 mkm 
+## aerosol_mode = 5 10  30  20 mkm 
+
+
+
+END_BOMB_SOURCE_4
+
+

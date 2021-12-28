@@ -1,0 +1,11 @@
+# Build rules for modules
+LIB=$(BUILDDIR)/../lib/libsilam.5.a
+all : $(LIB)
+include $(BUILDDIR)/library.objects
+$(LIB) : $(LIBRARY_OBJS)
+	mkdir -p $(BUILDDIR)/../lib
+	ar rcs $(LIB) $(LIBRARY_OBJS)
+include $(BUILDDIR)/$(MODEL_MAIN).rules.$(RULES)
+
+
+

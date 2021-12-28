@@ -1,0 +1,219 @@
+# Control file for SILAM v4.0 operational run
+
+CONTROL_v4_7
+LIST = general_parameters  
+   case_name = $CASE
+   system_setup =  $SETUPFILE 
+   direction_in_time = FORWARD 
+   start_time = $START_TIME
+   end_time = $END_TIME
+   time_step = 15 min
+   computation_accuracy = 10  # [0.10]
+ END_LIST = general_parameters 
+
+ 
+ LIST = emission_parameters    ######################################################################
+ 
+   emission_source = INVENTORY $BASEDIR/emis/$EMISSION
+   cut_area_source_if_outside_meteo_grid = YES
+   source_dump_time_step = 15 min
+   source_dump_time_split = ALL_IN_ONE
+#   if_technical_source_dump = ORIGINAL_GRID   # NONE / ORIGINAL_GRID / DISPERSION_GRID
+
+ END_LIST = emission_parameters  ######################################################################
+ 
+ LIST = dispersion_parameters
+   grid_method = OUTPUT_GRID  #CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = GEMS output grid
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+   #nx = 150
+   #ny = 100 
+   lon_start = -15.
+   lat_start = 33.
+   lon_end = 45.
+   lat_end = 75
+   dx = 0.5
+   dy = 0.5
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+   vertical_method = OUTPUT_LEVELS    # METEO_LEVELS / OUTPUT_LEVELS / CUSTOM_LEVELS
+   !
+   ! If CUSTOM_LEVELS - fill-in the below two lines
+   !
+   level_type = HEIGHT_FROM_SURFACE    # PRESSURE, HEIGHT_FROM_SURFACE, ALTITUDE_FROM_SEA, HYBRID
+   layer_thickness = 100. 500. 1400. 4000.   # output levels [m]/[pa]/[hybrid_nbr], reals
+ END_LIST = dispersion_parameters
+
+ LIST = meteo_parameters
+   $DYN_MET_FILES
+   #dynamic_meteo_file = GRIB $BASEDIR/meteo/2011/ec125_%ay4%am2%ad2%ah2+%f3   
+   static_meteo_file = GRIB $BASEDIR/physio/ec_land_use_global.sfc
+   static_meteo_file = GRIB $BASEDIR/physio/ec_geopotential_height.sfc
+
+   #static_meteo_file = ASCII_V1 ${SILAM_ROOT}/land_use/salinity_map.fld
+#   static_meteo_file = -
+
+   meteo_time_step = $MET_STEP hr 
+   if_wait_for_data = NO
+   abl_parameterization_method = DRY_ABL    # DRY_ABL, FULL_PARAM 
+   number_of_precipitation_fields = 2
+ END_LIST = meteo_parameters
+
+ LIST = transformation_parameters
+#   transformation = PASSIVE
+#   transformation = PM_GENERAL
+   transformation = DMAT_SULPHUR
+#    transformation = CB4
+#   transformation = POP_GENERAL
+#   transformation = ACID_BASIC
+#   transformation = RADIOACTIVE
+
+   aerosol_dynamics = SIMPLE
+   
+   #dry_deposition_scheme = GRAVITATIONAL_AND_FULL_DIFFUSION
+   #wet_deposition_scheme = STANDARD_3D_SCAVENGING
+   wet_deposition_scheme = STANDARD_3D_SCAVENGING
+   dry_deposition_scheme = KS2011_TF
+    
+   if_actual_humidity_for_particle_size = YES
+   default_relative_humidity = 0.8
+   compute_thermodiffusion = NO
+   if_full_acid_chemistry = YES
+   
+   passive_subst_ref_lifetime = 1 day
+   passive_subst_ref_tempr = 288
+   passive_subst_dLifeTime_dT = -1 min/K
+   
+   ADB_if_compute_nucleation = YES
+   ADB_nucleation_scheme = KINETIC    !BINARY, TERNARY, KINETIC, ACTIVATION
+   ADB_if_compute_coagulation = YES
+   ADB_if_compute_condensation = YES
+   ADB_if_compute_cloud_activation = NO
+   ADB_if_recalc_wet_d = YES
+
+   oh_param_method = CLIMATOLOGY
+   dmat_so2_only = YES
+ END_LIST = transformation_parameters
+
+# LIST = initial_and_boundary_conditions
+# initialize_quantity = temperature_2m_acc          ! if no such line, initial conditions are void
+# initialize_quantity = daily_mean_temperature_2m   ! if no such line, initial conditions are void
+# initialize_quantity = degree_day   ! if no such line, initial conditions are void
+# initialize_quantity = concentration               ! if no such line, initial conditions are void
+# initialization_file = GRADS ${SILAM_ROOT}/cb4_lores.super_ctl
+
+# boundary_type =  DIRICHLET             ! ZERO / DIRICHLET   
+# if_lateral_boundary = YES         ! YES/NO 
+# if_top_boundary =  YES             ! YES/NO 
+# if_bottom_boundary =  NO          ! YES/NO 
+# boundary_time_step =  12 hr        ! timestep unit 
+# boundary_header_filename = ${SILAM_ROOT}/boundary_cb4_meanfld.ini
+# END_LIST = initial_and_boundary_conditions
+ 
+ LIST = optical_density_parameters ##########################################################################
+   optical_coefficients_depend_on_relative_humidity = YES
+   optical_coefficients_depend_on_temperature = YES
+   if_split_aerosol_modes = YES            ! doesn't work yet
+   if_narrow_wave_bands = YES              ! doesn't work yet
+ END_LIST = optical_density_parameters
+ 
+ LIST = output_parameters
+   source_id = NO_SOURCE_SPLIT  # SOURCE_NAME  SOURCE_SECTOR  SOURCE_NAME_AND_SECTOR 
+   vertical_method = CUSTOM_LAYERS
+   level_type = HEIGHT_FROM_SURFACE 
+   #                     150  300  600  1100 2000 3000 4000 5000 6000 7000 8000 9000 10000 11000 12000 13000 14000
+   #layer_thickness = 50. 100. 150. 300. 500. 900  1000 1000 1000 1000 1000 1000 1000 1000  1000  1000  1000  1000
+   #                    150 300 600 1k      2k      3k      4k      5k      6k      7k      8k      9k      10k     11k     12k     13k     14k     15k
+   layer_thickness = 50 100 150 300 400 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500 500
+   output_time_step = 1 hr 
+   output_times = REGULAR 
+   dump_time_step = #2 hr
+   file_types = GRIB_NO TRAJECTORY_NO GRADS_YES ENSEMBLE_NO NETCDF_NO 
+   time_split = ALL_IN_ONE#DAILY_NEW_FILE 
+   template =  $OUTPUTDIR/%case
+   variable_list = $BASEDIR/ini/output_config.ini
+   
+   $GRID
+
+   source_dump_time_step = 15 min
+   source_dump_time_split = ALL_IN_ONE
+
+ END_LIST = output_parameters
+
+LIST = DATA_ASSIMILATION
+
+# settings for 4D & 3D
+# methods: 4D / 3D / ENKF / ENKS
+method = 4D
+
+# obs_data entries, one or more
+# example: obs_data = vertical SO2 '/file/path/something.nc'
+
+# directory for iteration files and analysis files
+output_directory = iteration_%case
+# Output: state vectors and simulated observations during the iteration
+output_level = all 
+# output_level = none 
+# output_level = first_last # first and last iteration
+
+# search_method = steepest_descent # gradient descent with a primitive line search
+# search_method = m1qn3 # a popular unconstrainted quasi-newton code
+search_method = l_bfgs_b # a popular constrained code
+
+# max iterations measured as calls to the minimizer. Depending on the minizer, this might or
+# might not be the number of model evaluations.
+max_iterations = 30
+# stopping criterion for gradient (1% of initial).
+grad_rel_tol = 1e-2
+# stopping criterion for reduction in cost function relative to previous iterate.
+cost_incr_rel_tol = 1e-8
+
+# Control variables for 3D-Var, 4D-Var and ENKF/ENKS
+# control_variable = initial_state 
+
+# Control variables for 4D-Var only
+# control_variable = emission_and_initial
+# control_variable = emission_correction
+control_variable = emission_time_height
+
+# For time-height mode, timestep the emission is adjusted (eg. 12 hr).
+emis_time_slot = $EMIS_TIME_SLOT
+
+# for emission_correction, emission_time_height, emission_and_initial
+# emission_background_file = 
+
+# for emission_and_initial and initial_state
+# initial_state_background_file = 
+
+# Covariance setups, similarly if included.
+# 
+cov_setup_initial = $BASEDIR/cov.ini
+cov_setup_emission = $BASEDIR/ini/cov_time_height.ini
+
+# Disable the background term in the cost function. Implemented with a hack; be careful.
+disable_background = yes
+
+# Sub-modes for emission_time_height.  
+#
+# force: control variable is emission rate, background source used as mask
+# time_height_mode = force
+#
+# force_weighted: as above but weighted with square root of layer thickness to remain
+# consistent with the continuous cost function.
+time_height_mode = force_weighted 
+#
+# scale: multiplicative scaling to the background source.
+# time_height_mode = scale
+
+
+
+END_LIST = DATA_ASSIMILATION
+
+END_CONTROL_v4_7

@@ -1,0 +1,8 @@
+#paramId: 500206
+#Leaf area index
+'lai' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 28 ;
+	}
+
