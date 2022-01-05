@@ -411,7 +411,7 @@ MODULE grib_api_io
     real :: lonlatepsilon, lonlatdelta
     character (len=1024) :: strGridType ! 
     character (len=*), parameter :: sub_name="parse_grib_grid"
-    real, dimension(*), parameter :: precision4edition = (/1e-3, 1e-6, 1e-6/) !!lon and lat precision
+    real, dimension(3), parameter :: precision4edition = (/1e-3, 1e-6, 1e-6/) !!lon and lat precision
     logical :: updateGrid
 
     !
@@ -585,7 +585,7 @@ MODULE grib_api_io
     !
     ! No known grids found in cache
     !
-    !$OMP CRITICAL (grib_grid_cache)
+    !$OMP CRITICAL ()
       ! Yet another search for cache, other thread could create it while we were waiting for CRITICAL
       updateGrid = .true.
       do iCacheInd = 1, max_nbr_of_GRIB_grids
@@ -686,7 +686,7 @@ MODULE grib_api_io
         grib_grid_cache(iCacheInd)%grgrid = grGrid
       endif !! Create new cache item
 
-    !$OMP END CRITICAL (grib_grid_cache)
+    !$OMP END CRITICAL ()
 
 
   end subroutine parse_grib_grid

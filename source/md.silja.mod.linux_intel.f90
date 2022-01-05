@@ -51,6 +51,12 @@ MODULE md ! The machine dependent code of silja on Intel platform
   public FTELL
   public revision_str
 
+  interface
+      integer(c_int) function getpagesize () bind (c, NAME='getpagesize')
+      use, intrinsic :: ISO_C_BINDING
+      end function
+  end interface
+
   CONTAINS 
 
   subroutine open_binary_md(unit, file, recl, status, action, convert, access, iostat)
