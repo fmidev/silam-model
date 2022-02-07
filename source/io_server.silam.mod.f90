@@ -151,6 +151,8 @@ module io_server
     integer :: cldRepInterv                  ! Reporting interval of cloud mass
     real    :: MMtrimfactor                 ! If positive -- how many discretes per factor 2 to leave in output massmaps
                                             ! Enables easy compression
+    real    :: DumpTrimfactor                 ! MMtrimfactor for dumps and rates
+
     type(grads_template) :: outTemplate      ! output file name template without extentions
     character(len=fnlen) :: chFixedNameTemplate
     logical :: ifMeteo2OutHorizInterp, ifMeteo2OutVertInterp, &
@@ -163,7 +165,7 @@ module io_server
               & .False.,.False.,silja_undefined, silja_undefined, &
               & .False.,.False.,.False., int_missing, &
               & int_missing, int_missing, int_missing, int_missing,&
-              & real_missing, grads_template_missing, '', &
+              & real_missing, real_missing, grads_template_missing, '', &
               & .False.,.False.,.False.,.False.)
 
 
@@ -698,6 +700,18 @@ CONTAINS
     if(OutDef%Rules%MMtrimfactor /= real_missing)then
       call msg("Accuracy cut: massmap_precision_factor=", OutDef%Rules%MMtrimfactor)
       if(OutDef%Rules%MMtrimfactor < 2. .or. OutDef%Rules%MMtrimfactor > 1e6)then
+        call set_error('Precision factor must be between 2 and 1e6, or absent', &
+                     & 'set_OutDef_basic')
+        return
+      endif
+    endif
+    !
+    ! Cut precision for dumps
+    !
+    OutDef%Rules%DumpTrimfactor = fu_content_real(nlSetup,'dump_precision_factor')
+    if(OutDef%Rules%DumpTrimfactor /= real_missing)then
+      call msg("Accuracy cut: dump_precision_factor=", OutDef%Rules%DumpTrimfactor)
+      if(OutDef%Rules%DumpTrimfactor < 2. .or. OutDef%Rules%DumpTrimfactor > 1e6)then
         call set_error('Precision factor must be between 2 and 1e6, or absent', &
                      & 'set_OutDef_basic')
         return
@@ -3971,7 +3985,7 @@ CONTAINS
                                             & fu_advection_moment_X_MM_ptr(PCld), &
                                             & fu_advection_moment_Y_MM_ptr(PCld), &
                                             & fu_advection_moment_Z_MM_ptr(PCld)/), &
-                                            & iSourceId, sp, now, 1.0)
+                                            & iSourceId, sp, now, OutDef%Rules%DumpTrimfactor)
           if(error)return
 
         end do  ! iSrc
@@ -4002,7 +4016,8 @@ CONTAINS
                        & trim(fu_str(now,.false.)) + '_ratesdump.grads'
           if(error)return
 
-          call many_mass_maps_to_grads_file((/fu_reactRateMM_ptr(PCld)/),  iSourceId, sp, now, 1.0)
+          call many_mass_maps_to_grads_file((/fu_reactRateMM_ptr(PCld)/),  iSourceId, sp, now, &
+                             &  OutDef%Rules%DumpTrimfactor)
           if(error)return
         end do  ! iSrc
         OutVars%LastRatesDumpOutputTime = now

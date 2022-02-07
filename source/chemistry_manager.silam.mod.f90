@@ -120,7 +120,8 @@ module chemistry_manager
     logical :: need_photo_lut = .false.
     logical :: useDynamicAlbedo = .false.        ! By default use static albedo for photolysis
     real :: defaultStaticAlbedo = 0.3            ! Some default value   
-    logical :: ifPhotoO3col = .false.            ! Use O3 column to calculate photolysis  
+    integer :: PhotoO3col = int_missing          ! Use O3 column to calculate photolysis 
+                                          !can be standard_atmosphere, massmap or meteo_column 
     logical :: ifPhotoAOD  = .false.             ! Use AOD to calculate photolysis
     integer :: cloud_model_for_photolysis = simple_cloud
     real :: photoAODwavelength = real_missing    ! Wavelength to use for photolysis attenuation by AOD
@@ -820,8 +821,8 @@ end do
     !
     if (chemRules%need_photo_lut) then
       iMetInput = iMetInput +1
-      call photolysis_input_needs(chemRules%useDynamicAlbedo, chemRules%cloud_model_for_photolysis, &
-           & pMeteo_input_local(iMetInput))
+      call photolysis_input_needs(chemRules%useDynamicAlbedo, chemRules%photoO3col == meteo_column, &
+            &chemRules%cloud_model_for_photolysis,  pMeteo_input_local(iMetInput))
 
       if (chemRules%ifPhotoAOD) then
         iMetInput = iMetInput +1
@@ -1203,7 +1204,7 @@ end do
 
           if (chemRules%need_photo_lut) then 
             !calculate the ozone column above (in Dobson units)
-            if (chemRules%ifPhotoO3col) then
+            if (chemRules%PhotoO3col == mass_map) then
               call get_o3column(metdat_col, mapTransport%arM(indO3,1:mapTransport%nSrc,1:mapTransport%n3d,ix,iy), o3column)
               !call msg('RISTO TEST O3: ix,iy,Ozone column: ', (/real(ix), real(iy), o3column(1,1) /) )
             endif
@@ -1214,7 +1215,7 @@ end do
             !NOTE: Only the first source is used for o3column when calculating the photorates!!!!
             call get_photorates_column(metdat_col, zenith_cos, fixed_albedo, now, aodext, &
                  & aodscat, o3column(1:mapTransport%n3d,1), photorates, chemRules%ifPhotoAOD, &
-                 & chemRules%ifPhotoO3col, tau_above_bott, ssa, chemRules%cloud_model_for_photolysis)
+                 & chemRules%PhotoO3col, tau_above_bott, ssa, chemRules%cloud_model_for_photolysis)
           end if
           if (error) cycle
         end if
@@ -2472,6 +2473,7 @@ end do
                                                   & aerosol_dynamics_Mid_Atmosph, aerosol_dynamics_basic, &
                                                   & aerosol_dynamics_VBS/)
     character(len=clen) :: strTmp
+    character(len=*), parameter :: sub_name='set_chemistry_rules'
 
     nullify(items)
 
@@ -2482,7 +2484,7 @@ end do
            & rulesChemistry%ChemRunSetup, &
            & rulesChemistry%rulesDeposition, stat=iTmp)
     if (iTmp /= 0) then
-      call set_error('Allocate failed', 'set_chemistry_rules')
+      call set_error('Allocate failed', sub_name)
       return
     end if
 
@@ -2544,7 +2546,7 @@ end do
 
       else
         call set_error('Transfomation not supported:' + fu_content(items(iTmp)), &
-                     & 'set_chemistry_rules')
+                     & sub_name)
         return
 
       endif   ! transformation
@@ -2561,7 +2563,7 @@ end do
         elseif(index(fu_str_u_case(fu_content(items(iTmp))),'HYBRID') > 0)then
           rulesChemistry%iWhomToApplyTransform(iTmp) = hybrid_flag
         else
-          call set_error('Unknown type of dynamics in:' + fu_content(items(iTmp)),'set_chemistry_rules')
+          call set_error('Unknown type of dynamics in:' + fu_content(items(iTmp)),sub_name)
           call msg_warning('Dynamics must be LAGRANGIAN or EULERIAN or HYBRID')
           return
         endif
@@ -2585,7 +2587,7 @@ end do
       if(fu_quantity_in_quantities(transformation_sulphur_dmat, rulesChemistry%iTransformTypes) .or. &
        & fu_quantity_in_quantities(transformation_acid_basic, rulesChemistry%iTransformTypes))then
         call set_error('Acid_basic and sulphur_dmat transformations require aerosol dynamics', &
-                     & 'set_chemistry_rules')
+                     & sub_name)
         return
       endif
     else
@@ -2601,7 +2603,7 @@ end do
           endif
         end do
         if(.not. ifOK)then
-          call set_error('Unsupported aerosol dynamics:'+fu_content(items(jTmp)),'set_chemistry_rules')
+          call set_error('Unsupported aerosol dynamics:'+fu_content(items(jTmp)),sub_name)
           return
         endif
       end do
@@ -2657,7 +2659,7 @@ end do
           elseif(index(fu_str_u_case(fu_content(items(iTmp))),'HYBRID') > 0)then
             rulesChemistry%iWhomToApplyAerDyn(iTmp) = hybrid_flag
           else
-            call set_error('Unknown type of dynamics in:' + fu_content(items(iTmp)),'set_chemistry_rules')
+            call set_error('Unknown type of dynamics in:' + fu_content(items(iTmp)),sub_name)
             call msg_warning('Dynamics must be LAGRANGIAN or EULERIAN or HYBRID')
             return
           endif
@@ -2681,7 +2683,7 @@ end do
     allocate(rulesChemistry%rulesDeposition%iDepositionType(rulesChemistry%nTransformations+1), &
            & stat = iTmp)
     if(iTmp /= 0)then
-      call set_error('Failed to allocate memory for deposition types','set_chemistry_rules')
+      call set_error('Failed to allocate memory for deposition types',sub_name)
       return
     endif
     rulesChemistry%rulesDeposition%iDepositionType = int_missing
@@ -2777,11 +2779,11 @@ end do
 
         case default
           call msg('Transfomation not supported:',rulesChemistry%iTransformTypes(iTmp))
-          call set_error('Transfomation not supported','set_chemistry_rules')
+          call set_error('Transfomation not supported',sub_name)
       end select
       !if(error)return
     end do  ! transformation types
-!    call unset_error('set_chemistry_rules')
+!    call unset_error(sub_name)
     !
     ! Standard deposition is always computed
     !
@@ -2810,7 +2812,7 @@ end do
        elseif (.not. abs(rulesChemistry%defaultStaticAlbedo-0.5) <= 0.5) then
           call msg('Strange default_static_albedo, must be real [0..1]')
           call report(nlTransf)
-          call set_error('default_static_albedo, must be real [0..1]','set_chemistry_rules')
+          call set_error('default_static_albedo, must be real [0..1]',sub_name)
           return
        end if
        call msg('Photolysis rates will be calculated using albedo = ', rulesChemistry%defaultStaticAlbedo)
@@ -2840,8 +2842,8 @@ end do
         rulesChemistry%LowMassThresh = LowMassThreshUseEmission
       case default
         call msg_warning('empty reference_4_low_mass_threshold, must be EMISSION or DEFAULT or CONST', &
-                       & 'set_chemistry_rules')
-        call set_error("Strange reference_4_low_mass_threshold: "//trim(strTmp), 'set_chemistry_rules')
+                       & sub_name)
+        call set_error("Strange reference_4_low_mass_threshold: "//trim(strTmp), sub_name)
         return
     end select
 
@@ -2860,7 +2862,8 @@ end do
       rulesChemistry%need_photo_lut = .false.
     end if
 
-    if(fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_aod')) == 'YES') then
+    strTmp = fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_aod'))
+    if( strTmp == 'YES') then
       strTmp = fu_content(nlTransf,'photolysis_AOD_wavelength')
       if (trim(strTmp) == "") then
         call msg("Using default photolysis_AOD_wavelength")
@@ -2870,15 +2873,28 @@ end do
       call msg("photolysis_AOD_wavelength, nm", rulesChemistry%photoAODwavelength*1e9)
       rulesChemistry%ifPhotoAOD = .True.
       call msg("photolysis_affected_by_aod = YES")
-    else
+    elseif (strTmp == 'NO') then
       rulesChemistry%ifPhotoAOD = .False.
       rulesChemistry%photoAODwavelength = real_missing
       call msg("Photolysis ignores aerosols: photolysis_affected_by_aod = NO")
+    else
+       call msg("Usage: photolysis_affected_by_aod = (YES|NO)")
+       call set_error("Unknown photolysis_affected_by_aod value: '"//trim(strtmp)//"'", sub_name)
     endif
 
-    if(fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_o3col')) == 'YES') then
-      rulesChemistry%ifPhotoO3col = .True.
-      call msg("photolysis_affected_by_o3col = YES")       
+    strTmp = fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_o3col'))
+    if(  strTmp == 'YES' .or.  strTmp == 'MASS_MAP') then !! Backward compatible
+      rulesChemistry%PhotoO3col = mass_map
+      call msg("photolysis_affected_by_o3col = MASS_MAP") 
+    elseif (strTmp == 'METEO') then
+      rulesChemistry%PhotoO3col = meteo_column
+      call msg("photolysis_affected_by_o3col = METEO") 
+    elseif  ((strTmp == 'STANDARD_ATMOSPHERE') .or. (strTmp == '') .or. (strTmp == 'NO')) then
+      rulesChemistry%PhotoO3col = standard_atmosphere
+      call msg("photolysis_affected_by_o3col = STANDARD_ATMOSPHERE") 
+    else
+      call msg("Usage: photolysis_affected_by_o3col = (MASS_MAP|METEO|STANDARD_ATMOSPHERE)")
+      call set_error("Unknown photolysis_affected_by_o3col value: '"//trim(strtmp)//"'", sub_name)
     end if
 
     if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'SIMPLE_CLOUD') then
@@ -3101,6 +3117,13 @@ end do
       logical :: ifOk
       
       fCellSize = fu_cell_size(wholeMPIdispersion_grid, fs_wholeMPIdispersion/2)
+      ! No need to touch sources or do exchange at all
+      if (chemrules%LowMassThresh == LowMassThreshUseConst) then
+        pThresholdsCnc(1:nspecies_transport) = fLowMassThreshConstant / (fCellSize * 100.)
+
+        pThresholdsMass(1:nspecies_transport) = pThresholdsCnc(1:nspecies_transport) * fCellSize * 100.0
+        return
+      endif
       !
       ! Stuff an be injected either from emission sources or from model-measurement discrepancy
       !
@@ -3197,9 +3220,6 @@ end do
           end if
         end do
         
-        ! Could have been done in a more elegant way 
-        if (chemrules%LowMassThresh == LowMassThreshUseConst) &
-            pThresholdsCnc(1:nspecies_transport) = fLowMassThreshConstant / (fCellSize * 100.)
 
         pThresholdsMass(1:nspecies_transport) = pThresholdsCnc(1:nspecies_transport) * fCellSize * 100.0
 

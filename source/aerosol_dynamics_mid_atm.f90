@@ -2845,7 +2845,7 @@ end if
 
     ! Local variables
     integer :: i, j, iBin, iTemprCount 
-    real :: T, pm, ns, pn0, pcl0, pbr0, pocl0, pw, pn, ws, wn, v, tt
+    real :: T, pm, ns, pn0, pcl0, pbr0, pocl0, pw,  ws, wn, v, tt
     real :: pcl,pbr,pocl,wcl,wbr,wocl,xhno3p,xhno3g,delta,fTmp,fLowestTempr
     real, dimension(nBins) :: sad
     real :: lnt,lnpw, tr,pr,lnhnsb,lnhnnb,hnsb,hnnb,xsb,xnb,msb,mnb,ms,mn,wt,rhos,rhon
@@ -3069,7 +3069,6 @@ iTemprCount = 0
     if ( t >= 215. .or. pn0 <= 0. ) then   ! liquid binary solution (LBI)
        ms = msb             ! mass in LBI is equal to molality (mole H2SO4 / kg H20)
        mn = 0.              ! HNO3 is not there
-       pn = pn0
        xnb = 0.
        mnb = 0.
        tt = real_missing
@@ -3129,7 +3128,6 @@ iTemprCount = 0
       if(abs(mnb - msb) < 1.e-4 * (mnb+msb))then
         ms = 0.0001 * msb                ! not actually sure but seems so
         mn = mnb
-        pn = pn0
       else
         !
         ! functions needed for relating the molalities of H2SO4 and HNO3 in the 
@@ -3171,13 +3169,10 @@ iTemprCount = 0
           call msg('Negative ms. H2SO4 and ms:',ns,ms)
           ms = 0.   !ms == 0 leads to infinite volume
           mn = mnb
-          pn = pn0
         elseif(ms >= 0.999 * msb)then  ! H2SO4 concentration is higher than or ~ at binary equilibrium without HNO3
           mn = 0.
-          pn = 0.
         else
           mn = mnb/msb*(msb-ms)
-          pn = mn/(hnnb*mn/(mn+ms)+hnsb*ms/(mn+ms))       ! equilibrium pressure of HNO3 (atm)
         endif
       endif  ! mnb~msb
       if (.not. dTmp2 >=0. ) call msg("Trouble with TER. Will return")
@@ -3185,7 +3180,6 @@ iTemprCount = 0
       if (.not. dTmp2 >=0. ) return 
       !mn = max(mnb*(1.-ms/msb), 0.)  ! just to be on the safe side...
       ! equilibrium pressure of HNO3 (atm)
-      !pn = mn/(hnnb*mn/(mn+ms)+hnsb*ms/(mn+ms))
       !write(*,*) mn,ms,ns,hnsb,hnnb,(hnnb*mn/(mn+ms)+hnsb*ms/(mn+ms))
     endif  ! Liquid binary solution of upercooled ternary
 
@@ -3203,7 +3197,7 @@ iTemprCount = 0
        call msg('tt, tr, T, pw, pr', (/tt, tr, T, pw, pr/))
        call msg('ws, xsb, msb, lnhnsb, hnsb', (/ws, xsb, msb, lnhnsb, hnsb/))
        call msg('wn, xnb, mnb, lnhnnb, hnnb', (/wn, xnb, mnb, lnhnnb, hnnb/))
-       call msg('phi, fA, fB, fC, ms, mn, pn, wt', (/real(phi), real(fA), real(fB), real(fC), ms, mn, pn, wt/))
+       call msg('phi, fA, fB, fC, ms, mn,  wt', (/real(phi), real(fA), real(fB), real(fC), ms, mn,  wt/))
        call set_error('Strange sulphur/nitrogen fractions in STS','TER')
        return
     endif
@@ -3265,19 +3259,19 @@ endif
     if (.not. v>0. .or. .not. ws>0. .or. .not. rho>0.) then
         call msg("OOOps v , ns , rules%mwh2so4, ws, rho ", (/v, ns, rules%mwh2so4, ws,rho/) )
         call msg("rhos rhon t ms mn", (/rhos,rhon,t,ms,mn/))
-        write (unit=strTmp, fmt='(20(e10.3,2x))') lnt, lnpw, XNB, XSB, MNB, MSB, tr, pr, HNSB, HNNB, TT, fA, fB, fC, PHI, MS, MN, PN, WS, WN
+        write (unit=strTmp, fmt='(20(e10.3,2x))') lnt, lnpw, XNB, XSB, MNB, MSB, tr, pr, HNSB, HNNB, TT, fA, fB, fC, PHI, MS, MN,  WS, WN
         call msg('SILAM code:')
         call msg('logt,       logpw,        XNB,         XSB,         MNB,        MSB,        tr,        pr,        HNSB,        HNNB' + &
-                   & ',          TT,        fA,         fB,         fC,        PHI,        MS,        MN,         PN,         WS,        WN')
+                   & ',          TT,        fA,         fB,         fC,        PHI,        MS,        MN,         WS,        WN')
         call msg(strTmp)
         return
     endif
 #ifdef DEBUG_MORE
 if(print_it)then
-write (unit=strTmp, fmt='(20(e10.3,2x))') lnt, lnpw, XNB, XSB, MNB, MSB, tr, pr, HNSB, HNNB, TT, fA, fB, fC, PHI, MS, MN, PN, WS, WN
+write (unit=strTmp, fmt='(20(e10.3,2x))') lnt, lnpw, XNB, XSB, MNB, MSB, tr, pr, HNSB, HNNB, TT, fA, fB, fC, PHI, MS, MN, WS, WN
 call msg('SILAM code:')
 call msg('logt,       logpw,        XNB,         XSB,         MNB,        MSB,        tr,        pr,        HNSB,        HNNB' + &
-           & ',          TT,        fA,         fB,         fC,        PHI,        MS,        MN,         PN,         WS,        WN')
+           & ',          TT,        fA,         fB,         fC,        PHI,        MS,        MN,         WS,        WN')
 call msg(strTmp)
 endif
 #endif
@@ -3953,9 +3947,9 @@ endif
 
     ! Local variables
     real :: cf_clono2, cf_brono2, cf_n2o5, cf_hocl, cf_hobr, wt_mole_h2so4
-    real :: pclono2,phcl,ph2o0,ph2o,pHBr,Mh2so4,A,t0,nya,ah,x,aw,b0,b1,b2
+    real :: pclono2,phcl,ph2o0,ph2o,pHBr,Mh2so4,A,t0,T_over_nya,ah,x,aw,b0,b1,b2
     real :: Sclono2,Hclono2,Dclono2,Hhcl,Mhcl,kh2o,kh,khydr,khcl,Gbh2o,RgasAtm,Hhbr
-    real :: lclono2,fclono2,Grxn,Gbhcl,Gs,Fhcl,Gsp,Gbphcl,Gb,gam,thetaHBr,thetaHCl,KlangHCl,KlangHNO3
+    real :: lclono2_over_rp,fclono2,Grxn,Gbhcl,Gs,Fhcl,Gsp,Gbphcl,Gb,gam,thetaHBr,thetaHCl,KlangHCl,KlangHNO3
     real(r8k) :: RgasScaled,Shocl,Hhocl,Dhocl,k5,lhocl,fhocl,Ghocl
     logical :: ifH2O, ifHCl
 
@@ -4095,7 +4089,8 @@ endif
       Mh2so4 = 1.e-3*rho1*wt_h2so4_mass_prc/9.8 ! molarity, mol dm-3
       A =  169.5+5.18*wt_h2so4_mass_prc-0.0825*wt_h2so4_mass_prc**2+3.27e-3*wt_h2so4_mass_prc**3.
       t0 = 144.11+0.166*wt_h2so4_mass_prc-0.015*wt_h2so4_mass_prc**2+2.18e-4*wt_h2so4_mass_prc**3.
-      nya = A*T**(-1.43)*exp(448./max(T-t0,1.0)) !viscosity, nya
+      ! nya -- viscosity
+      T_over_nya = T**(2.43)*exp(-448./(max(T-t0,1.))) / A   ! T / nya 
 
       ah = exp(60.51-0.095*wt_h2so4_mass_prc+0.0077*wt_h2so4_mass_prc**2-1.61e-5*wt_h2so4_mass_prc**3. &  !   acid activity (in molarity)
          & -(1.76+2.52e-4*wt_h2so4_mass_prc**2)*sqrt(T)+(-805.89+253.05*wt_h2so4_mass_prc**0.076)/sqrt(T))
@@ -4125,7 +4120,7 @@ endif
       pclono2 = cncClONO2*RgasAtm*T                      ! *qn(14)   !atm
       Sclono2 = 0.306+24.0/T                             ! Setchenow coefficient, M-1
       Hclono2 = 1.6e-6*exp(4710./T)*exp(-Sclono2*Mh2so4) ! Henry's law constant
-      Dclono2 = 5.e-8*T/nya                              ! liquid phase diffusion constant
+      Dclono2 = 5.e-8*T_over_nya                              ! liquid phase diffusion constant
       kh = 1.22e12*exp(-6200./T)
 
       if(ifHCl .and. ifH2O)then
@@ -4142,9 +4137,9 @@ endif
         khcl = 7.9e11*ah*Dclono2*Mhcl       ! reaction (4) liquid phase reaction rate, 2nd order
         Gbh2o = Hclono2*RgasScaled*T*sqrt((Dclono2*khydr))/cf_clono2
         !lclono2 = sqrt(Dclono2/(khydr+khcl))         ! reaction diffusive length, cm (NOTE: should be in meters as rp)
-        lclono2 = 0.01*sqrt(Dclono2/(khydr+khcl))     ! reaction diffusive length, meters (since particle radius rp is in meters)
-        !fclono2 = max(0., 1./tanh(rp/lclono2)-lclono2/rp)
-        fclono2 = max(min(1./tanh(rp/lclono2)-lclono2/rp,1.0),0.0) !avoid numerics to go beyond the actual limits of 0...1
+        lclono2_over_rp = 0.01*sqrt(Dclono2/(khydr+khcl))/rp    ! reaction diffusive length, meters (since particle radius rp is in meters)
+
+        fclono2 = fclono(lclono2_over_rp)
         Grxn = fclono2*Gbh2o*sqrt(1+khcl/(khydr + 1e-10))
         Gbhcl = Grxn*khcl/(khcl+khydr)
         Gs = 66.12*Hclono2*Mhcl*exp(-1374./T)
@@ -4168,9 +4163,8 @@ endif
 #endif
         !khcl = 7.9e11*ah*Dclono2*Mhcl      ! reaction (4) liquid phase reaction rate, 2nd order
         !lclono2 = sqrt(Dclono2/khcl)       ! reaction diffusive length, cm (NOTE: should be in meters as rp)
-        lclono2 = 0.01/sqrt(7.9e11*ah*Mhcl) ! reaction diffusive length, m  (Here we avoid division by zero when Dclono2=0, when nya is large/inf)
-        !fclono2 = max(0., 1./tanh(rp/lclono2)-lclono2/rp)
-        fclono2 = max(min(1./tanh(rp/lclono2)-lclono2/rp,1.0),0.0) !avoid numerics to go beyond the actual limits of 0...1
+        lclono2_over_rp = 0.01/sqrt(7.9e11*ah*Mhcl)/rp ! reaction diffusive length, m  (Here we avoid division by zero when Dclono2=0, when nya is large/inf)
+        fclono2 = fclono(lclono2_over_rp)
         Gs = 66.12*Hclono2*Mhcl*exp(-1374./T)
         Fhcl = phcl / (phcl+rules%m_hcl_clono2_ratio*Gs*pclono2)
         Gsp = Fhcl*Gs 
@@ -4187,7 +4181,7 @@ if(isNaN(rulesRates%gamSTS_clono2_hcl))then
   call msg('Mhcl',Mhcl)
   call msg('wt_h2so4_mass_prc,wt_mole_h2so4',wt_h2so4_mass_prc) !,wt_mole_h2so4)
   call msg('kh, khcl',kh,khcl)
-  call msg('lclono2,fclono2',lclono2,fclono2)
+  call msg('lclono2_over_rp,fclono2',lclono2_over_rp,fclono2)
   call msg('FHcl,cncClONO2',fhcl,cncClONO2)
 endif
 #endif
@@ -4204,9 +4198,8 @@ endif
         khydr = aw*(kh2o+kh*ah)            ! reaction (1) liquid phase reaction rate, 2nd order
         Gbh2o = Hclono2*RgasScaled*T*sqrt((Dclono2*khydr))/cf_clono2
         !lclono2 = sqrt(Dclono2/khydr)     ! reaction diffusive length, cm (NOTE: should be in meters as rp)
-        lclono2 = 0.01*sqrt(Dclono2/khydr) ! reaction diffusive length, meters (since particle radius rp is in meters)
-        !fclono2 = max(0., 1./tanh(rp/lclono2)-lclono2/rp)
-        fclono2 = max(min(1./tanh(rp/lclono2)-lclono2/rp,1.0),0.0) !avoid numerics to go beyond the actual limits of 0...1
+        lclono2_over_rp = 0.01*sqrt(Dclono2/khydr)/rp ! reaction diffusive length, meters (since particle radius rp is in meters)
+        fclono2 = fclono(lclono2_over_rp)
         Grxn = fclono2*Gbh2o
         rulesRates%gamSTS_clono2_hcl = 0.               ! gamSTS(4)
         !rulesRates%gamSTS_clono2_h2o = 1./(1.+1./Grxn) ! gamSTS(1)
@@ -4234,7 +4227,7 @@ endif
       b2 = -851801.-22191.2*wt_h2so4_mass_prc+766.916*wt_h2so4_mass_prc**2-6.85427*wt_h2so4_mass_prc**3.
       rulesRates%gamSTS_n2o5_h2o = exp(b0+b1/T+b2/(T*T)) !jpl2000  gamSTS(3)           
 
-      Dhocl = 6.4e-8*T/nya !moved here (to calculate Dhocl and Hhocl) to be used for calculation of rulesRates%gamSTS_hocl_hbr
+      Dhocl = 6.4e-8*T_over_nya !moved here (to calculate Dhocl and Hhocl) to be used for calculation of rulesRates%gamSTS_hocl_hbr
       Shocl = 0.0776+59.18/T
       Hhocl = 1.91e-6*exp(5862.4/T)*exp(-Shocl*Mh2so4) ! Hhocl could be obtained from subroutine TER
       !if(ifHCl .and. cncHOCl > 1e-20)then
@@ -4422,6 +4415,26 @@ endif
     return
   end subroutine rates_pseudo_first_order
 
+
+   !*******************************************************
+  
+  function fclono(x) result(fclono2)
+      ! Calculates  1./tanh(1/x) - x with correcte assymptotes for x \in [0,\infty)
+      implicit none
+      real, intent(in) :: x
+      real :: fclono2
+      character(len = *), parameter :: sub_name = 'fclono'
+
+        if (x > 10.) then
+          fclono2 = 1./(3.*x) - 1./(45.*x*x*x)
+        elseif (x > 0.1) then
+          fclono2 = 1./tanh(1./x) - x
+        elseif (x >= 0.) then
+          fclono2 =  1. - x
+        else
+          fclono2 = F_NAN
+        endif
+  end function fclono
   !************************************************************************************
 
   logical function fu_if_tla_required_MAAD(rules) result(required)

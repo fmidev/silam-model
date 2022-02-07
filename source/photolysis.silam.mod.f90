@@ -138,6 +138,11 @@ module photolysis
   integer, parameter, public :: detailed_cloud = 1002
   integer, parameter, public :: fake_cloud = 1003
 
+  ! Source of O3 column for photolysys
+  integer, parameter, public :: standard_atmosphere = 14001
+  integer, parameter, public :: mass_map = 14002
+  integer, parameter, public :: meteo_column = 14003
+
   integer, private, save :: num_reactions=int_missing, num_lut_levs=int_missing, lut_size_sza=int_missing, &
        & lut_size_alb=int_missing, lut_size_o3=int_missing
 
@@ -155,7 +160,7 @@ module photolysis
 
   integer, private, pointer, save :: imet_albedo, imet_cwc3d, imet_press, imet_cwcol, imet_lat, &
        & imet_tcc, imet_cc3d, imet_temp, imet_lcwc3d, imet_lcwcol, imet_dx_size, imet_dy_size, imet_dz_size, &
-       & imet_airmass, imet_airdens, imet_prec, imet_cwc, imet_cic
+       & imet_airmass, imet_airdens, imet_prec, imet_cwc, imet_cic, imet_o3column
 
   logical, private, save :: initialized = .false.
 
@@ -438,7 +443,7 @@ contains
 !  subroutine get_photorates_column(lon, lat, now, cos_zen_angle, col_press, col_cwcabove, &
 !        &cwc_totcol, aodcolumn, alb_sfc, fCloudCover, rates)
   subroutine  get_photorates_column(metdat_col, zenith_cos, alb_sfc_fixed, now, &
-         & aod_ext, aod_scat, o3_col, rates, ifPhotoAOD, ifPhotoO3col, tau_above_bott, ssa, cloud_model)
+         & aod_ext, aod_scat, o3_col, rates, ifPhotoAOD, PhotoO3colType, tau_above_bott, ssa, cloud_model)
     ! 
     ! Interpolate the LUT to obtain photolysis rates for each reaction in each vertical
     ! level defined by pressures in col_press. 
@@ -452,7 +457,7 @@ contains
     real, dimension(:), intent(in) :: o3_col   ! ozone column (DU) above each level
     real, dimension(:,:), intent(out) :: rates ! (react, level)
     logical, intent(in) :: ifPhotoAOD   !! Account for aod_ext, and aod_scat for photolysis
-    logical, intent(in) :: ifPhotoO3col !! Account for total O3 column above for photolysis
+    integer, intent(in) :: PhotoO3colType !! Account for total O3 column above for photolysis
     real, dimension(:), intent(in) :: tau_above_bott
     real, intent(in) :: ssa !, tcc
     integer, intent(in) :: cloud_model
@@ -475,7 +480,8 @@ contains
     real, dimension(max_levels) :: cwc_cloud  ! Cloudy-area cwc_above [kg/m2]
     real :: albedo_aer, albedo_cld    ! Effective albedo of surface without/with clouds
     real :: o3_col_std ! ozone column above for standard atmosphere (DU)
-    real :: o3factor ! ozone column above / the ozone column above for the standard atmosphere
+    real :: o3factor ! ozone column above / the ozone column above for the standard atmosphera
+    real :: o3_totcol_meteo !! meteorological O3 column (DU)
 
     real, parameter :: min_cc = 0.02 !! MInimum cloud cover to calculate the attenuation
     character (len=*), parameter :: sub_name = "get_photorates_column"
@@ -500,6 +506,10 @@ contains
 
     col_press(1:num_levs) = metdat_col(imet_press, 1:num_levs)
     fCloudCover = metdat_col(imet_tcc, 1)
+
+    if (PhotoO3colType == meteo_column) &
+            & o3_totcol_meteo = metdat_col(imet_O3column, 1) /  2.1415E-5 !! kg/m2 -> DU
+                   ! https://apps.ecmwf.int/codes/grib/param-db?id=206
 
     !call test()
     !call msg('*** get_photorates_column ***', lon, lat)
@@ -606,19 +616,35 @@ contains
     !call msg('RISTO TEST O3: size(atm_o3_cuml(ind_region, ind_season, :))', size(atm_o3_cuml(ind_lat, ind_season, :)) )
     !END: RISTO TEST 15Nov2018
 
+
     do ind_lev = 1, num_levs
       call get_interp_weights_rev(col_press(ind_lev), atm_press(ind_lat, ind_season, :), ind_press, q(4))
       !print *, 'press:', atm_press(ind_lat, ind_season, :), 'req:', col_press(ind_lev), ind_press, q(4)
       call get_interp_weights(sza, lut_sza_rad, ind_sza, q(3))
       !print *, 'sza:', sza, ind_sza, q(3)
-      if (ifPhotoO3col) then
-         !RISTO TEST 15Nov2018
-         !Amount of ozone column above the cell, compared with standard atmosphere. Note the different units (DU vs molec/cm3)!
-         !Interpolate the ozone column from standard atmosphere. Note the different altitude levels used in atm_o3_cuml 
-         o3_col_std = q(4)*atm_o3_cuml(ind_lat, ind_season, ind_press) &
-            & + (1.0-q(4))*atm_o3_cuml(ind_lat, ind_season, ind_press+1)
-         o3_col_std = o3_col_std/2.68683701e+16 !Convert to Dobson Units
-         o3factor = o3_col(ind_lev)/o3_col_std
+      if (PhotoO3colType == standard_atmosphere) then
+         ! ozone variation == 1.0 for now...
+         call get_interp_weights(1.0, lut_o3, ind_o3, q(2)) !NOTE NOTE NOTE RISTO RISTO RISTO RISTO
+         !print *, 'ozone:', ind_o3, q(2)
+       else
+         if (PhotoO3colType == mass_map) then
+           !RISTO TEST 15Nov2018
+           !Amount of ozone column above the cell, compared with standard atmosphere. Note the different units (DU vs molec/cm3)!
+           !Interpolate the ozone column from standard atmosphere. Note the different altitude levels used in atm_o3_cuml 
+           o3_col_std = q(4)*atm_o3_cuml(ind_lat, ind_season, ind_press) &
+              & + (1.0-q(4))*atm_o3_cuml(ind_lat, ind_season, ind_press+1)
+           o3_col_std = o3_col_std/2.68683701e+16 !Convert to Dobson Units
+
+           o3factor = o3_col(ind_lev)/o3_col_std
+         elseif (ind_lev == 1) then
+           !! Trick: scale standard column to match meteo coulmn at surface
+           !! Same scaling applies to other levels, so set it only for the first one
+           o3_col_std = q(4)*atm_o3_cuml(ind_lat, ind_season, ind_press) &
+              & + (1.0-q(4))*atm_o3_cuml(ind_lat, ind_season, ind_press+1)
+           o3_col_std = o3_col_std/2.68683701e+16 !Convert to Dobson Units
+           o3factor = o3_totcol_meteo/o3_col_std
+         endif
+
          !call msg('RISTO TEST O3: iz, o3_col(ind_lev), o3_col_std, o3factor', (/real(ind_lev), o3_col(ind_lev), o3_col_std, o3factor /) )
          call get_interp_weights(o3factor, lut_o3, ind_o3, q(2))
          !call msg('RISTO TEST O3: iz, ind_press, ind_o3', (/ind_lev, ind_press, ind_o3 /) )
@@ -627,10 +653,6 @@ contains
          wlat1 = 1.0
          wlat2 = 0.0
          !END: RISTO TEST 15Nov2018
-      else
-         ! ozone variation == 1.0 for now...
-         call get_interp_weights(1.0, lut_o3, ind_o3, q(2)) !NOTE NOTE NOTE RISTO RISTO RISTO RISTO
-         !print *, 'ozone:', ind_o3, q(2)
       end if
       ! albedo == 0.3 in finrose
 
@@ -1139,14 +1161,14 @@ contains
 
   !************************************************************************************
 
-  subroutine photolysis_input_needs(ifDynamicAlbedo, cloud_model,  meteo_input_local)
+  subroutine photolysis_input_needs(ifDynamicAlbedo, ifMetO3, cloud_model,  meteo_input_local)
     !
     ! Fills meteo input for in-transformation 
     !
     implicit none
 
     ! Imported parameters
-    logical, intent(in) :: ifDynamicAlbedo
+    logical, intent(in) :: ifDynamicAlbedo, ifMetO3
     integer, intent(in) :: cloud_model
     type(Tmeteo_input),  intent(out), target :: meteo_input_local
     character(len=*), parameter :: subname="photolysis_input_needs"
@@ -1247,11 +1269,18 @@ contains
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
         imet_cwc => meteo_input_local%idx(nq)
 
-
       end if
     endif
 
-    imet_albedo => null()
+    if (ifMetO3) then 
+      nq = nq + 1
+      meteo_input_local%quantity(nq) = meteo_total_O3column_flag
+      meteo_input_local%q_type(nq) = meteo_dynamic_flag
+      imet_O3column => meteo_input_local%idx(nq) 
+    else
+      imet_O3column => null()
+    endif
+
     if (ifDynamicAlbedo) then 
       nq = nq + 1
       meteo_input_local%quantity(nq) = albedo_flag

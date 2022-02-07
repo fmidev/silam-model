@@ -45,7 +45,6 @@ MODULE diagnostic_variables
   private diag_vertical_wind_incompr_v2
   private diag_vertical_wind_anelastic
   private diag_vertical_wind_eta
-  private df_cnc_from_vmr
   private df_DMAT_Vd_correction
   private df_make_cell_size_z_dyn
   private df_cumul_daily_tempr_2m
@@ -850,20 +849,6 @@ MODULE diagnostic_variables
     logical :: ifHorizInterp, ifVertInterp      ! if interpolation needed
 
     select case (desiredQ)
-
-!      case(concentration_flag)
-!        !
-!        ! Concentration from mixing ratio
-!        !
-!        if(inputQ == volume_mixing_ratio_flag)then
-!          call df_cnc_from_vmr(met_buf, weight_past, &
-!                             & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, &
-!                             & in_fld_3d, out_fld_3d)
-!        else
-!          call set_error(fu_connect_strings('Cannot diagnose concentration from: ', &
-!                                          & fu_quantity_string(inputQ)), &
-!                       & 'diagnose_single_field')
-!        endif
 
       case(dispersion_u_flag, dispersion_v_flag, dispersion_w_flag)
         !
@@ -3462,102 +3447,6 @@ MODULE diagnostic_variables
     end subroutine get_integration_vertical
 
   end subroutine diag_vertical_wind_eta
-
-
-  !************************************************************************************
-
-  subroutine df_cnc_from_vmr(met_buf, weight_past, &
-                           & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, &
-                           & vmr_fld_3d, cnc_fld_3d)
-
-    ! Creates concentrations from volume mixing ratio
-    ! It is assumed, that the concentration field 3d exists and whatever is there, is overwritten
-    ! 
-
-    implicit none
-
-    ! Imported parameters with intent IN:
-
-    type(Tfield_buffer), intent(in) :: met_buf
-    real, intent(in) :: weight_past
-    type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    type(TVertInterpStruct), pointer :: pVertInterpStruct
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
-    type(silja_3d_field), pointer :: vmr_fld_3d, cnc_fld_3d
-    type(silja_field_id), pointer :: id
-
-    ! Local declarations:
-
-!    TYPE(silja_field), POINTER :: cnc_fld
-    REAL, DIMENSION(:), POINTER :: volume_mixing_ratio, concentration
-    real :: temperature, pressure
-!    TYPE(silja_field_id) :: id
-
-
-
-    INTEGER :: tIndex, pIndex, ix, iy, iz, iCell, nx, ny 
-    type(silam_vertical) :: vertTmp
-
-
-    call grid_dimensions(fu_grid(vmr_fld_3d), nx, ny)
-
-    tIndex = fu_index(met_buf%buffer_quantities, temperature_flag)
-    pIndex = fu_index(met_buf%buffer_quantities, pressure_flag)
-
-    if (.not. all((/tIndex, pIndex/) > 0 )) then
-          call msg ("tIndex, pIndex", (/tIndex, pIndex/))
-          call set_error("Meteo input is not available", "df_cnc_from_vmr") 
-          return
-    endif
-
-!    concentration => fu_work_array()
-
-!    call msg_warning('VMR-to-concentration with surface density')
-
-    do iz = 1, fu_number_of_fields(vmr_fld_3d)
-
-      volume_mixing_ratio => fu_grid_data_from_3d(vmr_fld_3d, iz)
-      concentration => fu_grid_data_from_3d(cnc_fld_3d, iz)
-
-      do iy = 1, ny
-        do ix = 1, nx
-          iCell = ix + (iy-1)*nx
-
-          ! Get temperature and pressure
-          ! 
-          temperature = fu_get_value(met_buf%p4d(tIndex), nx_meteo, ix, iy, iz, &
-                                    & weight_past, &
-                                    & pHorizInterpStruct, pVertInterpStruct, &
-                                    & ifHorizInterp, ifVertInterp)
-          IF (error) RETURN
-          pressure = fu_get_value(met_buf%p4d(pIndex), nx_meteo, ix, iy, iz, &
-                                & weight_past, &
-                                & pHorizInterpStruct, pVertInterpStruct, &
-                                & ifHorizInterp, ifVertInterp)
-          IF (error) RETURN
-          
-          !Compute the concentration
-
-          concentration(iCell) = volume_mixing_ratio(iCell) *pressure /( gas_constant_uni * temperature)
-
-!          concentration(iCell) = volume_mixing_ratio(iCell) / 22.4e-3
- 
-        enddo
-      enddo
-      
-
-!      id => fu_id(fu_field_from_3d_field(vmr_fld_3d, iz))
-!      call set_quantity(id, concentration_flag)
-!      call set_quantity(id, concentration_flag)
-!      call set_field(id, concentration, cnc_fld)
-!      call add_field_to_3d_field(cnc_fld, field_3d)
-
-    enddo
-
-!    CALL free_work_array(concentration)
-
-  END SUBROUTINE df_cnc_from_vmr
-
 
   !***************************************************************************************************
 

@@ -282,11 +282,6 @@ CONTAINS
       case('NO_SCAVENGING')
         rulesDeposition%scavengingType = scavNoScav
 
-      case('') ! No such line at all
-        call set_error('Scavenging is not defined. Take default',sub_name)
-        call unset_error(sub_name)
-        rulesDeposition%scavengingType = scavStandard
-
       case default
         call set_error('Unknown scavenging type: "'// trim(fu_content(nlSetup,'wet_deposition_scheme')) // '"',&
                      & sub_name)

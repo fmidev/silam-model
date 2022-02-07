@@ -233,14 +233,12 @@ CONTAINS
       call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, theta)
       if(fu_fails(.not.error,'Failed theta field data pointer','dq_potential_temperature'))return
       
-!!      !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
+      !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
       do i=1,fs_meteo
         theta(i) = t(i)*((std_pressure_sl/psrf(i))**R_per_c_dryair)  
       end do
-!!      !$OMP END PARALLEL DO
+      !$OMP END PARALLEL DO
 
-!      CALL dq_store_2d(meteoMarketPtr, id, theta, multi_time_stack_flag )
-!      if(error)return
 
       !
       ! Now make the whole 3D potential temperature field
@@ -260,14 +258,11 @@ CONTAINS
         call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, theta)
         if(fu_fails(.not.error,'Failed theta field data pointer','dq_potential_temperature'))return
         
-!!        !$OMP PARALLEL DO DEFAULT(SHARED)
+       !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(i)
         do i=1,fs_meteo
-!          if(i==12379)then
-!            call msg('Pot temp: get to i',i)
-!          endif
           theta(i) = t(i)*((std_pressure_sl/p(i))**R_per_c_dryair)  
         end do
-!!        !$OMP END PARALLEL DO
+        !$OMP END PARALLEL DO
 
 !        CALL dq_store_2d(meteoMarketPtr, id, theta, multi_time_stack_flag )
 

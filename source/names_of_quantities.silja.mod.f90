@@ -370,11 +370,13 @@ MODULE names_of_quantities
 
   ! Surface pressure to use in single-time stack in hybrid coordinates
   integer, parameter, public :: srf_press_realtime_flag = 250163
+
                                                         
+  integer, parameter, public :: meteo_total_O3column_flag = 250164
 
 
   integer, parameter, public :: first_single_level_q = 250000
-  integer, parameter, public :: last_single_level_q = 250163
+  integer, parameter, public :: last_single_level_q = 250164
 
   ! ***************************************************************
   !
@@ -799,6 +801,9 @@ CONTAINS
 
       CASE (srf_press_realtime_flag)
       string = 'surface pressure realtime [Pa]'
+
+      CASE (meteo_total_O3column_flag)
+      string = 'Meteo O3 column [kg/m2]'
 
       CASE (ground_pressure_flag)
       string = 'ground pressure [Pa]'
@@ -1561,6 +1566,9 @@ CONTAINS
       CASE (msl_pressure_flag)
       string = 'sea_lev_pr'
 
+      CASE (meteo_total_O3column_flag)
+      string = 'met_o3_col'
+
       CASE (surface_pressure_flag)
       string = 'vrt_dep_srf_pr'
 
@@ -2259,7 +2267,8 @@ CONTAINS
 
       CASE (sub_grid_scale_snowfall_flag, &
           & grid_scale_snowfall_flag, &
-          & precipitable_water_flag)
+          & precipitable_water_flag, &
+          & meteo_total_O3column_flag)
         string = 'kg/m2'
  
       CASE (top_sw_net_radiation_ac_flag, &
@@ -3102,6 +3111,9 @@ CONTAINS
 
       CASE (surface_pressure_flag)
       fMinAlert = 10000; fMinForce = 10000; fMaxForce = 2e5; fMaxAlert = 2e5
+
+      CASE (meteo_total_O3column_flag)
+      fMinAlert = 30./2e-5; fMinForce = 30./2e-5; fMaxForce = 600./2e-5; fMaxAlert = 600./2e-5 !! 1 DU = 2.1415E-5 kg m-2
 
       CASE (ipv_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
@@ -4508,6 +4520,9 @@ CONTAINS
 
     elseif(trim(chQuantity) == "surface_pressure")then
       iQ = surface_pressure_flag 
+
+    elseif(trim(chQuantity) == "met_o3_col")then
+      iQ = meteo_total_O3column_flag
 
     elseif(trim(chQuantity) == "dew_point_temp_2m")then
       iQ = dew_point_temp_2m_flag 

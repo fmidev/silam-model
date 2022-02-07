@@ -1149,7 +1149,7 @@ CONTAINS
 
   !******************************************************************************
 
-  subroutine many_mass_maps_to_grads_file(pMapAr, iSrc, chOutFNm, now, factor)
+  subroutine many_mass_maps_to_grads_file(pMapAr, iSrc, chOutFNm, now, trim_factor)
     !
     ! Receives an array of mass maps and dumps them all into the given grads file
     !
@@ -1159,7 +1159,7 @@ CONTAINS
     integer, intent(in) :: iSrc
     character(len=*), intent(in) :: chOutFNm
     type(silja_time), intent(in) :: now
-    real, intent(in) :: factor
+    real, intent(in) :: trim_factor
     
     ! Local variables
     integer :: iMap, iFile, nMaps
@@ -1183,7 +1183,7 @@ CONTAINS
     iFile = int_missing  ! the unit of the opened file to keep between writes
 
     do iMap = 1, nMaps
-      call mass_map_to_grads_file(pMapAr(iMap), iSrc, chOutFNm, now, factor, indFile=iFile, ifClose= (iMap == nMaps))
+      call mass_map_to_grads_file(pMapAr(iMap), iSrc, chOutFNm, now, trim_factor, indFile=iFile, ifClose= (iMap == nMaps))
     end do
     
   end subroutine many_mass_maps_to_grads_file
@@ -1191,7 +1191,7 @@ CONTAINS
 
   !******************************************************************************
 
-  subroutine mass_map_to_grads_file(pMap, iSrc, chOutFNm, now, factor, indFile, ifClose)
+  subroutine mass_map_to_grads_file(pMap, iSrc, chOutFNm, now, trim_factor, indFile, ifClose)
     !
     ! Sends a content of the mass map to the GrADS file, whose name is to be given
     !
@@ -1202,7 +1202,7 @@ CONTAINS
     integer, intent(in) :: iSrc
     character(len=*), intent(in) :: chOutFNm
     type(silja_time), intent(in) :: now
-    real, intent(in) :: factor
+    real, intent(in) :: trim_factor
     integer, intent(inout), optional :: indFile
     logical, intent(in), optional :: ifClose
 
@@ -1259,9 +1259,12 @@ CONTAINS
           !
           do iy = 1, pMap%ny
             do ix = 1, pMap%nx
-              arTmp(ix+(iy-1)*pMap%nx) = pMap%arM(iSpecies,iSrcTmp,iLev,ix,iy) * factor
+              arTmp(ix+(iy-1)*pMap%nx) = pMap%arM(iSpecies,iSrcTmp,iLev,ix,iy)
             end do
           end do
+
+          if (trim_factor /= real_missing) &
+            & call trim_precision(arTmp(1:pMap%ny*pMap%nx), trim_factor, real_missing)
           !
           ! Set the field id
           !

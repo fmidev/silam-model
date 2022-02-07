@@ -2407,12 +2407,12 @@ endif
           enddo
 
           if (any(mystuff%PAbove(0:nz_dispersion-1) <= mystuff%PAbove(1:nz_dispersion)  )) then
-                  !$OMP critical(barkv4)
+                  !$OMP critical(v4bark)
                         
                         call msg("mystuff%PAbove(0:nz_dispersion)",mystuff%PAbove(0:nz_dispersion))
                         call msg('ix, iy',ix, iy)
                         call set_error("non_monotonous pressure at level top...", 'adv_diffusion_vertical_v4')
-                 !$OMP END critical(barkv4)
+                 !$OMP END critical(v4bark)
                  continue
           endif
         else  !pressure-coordinates
@@ -2584,6 +2584,12 @@ endif
               ! Finite settling -- can't reuse this advecion
               ifColparamsNotReady  = stuff%ifSettles(ispecies)
               if(error) then
+!$OMP CRITICAL(v4bark)
+                 call msg("Trouble with Z, ix, iy",ix, iy)
+                 call msg("mystuff%vSettling(ispecies,0:nz_dispersion)", mystuff%vSettling(ispecies,0:nz_dispersion))
+                 call msg("mystuff%wind_right(0:nz_dispersion)", mystuff%wind_right(0:nz_dispersion) )
+
+!$OMP END CRITICAL (v4bark)
                  call advect_cellboundaries(mystuff%windRightTmp(0:nz_dispersion), &!Staggered
                        & mystuff%cellmass(1:nz_dispersion),  & ! non-staggered
                        &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
@@ -2591,8 +2597,6 @@ endif
                        &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
                        &     mystuff%scratch,   & !staggered
                        &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
-
-                 call msg("Trouble with Z")
                  cycle
               endif
 
@@ -3672,14 +3676,23 @@ call msg('Done')
 
     do ix=iFirstCell+1, iLastCell 
          if (ifSkipCell(ix)) cycle
-         if (xr_advected(ix-1) > xr_advected(ix)) then
+         incr = xr_advected(ix) - xr_advected(ix-1)
+         if (incr < 0_r8k) then
             call msg("")
+            call msg("Looks like a trouble in advect_cellboundaries at level", ix)
             call msg("xr         :",xr(0:nCells))
             call msg("xr_advected:",xr_advected(0:nCells))
             call msg("u_right*sec:",u_right(0:nCells)*abs_seconds)
             call msg("cellmass        :",dx_cell(1:nCells))
-            call set_error("Non_monotonous advected cells","")
-            exit
+            if (abs (incr) < dx_cell(ix)*1d-7) then
+              call msg("Just numerics.. Recovering by flipping")
+              curpos = xr_advected(ix)
+              xr_advected(ix) = xr_advected(ix-1)
+              xr_advected(ix-1) = curpos
+            else
+              call set_error("Non_monotonous advected cells","advect_cellboundaries")
+              exit
+            endif
          endif
     enddo
 
@@ -4545,13 +4558,13 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
      if(.not. SS > dropFraction * dx(ix))then
 
        if(.not. SS >= 0.0)then
-          !$OMP CRITICAL(nonpositive)
+          !$OMP CRITICAL(v4bark)
           call msg('non-positive slab, advect_mass_trislab, ix=',ix, nCells)
           call msg('xr(ix-2:ix+2)', (/xr(max(0,ix-2):min(ix+2,size(xr)))/))
           call msg('xradvected(ix-2:ix+2)', (/xr_advected(max(0,ix-2):min(ix+2,size(xr_advected)))/))
           call msg('ftmp,bl_abs, br_abs,ss,alpha,MMRL', (/fZC,ftmp,bl_abs, br_abs,ss,alpha,MMRL/))
           call set_error("non-positive slab",'advect_mass_trislab')
-          !$OMP END CRITICAL(nonpositive)
+          !$OMP END CRITICAL(v4bark)
        endif
        passengersOut(0:nPass,ixTo) = passengersOut(0:nPass,ixTo) + &
                                    &  passengersIn(0:nPass, ix)
@@ -4858,8 +4871,8 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                     nPass = moment_my%passengers(iSpecies)%nPassengers
                     fMass = pBBuf%pBoundaryData(left_boundary)%ptr(iTmp, iSrc, ii2, ii3) * inflow_left
                     if (fMass>0) then 
-                      mystuff%passengers(0,0,iSpecies,iSrc) = fMass
-                      massIn0(iSrc,iSpecies) = massIn0(iSrc,iSpecies) + fMass
+                      mystuff%passengers(0,0,iSpecies,1:nSrc) = fMass
+                      massIn0(1:nSrc,iSpecies) = massIn0(1:nSrc,iSpecies) + fMass
                       iCellStartAdv = 0
                     elseif (fMass >  -lmtfactor*arMinAdvMass(ispecies)) then ! Some numrics, still okay
                       mystuff%tmp_garbage(ispecies, iSrc) =  mystuff%tmp_garbage(ispecies,isrc) + fMass
@@ -4909,8 +4922,8 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                     fMass = pBBuf%pBoundaryData(right_boundary)%ptr(iTmp, iSrc, ii2, ii3) * inflow_right
                     if (fMass>0) then 
                       iCellEndAdv = nCells+1
-                      mystuff%passengers(0,nCells+1,iSpecies,iSrc) = fMass
-                      massInM(iSrc,iSpecies) = massInM(iSrc,iSpecies) + fMass
+                      mystuff%passengers(0,nCells+1,iSpecies,1:nSrc) = fMass
+                      massInM(1:nSrc,iSpecies) = massInM(1:nSrc,iSpecies) + fMass
                     elseif (fMass >  -lmtfactor*arMinAdvMass(ispecies)) then ! Some numrics, still okay
                       mystuff%tmp_garbage(ispecies, iSrc) =  mystuff%tmp_garbage(ispecies,isrc) + fMass
                     else
