@@ -1885,7 +1885,7 @@ if(ifDebug .or. quantity == pressure_flag)then
 endif
     
    
-
+    fTmp = scale_factor 
     CALL fix_strange_quantities( obstime_interval, &  !Might need to fix them differently 
                               & fu_centre(source_of_data), & ! centre
                               & fu_subCentre(source_of_data), & ! subCentre
@@ -1896,7 +1896,10 @@ endif
                               & forecast_length, &
                               & length_of_accumulation, &
                               & grid, &
-                              & scale_factor, ifZeroNegatives)
+                              & fTmp, ifZeroNegatives) 
+
+   if ( .not. grib_name_table_enabled) scale_factor = fTmp  !!Ignore scale_factor if we have nametable
+
 if(ifDebug)then
   call msg('*** After fixing the strange quantities************')
   call report(source_of_data)
