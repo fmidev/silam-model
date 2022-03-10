@@ -68,6 +68,7 @@ def getRevisionGIT(directory):
     revstr = None
     diffcmd= None
     branchname =None
+    fmisvndomain='250f1e8d-2010-0410-9efa-e22dadc992bd'
     try:
         git =  subprocess.Popen("git branch |grep '^*' | cut -b 3-", shell=True,
                   cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
@@ -85,10 +86,13 @@ def getRevisionGIT(directory):
             a=line.split()
             if len(a) == 3:
                 if a[0]=="git-svn-id:":
-                   if a[2]=="250f1e8d-2010-0410-9efa-e22dadc992bd":  ##fmi svn domain
+                   if a[2]== fmisvndomain:  ##fmi svn domain
                        revno=a[1].split('@')[-1]
                        break
                    else:
+                       print("FMI SVN domain is must be '%s'"%(fmi-domain,))
+                       print ("Got: ",a)
+
                        raise ValueError("strange fmi svn domain")
         gitlog.terminate() ## Just kill it, once we got enough
 

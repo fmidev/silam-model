@@ -23,7 +23,6 @@ program silam_2_grib2
   use silam_times
   use netcdf_io
   use supermarket_of_fields
-  use silam_mpi
 
   implicit none
   
@@ -48,18 +47,10 @@ program silam_2_grib2
  !   call grib_tests(1)
  !   stop
 
-  call  smpi_init()
   
 
-  if(smpi_is_mpi_version())then
-    ! Just use what we have to ensure that the string is the same
-    call msg("Synchronizing tmp file prefix")
-    call smpi_allreduce_max_int(fu_pid(), j, MPI_COMM_WORLD)
-    write(unit=run_log_name,fmt='(A,I5.5,A,I2.2,A)') "run_",j,"_",smpi_global_rank,".log"
-  else
-    j = fu_pid()
-    write(unit=run_log_name,fmt='(A,I5.5,A)') "run_",j,".log"
-  endif
+  j = fu_pid()
+  write(unit=run_log_name,fmt='(A,I5.5,A)') "run_",j,".log"
   run_log_name = "/dev/null"
 
   run_log_funit = fu_next_free_unit()
@@ -68,16 +59,8 @@ program silam_2_grib2
     call set_error('Failed to open: "'//trim(run_log_name)//'"','grads_2_grib2_main')
   endif
 
-  if (smpi_global_rank == 0) then
-    PRINT * ;   PRINT * ;   PRINT * ;
-  endif
+  PRINT * ;   PRINT * ;   PRINT * ;
 
-  if(smpi_is_mpi_version())then
-     write(unit=rankTmp,fmt='(A25,I3,A6,I3)') 'MPI version running with ', smpi_global_tasks, ' tasks, task ', smpi_global_rank
-  else
-     write(unit=rankTmp,fmt='(A14)') 'Serial version'
-  endif
-  call msg(rankTmp)
 
   CALL msg ('Hello world! This is silam_2_GRIB2 converter speaking.')
   call msg(fu_connect_strings('Local time now: ', fu_computer_time_string()))
@@ -135,14 +118,7 @@ program silam_2_grib2
 
   if(.not. error) CALL convert_2_grib2(nlGrpIni,defultInputFnm)
 
-  if (smpi_is_mpi_version() .and. smpi_global_tasks > 1) then
-    print *, "Exiting MPI"
-    if (error) then
-      call smpi_abort(9)
-    else
-      call smpi_finalize()
-    end if
-  else if (error) then
+  if (error) then
     print *, "Failed!"
     call exit_with_status(9)
   else
@@ -273,18 +249,6 @@ program silam_2_grib2
     nl_species_map => fu_namelist(nlGrpIni, 'species_map')
 
     chOutTemplate = fu_content(nl_common,'grib2_output_file')
-    if (smpi_global_tasks > 1) then  ! Either forecast length or all others together
-        if(index(chOutTemplate,trim(fu_forecast_length_templ_str()))==0)then
-          if((index(chOutTemplate,trim(fu_valid_time_hour_templ_str()))==0).or. &
-           & (index(chOutTemplate,trim(fu_valid_time_day_templ_str()))==0).or. &
-           & (index(chOutTemplate,trim(fu_valid_time_month_templ_str()))==0).or. &
-           & (index(chOutTemplate,trim(fu_valid_time_year_templ_str()))==0))then
-            call set_error('Not enough varying items in template for hourly series', &
-                         & sub_name)
-            return
-          endif
-        endif
-    endif
     call decode_template_string(chOutTemplate, outputGribTemplate)
 
 
@@ -557,7 +521,6 @@ program silam_2_grib2
       ! Cycle over time for a single GRIB-2 file
       !
       do indTime = iStartIndex, iEndIndex
-        if (mod(indTime,smpi_global_tasks) /= smpi_global_rank) cycle 
         now = grads_times(indTime)
 
         call msg(fu_connect_strings('Now:',fu_time_to_io_string(now),','), indTime)

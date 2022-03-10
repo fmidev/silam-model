@@ -482,43 +482,30 @@ MODULE md ! The machine dependent code of silja on Intel platform
       call msg_warning('Empty file name given','display_file_parameters')
     endif
 #else
+
+    !!! This should work also on Intel fortran with ifport 
+    !!! (probably in Windows as well)
     ! Local variables
-    integer :: unit, filestat
-    logical :: is_open
-    integer(4), dimension(13) :: stats
+    integer(4), dimension(13) :: stats !! Can also be integer8 in intel, but must integer4 in GNU
     integer :: istat
-    character(len=fnlen) :: fn_full
     character(len=30) :: date
 
-    if(chfnm /= '')then
-      do unit = 50, 1000
-        inquire(unit=unit, opened=is_open)
-        if (.not. is_open) exit
-      end do
-      if (is_open) then
-        call set_error('Too many open files (>1000)', 'display_file_parameters')
-        return
-      end if
 
-      open(unit, file=chfnm, action='read', STATUS='OLD', IOSTAT=istat)
+      istat =  STAT(chfnm, stats)
+
       if (istat /= 0) then
-        call msg('Failed to access my binary by name: '// trim(chfnm))
+        call msg('Failed to get binary status binary by name: "'// trim(chfnm)//'"')
         return
       endif
-      inquire(unit, name=fn_full)
-      filestat = fstat(unit, stats)
-      close(unit)
       
-      call msg('File name: ' // trim(fn_full))
+      
+      call msg('File name: ' // trim(chfnm))
       call msg('File size, kBytes:', real(stats(8)/1000.0))
       call ctime(int(stats(10), 8), date)
       call msg('Last modification: ' // date)
       call ctime(int(stats(9), 8), date)
       call msg('Last access: ' // date)
 
-    else
-      call msg_warning('Empty file name given','display_file_parameters')
-    endif
 #endif
   end subroutine display_file_parameters
 

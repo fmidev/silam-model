@@ -2472,7 +2472,7 @@ end do
                                                 & (/int_missing, aerosol_dynamics_simple, &
                                                   & aerosol_dynamics_Mid_Atmosph, aerosol_dynamics_basic, &
                                                   & aerosol_dynamics_VBS/)
-    character(len=clen) :: strTmp
+    character(len=fnlen) :: strTmp
     character(len=*), parameter :: sub_name='set_chemistry_rules'
 
     nullify(items)
@@ -2793,30 +2793,6 @@ end do
     call set_deposition_rules(nlTransf, rulesChemistry%rulesDeposition, if_lagr_present)
     if(error)return
 
-    rulesChemistry%filename_photo_lut = fu_content(nlStdSetup, 'photolysis_data_file')
-    if (rulesChemistry%filename_photo_lut /= '') then
-      rulesChemistry%filename_photo_lut &
-           & = fu_process_filepath(rulesChemistry%filename_photo_lut, must_exist=.true.)
-    end if
-
-    !Check if one requires a dynamic albedo or a static one
-    if (fu_str_u_case(fu_content(nlTransf,'use_dynamic_albedo')) == 'YES') then
-       rulesChemistry%useDynamicAlbedo = .true.
-       call msg('Photolysis rates will be calculated using dynamic (forecast) albedo from meteo!')
-    else
-       rulesChemistry%useDynamicAlbedo = .false.
-       rulesChemistry%defaultStaticAlbedo = fu_content_real(nlTransf, 'default_static_albedo')
-       if (rulesChemistry%defaultStaticAlbedo .eps. real_missing) then
-          rulesChemistry%defaultStaticAlbedo = 0.3
-          call msg('No default albedo found, using predefined value 0.3!') 
-       elseif (.not. abs(rulesChemistry%defaultStaticAlbedo-0.5) <= 0.5) then
-          call msg('Strange default_static_albedo, must be real [0..1]')
-          call report(nlTransf)
-          call set_error('default_static_albedo, must be real [0..1]',sub_name)
-          return
-       end if
-       call msg('Photolysis rates will be calculated using albedo = ', rulesChemistry%defaultStaticAlbedo)
-    end if    
 
     ! Extra species. If not defined, no species added.
     call get_items(nlTransf, 'auxiliary_cocktail', items, rulesChemistry%nAuxCocktails)
@@ -2857,55 +2833,94 @@ end do
       & .or. fu_index(transformation_cbm5_SOA, rulesChemistry%iTransformTypes) > 0 &
       & .or. fu_index(transformation_cbm5_strato_SOA, rulesChemistry%iTransformTypes) > 0) then
       rulesChemistry%need_photo_lut = .true.
-      call init_photolysis_lut(rulesChemistry%filename_photo_lut)
-    else
-      rulesChemistry%need_photo_lut = .false.
-    end if
 
-    strTmp = fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_aod'))
-    if( strTmp == 'YES') then
-      strTmp = fu_content(nlTransf,'photolysis_AOD_wavelength')
-      if (trim(strTmp) == "") then
-        call msg("Using default photolysis_AOD_wavelength")
-        strTmp = "550 nm"
+
+      !Check if one requires a dynamic albedo or a static one
+      if (fu_str_u_case(fu_content(nlTransf,'use_dynamic_albedo')) == 'YES') then
+         rulesChemistry%useDynamicAlbedo = .true.
+         call msg('Photolysis rates will be calculated using dynamic (forecast) albedo from meteo!')
+      else
+         rulesChemistry%useDynamicAlbedo = .false.
+         rulesChemistry%defaultStaticAlbedo = fu_content_real(nlTransf, 'default_static_albedo')
+         if (rulesChemistry%defaultStaticAlbedo .eps. real_missing) then
+            rulesChemistry%defaultStaticAlbedo = 0.3
+            call msg('No default albedo found, using predefined value 0.3!') 
+         elseif (.not. abs(rulesChemistry%defaultStaticAlbedo-0.5) <= 0.5) then
+            call msg('Strange default_static_albedo, must be real [0..1]')
+            call report(nlTransf)
+            call set_error('default_static_albedo, must be real [0..1]',sub_name)
+            return
+         end if
+         call msg('Photolysis rates will be calculated using albedo = ', rulesChemistry%defaultStaticAlbedo)
+      end if 
+
+      ! 
+      strTmp = fu_content(nlStdSetup, 'photolysis_data_file')
+      rulesChemistry%filename_photo_lut = fu_process_filepath(strTmp, must_exist=.true.)
+      if (error) then
+        call set_error("Error after photolysis_data_file = '"//trim(strTmp)//"'", sub_name)
+        return
       endif
-      rulesChemistry%photoAODwavelength = fu_set_named_value(strTmp)
-      call msg("photolysis_AOD_wavelength, nm", rulesChemistry%photoAODwavelength*1e9)
-      rulesChemistry%ifPhotoAOD = .True.
-      call msg("photolysis_affected_by_aod = YES")
-    elseif (strTmp == 'NO') then
+        
+      call init_photolysis_lut(rulesChemistry%filename_photo_lut)
+      if (error) then
+        call set_error("Error after init_photolysis_lut", sub_name)
+        return
+      endif
+      
+
+      strTmp = fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_aod'))
+      if( strTmp == 'YES') then
+        strTmp = fu_content(nlTransf,'photolysis_AOD_wavelength')
+        if (trim(strTmp) == "") then
+          call msg("Using default photolysis_AOD_wavelength")
+          strTmp = "550 nm"
+        endif
+        rulesChemistry%photoAODwavelength = fu_set_named_value(strTmp)
+        call msg("photolysis_AOD_wavelength, nm", rulesChemistry%photoAODwavelength*1e9)
+        rulesChemistry%ifPhotoAOD = .True.
+        call msg("photolysis_affected_by_aod = YES")
+      elseif (strTmp == 'NO') then
+        rulesChemistry%ifPhotoAOD = .False.
+        rulesChemistry%photoAODwavelength = real_missing
+        call msg("Photolysis ignores aerosols: photolysis_affected_by_aod = NO")
+    else
+         call msg("Usage: photolysis_affected_by_aod = (YES|NO)")
+         call set_error("Unknown photolysis_affected_by_aod value: '"//trim(strtmp)//"'", sub_name)
+      endif
+
+      strTmp = fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_o3col'))
+      if(  strTmp == 'YES' .or.  strTmp == 'MASS_MAP') then !! Backward compatible
+        rulesChemistry%PhotoO3col = mass_map
+        call msg("photolysis_affected_by_o3col = MASS_MAP") 
+      elseif (strTmp == 'METEO') then
+        rulesChemistry%PhotoO3col = meteo_column
+        call msg("photolysis_affected_by_o3col = METEO") 
+      elseif  ((strTmp == 'STANDARD_ATMOSPHERE') .or. (strTmp == '') .or. (strTmp == 'NO')) then
+        rulesChemistry%PhotoO3col = standard_atmosphere
+        call msg("photolysis_affected_by_o3col = STANDARD_ATMOSPHERE") 
+      else
+        call msg("Usage: photolysis_affected_by_o3col = (MASS_MAP|METEO|STANDARD_ATMOSPHERE)")
+        call set_error("Unknown photolysis_affected_by_o3col value: '"//trim(strtmp)//"'", sub_name)
+      end if
+
+      if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'SIMPLE_CLOUD') then
+        rulesChemistry%cloud_model_for_photolysis = simple_cloud
+        call msg("Simple water cloud model for photolysis")
+      else if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'DETAILED_CLOUD') then
+        rulesChemistry%cloud_model_for_photolysis = detailed_cloud
+        call msg("Detailed water cloud model for photolysis")
+      else if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'FAKE_CLOUD') then
+        rulesChemistry%cloud_model_for_photolysis = fake_cloud
+        call msg("Fake water cloud model for photolysis")
+      end if
+    else
+      rulesChemistry%cloud_model_for_photolysis = int_missing
+      rulesChemistry%PhotoO3col = int_missing
       rulesChemistry%ifPhotoAOD = .False.
       rulesChemistry%photoAODwavelength = real_missing
-      call msg("Photolysis ignores aerosols: photolysis_affected_by_aod = NO")
-    else
-       call msg("Usage: photolysis_affected_by_aod = (YES|NO)")
-       call set_error("Unknown photolysis_affected_by_aod value: '"//trim(strtmp)//"'", sub_name)
-    endif
 
-    strTmp = fu_str_u_case(fu_content(nlTransf,'photolysis_affected_by_o3col'))
-    if(  strTmp == 'YES' .or.  strTmp == 'MASS_MAP') then !! Backward compatible
-      rulesChemistry%PhotoO3col = mass_map
-      call msg("photolysis_affected_by_o3col = MASS_MAP") 
-    elseif (strTmp == 'METEO') then
-      rulesChemistry%PhotoO3col = meteo_column
-      call msg("photolysis_affected_by_o3col = METEO") 
-    elseif  ((strTmp == 'STANDARD_ATMOSPHERE') .or. (strTmp == '') .or. (strTmp == 'NO')) then
-      rulesChemistry%PhotoO3col = standard_atmosphere
-      call msg("photolysis_affected_by_o3col = STANDARD_ATMOSPHERE") 
-    else
-      call msg("Usage: photolysis_affected_by_o3col = (MASS_MAP|METEO|STANDARD_ATMOSPHERE)")
-      call set_error("Unknown photolysis_affected_by_o3col value: '"//trim(strtmp)//"'", sub_name)
-    end if
-
-    if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'SIMPLE_CLOUD') then
-      rulesChemistry%cloud_model_for_photolysis = simple_cloud
-      call msg("Simple water cloud model for photolysis")
-    else if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'DETAILED_CLOUD') then
-      rulesChemistry%cloud_model_for_photolysis = detailed_cloud
-      call msg("Detailed water cloud model for photolysis")
-    else if (fu_str_u_case(fu_content(nlTransf,'cloud_model_for_photolysis')) == 'FAKE_CLOUD') then
-      rulesChemistry%cloud_model_for_photolysis = fake_cloud
-      call msg("Fake water cloud model for photolysis")
+      rulesChemistry%need_photo_lut = .false.
     end if
 
     rulesChemistry%defined = silja_true
