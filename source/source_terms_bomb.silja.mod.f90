@@ -489,7 +489,13 @@ CONTAINS
     !
     ! Stuff beyond the projection
     !
-    forced_act = 1.0 - sum(b_src%height_frac)
+
+    forced_act = sum(b_src%height_frac) !! Total of fractions numerics can lead to negatives
+    if (abs(1.0 - forced_act) < 2e-7) then 
+      forced_act = 0
+    else
+      forced_act = 1.0 - forced_act
+    endif
     !
     ! Error if activity forced too much, warning if quite a lot
     !
@@ -515,6 +521,10 @@ CONTAINS
         call set_error('Fraction total not 1',sub_name)
 
         return
+    endif
+
+    if (any(b_src%height_frac(:) < 0.)) then
+      call set_error("Negative Fraction", sub_name)
     endif
        
   end subroutine initialize_vertical_fraction
@@ -1144,7 +1154,9 @@ CONTAINS
     land = fu_get_value(fraction_of_land_fld, nx_meteo, ixSrc, iySrc, &
                       & pHorizInterpMet2DispStruct, .not. (meteo_grid == dispersion_grid))
     
-    if(fu_fails(land<=1. .and. land >= 0., 'strange land fraction:' + fu_str(land),'inject_emission_euler_b_src'))return
+    if(fu_fails(land<=1.00001 .and. land >= 0., 'strange land fraction:' + fu_str(land),'inject_emission_euler_b_src'))return
+
+    land = max(land, 1.0)
 
     if (land < 0.1) then
       ! 

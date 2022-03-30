@@ -4503,14 +4503,17 @@ endif
 
 
     call grid_dimensions(grid, nxOut, nyOut)
-    !
+    ! 
     ! We do not know how many cells will be in the given grid. Have to go carefully
     ! So far, assume the fraction ratio as a scaling for the number of cells
     !
     ! tripled the number - should be sufficient for everything
     !
-    as%nCellsDispGrd = max(1, int(3. * as%nCells * fu_cell_size(as%grid) / fu_cell_size(grid)))
-    as%nCellsDispGrd = min(as%nCellsDispGrd, nxOut*nyOut) !Not more than dispersion grid
+
+    !!! RK: This calculation was rewritten to avoid integer overflow
+    !!! on very coarse sourcees over very fine dispersion grids
+    as%nCellsDispGrd = int( min( nxOut*nyOut*1. ,  &
+                    &   3. * as%nCells * fu_cell_size(as%grid) / fu_cell_size(grid) + 1.))
 
 
     iCellNbrs => fu_work_int_array(nxOut*nyOut)
