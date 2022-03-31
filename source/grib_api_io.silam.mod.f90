@@ -1870,7 +1870,7 @@ MODULE grib_api_io
     ! different oddities and specifics.
     !
 
-if(ifDebug .or. quantity == pressure_flag)then
+if(ifDebug)then
  !  if(smpi_global_rank == 0) call grib_dump(indGrib, io_status)
   call msg('*** Before fixing the strange quantities************')
   call report(source_of_data)
