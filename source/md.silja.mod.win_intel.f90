@@ -549,6 +549,12 @@ MODULE md ! The machine dependent code of silja on Intel platform
     else
       stop ! call exit(0)
     end if
+#else
+    if (present(status)) then
+      call exit(status)
+    else
+      call exit(0)
+    end if
 #endif
   end subroutine exit_with_status
 
