@@ -250,7 +250,7 @@ MODULE grib_api_io
 
     !! Attempt to prepend default definitions with local definitions 
     silamDefinitionPath = fu_process_filepath(fu_content(nlTmp,'local_definition_path'), superfile=chFNm)
-    if (definitionPath /= '') then
+    if (silamDefinitionPath /= '') then
         inquire(file=silamDefinitionPath, exist=lTmp)
         if (.not. lTmp) then
                call msg("silamDefinitionPath = "//trim(silamDefinitionPath))

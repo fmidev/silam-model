@@ -297,6 +297,8 @@ CONTAINS
     !
     p_src%src_nm = ''
     p_src%sector_nm = ''
+    p_src%ifUseTimeVarCoef = .FALSE.
+
     p_src%stackHeight = real_missing
     p_src%vertDispType = int_missing
     nullify(p_src%params)
