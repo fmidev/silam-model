@@ -46,7 +46,7 @@ MODULE source_terms_bomb
   public fu_source_id_nbr
   public fu_source_nbr
   public fill_b_src_from_namelist
-  public source_2_map
+  public source_2_map_bomb_source
   public source_2_second_grid
   public create_source_containing_grid
   public inject_emission_euler_b_src
@@ -71,7 +71,6 @@ MODULE source_terms_bomb
   private fu_source_id_nbr_of_b_src
   private fu_source_nbr_of_b_src
   private link_b_src_to_species
-  private source_2_map_bomb_source
   private project_b_src_second_grd  ! projects to the given grid and stores new position
   private create_src_cont_grd_b_src
   private report_bomb_source
@@ -135,9 +134,6 @@ MODULE source_terms_bomb
     module procedure link_b_src_to_species
   end interface
 
-  interface source_2_map
-    module procedure source_2_map_bomb_source
-  end interface
 
   interface source_2_second_grid
     module procedure project_b_src_second_grd
@@ -852,7 +848,7 @@ CONTAINS
 
   !****************************************************************
 
-  subroutine source_2_map_bomb_source(bs, dataPtr, id, ifWholeVertical)
+  subroutine source_2_map_bomb_source(bs, dataPtr, id)
     !
     ! Projects the point source to the map, having the given id as a 
     ! template: the id deterines the grid, level and substance name
@@ -861,9 +857,8 @@ CONTAINS
 
     ! Imported parameters
     type(silam_bomb_source), intent(in) :: bs
-    real, dimension(:), pointer :: dataPtr
+    real, dimension(:), intent(inout) :: dataPtr
     type(silja_field_id), intent(in) :: id
-    logical, intent(in) :: ifWholeVertical
 
     ! Local variables
     real :: xOut, yOut !, fRate, fTmp
@@ -887,10 +882,6 @@ CONTAINS
     endif
     if(.not.defined(fu_grid(id)))then
       call set_error('Undefined grid given','source_2_map_bomb_source')
-      return
-    endif
-    if(.not.associated(dataPtr))then
-      call set_error('Data array is not associated','source_2_map_bomb_source')
       return
     endif
     if(.not.fu_number_of_gridpoints(fu_grid(id)) > size(dataPtr))then

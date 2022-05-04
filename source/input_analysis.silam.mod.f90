@@ -1515,6 +1515,8 @@ call msg('Done:' + fu_quantity_short_string(fu_quantity(input_list,j)))
     hasStagU = .False.
     hasStagV = .False.
     do i=1,IC%NbrGrids
+    if (fu_gridtype(IC%grids(IC%SystemGridPtr)%grid) == anygrid) cycle !!! Fixme  Workaround for staggered anygrids
+                                            !!! Some mechanism for anygrid staggering has to be implemented
           gridTmp = fu_staggered_grid("stagX", IC%grids(IC%SystemGridPtr)%grid, .True., .False.)
           do j=1,IC%grids(i)%NFlds_grd
             if(fu_quantity(IC%ids(IC%grids(i)%flds(j))) == u_flag)then

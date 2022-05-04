@@ -59,7 +59,7 @@ MODULE source_terms_area
   public fu_source_id_nbr
   public fu_source_nbr
   public fu_nbr_of_disp_grd_cells
-  public source_2_map
+  public source_2_map_area_source
   public project_a_src_second_grd     ! projects to the given grid and stores new cell set
   public prepare_src_vert_params
   public fu_useTimeVarCoef
@@ -108,7 +108,6 @@ MODULE source_terms_area
   private fu_cocktail_descr_of_a_src
   private fu_source_id_nbr_of_a_src
   private fu_nbr_of_disp_grd_cells_a_src
-  private source_2_map_area_source
   private prepare_src_vert_params_a_src
   private get_cell_grid_coords_a_src
   private get_cell_geo_coords_a_src
@@ -217,10 +216,6 @@ MODULE source_terms_area
 
   interface fu_nbr_of_disp_grd_cells
     module procedure fu_nbr_of_disp_grd_cells_a_src
-  end interface
-
-  interface source_2_map
-    module procedure source_2_map_area_source
   end interface
 
   interface prepare_src_vert_params
@@ -3900,10 +3895,11 @@ CONTAINS
 
   !****************************************************************
 
-  subroutine source_2_map_area_source(a_src, dataPtr, id, ifWholeVertical, iAccuracy, ifRandomise)
+  subroutine source_2_map_area_source(a_src, dataPtr, id, iAccuracy, ifRandomise)
     !
-    ! Projects the area source to the map, having the given id as a 
+    ! Projects the area source (in dispersion grid) to a map, having the given id as a 
     ! template: the id deterines the grid, level, time, and species name.
+    ! Reprojection is done from dispersion grid.
     !
     ! ATTENTION. Do not scale or nullify dataPtr: this array can accumulate 
     !            information from many sources.
@@ -3919,9 +3915,8 @@ CONTAINS
 
     ! Imported parameters
     type(silam_area_source), intent(inout) :: a_src
-    real, dimension(:), pointer :: dataPtr
+    real, dimension(:), intent(inout) :: dataPtr
     type(silja_field_id), intent(in) :: id
-    logical, intent(in) :: ifWholeVertical ! if vertically integrate the emission
     integer, intent(in) :: iAccuracy
     logical, intent(in) :: ifRandomise
 
@@ -3937,6 +3932,7 @@ CONTAINS
     type(silja_rp_1d), dimension(:), pointer :: pArTmp 
     type(THorizInterpStruct), pointer :: pHorInterp 
     type(silja_grid) :: idGrid
+    character(len=*), parameter :: sub_name = 'source_2_map_area_source'
 
     species =>null()
     amounts  =>null()
@@ -3947,24 +3943,20 @@ CONTAINS
     ! Stupidity check
     !
     if(.not.defined(id))then
-      call set_error('Undefined id given','source_2_map_area_source')
+      call set_error('Undefined id given',sub_name)
       return
     endif
     if(.not.defined(idGrid))then
-      call set_error('Undefined grid given','source_2_map_area_source')
-      return
-    endif
-    if(.not.associated(dataPtr))then
-      call set_error('Data array is not associated','source_2_map_area_source')
+      call set_error('Undefined grid given',sub_name)
       return
     endif
     if(fu_number_of_gridpoints(idGrid) > size(dataPtr))then
-      call set_error('Too small data array given','source_2_map_area_source')
+      call set_error('Too small data array given',sub_name)
       return
     endif
     if(iAccuracy < 1 .or. iAccuracy > 10)then
       call msg('Accuracy switch must be from 1 to 10, not:',iAccuracy)
-      call set_error('Accuracy switch must be from 1 to 10','source_2_map_area_source')
+      call set_error('Accuracy switch must be from 1 to 10',sub_name)
       return
     endif
 if (ifRandomise)then
@@ -3995,7 +3987,6 @@ endif
     endif
 
     call grid_dimensions(idGrid, nxOut, nyOut)
-    call grid_dimensions(a_src%grid, nxSrc, nySrc)
     if(error)return
 
     if(a_src%ifFieldGiven)then
@@ -4003,6 +3994,7 @@ endif
       ! Have to sum-up the binaries
       ! First, prepare the strucutre
       ! 
+      call grid_dimensions(a_src%grid, nxSrc, nySrc)
       call get_work_arrays_set(a_src%nDescriptors, nxSrc*nySrc, pArTmp)
       if(error)return
       do i = 1, a_src%nDescriptors
@@ -4028,11 +4020,11 @@ endif
             if(error)return
           case(ascii_file_flag) 
             call set_error('ASCII field format is not supported as time-resolving', &
-                         & 'source_2_map_area_source')
+                         & sub_name)
             return
           case default
             call set_error('Field format is not supported:' + fu_str(a_src%FieldFormat(j)%iformat), &
-                         & 'source_2_map_area_source')
+                         & sub_name)
              return
         end select
 
@@ -4043,7 +4035,7 @@ endif
       !
       pHorInterp => fu_horiz_interp_struct(a_src%grid, idGrid, summation, ifRandomise, iOutside=setZero)
       if(error .or. .not. associated(pHorInterp))then
-        call set_error('Failed to get horizontal interpolation structure','source_2_map_area_source')
+        call set_error('Failed to get horizontal interpolation structure',sub_name)
         return
       endif
 
@@ -4075,20 +4067,17 @@ endif
       ! Source is given as a list of cells. Go hard way.
       !
       if(a_src%nCells < 1)then
-        call set_error('No cells in area source:' + a_src%src_nm,'source_2_map_area_source')
-        call unset_error('source_2_map_area_source')
+        call set_error('No cells in area source:' + a_src%src_nm,sub_name)
+        call unset_error(sub_name)
         return
       endif
-
-      call grid_dimensions(a_src%grid, nxSrc, nySrc)
-      if(error)return
 
       nSmallSkipped = 0
       fMassSkipped = 0. 
       !
       ! Get the array of amounts per-descriptor
       !
-      amounts => fu_work_array()
+      amounts => fu_work_array(a_src%nDescriptors)
       if(error)return
       call total_from_a_src_descr_unit(a_src, .true. , &   ! if integrate rates only
                                      & amounts, &
@@ -4111,12 +4100,29 @@ endif
 
       !
       ! For lonlat grids with the same poles the reprojection can be substantially sped-up
-      !
-      ifSimpleReprojection = fu_gridtype(a_src%grid) == lonlat .and. &
+      ifSimpleReprojection = fu_gridtype(dispersion_grid) == lonlat .and. &
                            & fu_gridtype(idGrid) == lonlat
-      if(ifSimpleReprojection) ifSimpleReprojection = ifSimpleReprojection .and. &
-                                                    & fu_pole(a_src%grid) == fu_pole(idGrid)
-      if(ifSimpleReprojection)then
+      if(ifSimpleReprojection) ifSimpleReprojection =  fu_pole(dispersion_grid) == fu_pole(idGrid)
+
+
+      if (idGrid == dispersion_grid) then 
+        ! No remapping needed
+        if(len_trim(a_src%sector_nm) > 0)then
+          call msg('NO mapping for area source:' + a_src%src_nm + '_' + a_src%sector_nm + ',' + &
+                                    & fu_str(fu_species(id)))
+        else
+          call msg('NO mapping for area source:' + a_src%src_nm + ',' + fu_str(fu_species(id)))
+        endif
+        do iCell = 1, a_src%nCellsDispGrd ! Only these cells are non-zero
+            k = nint(a_src%cellDispGrd_fx(iCell)) + (nint(a_src%cellDispGrd_fy(iCell))-1)*nxOut
+            do iDescr = 1, a_src%nDescriptors
+              if(species_index(iDescr) < 1)cycle     ! Some descriptors may not have the needed species
+              dataPtr(k) = dataPtr(k) + a_src%cellDispGrd_val(iDescr,iCell) * amounts(iDescr) * &
+                            & a_src%fDescr2SpeciesUnit(species_index(iDescr),iDescr)
+            end do
+        enddo
+
+      elseif(ifSimpleReprojection)then
         !
         ! Poles are the same, i.e. the grid cell borders are parallel. Then a simple algebra can 
         ! serve the reprojection
@@ -4130,14 +4136,14 @@ endif
         endif
         ifLonGlobalOut = fu_ifLonGlobal(idGrid)
 
-        do iCell = 1, a_src%nCells ! Only these cells are non-zero
+        do iCell = 1, a_src%nCellsDispGrd ! Only these cells are non-zero
           !
           ! Lower left and upper right corners determine the coordinates range in the From grid
           !
-          call project_point_to_grid(a_src%grid, a_src%cell_fx(iCell)-0.5,a_src%cell_fy(iCell)-0.5, &
-                                   & idGrid,fX_ll,fY_ll)
-          call project_point_to_grid(a_src%grid, a_src%cell_fx(iCell)+0.5,a_src%cell_fy(iCell)+0.5, &
-                                   & idGrid,fX_ur,fY_ur)
+          ix = nint(a_src%cellDispGrd_fx(iCell))
+          iy = nint(a_src%cellDispGrd_fy(iCell))
+          call project_point_to_grid(dispersion_grid, ix-0.5, iy-0.5, idGrid, fX_ll, fY_ll)
+          call project_point_to_grid(dispersion_grid, ix+0.5, iy+0.5, idGrid, fX_ur, fY_ur)
           !
           ! Do we yeed to bother?
           !
@@ -4175,7 +4181,7 @@ endif
                 k = i + (j-1)*nxOut
                 do iDescr = 1, a_src%nDescriptors
                   if(species_index(iDescr) < 1)cycle     ! Some descriptors may not have the needed species
-                  dataPtr(k) = dataPtr(k) + a_src%cell_val(iDescr,iCell) * amounts(iDescr) * &
+                  dataPtr(k) = dataPtr(k) + a_src%cellDispGrd_val(iDescr,iCell) * amounts(iDescr) * &
                                 & f_nSmall_2_1 * a_src%fDescr2SpeciesUnit(species_index(iDescr),iDescr)
                 end do
               end do  ! ixTo
@@ -4201,7 +4207,7 @@ endif
         ! the total number of small cells to proceed: I do not want to deal with tens of 
         ! millions of grid reprojections.
         !
-        nSmall = int(sqrt(2000. * fu_cell_size(a_src%grid) / fu_cell_size(idGrid))/2.)*2+1
+        nSmall = int(sqrt(2000. * fu_cell_size(dispersion_grid) / fu_cell_size(idGrid))/2.)*2+1
 
         nSmall = min(1001, max(nSmall,101)) ! Hard limits
 
@@ -4228,19 +4234,6 @@ endif
         !
         do iCell = 1, a_src%nCells ! Only these cells are non-zero
 
-  ! OPTION 1. Tested, seems to work - fast and crude
-  !        !
-  !        ! First, let's try to project the centre of the grid cells
-  !        !
-  !        call project_point_to_grid(as%grid, as%cells(iCell)%fx, as%cells(iCell)%fy, &
-  !                                &  idGrid, xNew, yNew)
-  !        if(error)return
-  !
-  !        i = int(xNew+0.5) + (int(yNew+0.5)-1)*nxOut
-  !        dataPtr(i) = dataPtr(i) + &
-  !                   & fArea(int(as%cells(iCell)%fx+0.5) + nxSrc*(int(as%cells(iCell)%fy+0.5)-1))
-
-  ! OPTION 2. Tested, seems to be OK
           !
           ! Split the source grid cells to some number of small elements and project
           ! each of them separately. A nice feature is: grid co-ordinates can be real
@@ -4249,41 +4242,34 @@ endif
           do i=1,nSmall
             do j=1,nSmall
 
-  !            print *, '1:(iCell,iSmall,jSmall,x,y)',iCell,i,j,as%cells(iCell)%fx, as%cells(iCell)%fy
-
-  !            call project_point_to_grid(a_src%grid, &
-  !                                     & a_src%cell_fx(iCell)-0.5 + (real(i)-0.5)/nSmall, &
-  !                                     & a_src%cell_fy(iCell)-0.5 + (real(j)-0.5)/nSmall, &
-  !                                     & idGrid, xNew, yNew)
-  if(ifRANDOMISE)then
-              call project_point_to_grid(a_src%grid, &
-                                       & a_src%cell_fx(iCell)-0.5 + (real(i)-0.5)/nSmall + &
-                                                     & fu_random_number_center(0.,1./real(nSmall)), &
-                                       & a_src%cell_fy(iCell)-0.5 + (real(j)-0.5)/nSmall + &
-                                                     & fu_random_number_center(0.,1./real(nSmall)), &
-                                       & idGrid, xNew, yNew)
-  else
-              call project_point_to_grid(a_src%grid, &
-                                       & a_src%cell_fx(iCell)-0.5 + (real(i)-0.5)/nSmall, &
-                                       & a_src%cell_fy(iCell)-0.5 + (real(j)-0.5)/nSmall, &
-                                       & idGrid, xNew, yNew)
-  endif
+              ix = nint(a_src%cellDispGrd_fx(iCell))
+              iy = nint(a_src%cellDispGrd_fy(iCell))
+              if(ifRANDOMISE)then
+                 call project_point_to_grid(dispersion_grid, &
+                   & ix-0.5 + (real(i)-0.5)/nSmall + fu_random_number_center(0.,1./real(nSmall)), &
+                   & iy-0.5 + (real(j)-0.5)/nSmall + fu_random_number_center(0.,1./real(nSmall)), &
+                   & idGrid, xNew, yNew)
+              else
+                 call project_point_to_grid(dispersion_grid, &
+                   & ix-0.5 + (real(i)-0.5)/nSmall, &
+                   & iy-0.5 + (real(j)-0.5)/nSmall, &
+                   & idGrid, xNew, yNew)
+              endif
               if(error)return
 
               if(xNew >= 0.5 .and. xNew <= nxOut+0.5 .and. yNew >= 0.5 .and. yNew <= nyOut+0.5)then
                 k = nint(xNew) + (nint(yNew)-1)*nxOut
                 do iDescr = 1, a_src%nDescriptors
                   if(species_index(iDescr) < 1)cycle     ! Some descriptors may not have the needed species
-                  dataPtr(k) = dataPtr(k) + a_src%cell_val(iDescr,iCell) * amounts(iDescr) * &
+                  dataPtr(k) = dataPtr(k) + a_src%cellDispGrd_val(iDescr,iCell) * amounts(iDescr) * &
                                      & f_nSmall_2_1 * a_src%fDescr2SpeciesUnit(species_index(iDescr),iDescr)
                 end do
               else
                 nSmallSkipped = nSmallSkipped + 1
                 do iDescr = 1, a_src%nDescriptors
                   if(species_index(iDescr) < 1)cycle    ! Some descriptors may not have the needed species
-                  fMassSkipped = fMassSkipped + a_src%cell_val(iDescr,iCell) * amounts(iDescr) * &
+                  fMassSkipped = fMassSkipped + a_src%cellDispGrd_val(iDescr,iCell) * amounts(iDescr) * &
                                      & f_nSmall_2_1 * a_src%fDescr2SpeciesUnit(species_index(iDescr),iDescr)
-                                          
                 end do
               endif
             end do   ! nSmall
@@ -4294,7 +4280,7 @@ endif
       endif  ! if same pole
 
       call msg('Total sum for output map:', sum(dataPtr(1:fu_number_of_gridpoints(idGrid))))
-      call msg('Out of output grid (zero for simplified projection): ', fMassSkipped)
+      call msg('Emiited to dispersion out of output grid: ', fMassSkipped)
 
       call free_work_array(amounts)
 

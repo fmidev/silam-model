@@ -86,7 +86,7 @@ MODULE source_terms_general
   public create_src_contain_grd_gen_src
 !  public create_src_containing_vert
   public force_source_into_grid
-  public source_2_map
+  public sources_2_map
   public init_emission_internal_fields
   public link_emission_2_dispersion
   public inject_emission_eulerian
@@ -122,7 +122,6 @@ MODULE source_terms_general
   
   private fu_n_disp_grd_cells_src_inv
   private fu_source_id_nbr_of_source
-  private source_2_map_general
   private fu_grid_of_source
   private fu_id_nbr_from_srcNMs
   private fu_id_nbr_from_srcNbr
@@ -178,10 +177,6 @@ MODULE source_terms_general
 
   interface link_source_to_species
     module procedure link_general_src_to_species
-  end interface
-
-  interface source_2_map
-    module procedure source_2_map_general
   end interface
 
   interface force_source_into_grid
@@ -4631,7 +4626,7 @@ call msg('Dumping Px')
 
   !*****************************************************************
 
-  subroutine source_2_map_general (em_src, dataPtr, id, ifWholeVertical, iSrcId, iAccuracy, ifRandomise)
+  subroutine sources_2_map (em_src, emsMap, id, iSrcId, iAccuracy, ifRandomise)
     !
     ! General function, which drops the source pointed by the indexSrc to the
     ! map described by id. The field itself is pointed by dataPtr. Paticular 
@@ -4641,21 +4636,22 @@ call msg('Dumping Px')
 
     ! Imported parameters
     type(silam_source), intent(inout) :: em_src
-    real, dimension(:), pointer :: dataPtr
+    real, dimension(:), intent(out) :: emsMap
     type(silja_field_id), intent(in) :: id
-    logical, intent(in) :: ifWholeVertical, ifRandomise
+    logical, intent(in) :: ifRandomise
     integer, intent(in) :: iSrcId ! Requested source ID number
     integer, intent(in) :: iAccuracy
+    character(len=*), parameter :: sub_name = 'sources_2_map'
 
     ! Local variables
     integer :: iSrc
     logical :: ifFound
 
     !
-    ! Zeroing the output dataPtr has to be done here, not in individual sources.
+    ! Zeroing the output emsMap has to be done here, not in individual sources.
     ! Otherwise, the sum-up of the sources will fail
     !
-    dataPtr(1:fu_number_of_gridpoints(fu_grid(id))) = 0.
+    emsMap(1:fu_number_of_gridpoints(fu_grid(id))) = 0.
 
     !
     ! Simply find the source pointed by the iSrcId and call its own 
@@ -4668,17 +4664,17 @@ call msg('Dumping Px')
 !        call msg('Source:' + em_src%src_info_lst(iSrc)%chId + ',' + &
 !               & fu_str(fu_species(id)), em_src%src_info_lst(iSrc)%iIdNbr)
         if(em_src%src_info_lst(iSrc)%iSrcType == area_source)then
-          call source_2_map(em_src%a_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%a_src, &
-                          & dataPtr, id, ifWholeVertical, iAccuracy, ifRandomise)
+          call source_2_map_area_source(em_src%a_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%a_src, &
+                          & emsMap, id, iAccuracy, ifRandomise)
         elseif(em_src%src_info_lst(iSrc)%iSrcType == bomb_source)then
-          call source_2_map(em_src%b_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%b_src, &
-                          & dataPtr, id, ifWholeVertical)
+          call source_2_map_bomb_source(em_src%b_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%b_src, &
+                          & emsMap, id)
         elseif(em_src%src_info_lst(iSrc)%iSrcType == point_source)then
-          call source_2_map(em_src%p_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%p_src, &
-                          & dataPtr, id, ifWholeVertical)
+          call source_2_map_point_source(em_src%p_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%p_src, &
+                          & emsMap, id)
         elseif(em_src%src_info_lst(iSrc)%iSrcType == volcano_source)then
           call source_2_map_volc_src(em_src%volc_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%volc_src, &
-                                   & dataPtr, id, ifWholeVertical)
+                                   & emsMap, id)
         elseif(em_src%src_info_lst(iSrc)%iSrcType == fire_source .or. &
              & em_src%src_info_lst(iSrc)%iSrcType == sea_salt_source .or. &
              & em_src%src_info_lst(iSrc)%iSrcType == pollen_source .or. &
@@ -4688,7 +4684,7 @@ call msg('Dumping Px')
           call msg_warning('The type of the source is not supported:' + em_src%src_info_lst(iSrc)%chId)
         else
           call msg('Strange source type:',em_src%src_info_lst(iSrc)%iSrcType)
-          call set_error('Strange source type','source_2_map_general')
+          call set_error('Strange source type',sub_name)
           return
         endif
       endif
@@ -4700,10 +4696,10 @@ call msg('Dumping Px')
       do iSrc = 1, em_src%n_point + em_src%n_area + em_src%n_bomb !+ em_src%n_fire
         call msg('ID:',em_src%src_info_lst(iSrc)%iIdNbr)
       end do
-      call set_error('The source ID is not found in the source list','source_2_map_general')
+      call set_error('The source ID is not found in the source list',sub_name)
     endif
 
-  end subroutine source_2_map_general
+  end subroutine sources_2_map
 
 
   !*****************************************************************

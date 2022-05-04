@@ -74,7 +74,7 @@ MODULE source_terms_point
   public store_source_as_namelist
   public link_source_to_species
   public add_source_species_p_src
-  public source_2_map
+  public source_2_map_point_source
   public project_p_src_2_grids
   public prepare_src_vert_params_p_src
   public create_src_cont_grd_p_src
@@ -104,7 +104,6 @@ MODULE source_terms_point
   private fu_source_id_nbr_of_p_src
   private point_source_rate_descr_unit
   
-  private source_2_map_point_source
   private fu_useTimeVarCoef_p_src
   private link_p_src_to_species
   private fu_source_nbr_of_p_src
@@ -180,10 +179,6 @@ MODULE source_terms_point
 
   interface link_source_to_species
     module procedure link_p_src_to_species
-  end interface
-
-  interface source_2_map
-    module procedure source_2_map_point_source
   end interface
 
   interface fu_useTimeVarCoef
@@ -1757,7 +1752,7 @@ CONTAINS
 
   !****************************************************************
 
-  subroutine source_2_map_point_source(p_src, dataPtr, id, ifWholeVertical)
+  subroutine source_2_map_point_source(p_src, dataPtr, id)
     !
     ! Projects the point source to the map, having the given id as a 
     ! template: the id deterines the grid, level and substance name.
@@ -1768,9 +1763,8 @@ CONTAINS
 
     ! Imported parameters
     type(silam_point_source), intent(inout) :: p_src
-    real, dimension(:), pointer :: dataPtr
+    real, dimension(:), intent(inout) :: dataPtr
     type(silja_field_id), intent(in) :: id
-    logical, intent(in) :: ifWholeVertical
     ! There was iMode, however, it was never called in that form.
     !integer, intent(in), optional :: iMode
 
@@ -1794,10 +1788,6 @@ CONTAINS
     endif
     if(.not.defined(fu_grid(id)))then
       call set_error('Undefined grid given','source_2_map_point_source')
-      return
-    endif
-    if(.not.associated(dataPtr))then
-      call set_error('Data array is not associated','source_2_map_point_source')
       return
     endif
     if(fu_number_of_gridpoints(fu_grid(id)) > size(dataPtr))then

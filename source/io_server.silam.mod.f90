@@ -3613,7 +3613,9 @@ CONTAINS
     integer :: iVar, iSrcId, iLev, iSp, i, iUnitGrib, iUnitGrads, iUnitNetcdf, nSpecies
     type(silam_species), dimension(:), pointer :: pSpecies
     type(silja_field_id) :: idTmp
+    type(silja_level) :: level
     real, dimension(:), pointer :: fArPtr
+    logical :: if2D
     type(silam_sp) :: sp_grib, sp_grads
     !
     ! Some stupidity check
@@ -3711,20 +3713,39 @@ CONTAINS
 
           fArPtr => fu_work_array()
 
-          do iSp= 1, nSpecies
+          if2D = (OutDef%Rules%DispOutLst%ptrItem(iVar)%iVerticalTreatment == integrate_column_flag .or. &
+                & OutDef%Rules%DispOutLst%ptrItem(iVar)%iVerticalTreatment == lowest_level_flag )
 
+          do iSp= 1, nSpecies
+            
             do iLev=1, nz_output
               !
               ! Writing will happen in two steps. First, the source projects itself
               ! to the given map. Second, this map is dropped into the output file.
               !
-              call msg('Level:', iLev)
+              if (if2D) then
+                if (iLev > 1) exit
+                if (OutDef%Rules%DispOutLst%ptrItem(iVar)%iVerticalTreatment == integrate_column_flag) then 
+                  call msg('Whole vertical')
+                  level=fu_set_layer_between_two(&
+                      & fu_lower_boundary_of_layer(fu_level(output_vertical,1)) , &
+                      & fu_upper_boundary_of_layer(fu_level(output_vertical,nz_output))&
+                    &)
+                else !! lowest_level_flag
+                  call msg('Level (lowest):', iLev)
+                  level = fu_level(output_vertical,iLev)
+                endif
+              else
+                call msg('Level:', iLev)
+                level = fu_level(output_vertical,iLev)
+              endif
+
               idTmp = fu_set_field_id(fmi_silam_src,&
                                     & emission_intensity_flag, &
                                     & OutDef%Rules%ini_time, &  ! analysis time
                                     & PeriodToCompute, & !zero_interval, &   ! forecast length
                                     & output_grid,&
-                                    & fu_level(output_vertical,iLev),&
+                                    & level,&
                                     & PeriodToCompute, & !zero_interval, & ! length_of_accumulation, optional
                                     & zero_interval, & ! length_of_validity, optional
                                     & accumulated_flag, & ! field_kind, optional
@@ -3732,7 +3753,7 @@ CONTAINS
 !call report(idTmp)
               fArPtr(1:fs_output)=0.
 
-              call source_2_map(em_source, fArPtr, idTmp, .false., iSrcId, iAccuracy, ifRandomise)
+              call sources_2_map(em_source, fArPtr, idTmp, iSrcId, iAccuracy, ifRandomise)
               if(error)return
 
               call msg('Emission sum:',sum(fArPtr(1:fs_output)))

@@ -1664,7 +1664,7 @@ call msg('Enlarging lpset, 2:',  lpset%nop + max(lpset%nop*5/4,nPartInLev(iLev)-
   
   !*************************************************************************
   
-  subroutine source_2_map_volc_src(v_src, dataPtr, id, ifWholeVertical)
+  subroutine source_2_map_volc_src(v_src, dataPtr, id)
     !
     ! Projects the point source to the map, having the given id as a 
     ! template: the id deterines the grid, level and substance name.
@@ -1675,9 +1675,8 @@ call msg('Enlarging lpset, 2:',  lpset%nop + max(lpset%nop*5/4,nPartInLev(iLev)-
 
     ! Imported parameters
     type(silam_volcano_source), intent(inout) :: v_src
-    real, dimension(:), pointer :: dataPtr
+    real, dimension(:), intent(inout) :: dataPtr
     type(silja_field_id), intent(in) :: id
-    logical, intent(in) :: ifWholeVertical
 
     ! Local variables
     real :: xOut, yOut
@@ -1692,7 +1691,6 @@ call msg('Enlarging lpset, 2:',  lpset%nop + max(lpset%nop*5/4,nPartInLev(iLev)-
     if(fu_fails(v_src%defined == silja_true, 'Undefined point source given','source_2_map_volc_src'))return
     if(fu_fails(defined(id), 'Undefined id given','source_2_map_volc_src'))return
     if(fu_fails(defined(fu_grid(id)),'Undefined grid given','source_2_map_volc_src'))return
-    if(fu_fails(associated(dataPtr), 'Data array is not associated','source_2_map_volc_src'))return
     if(fu_number_of_gridpoints(fu_grid(id)) > size(dataPtr))then
       call msg_warning('Too small data array given for the grid of the id')
       call report(id)
