@@ -10,6 +10,9 @@
 
 -include Makefile.branch
 PROGRAM ?= $(BRANCH)
+
+PYTHON ?= python3
+
 # The setup variable: if defined, compiler options will be read from
 # options.$(SETUP), and the executable will be named as $(PROGRAM).$(SETUP)
 SETUP = 
@@ -126,7 +129,7 @@ last.revision : $(filter-out %svndiff.mod.f90, $(wildcard $(SRCDIR)/*.f90))
 # if the filter-out is removed, svndiff will be always regenerated because it's newer than last.revision
 
 #	which svn && svn info ../source > last.revision.tmp && mv last.revision.tmp last.revision || rm -f last.revision.tmp
-	python $(BUILDDIR)/check_revision $(SRCDIR)
+	$(PYTHON) $(BUILDDIR)/check_revision $(SRCDIR)
 
 
 compact :
@@ -149,21 +152,30 @@ $(KPP) :
 	cd $(KPP_DIR) && $(MAKE)
 
 cbm4 : 
-	KPP_HOME=$(KPP_DIR) python kpp2silam.py $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4 \
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4 \
 	--silam-dir=$(SRCDIR) cbm4 # if start using photolysis for cbm4, use the line below
 #	--silam-dir=$(SRCDIR) -u photolysis --photoarr cbm4
 
 cbm4_SOA : 
-	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5011 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4_SOA \
-	--silam-dir=$(SRCDIR) cbm4_SOA
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5011 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm4_SOA \
+	--silam-dir=$(SRCDIR) --SOA  -u photolysis  cbm4_SOA
+
+cbm5_strato_SOA : 
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5013 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm5_strato_SOA \
+	--silam-dir=$(SRCDIR) --SOA -u photolysis --strato cbm5_strato_SOA 
+
+
+cbm5_SOA : 
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5013 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm5_SOA \
+	--silam-dir=$(SRCDIR) --SOA -u photolysis cbm5_SOA 
 
 cbm42_strato :
-	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5008 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato \
-	--silam-dir=$(SRCDIR) -u photolysis cbm42_strato
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5008 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato \
+	--silam-dir=$(SRCDIR) -u photolysis --strato cbm42_strato
 
 cbm42_strato_SOA : 
-	KPP_HOME=$(KPP_DIR) python kpp2silam.py --transf-id=5012 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato_SOA \
-	--silam-dir=$(SRCDIR) -u photolysis cbm42_strato_SOA
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5012 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm42_strato_SOA \
+	--silam-dir=$(SRCDIR)  --SOA -u photolysis --strato cbm42_strato_SOA
 
 
 # Create a source distribution package. Libraries are not
@@ -172,7 +184,7 @@ cbm42_strato_SOA :
 
 DISTRO = $(DISTRDIR)/$(PROGRAM)
 distr : config
-	python $(BUILDDIR)/check_revision --distr $(SRCDIR)
+	$(PYTHON) $(BUILDDIR)/check_revision --distr $(SRCDIR)
 	rm -rf  $(DISTRO)
 	mkdir -p $(DISTRO) && cd $(DISTRO) && mkdir -p source bin build obj ini kpp
 	cp -vp makefile makefile.model config.pl last.revision library.objects options.*[!~] $(DISTRO)/build

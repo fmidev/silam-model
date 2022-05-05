@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from __future__ import print_function
 
@@ -33,7 +33,7 @@ def getRevisionSVN(directory):
     branchname =None
 
     try:
-        svn = subprocess.Popen(('svn', 'info'), cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
+        svn = subprocess.Popen('svn info', cwd=directory, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
 
         for line in svn.stdout:
             # Get branch name from Relative URL
@@ -78,7 +78,8 @@ def getRevisionGIT(directory):
         if git.wait():
             raise RevisionError('git branch returned nonzero')
 
-        gitlog = subprocess.Popen(('git' , 'log'), cwd=directory, stdout=subprocess.PIPE, universal_newlines=True)
+        gitlog = subprocess.Popen("git log", cwd=directory, stdout=subprocess.PIPE, 
+                                        universal_newlines=True, shell=True)
         for line in gitlog.stdout:
             if line.startswith('commit'):
                 gitrev = line.split()[-1]
@@ -197,7 +198,7 @@ contains
         svncmd=diffcmd + ' .'
         for dir in [os.path.join(directory,'..','build'), directory]:
           try:
-            with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir, universal_newlines=True ).stdout as inf:
+            with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir, universal_newlines=True).stdout as inf:
                 diff_f90.write("call msg(\"Output of svn diff at "+dir+"\")\n")
                 for l in inf:
                     l=re.sub("\r","",l[:-1])
