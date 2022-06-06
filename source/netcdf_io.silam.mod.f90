@@ -3182,7 +3182,7 @@ CONTAINS
             !
             ! And now the rest of available grid parameters
             !
-            if(.not. ifNew)cycle  ! if grid already exists, umnlikely that we have to overwrite the parameters
+            if(.not. ifNew)cycle  ! if grid already exists, unlikely that we have to overwrite the parameters
             do iVar = 1, size(gVarId)
               if(gVarId(iVar) == int_missing)then
                 call set_error('gridvar unfound','')
@@ -4531,6 +4531,7 @@ CONTAINS
     
     logical :: ifCopy, ifEnvelope
     integer :: iTmp
+     character (len=*), parameter ::sub_name = "timelst_from_netcdf_file"
 
     if(present(ifCopy_))then
       ifCopy = ifCopy_
@@ -4550,10 +4551,10 @@ CONTAINS
       if(ifEnvelope)then    ! times should cover the range of validity of the fields
         if(fu_fails(defined(nfile(input_unit)%nTime%step), &
                   & 'Time step must be defined to ask for envelope time array', &
-                  & 'timelst_from_netcdf_file'))return
+                  & sub_name))return
         nTimes = nfile(input_unit)%n_times + 1
         allocate(timeLst(nTimes), stat = iTmp)
-        if(fu_fails(iTmp==0,'Failed time array allocation','timelst_from_netcdf_file'))return
+        if(fu_fails(iTmp==0,'Failed time array allocation',sub_name))return
         !
         ! Envelope is arranged differently depending on the time label position
         !
@@ -4572,24 +4573,27 @@ CONTAINS
               timeLst(iTmp) = nfile(input_unit)%ntime%times(iTmp) - &
                             & nfile(input_unit)%nTime%step
             end do
+          case(instant_fields)
+            call set_error('Envelope requested for instant fields', sub_name)
+            return
           case default
             call set_error('Unknown time label position:' + &
                          & fu_str(nfile(input_unit)%ntime%time_label_position), &
-                         & 'timelst_from_netcdf_file')
+                         & sub_name)
             return
         end select
         timeLst(nTimes) = timeLst(nTimes-1) + nfile(input_unit)%nTime%step
       else   ! not envelope times, just copy the array
         nTimes = nfile(input_unit)%n_times
         allocate(timeLst(nTimes), stat = iTmp)
-        if(fu_fails(iTmp==0,'Failed time array allocation','timelst_from_netcdf_file'))return
+        if(fu_fails(iTmp==0,'Failed time array allocation',sub_name))return
         do iTmp = 1, nTimes
           timeLst(iTmp) = nfile(input_unit)%ntime%times(iTmp)
         end do
       endif  ! if envelope time array
     else   ! no copy, just set pointer
       if(ifEnvelope)then
-        call set_error('Cannot make envelope without copying time array','timelst_from_netcdf_file')
+        call set_error('Cannot make envelope without copying time array',sub_name)
         nullify(timeLst)
         nTimes = int_missing
         return

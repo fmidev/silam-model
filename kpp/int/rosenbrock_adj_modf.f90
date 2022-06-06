@@ -2190,11 +2190,14 @@ Stage: DO istage = ros_S, 1, -1
    !CALL JacTemplate(T+Delta,Y,dJdT)
    ISTATUS(Njac) = ISTATUS(Njac) + 1
 #ifdef FULL_ALGEBRA    
-   CALL WAXPY(NVAR*NVAR,(-ONE),Jac0,1,dJdT,1)
-   CALL WSCAL(NVAR*NVAR,(ONE/Delta),dJdT,1)
+!   CALL WAXPY(NVAR*NVAR,(-ONE),Jac0,1,dJdT,1) !!!!! HERE
+!   CALL WSCAL(NVAR*NVAR,(ONE/Delta),dJdT,1)
+   dJdT(1:NVAR*NVAR) =  (dJdT(1:NVAR*NVAR) - Jac0(1:NVAR*NVAR))/Delta
+
 #else
-   CALL WAXPY(LU_NONZERO,(-ONE),Jac0,1,dJdT,1)
-   CALL WSCAL(LU_NONZERO,(ONE/Delta),dJdT,1)
+!   CALL WAXPY(LU_NONZERO,(-ONE),Jac0,1,dJdT,1)
+!   CALL WSCAL(LU_NONZERO,(ONE/Delta),dJdT,1)
+   dJdT(1:LU_NONZERO) =  (dJdT(1:LU_NONZERO) - Jac0(1:LU_NONZERO))/Delta
 #endif   
 
   END SUBROUTINE ros_JacTimeDerivative

@@ -558,7 +558,7 @@ CONTAINS
 
     ! Local variables
     type(silam_sp) :: spContent
-    integer :: iLocal, iTmp, nx, ny, nItems, iStat, iNlCell, nCellsInNamelist, iCell, iCurCell, &
+    integer :: iLocal, iTmp, jTmp, nx, ny, nItems, iStat, iNlCell, nCellsInNamelist, iCell, iCurCell, &
              & iDescr, nDescriptorInParLine, iModeNbr, iItem
     integer, dimension(:), pointer :: indDescriptorOfParLine    ! places of descriptors in descriptor list
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
@@ -796,6 +796,7 @@ CONTAINS
         ! Put the variation to the corresponding indDescriptorOfParLine
         !
         call get_items(nlSrc,'hour_in_day_index',ptrItems,nItems)
+        jTmp = nItems
         do iDescr = 1, nDescriptorInParLine
           a_src%indHour(indDescriptorOfParLine(iDescr),:) = 1.
           do iItem = 1, nItems
@@ -804,6 +805,7 @@ CONTAINS
             if(chSubstNm == trim(fu_name(a_src%cocktail_descr_lst(indDescriptorOfParLine(iDescr))))) then
               read(unit=spContent%sp, iostat=iLocal, fmt=*) chSubstNm, &
                                      & (a_src%indHour(indDescriptorOfParLine(iDescr),iTmp),iTmp=1,24)
+              jTmp = jTmp - 1
               if(iLocal /= 0)then
                 call set_error('Failed to read  hourly variation:' + spContent%sp,'set_header')
                 return
@@ -812,8 +814,10 @@ CONTAINS
             endif
           end do
         end do
+        if (fu_fails(jTmp == 0, "Not all hour_in_day_index (asrc3) were used", sub_name)) return 
 
         call get_items(nlSrc,'day_in_week_index',ptrItems,nItems)
+        jTmp = nItems
         do iDescr = 1, nDescriptorInParLine
           a_src%indDay(indDescriptorOfParLine(iDescr),:) = 1.
           do iItem = 1, nItems
@@ -822,6 +826,7 @@ CONTAINS
             if(chSubstNm == trim(fu_name(a_src%cocktail_descr_lst(indDescriptorOfParLine(iDescr))))) then
               read(unit=spContent%sp, iostat=iLocal, fmt=*) chSubstNm, &
                                      & (a_src%indDay(indDescriptorOfParLine(iDescr),iTmp),iTmp=1,7)
+              jTmp = jTmp - 1
               if(iLocal /= 0)then
                 call set_error('Failed to read  daily-in-week variation:' + spContent%sp,'set_header')
                 return
@@ -830,8 +835,10 @@ CONTAINS
             endif
           end do
         end do
+        if (fu_fails(jTmp == 0, "Not all day_in_week_index (asrc3) were used", sub_name)) return 
 
         call get_items(nlSrc,'month_in_year_index',ptrItems,nItems)
+        jTmp = nItems
         do iDescr = 1, nDescriptorInParLine
           a_src%indMonth(indDescriptorOfParLine(iDescr),:) = 1.
           do iItem = 1, nItems
@@ -840,6 +847,7 @@ CONTAINS
             if(chSubstNm == trim(fu_name(a_src%cocktail_descr_lst(indDescriptorOfParLine(iDescr))))) then
               read(unit=spContent%sp, iostat=iLocal, fmt=*) chSubstNm, &
                                      & (a_src%indMonth(indDescriptorOfParLine(iDescr),iTmp),iTmp=1,12)
+              jTmp = jTmp - 1
               if(iLocal /= 0)then
                 call set_error('Failed to read month-in-year variation:' + spContent%sp,'set_header')
                 return
@@ -848,6 +856,7 @@ CONTAINS
             endif
           end do
         end do
+        if (fu_fails(jTmp == 0, "Not all month_in_year_index (asrc3) were used", sub_name)) return 
 
         do iDescr = 1, nDescriptorInParLine
           a_src%ifUseTimeVarCoef = a_src%ifUseTimeVarCoef .or. &
@@ -1921,6 +1930,7 @@ CONTAINS
             ! Define times
             if(ifTimeVertResolved) then 
               call timelst_from_netcdf_file(a_src%uField(iItem), a_src%times, iTmp, .true., .true.)
+              if (fu_fails(.not. error, 'Error after timelst_from_netcdf_file', sub_name)) return
               !! Check if we should use start or end of slot to address the file
               fnameTmp = fu_FNm(a_src%chFIeldFNmTemplates(iItem), &
                            & a_src%times(1), a_src%times(1), zero_interval, &

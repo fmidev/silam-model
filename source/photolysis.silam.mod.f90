@@ -1010,9 +1010,17 @@ contains
                                                        ! The numerical value is in micrometers
 
     real, dimension(:), allocatable :: clw_dens_col, ciw_dens_col, lwc_col, iwc_col, ccover, cwc, cic
+    character(len=*), parameter :: sub_name = 'compute_water_cloud_properties'
 
     tau_above_bott(:) = 0.0
     pwc_col(:) = 0.0
+
+    !
+    ! Some runs might not have relevant aerosols in them, this sub should not be used there
+    ! without this check it segfaults on pollen runs with 2020 scavenging
+    if (.not. (associated(imet_cwc) .or.  associated(imet_cic)) ) then
+      call set_error( "could not get cloud properties.. Incompatible scavenging?", sub_name)
+    endif
 
     if (maxval(metdat_col(imet_cwc,:) + metdat_col(imet_cic,:)) < 1e-25) then
       ssa = 0.9999
@@ -1112,7 +1120,7 @@ contains
 
       !$OMP CRITICAL
       if (pwc_col(iLev) < 0.0) then
-        call msg_warning('Negative precipitable water!', 'compute_water_cloud_properties')
+        call msg_warning('Negative precipitable water!', sub_name)
         call msg('pwc_col(iLev), lwc_col(iLev), iwc_col(iLev)', &
              & (/pwc_col(iLev), lwc_col(iLev), iwc_col(iLev)/))
         call msg('metdat_col(imet_airdens,iLev), metdat_col(imet_airmass,iLev)', &
@@ -1123,7 +1131,7 @@ contains
         call msg('lwc_d', lwc_d)
         call msg('iwc_normalized', iwc_normalized)
         call msg('iLev', iLev)
-        call set_error('Negative precipitable water!', 'compute_water_cloud_properties')
+        call set_error('Negative precipitable water!', sub_name)
       end if
       !$OMP END CRITICAL
     end do

@@ -1573,9 +1573,12 @@ CONTAINS
     IMPLICIT NONE
 
     TYPE(silja_grid), intent(in) :: grid
-    integer :: nc, i
+    integer :: nc, iGrid, nx, ny
 
-    real, dimension(:), pointer :: x, y, x3d
+    real, dimension(:), pointer :: x, y, fPtr
+    real, dimension(:,:), pointer :: x3d, y3d, z3d, fPtr2
+
+    real, dimension(:), allocatable :: arrTmp
     character (len=*), parameter :: sub_name = "completeAnygrid3DParam"
 
     if(grid%gridtype /= anygrid)then
@@ -1583,28 +1586,72 @@ CONTAINS
       return
     endif
 
-    if (allocated( pAnyGrdParam(grid%ag%indParam)%x3dc)) then
-      call set_error(" pAnyGrdParam(grid%ag%indParam)%x3dc already allocated", sub_name)
+    iGrid = grid%ag%indParam
+    if (allocated( pAnyGrdParam(iGrid)%x3dc)) then
+      call set_error(" pAnyGrdParam(iGrid)%x3dc already allocated", sub_name)
       return
     endif
 
-    nc = grid%ag%nx*grid%ag%ny
-    x(1:nc) =>  pAnyGrdParam(grid%ag%indParam)%xc(1:nc)
-    y(1:nc) =>  pAnyGrdParam(grid%ag%indParam)%yc(1:nc)
+    
+    nx = grid%ag%nx
+    ny = grid%ag%ny
+    nc = nx*ny
+    x(1:nc) =>  pAnyGrdParam(iGrid)%xc(1:nc)
+    y(1:nc) =>  pAnyGrdParam(iGrid)%yc(1:nc)
 
-    allocate(pAnyGrdParam(grid%ag%indParam)%x3dc(nc))
-    x3d => pAnyGrdParam(grid%ag%indParam)%x3dc(1:nc)
-    x3d(1:nc) = cos(x*degrees_to_radians)*cos(y*degrees_to_radians)
-
-
-    allocate(pAnyGrdParam(grid%ag%indParam)%y3dc(nc))
-    x3d => pAnyGrdParam(grid%ag%indParam)%y3dc(1:nc)
-    x3d(1:nc) = sin(x*degrees_to_radians)*cos(y*degrees_to_radians)
+    allocate(pAnyGrdParam(iGrid)%x3dc(nc))
+    fPtr => pAnyGrdParam(iGrid)%x3dc(1:nc)
+    fPtr(1:nc) = cos(x*degrees_to_radians)*cos(y*degrees_to_radians)
 
 
-    allocate(pAnyGrdParam(grid%ag%indParam)%z3dc(nc))
-    x3d => pAnyGrdParam(grid%ag%indParam)%z3dc(1:nc)
-    x3d(1:nc) = sin(y*degrees_to_radians)
+    allocate(pAnyGrdParam(iGrid)%y3dc(nc))
+    fPtr => pAnyGrdParam(iGrid)%y3dc(1:nc)
+    fPtr(1:nc) = sin(x*degrees_to_radians)*cos(y*degrees_to_radians)
+
+
+    allocate(pAnyGrdParam(iGrid)%z3dc(nc))
+    fPtr => pAnyGrdParam(iGrid)%z3dc(1:nc)
+    fPtr(1:nc) = sin(y*degrees_to_radians)
+
+    !
+    !  Cell sizes
+    ! 
+    if (.not. allocated( pAnyGrdParam(iGrid)%dx) .and. &
+       & .not. allocated( pAnyGrdParam(iGrid)%dy)) then
+        
+        !!! Just make those
+        x3d(1:nx,1:ny) => pAnyGrdParam(iGrid)%x3dc(1:nc)
+        y3d(1:nx,1:ny) => pAnyGrdParam(iGrid)%y3dc(1:nc)
+        z3d(1:nx,1:ny) => pAnyGrdParam(iGrid)%z3dc(1:nc)
+        allocate(pAnyGrdParam(iGrid)%dx(nc), pAnyGrdParam(iGrid)%dy(nc)) 
+        !! dx
+        fPtr2(1:nx,1:ny) => pAnyGrdParam(iGrid)%dx(1:nc)
+        fPtr2(2:nx-1,2:ny-1) = 0.5 * sqrt( (x3d(3:nx,2:ny-1) - x3d(1:nx-2,2:ny-1)) ** 2 + &
+                                         & (y3d(3:nx,2:ny-1) - y3d(1:nx-2,2:ny-1)) ** 2 + &
+                                         & (z3d(3:nx,2:ny-1) - z3d(1:nx-2,2:ny-1)) ** 2 )
+        fPtr2(1,2:ny-1) = fPtr2(2,2:ny-1)
+        fPtr2(nx,2:ny-1) = fPtr2(nx-1,2:ny-1)
+        fPtr2(1:nx,1) = fPtr2(1:nx,2)
+        fPtr2(1:nx,ny) = fPtr2(1:nx,ny-1)
+        fPtr2(1:nx,1:ny) = fPtr2(1:nx,1:ny) * earth_radius
+        !! And dy
+        fPtr2(1:nx,1:ny) => pAnyGrdParam(iGrid)%dy(1:nc)
+        fPtr2(2:nx-1,2:ny-1) = 0.5 * sqrt( (x3d(2:nx-1,3:ny) - x3d(2:nx-1,1:ny-2)) ** 2 + &
+                                         & (y3d(2:nx-1,3:ny) - y3d(2:nx-1,1:ny-2)) ** 2 + &
+                                         & (z3d(2:nx-1,3:ny) - z3d(2:nx-1,1:ny-2)) ** 2 )
+        fPtr2(1,2:ny-1) = fPtr2(2,2:ny-1)
+        fPtr2(nx,2:ny-1) = fPtr2(nx-1,2:ny-1)
+        fPtr2(1:nx,1) = fPtr2(1:nx,2)
+        fPtr2(1:nx,ny) = fPtr2(1:nx,ny-1)
+        fPtr2(1:nx,1:ny) = fPtr2(1:nx,1:ny) * earth_radius
+
+        call msg("Generated dx and dy sizes for the grid:")
+        call report(grid)
+
+    elseif (.not. allocated( pAnyGrdParam(iGrid)%dx) .or. &
+       & .not. allocated( pAnyGrdParam(iGrid)%dy)) then 
+        call set_error("Partly initialised xy cell sizes", sub_name)
+    endif
 
 
   end subroutine completeAnygrid3DParam
@@ -1953,10 +2000,16 @@ CONTAINS
             & pAnyGrdParam(grid%ag%indParam)%yc(1), &
             & grid%ag%nx, grid%ag%ny
 
-        WRITE(fUnits(iUnit), fmt = '(A, 2(F15.7,1x))')  &
-                    &' Grid_distance x and y in meters for first gridcell: ',&
-                                   & pAnyGrdParam(grid%ag%indParam)%dx(1) , &
-                                   & pAnyGrdParam(grid%ag%indParam)%dy(1)
+        if (allocated(pAnyGrdParam(grid%ag%indParam)%dx)) then
+          WRITE(fUnits(iUnit), fmt = '(A, 2(F15.7,1x))')  &
+                      &' Grid_distance x and y in meters for first gridcell: ',&
+                                     & pAnyGrdParam(grid%ag%indParam)%dx(1) , &
+                                     & pAnyGrdParam(grid%ag%indParam)%dy(1)
+        else
+          WRITE(fUnits(iUnit), fmt = '(A, 2(F15.7,1x))')  &
+                      &' Grid_distance x and y in meters for first gridcell: NOT DEFINED'
+        endif
+
 
         CASE default
           WRITE (fUnits(iUnit), '(A)')  '  Grid report: unknown grid, type=', grid%gridtype
@@ -6521,61 +6574,65 @@ call msg('Finished averaging/sum structure')
         end if
 
       case(anygrid) !interpStructPtr%gridTo%gridtype
-        call msg('Computing wind rotation lonlat to anygrid')
-        anyGridParamTo => pAnyGrdParam(interpStructPtr%gridTo%ag%indParam)
-        allocate(interpStructPtr%rotation(2, 2, nxTo, nyTo), stat=status)
-        if (status /= 0) then
-          call set_error('Allocating rotation map failed', 'fu_horiz_interp_struct')
-          return
-        end if
 
-        interpStructPtr%ifRotation = .true.
+        interpStructPtr%ifRotation = .true. 
+        if( allocated(anyGridParamTo%cos_map_rot) .and. &
+                    & allocated(anyGridParamTo%sin_map_rot))then
 
-        call get_rotation(fu_southpole_lat(fu_pole(interpStructPtr%gridFrom)),&
-                        & fu_southpole_lon(fu_pole(interpStructPtr%gridFrom)),&
-                        & rotation_3d)
+          call msg('Computing wind rotation lonlat to anygrid')
+          anyGridParamTo => pAnyGrdParam(interpStructPtr%gridTo%ag%indParam)
+          allocate(interpStructPtr%rotation(2, 2, nxTo, nyTo), stat=status)
+          if (status /= 0) then
+            call set_error('Allocating rotation map failed', 'fu_horiz_interp_struct')
+            return
+          end if
 
-        do iy = 1, nyTo
-          do ix = 1, nxTo
-              
-            if (myiOutside == setMissVal)then
-                if(.not. interpStructPtr%ifValid(ix,iy)) then
-                   interpStructPtr%rotation(:,:, ix,iy) = 0.
-                   cycle
-                endif
-            endif
 
-            lat2 = fu_lat_geographical_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
-            lon2 = fu_lon_geographical_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
+          call get_rotation(fu_southpole_lat(fu_pole(interpStructPtr%gridFrom)),&
+                          & fu_southpole_lon(fu_pole(interpStructPtr%gridFrom)),&
+                          & rotation_3d)
 
-            call modify_lonlat(lat2, lon2, pole_geographical, &
-                             & fu_pole(interpStructPtr%gridFrom), lat, lon)
-            call get_basis(lat, lon, B1)
-            call get_basis(lat2, lon2, B2)
+          do iy = 1, nyTo
+            do ix = 1, nxTo
+                
+              if (myiOutside == setMissVal)then
+                  if(.not. interpStructPtr%ifValid(ix,iy)) then
+                     interpStructPtr%rotation(:,:, ix,iy) = 0.
+                     cycle
+                  endif
+              endif
 
-            B1 = matmul(rotation_3d, B1) ! rotate B1 to the reference system
-            interpStructPtr%rotation(:,:, ix,iy) = matmul(transpose(B2), B1)
+              lat2 = fu_lat_geographical_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
+              lon2 = fu_lon_geographical_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
 
-            if(.not. (allocated(anyGridParamTo%cos_map_rot) .and. &
-                    & allocated(anyGridParamTo%sin_map_rot)))then
-              call set_error('cannot turn winds without knowing map rotation','fu_horiz_interp_struct')
-              return
-            endif
+              call modify_lonlat(lat2, lon2, pole_geographical, &
+                               & fu_pole(interpStructPtr%gridFrom), lat, lon)
+              call get_basis(lat, lon, B1)
+              call get_basis(lat2, lon2, B2)
 
-            ! cos and sin of negative angle, for rotating from geographical to rotated
-            rot_tmp(1, 1) =  anyGridParamTo%cos_map_rot(nxTo*(iy-1)+ix)
-            rot_tmp(1, 2) =  anyGridParamTo%sin_map_rot(nxTo*(iy-1)+ix)        
-            rot_tmp(2, 1) =  - rot_tmp(1, 2)
-            rot_tmp(2, 2) =  rot_tmp(1, 1)
+              B1 = matmul(rotation_3d, B1) ! rotate B1 to the reference system
+              interpStructPtr%rotation(:,:, ix,iy) = matmul(transpose(B2), B1)
 
-            interpStructPtr%rotation(:,:, ix,iy) = matmul(interpStructPtr%rotation(:,:, ix,iy), rot_tmp)
-            if(abs(interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
-             & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy) - 1.) > 0.05)then
-              call set_error('rotation changing windspeed','fu_horiz_interp_struct')
-              call unset_error('fu_horiz_interp_struct')
-            endif
+              ! cos and sin of negative angle, for rotating from geographical to rotated
+              rot_tmp(1, 1) =  anyGridParamTo%cos_map_rot(nxTo*(iy-1)+ix)
+              rot_tmp(1, 2) =  anyGridParamTo%sin_map_rot(nxTo*(iy-1)+ix)        
+              rot_tmp(2, 1) =  - rot_tmp(1, 2)
+              rot_tmp(2, 2) =  rot_tmp(1, 1)
+
+              interpStructPtr%rotation(:,:, ix,iy) = matmul(interpStructPtr%rotation(:,:, ix,iy), rot_tmp)
+              if(abs(interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
+               & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy) - 1.) > 0.05)then
+                call set_error('rotation changing windspeed','fu_horiz_interp_struct')
+                call unset_error('fu_horiz_interp_struct')
+              endif
+            enddo
           enddo
-        enddo
+        else
+                call msg('Skipping interp-struct map rotation for gridTo')
+                call report(interpStructPtr%gridTo)
+                return
+        endif
+
 
       case default !interpStructPtr%gridTo%gridtype
         call set_error('strange gridtype for gridTo','fu_horiz_interp_struct')
@@ -6586,73 +6643,11 @@ call msg('Finished averaging/sum structure')
       anyGridParamFrom => pAnyGrdParam(interpStructPtr%gridFrom%ag%indParam)
       select case(interpStructPtr%gridTo%gridtype)
       case(lonlat) 
-        call msg('Computing wind rotation anygrid to lonlat')
+        if(allocated(anyGridParamFrom%cos_map_rot) .and. &
+                & allocated(anyGridParamFrom%sin_map_rot))then
 
-        allocate(interpStructPtr%rotation(2, 2, nxTo, nyTo), stat=status)
-        if (status /= 0) then
-          call set_error('Allocating rotation map failed', 'fu_horiz_interp_struct')
-          return
-        end if
+          call msg('Computing wind rotation anygrid to lonlat')
 
-        interpStructPtr%ifRotation = .true.
-
-        call get_rotation(fu_southpole_lat(fu_pole(interpStructPtr%gridTo)),&
-                        & fu_southpole_lon(fu_pole(interpStructPtr%gridTo)),&
-                        & rotation_3d)
-        xFrom = real_missing
-        yFrom = real_missing
-        do iy = 1, nyTo
-          do ix = 1, nxTo
-              
-            if (myiOutside == setMissVal)then
-              if(.not. interpStructPtr%ifValid(ix,iy)) then
-                interpStructPtr%rotation(:,:, ix,iy) = 0.
-                cycle
-              endif
-            endif
-            
-            call project_point_to_grid_xy(interpStructPtr%gridTo, real(ix), real(iy), &
-                                       & interpStructPtr%gridFrom, xFrom, yFrom)
-
-            if(.not. (allocated(anyGridParamFrom%cos_map_rot) .and. &
-                    & allocated(anyGridParamFrom%sin_map_rot)))then
-              call set_error('cannot turn winds without knowing map rotation','fu_horiz_interp_struct')
-              return
-            endif
-
-            !Rotation is interpolated linearly, no matter what type of structure...
-            rot_tmp(1, 1) = fu_2d_interpolation(anyGridParamFrom%cos_map_rot, &
-                                            & xFrom, yFrom, nxFrom, nyFrom, linear, notAllowed) 
-            rot_tmp(1, 2) = - fu_2d_interpolation(anyGridParamFrom%sin_map_rot, &
-                                            & xFrom, yFrom, nxFrom, nyFrom, linear, notAllowed) 
-            rot_tmp(2, 1) = - rot_tmp(1, 2)
-            rot_tmp(2, 2) = rot_tmp(1, 1)
-
-            lat2 = fu_lat_native_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
-            lon2 = fu_lon_native_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
-
-            call modify_lonlat(lat2, lon2, fu_pole(interpStructPtr%gridTo), &
-                             & pole_geographical, lat, lon)
-            call get_basis(lat, lon, B1)
-            call get_basis(lat2, lon2, B2)
-
-            B1 = matmul(transpose(rotation_3d), B1) ! rotate B1 to the reference system
-            interpStructPtr%rotation(:,:, ix,iy) = matmul(transpose(B2), B1)
-            interpStructPtr%rotation(:,:, ix,iy) = matmul(rot_tmp, interpStructPtr%rotation(:,:, ix,iy))
-            if(abs(interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
-             & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy) - 1.) > 0.05)then
-              call set_error('rotation changing windspeed','fu_horiz_interp_struct')
-              call unset_error('fu_horiz_interp_struct')
-            endif
-          enddo
-        enddo
-      
-      case(anygrid)
-        anyGridParamTo   => pAnyGrdParam(interpStructPtr%gridTo%ag%indParam)
-        ! Assumes that gridTo is covered by gridFrom
-        if(.not. fu_grids_correspond(interpStructPtr%gridFrom, interpStructPtr%gridTo))then  
-          call msg('Computing wind rotation anygrid to anygrid')
-        
           allocate(interpStructPtr%rotation(2, 2, nxTo, nyTo), stat=status)
           if (status /= 0) then
             call set_error('Allocating rotation map failed', 'fu_horiz_interp_struct')
@@ -6661,6 +6656,9 @@ call msg('Finished averaging/sum structure')
 
           interpStructPtr%ifRotation = .true.
 
+          call get_rotation(fu_southpole_lat(fu_pole(interpStructPtr%gridTo)),&
+                          & fu_southpole_lon(fu_pole(interpStructPtr%gridTo)),&
+                          & rotation_3d)
           xFrom = real_missing
           yFrom = real_missing
           do iy = 1, nyTo
@@ -6673,44 +6671,105 @@ call msg('Finished averaging/sum structure')
                 endif
               endif
               
-              call project_point_to_grid(interpStructPtr%gridTo, real(ix), real(iy), &
-                                       & interpStructPtr%gridFrom, xFrom, yFrom)
+              call project_point_to_grid_xy(interpStructPtr%gridTo, real(ix), real(iy), &
+                                         & interpStructPtr%gridFrom, xFrom, yFrom)
 
-              if(.not. (allocated(anyGridParamFrom%cos_map_rot) .and. &
-                      & allocated(anyGridParamFrom%sin_map_rot)))then
-                call set_error('cannot turn winds without knowing map rotation','fu_horiz_interp_struct')
-                return
-              endif
 
-              interpStructPtr%rotation(1, 1, ix,iy) = fu_2d_interpolation(anyGridParamFrom%cos_map_rot, &
-                                            & xFrom, yFrom, nxFrom, nyFrom, interpStructPtr%interp_type, notAllowed) 
-              interpStructPtr%rotation(1, 2, ix,iy) = - fu_2d_interpolation(anyGridParamFrom%sin_map_rot, &
-                                            & xFrom, yFrom, nxFrom, nyFrom, interpStructPtr%interp_type, notAllowed) 
-              interpStructPtr%rotation(2, 1, ix,iy) = - interpStructPtr%rotation(1, 2, ix,iy)
-              interpStructPtr%rotation(2, 2, ix,iy) = interpStructPtr%rotation(1, 1, ix,iy)
+              !Rotation is interpolated linearly, no matter what type of structure...
+              rot_tmp(1, 1) = fu_2d_interpolation(anyGridParamFrom%cos_map_rot, &
+                                              & xFrom, yFrom, nxFrom, nyFrom, linear, notAllowed) 
+              rot_tmp(1, 2) = - fu_2d_interpolation(anyGridParamFrom%sin_map_rot, &
+                                              & xFrom, yFrom, nxFrom, nyFrom, linear, notAllowed) 
+              rot_tmp(2, 1) = - rot_tmp(1, 2)
+              rot_tmp(2, 2) = rot_tmp(1, 1)
 
-              if(.not. (allocated(anyGridParamTo%cos_map_rot) .and. &
-                      & allocated(anyGridParamTo%sin_map_rot)))then
-                call set_error('cannot turn winds without knowing map rotation','fu_horiz_interp_struct')
-                return
-              endif
-               
-              ! cos and sin of negative angle, for rotating from geographical to rotated
-              rot_tmp(1, 1) =  anyGridParamTo%cos_map_rot(nxTo*(iy-1)+ix)
-              rot_tmp(1, 2) =  anyGridParamTo%sin_map_rot(nxTo*(iy-1)+ix)        
-              rot_tmp(2, 1) =  - rot_tmp(1, 2)
-              rot_tmp(2, 2) =  rot_tmp(1, 1)
+              lat2 = fu_lat_native_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
+              lon2 = fu_lon_native_from_grid(real(ix), real(iy), interpStructPtr%gridTo)
 
-              interpStructPtr%rotation(:,:, ix,iy) = matmul(interpStructPtr%rotation(:,:, ix,iy), rot_tmp)
+              call modify_lonlat(lat2, lon2, fu_pole(interpStructPtr%gridTo), &
+                               & pole_geographical, lat, lon)
+              call get_basis(lat, lon, B1)
+              call get_basis(lat2, lon2, B2)
+
+              B1 = matmul(transpose(rotation_3d), B1) ! rotate B1 to the reference system
+              interpStructPtr%rotation(:,:, ix,iy) = matmul(transpose(B2), B1)
+              interpStructPtr%rotation(:,:, ix,iy) = matmul(rot_tmp, interpStructPtr%rotation(:,:, ix,iy))
               if(abs(interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
                & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy) - 1.) > 0.05)then
-                call msg("Norm", interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
-                                  & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy))
                 call set_error('rotation changing windspeed','fu_horiz_interp_struct')
-                call unset_error('fu_fu_horiz_interp_struct')
+                call unset_error('fu_horiz_interp_struct')
               endif
+            enddo
+          enddo
+        else
+          call msg('Skipping wind rotation for HinterpStruct gridTo:')
+          call report(interpStructPtr%gridTo)
+        endif
+      
+      case(anygrid)
+        anyGridParamTo   => pAnyGrdParam(interpStructPtr%gridTo%ag%indParam)
+        interpStructPtr%ifRotation = .true.
+
+        ! Assumes that gridTo is covered by gridFrom
+        if(.not. fu_grids_correspond(interpStructPtr%gridFrom, interpStructPtr%gridTo))then  
+          call msg('Computing wind rotation anygrid to anygrid')
+          if(      allocated(anyGridParamFrom%cos_map_rot) .and. &
+                  & allocated(anyGridParamFrom%sin_map_rot) .and. &
+                  & allocated(anyGridParamTo%cos_map_rot) .and. &
+                  & allocated(anyGridParamTo%sin_map_rot))then
+        
+            allocate(interpStructPtr%rotation(2, 2, nxTo, nyTo), stat=status)
+            if (status /= 0) then
+              call set_error('Allocating rotation map failed', 'fu_horiz_interp_struct')
+              return
+            end if
+
+            xFrom = real_missing
+            yFrom = real_missing
+            do iy = 1, nyTo
+              do ix = 1, nxTo
+                  
+                if (myiOutside == setMissVal)then
+                  if(.not. interpStructPtr%ifValid(ix,iy)) then
+                    interpStructPtr%rotation(:,:, ix,iy) = 0.
+                    cycle
+                  endif
+                endif
+                
+                call project_point_to_grid(interpStructPtr%gridTo, real(ix), real(iy), &
+                                         & interpStructPtr%gridFrom, xFrom, yFrom)
+
+
+                interpStructPtr%rotation(1, 1, ix,iy) = fu_2d_interpolation(anyGridParamFrom%cos_map_rot, &
+                                              & xFrom, yFrom, nxFrom, nyFrom, interpStructPtr%interp_type, notAllowed) 
+                interpStructPtr%rotation(1, 2, ix,iy) = - fu_2d_interpolation(anyGridParamFrom%sin_map_rot, &
+                                              & xFrom, yFrom, nxFrom, nyFrom, interpStructPtr%interp_type, notAllowed) 
+                interpStructPtr%rotation(2, 1, ix,iy) = - interpStructPtr%rotation(1, 2, ix,iy)
+                interpStructPtr%rotation(2, 2, ix,iy) = interpStructPtr%rotation(1, 1, ix,iy)
+
+                ! cos and sin of negative angle, for rotating from geographical to rotated
+                rot_tmp(1, 1) =  anyGridParamTo%cos_map_rot(nxTo*(iy-1)+ix)
+                rot_tmp(1, 2) =  anyGridParamTo%sin_map_rot(nxTo*(iy-1)+ix)        
+                rot_tmp(2, 1) =  - rot_tmp(1, 2)
+                rot_tmp(2, 2) =  rot_tmp(1, 1)
+
+                interpStructPtr%rotation(:,:, ix,iy) = matmul(interpStructPtr%rotation(:,:, ix,iy), rot_tmp)
+                if(abs(interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
+                 & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy) - 1.) > 0.05)then
+                  call msg("Norm", interpStructPtr%rotation(1,1, ix,iy)*interpStructPtr%rotation(2,2, ix,iy)- &
+                                    & interpStructPtr%rotation(1,2, ix,iy)*interpStructPtr%rotation(2,1, ix,iy))
+                  call set_error('rotation changing windspeed','fu_horiz_interp_struct')
+                  call unset_error('fu_fu_horiz_interp_struct')
+                endif
+              end do
             end do
-          end do
+          else
+            call msg('cannot turn winds for grids')
+            call msg('From:')
+            call report(interpStructPtr%gridFrom)
+            call msg('To:')
+            call report(interpStructPtr%gridTo)
+          endif
         end if
      
       case default

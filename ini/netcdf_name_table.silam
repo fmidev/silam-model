@@ -405,6 +405,63 @@ LIST = WRF_OUTPUT
        
 END_LIST = WRF_OUTPUT
 
+###################################################
+LIST = WRF_OUTPUT_FINN
+
+!---------------------------------
+! wrf output
+!---------------------------------
+
+     title   = WRF_OUTPUT_FINN
+
+     dim     =     Time     t     Times     char      
+     dim     =     west_east     x     XLONG     *
+     dim     =     south_north     y     XLAT    * 
+     dim     =     emissions_zdim_stag     z    ZNW    SIGMA_LEVEL
+     
+     gridvar =     XLONG         lon             XXX
+     gridvar =     XLAT          lat             XXX
+     
+     time_label_position = start_of_period
+     ifCocktails = YES
+            ### 3.6e9 units/m2/sec = 1   units/km2/hr 
+#    var     =     ebu_in_acetol     emission_flux  HEIGHT_LYR_FROM_SURF  550  BC         -1     -1     2.7778e-10         0
+    var     =     ebu_in_bc         emission_flux  HEIGHT_LYR_FROM_SURF  550  EC_FINE         -1     -1       1e-9         0 #comes in ug m-2 s-1
+    var     =     ebu_in_bigalk     emission_flux  HEIGHT_LYR_FROM_SURF  550  HIALKANES  -1     -1     2.7778e-10         0 # "mole km-2 hr-1"
+    var     =     ebu_in_bigene     emission_flux  HEIGHT_LYR_FROM_SURF  550  HIALKENES  -1     -1     2.7778e-10         0 # "mole km-2 hr-1"
+#    var     =     ebu_in_c10h16     emission_flux  HEIGHT_LYR_FROM_SURF  550  ????         -1     -1     2.7778e-10         0
+    var     =     ebu_in_c2h4       emission_flux  HEIGHT_LYR_FROM_SURF  550  ETH         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_c2h5oh     emission_flux  HEIGHT_LYR_FROM_SURF  550  ETOH         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_c2h6       emission_flux  HEIGHT_LYR_FROM_SURF  550  C2H6         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_c3h6       emission_flux  HEIGHT_LYR_FROM_SURF  550  C3H6         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_c3h8       emission_flux  HEIGHT_LYR_FROM_SURF  550  C3H8        -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_ch2o       emission_flux  HEIGHT_LYR_FROM_SURF  550  HCHO         -1     -1     2.7778e-10         0 #"mole km-2 hr-1" ## Formaldehide
+    var     =     ebu_in_ch3cho     emission_flux  HEIGHT_LYR_FROM_SURF  550  ALD2         -1     -1     2.7778e-10         0 #"mole km-2 hr-1" 
+    var     =     ebu_in_ch3coch3   emission_flux  HEIGHT_LYR_FROM_SURF  550  C4H10       -1     -1     2.7778e-10         0 #"mole km-2 hr-1"## Acetone = 3xPAR
+    var     =     ebu_in_ch3cooh    emission_flux  HEIGHT_LYR_FROM_SURF  550  AACD         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"## Acetic acid
+    var     =     ebu_in_ch3oh      emission_flux  HEIGHT_LYR_FROM_SURF  550  MEOH         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_co         emission_flux  HEIGHT_LYR_FROM_SURF  550  CO         -1     -1     2.7778e-10         0 # "mole km-2 hr-1"
+    var     =     ebu_in_cres       emission_flux  HEIGHT_LYR_FROM_SURF  550  CRES         -1     -1     2.7778e-10         0 # "mole km-2 hr-1"
+    var     =     ebu_in_gly        emission_flux  HEIGHT_LYR_FROM_SURF  550  GLY         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"#Glyoxal to par
+#    var     =     ebu_in_glyald     emission_flux  HEIGHT_LYR_FROM_SURF  550  BC         -1     -1     2.7778e-10         0  #Glycolaldehyde?????
+    var     =     ebu_in_isop       emission_flux  HEIGHT_LYR_FROM_SURF  550  C5H8         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+#    var     =     ebu_in_macr       emission_flux  HEIGHT_LYR_FROM_SURF  550           -1     -1     2.7778e-10         0  #Methacrolein ????
+    var     =     ebu_in_mek        emission_flux  HEIGHT_LYR_FROM_SURF  550  MEK         -1     -1     2.7778e-10         0 ##Butanone
+    var     =     ebu_in_mgly       emission_flux  HEIGHT_LYR_FROM_SURF  550  MGLY         -1     -1     2.7778e-10         0
+#    var     =     ebu_in_mvk        emission_flux  HEIGHT_LYR_FROM_SURF  550  BC         -1     -1     2.7778e-10         0
+    var     =     ebu_in_nh3        emission_flux  HEIGHT_LYR_FROM_SURF  550  NH3         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_no         emission_flux  HEIGHT_LYR_FROM_SURF  550  NO         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_no2        emission_flux  HEIGHT_LYR_FROM_SURF  550  NO2         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_oc         emission_flux  HEIGHT_LYR_FROM_SURF  550  OC_FINE         -1     -1     1e-9         0 #ug/m2/s
+    var     =     ebu_in_open       emission_flux  HEIGHT_LYR_FROM_SURF  550  OPEN         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+    var     =     ebu_in_pm10       emission_flux  HEIGHT_LYR_FROM_SURF  550  PM_COARSE         -1     -1     1e-9         0 #ug/m2/s
+#    var     =     ebu_in_pm25       emission_flux  HEIGHT_LYR_FROM_SURF  550  BC         -1     -1     1e-9         0 # ug/m2/s
+    var     =     ebu_in_so2        emission_flux  HEIGHT_LYR_FROM_SURF  550  SO2         -1     -1     2.7778e-10         0 #"mole km-2 hr-1"
+#    var     =     ebu_in_sulf       emission_flux  HEIGHT_LYR_FROM_SURF  550  SOX         -1     -1     2.7778e-10         0 ## 
+    var     =     ebu_in_toluene    emission_flux  HEIGHT_LYR_FROM_SURF  550  TOLUENE         -1     -1     2.7778e-10         0 ##"mole km-2 hr-1"
+
+       
+END_LIST = WRF_OUTPUT_FINN
 
 ###################################################
 
