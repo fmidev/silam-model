@@ -2937,6 +2937,27 @@ LIST = substance
 #  pollen_break_reaction = EC  1.0  # [fraction_broken/(basic_unit*sec)]
   
 END_LIST = substance
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = POLLEN_HAZEL
+  
+  molar_mass = -1. g/mole
+  low_concentration_threshold = 1.0e-6 number/m3
+  can_be_aerosol = YES
+  can_be_gas = NO
+  dry_particle_density_kg_per_m3 = 800
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  
+  number_of_reference_subst_in_mixture = 1 
+  names_of_ref_subst_in_mixture = OC
+  fractions_of_ref_subst_in_mixture = 1 
+
+  taxon_name = HAZEL
+  pollen_material_type = POLLEN_GRAINS  ! POLLEN_ALLERGEN, FREE_ALLERGEN
+  
+END_LIST = substance
 
 
 #**********************************************************************************

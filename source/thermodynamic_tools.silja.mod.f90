@@ -128,7 +128,10 @@ MODULE thermodynamic_tools
     integer :: iTypeIn, iTypeOut
     real :: fAsymmetryIn, fExtraShiftIn, fAsymmetryOut, fExtraShiftOut
   end type Tfade_inout
-  
+ 
+  type (Tfade_inout), public, parameter ::  fade_inout_missing = &
+       & Tfade_inout(int_missing, int_missing, &
+       & real_missing, real_missing, real_missing, real_missing)
 
   
 CONTAINS

@@ -698,6 +698,8 @@ CONTAINS
      & srcPollen%iRipeningType == prHSLinear)then
       call set_fade_in_out_params(nlSetup, srcPollen%UncertaintyParams)
       if(error)return
+    else 
+      srcPollen%UncertaintyParams = fade_inout_missing
     endif
  
     ! Pollen release from buffer

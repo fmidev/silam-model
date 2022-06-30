@@ -2128,14 +2128,14 @@ CONTAINS
                substance_name = ''
                mean_diameter = real_missing
                wavelength = real_missing
-              if(lstSubst(iTmp) /= 'XXX')substance_name = lstSubst(iTmp)
-              if(lstMode(iTmp) /= -1.)mean_diameter = lstMode(iTmp)
-              if(lstWavelen(iTmp) /= -1.) wavelength = lstWavelen(iTmp)
+               if(lstSubst(iTmp) /= 'XXX')substance_name = lstSubst(iTmp)
+               if(lstMode(iTmp) /= -1.)mean_diameter = lstMode(iTmp)
+               if(lstWavelen(iTmp) /= -1.) wavelength = lstWavelen(iTmp)
                if ((mean_diameter > 0.0) .and. (mean_diameter < 1.0)) then
                  aerosol_mode = fu_set_mode(fixed_diameter_flag, &
-                                          & mean_diameter*0.99, mean_diameter*1.01, mean_diameter)               
+                                          & mean_diameter, mean_diameter, mean_diameter)               
                else
-              aerosol_mode = in_gas_phase
+                  aerosol_mode = in_gas_phase
                end if
                if (substance_name /= '') then
                 if(nf%ifCocktails)then

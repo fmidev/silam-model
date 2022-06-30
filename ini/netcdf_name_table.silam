@@ -1153,6 +1153,22 @@ title = irrigated_area
 END_LIST = irrigated_area
 ###########################################################
 
+LIST = pollen_source
+
+title = pollen_source
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =     height z height HEIGHT_FROM_SURF
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  hazel_index   emis_mask   SURFACE_LEVEL           -1               POLLEN_HAZEL       23e-6            -1         1        0
+
+END_LIST = pollen_source
+###########################################################
+
 
 
 ###################################################
