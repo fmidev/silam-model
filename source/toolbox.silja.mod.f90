@@ -2869,7 +2869,7 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
 
     do while (idx > 0)
       idx_end = index(cTmp, '}')
-      lenVarNm = idx_end - idx - 3
+      lenVarNm = idx_end - idx - 2
 
       if (lenVarNm < 1) then
         call set_error('Badly formatted string with environments: ' // trim(fnm), 'fu_expand_environment' )

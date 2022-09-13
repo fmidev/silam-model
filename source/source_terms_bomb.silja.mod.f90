@@ -1145,7 +1145,7 @@ CONTAINS
     land = fu_get_value(fraction_of_land_fld, nx_meteo, ixSrc, iySrc, &
                       & pHorizInterpMet2DispStruct, .not. (meteo_grid == dispersion_grid))
     
-    if(fu_fails(land<=1.00001 .and. land >= 0., 'strange land fraction:' + fu_str(land),'inject_emission_euler_b_src'))return
+    if(fu_fails(land<=2. .and. land >= 0., 'strange land fraction:' + fu_str(land),'inject_emission_euler_b_src'))return
 
     land = max(land, 1.0)
 

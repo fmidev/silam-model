@@ -292,8 +292,9 @@ CONTAINS
 
       nullify(pItems)
 
+      arr(1:max_items) = int_missing
       call get_items(nlTmp, item_name, pItems, nItems)
-      if(nItems > 10)then
+      if(nItems > max_items)then
         call set_error('Too many "'+item_name+'" items:'+fu_str(nItems),'read_GRIB_code_tables_v5')
       elseif(nItems == 0 .and. ifAcceptAllAllowed)then
           arr(1) = accept_all

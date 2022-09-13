@@ -3969,6 +3969,8 @@ ifTuned = .true.
     r%fCloudCover = min(0.999,max(tcc, 1e-2)) !tcc
     r%fPressure = metdat_col(imet_press, iLev)
     r%fTemperature = metdat_col(imet_temp, iLev)
+    r%pwcColumn = 0. !!! Not sure if it is right choice, but if scavType is not in scav2018, scav2020, 
+                     !! it stays undefined and is used in if, which is wrong in any case
 
     select case(scavType)
       case(scav2018, scav2020)
