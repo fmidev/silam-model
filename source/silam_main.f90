@@ -31,6 +31,9 @@ PROGRAM silam_main
   use silam_partitioning 
   use field_identifications
   use ascii_io
+#ifdef VS2012
+  use ifport
+#endif
 
   use, intrinsic :: iso_fortran_env, only: compiler_version, compiler_options
 !  use source_terms_wind_blown_dust
@@ -314,7 +317,11 @@ PROGRAM silam_main
      !$omp master
      if (smpi_global_tasks > 1) then 
        call msg(trim(reason)//", sleeping before setting error. rank=", smpi_global_rank)
+#ifdef VS2012
+       call sleepqq(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
+#else
        call sleep(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
+#endif
        ! Slurm waits up to 32 seconds on timeout after sighup before killing 
        write (6, '(a,x,i4)') "backtrace from rank",smpi_global_rank
        flush (6) !

@@ -25,23 +25,23 @@
 				<Tool Name="VFPostBuildEventTool"/>
 				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
 		<Configuration Name="Debug|x64">
-				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" DebugInformationFormat="debugEnabled" MultiProcessorCompilation="true" Optimization="optimizeDisabled" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2, DEBUG" DisableSpecificDiagnostics="remark" WarnInterfaces="true" Traceback="true" BoundsCheck="true" UninitializedVariablesCheck="true" RuntimeLibrary="rtMultiThreadedDebug" Interfaces="true"/>
-				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" GenerateDebugInformation="true" SubSystem="subSystemConsole" StackReserveSize="300000000" StackCommitSize="100000000" AdditionalDependencies="d:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\grib_api_lib\x64\Debug\grib_api_lib.lib  d:\!tools\lib\jasper\x64\Debug\libjasper.lib  d:\!tools\lib\netcdf-4.1.1\x64\Debug\netcdf.lib d:\!tools\lib\lin_alg\LAPACK_x64_debug.lib d:\!tools\lib\lin_alg\BLAS_x64_debug.lib d:\tools\bzip2\bzip2-1.0.6\lib\libbz2-static.lib"/>
+				<Tool Name="VFFortranCompilerTool" AdditionalOptions="/iface:cref" SuppressStartupBanner="true" DebugInformationFormat="debugEnabled" MultiProcessorCompilation="true" Optimization="optimizeDisabled" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2, DEBUG" DisableSpecificDiagnostics="remark" WarnInterfaces="true" Traceback="true" BoundsCheck="true" UninitializedVariablesCheck="true" RuntimeLibrary="rtMultiThreadedDebug" Interfaces="true"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMTD; LIBCMT" GenerateDebugInformation="true" SubSystem="subSystemConsole" StackReserveSize="300000000" StackCommitSize="100000000" AdditionalDependencies="D:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\x64\Debug\lib_AEC.lib  d:\tools\NetCDF\netcdf-fortran-4.5.3\win_nc_f_4_5_3\win_nc_f_4_5_3\x64\Debug\win_nc_f_4_5_3.lib  d:\tools\NetCDF\netCDF_4.8.1\lib\netcdf.lib  d:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\grib_api_lib\x64\Release\grib_api_lib.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\LAPACK_MSVS\x64\Release\LAPACK_MSVS.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\BLAS_MSVC\x64\Release\BLAS_MSVC.lib  d:\tools\bzip2\bzip2-1.0.8\bzip2_1_0_8\x64\Release\bzip2_1_0_8.lib"/>
 				<Tool Name="VFResourceCompilerTool"/>
 				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
 				<Tool Name="VFCustomBuildTool"/>
 				<Tool Name="VFPreLinkEventTool"/>
-				<Tool Name="VFPreBuildEventTool" CommandLine="python ..\build\check_revision_Win  ..\source --svn-bin=svn" Description="Get svn version v.5.7"/>
+				<Tool Name="VFPreBuildEventTool" CommandLine="python ..\build\check_revision  ..\source" Description="Get svn version v.5.8"/>
 				<Tool Name="VFPostBuildEventTool"/>
 				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
 		<Configuration Name="Release|x64">
-				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" MultiProcessorCompilation="true" Parallelization="true" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2" OpenMP="OpenMPParallelCode" DisableSpecificDiagnostics="remark"/>
-				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMT" SubSystem="subSystemConsole" StackReserveSize="2000000000" StackCommitSize="2000000000" AdditionalDependencies="d:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\grib_api_lib\x64\Release\grib_api_lib.lib  d:\!tools\lib\jasper\x64\Release\libjasper.lib  d:\!tools\lib\netcdf-4.1.1\x64\Release\netcdf.lib d:\!tools\lib\lin_alg\LAPACK_x64_release.lib d:\!tools\lib\lin_alg\BLAS_x64_release.lib d:\tools\bzip2\bzip2-1.0.6\lib\libbz2-static.lib"/>
+				<Tool Name="VFFortranCompilerTool" AdditionalOptions="/iface:cref" SuppressStartupBanner="true" MultiProcessorCompilation="true" Parallelization="true" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2" OpenMP="OpenMPParallelCode" DisableSpecificDiagnostics="remark"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMT" SubSystem="subSystemConsole" StackReserveSize="2000000000" StackCommitSize="2000000000" AdditionalDependencies="D:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\x64\Release\lib_AEC.lib  d:\tools\NetCDF\netcdf-fortran-4.5.3\win_nc_f_4_5_3\win_nc_f_4_5_3\x64\Release\win_nc_f_4_5_3.lib d:\tools\NetCDF\netCDF_4.8.1\lib\netcdf.lib D:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\grib_api_lib\x64\Release\grib_api_lib.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\LAPACK_MSVS\x64\Release\LAPACK_MSVS.lib d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\BLAS_MSVC\x64\Release\BLAS_MSVC.lib  d:\tools\bzip2\bzip2-1.0.8\bzip2_1_0_8\x64\Release\bzip2_1_0_8.lib"/>
 				<Tool Name="VFResourceCompilerTool"/>
 				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
 				<Tool Name="VFCustomBuildTool"/>
 				<Tool Name="VFPreLinkEventTool"/>
-				<Tool Name="VFPreBuildEventTool" CommandLine="python ..\build\check_revision_Win ..\source --svn-bin=svn" Description="Get svbn version"/>
+				<Tool Name="VFPreBuildEventTool" CommandLine="python ..\build\check_revision  ..\source" Description="Get svbn version"/>
 				<Tool Name="VFPostBuildEventTool"/>
 				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
 		<Configuration Name="Release_2|Win32">
@@ -55,7 +55,7 @@
 				<Tool Name="VFPostBuildEventTool"/>
 				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
 		<Configuration Name="Release_2|x64">
-				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" MultiProcessorCompilation="true" Parallelization="true" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2" OpenMP="OpenMPParallelCode" DisableSpecificDiagnostics="remark"/>
+				<Tool Name="VFFortranCompilerTool" AdditionalOptions="/iface:cref" SuppressStartupBanner="true" MultiProcessorCompilation="true" Parallelization="true" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2" OpenMP="OpenMPParallelCode" DisableSpecificDiagnostics="remark"/>
 				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMT" SubSystem="subSystemConsole" StackReserveSize="210000000" StackCommitSize="110000000" AdditionalDependencies="d:\!tools\lib\grib_api\x64\Release\grib_api_lib.lib  d:\!tools\lib\jasper\x64\Release\libjasper.lib  d:\!tools\lib\netcdf-4.1.1\x64\Release\netcdf.lib d:\!tools\lib\lin_alg\LAPACK_x64_release.lib d:\!tools\lib\lin_alg\BLAS_x64_release.lib d:\tools\bzip2\bzip2-1.0.6\lib\libbz2-static.lib"/>
 				<Tool Name="VFResourceCompilerTool"/>
 				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
@@ -75,7 +75,7 @@
 				<Tool Name="VFPostBuildEventTool"/>
 				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
 		<Configuration Name="Release_3|x64">
-				<Tool Name="VFFortranCompilerTool" SuppressStartupBanner="true" MultiProcessorCompilation="true" Parallelization="true" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2" OpenMP="OpenMPParallelCode" DisableSpecificDiagnostics="remark"/>
+				<Tool Name="VFFortranCompilerTool" AdditionalOptions="/iface:cref" SuppressStartupBanner="true" MultiProcessorCompilation="true" Parallelization="true" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2" OpenMP="OpenMPParallelCode" DisableSpecificDiagnostics="remark"/>
 				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMT" SubSystem="subSystemConsole" StackReserveSize="210000000" StackCommitSize="110000000" AdditionalDependencies="d:\!tools\lib\grib_api\x64\Release\grib_api_lib.lib  d:\!tools\lib\jasper\x64\Release\libjasper.lib  d:\!tools\lib\netcdf-4.1.1\x64\Release\netcdf.lib d:\!tools\lib\lin_alg\LAPACK_x64_release.lib d:\!tools\lib\lin_alg\BLAS_x64_release.lib d:\tools\bzip2\bzip2-1.0.6\lib\libbz2-static.lib"/>
 				<Tool Name="VFResourceCompilerTool"/>
 				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
@@ -214,7 +214,7 @@
 		<File RelativePath="..\source\grads_templates.silam.mod.f90"/>
 		<File RelativePath="..\source\grib_api_io.silam.mod.f90"/>
 		<File RelativePath="..\source\grib_code_table.silam.mod.f90"/>
-		<File RelativePath="..\..\..\!tools\lib\grib_api\f90\grib_f90.f90"/>
+		<File RelativePath="..\..\..\tools\ECCODES\eccodes-2020.04.0\fortran\grib_f90.f90"/>
 		<File RelativePath="..\source\grids_geo.silja.mod.f90"/>
 		<File RelativePath="..\source\hydroxyl.silam.mod.f90"/>
 		<File RelativePath="..\source\ini_boundary_conditions.silam.mod.f90"/>
@@ -263,7 +263,7 @@
 		<File RelativePath="..\source\namelist.silam.mod.f90"/>
 		<File RelativePath="..\source\names_of_quantities.silja.mod.f90"/>
 		<File RelativePath="..\source\natural_constants.silja.mod.f90"/>
-		<File RelativePath="..\..\..\!tools\lib\netcdf-4.1.1\f90\netcdf.f90"/>
+		<File RelativePath="..\..\..\tools\NetCDF\netcdf-fortran-4.5.3\fortran\netcdf.f90"/>
 		<File RelativePath="..\source\netcdf_io.silam.mod.f90"/>
 		<File RelativePath="..\source\nuclides.silja.mod.f90"/>
 		<File RelativePath="..\source\observation_server.silam.mod.f90"/>
@@ -281,7 +281,6 @@
 		<File RelativePath="..\source\revision.mod.f90"/>
 		<File RelativePath="..\source\shopping_lists.silja.mod.f90"/>
 		<File RelativePath="..\source\silam_main.f90"/>
-		<File RelativePath="..\source\silam_mpi.f90"/>
 		<File RelativePath="..\source\silam_partitioning.mod.f90"/>
 		<File RelativePath="..\source\silam_units.mod.f90"/>
 		<File RelativePath="..\source\source_apportionment.silam.mod.f90"/>
@@ -305,7 +304,7 @@
 		<File RelativePath="..\source\times.silja.mod.f90"/>
 		<File RelativePath="..\source\toolbox.silja.mod.f90"/>
 		<File RelativePath="..\source\trajectory_io.silam.mod.f90"/>
-		<File RelativePath="..\..\..\!tools\lib\netcdf-4.1.1\f90\typeSizes.f90"/>
+		<File RelativePath="..\..\..\tools\NetCDF\netcdf-fortran-4.5.3\fortran\typeSizes.f90"/>
 		<File RelativePath="..\source\vectors_v2.silja.mod.f90"/>
 		<File RelativePath="..\source\vertical_motion.silam.mod.f90"/>
 		<File RelativePath="..\source\water_content_in_soil.mod.f90"/>

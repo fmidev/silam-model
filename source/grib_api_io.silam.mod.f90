@@ -614,7 +614,10 @@ MODULE grib_api_io
       updateGrid = .true.
       do iCacheInd = 1, max_nbr_of_GRIB_grids
           grGridPtr => grib_grid_cache(iCacheInd)%grGrid
-          call msg("second search for grib grid, try_igrid, thread", iCacheInd, OMP_GET_THREAD_NUM())
+          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, &
+           !$ & OMP_GET_THREAD_NUM() + 1 &
+           & - 1 )
+!!          call msg("second search for grib grid, try_igrid, thread", iCacheInd, OMP_GET_THREAD_NUM())
           if (.not. grGridPtr%defined) exit
           if (grGridPtr%proj4string== grGrid%proj4string) then
             if (grGridPtr%nx == nx .and. grGridPtr%ny == ny) then
@@ -640,7 +643,10 @@ MODULE grib_api_io
           call msg("")
       enddo
       if (defined(grid)) then
-          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, OMP_GET_THREAD_NUM())
+!!          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, OMP_GET_THREAD_NUM())
+          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, &
+           !$ & OMP_GET_THREAD_NUM() + 1 &
+           & - 1 )
       endif
 
       if (iCacheInd > max_nbr_of_GRIB_grids) then 

@@ -7915,7 +7915,7 @@ endif
     type(silja_grid), intent(in) :: grd1, grd2
 
     ! Local variables
-    real :: vTmp
+    real :: vTmp, eps
 
     fu_grids_arakawa_correspond = .false.
 
@@ -7929,19 +7929,14 @@ endif
         IF (.not. (grd1%lonlat%dx_deg .eps. grd2%lonlat%dx_deg)) RETURN
         IF (.not. (grd1%lonlat%dy_deg .eps. grd2%lonlat%dy_deg)) RETURN
 
-        vTmp = modulo(ABS(grd1%lonlat%sw_corner_modlon - grd2%lonlat%sw_corner_modlon), grd1%lonlat%dx_deg)
-        if(.not.(vTmp.eps.0.))then
-          if(.not.(vTmp.eps.grd1%lonlat%dx_deg))then
-            if(.not.(vTmp.eps.(grd1%lonlat%dx_deg*0.5)))return
-          end if
-        end if
+        !!! Somewhere close to full or half dx
+        vTmp = modulo(ABS(grd1%lonlat%sw_corner_modlon - grd2%lonlat%sw_corner_modlon + 0.25*grd1%lonlat%dx_deg ), 0.5*grd1%lonlat%dx_deg)
+        eps = F_EPS * (abs(grd1%lonlat%sw_corner_modlon) + abs(grd2%lonlat%sw_corner_modlon)) !! Numerical error 
+        if (abs( vTmp - 0.25*grd1%lonlat%dx_deg) > eps) return
 
-        vTmp = modulo(ABS(grd1%lonlat%sw_corner_modlat - grd2%lonlat%sw_corner_modlat), grd1%lonlat%dy_deg)
-        if(.not.(vTmp.eps.0.))then
-          if(.not.(vTmp.eps.grd1%lonlat%dy_deg))then
-            if(.not.(vTmp.eps.(grd1%lonlat%dy_deg*0.5)))return
-          end if
-        end if
+        vTmp = modulo(ABS(grd1%lonlat%sw_corner_modlat - grd2%lonlat%sw_corner_modlat) + 0.25*grd1%lonlat%dy_deg, 0.5*grd1%lonlat%dy_deg)
+        eps = F_EPS * (abs(grd1%lonlat%sw_corner_modlat) + abs(grd2%lonlat%sw_corner_modlat)) !! Numerical error 
+        if (abs( vTmp - 0.25*grd1%lonlat%dy_deg) > eps) return
 
         fu_grids_arakawa_correspond = .true.
     

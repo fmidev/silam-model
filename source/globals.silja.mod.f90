@@ -41,6 +41,7 @@ MODULE globals
   USE mpi
 #endif
 #ifdef VS2012
+  use ifport
   use ifcore
 #endif
 
@@ -218,6 +219,7 @@ MODULE globals
   ! Quiet NAN, double precision.
   REAL(r4k), PARAMETER, PUBLIC :: F_NAN = TRANSFER(2143289344,1.0_r4k)
   REAL(r8k), PARAMETER, PUBLIC :: D_NAN =  TRANSFER(-2251799813685248_int64,1.0_r8k)
+  real, PARAMETER, PUBLIC :: F_EPS = EPSILON(real_missing)
 
   integer(kind=8), parameter, PUBLIC :: MAX_INT32 = 2**30+(2*30-1)
 #ifdef DOUBLE_PRECISION
@@ -870,7 +872,11 @@ CONTAINS
     
 
     if (error) then 
+#ifdef VS2012
+      call sleepqq(1)
+#else
       call sleep(1)
+#endif
       fresh_error = .FALSE.
     else
       fresh_error = .TRUE.

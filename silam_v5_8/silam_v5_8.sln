@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{6989167D-11E4-40FE-8C1A-2192A86A7E90}") = "silam_dev", "silam_dev.vfproj", "{B4E65FC4-4B53-4F64-B3D8-98E8746D54E6}"
+Project("{6989167D-11E4-40FE-8C1A-2192A86A7E90}") = "silam_v5_8", "silam_v5_8.vfproj", "{B4E65FC4-4B53-4F64-B3D8-98E8746D54E6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

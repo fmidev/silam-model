@@ -913,23 +913,27 @@ CONTAINS
       call set_error('unknown gridtype', sub_name)
     end select
 
-    call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "units", "degrees_east")
     call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "axis", "X")
-    call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "units", "degrees_north")
     call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "axis", "Y")
 
     if (if_rotated_pole) then
+      !! See https://cfconventions.org/Data/cf-conventions/cf-conventions-1.10/cf-conventions.html#longitude-coordinate
+      !! and https://github.com/Unidata/tds/issues/286
+       call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "units", "degrees")
        call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "long_name", "longitude in rotated pole grid")
        call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "standard_name", "grid_longitude")
        call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "_CoordinateAxisType", "GeoX")
+       call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "units", "degrees")
        call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "long_name", "latitude in rotated pole grid")
        call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "standard_name", "grid_latitude")
        call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "_CoordinateAxisType", "GeoY")
     else
+       call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "units", "degrees_east")
        call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "long_name", "longitude")
        call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "standard_name", "longitude")
        call put_chatt_nc(nf, nf%ngrids(1)%lonVarId, "x dim ",  "_CoordinateAxisType", "Lon")
 
+       call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "units", "degrees_north")
        call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "long_name", "latitude")
        call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "standard_name", "latitude")
        call put_chatt_nc(nf, nf%ngrids(1)%latVarId, "y dim ",  "_CoordinateAxisType", "Lat")

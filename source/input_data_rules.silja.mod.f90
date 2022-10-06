@@ -22,6 +22,9 @@ MODULE input_data_rules
   USE grads_templates
   USE silam_levels
   use grids_geo
+#ifdef VS2012
+  use ifport
+#endif
 
   IMPLICIT NONE
 
@@ -2239,7 +2242,11 @@ CONTAINS
           call msg("Last tried file: "//trim(strFNm))
         else
           do j = 1, 60
+#ifdef VS2012
+            call sleepqq(5)                         ! waiting
+#else
             call sleep(5)                         ! waiting
+#endif
             if(error)return
           enddo
           iProceed = iProceed + 1
