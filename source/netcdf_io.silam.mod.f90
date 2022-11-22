@@ -2405,6 +2405,7 @@ CONTAINS
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreesn' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreen' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'grid_latitude' .or. &
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'projection_y_coordinate' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'latitude')then
                 nf%nDims(iDim)%axis = 'y'
                 nf%nDims(iDim)%defined = .true.
@@ -2416,6 +2417,7 @@ CONTAINS
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreese' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'decleneee' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'grid_longitude' .or. &
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'projection_x_coordinate' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'longitude')then
                 nf%nDims(iDim)%axis = 'x'
                 nf%nDims(iDim)%defined = .true.
