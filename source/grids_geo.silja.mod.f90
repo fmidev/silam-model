@@ -6576,11 +6576,11 @@ call msg('Finished averaging/sum structure')
       case(anygrid) !interpStructPtr%gridTo%gridtype
 
         interpStructPtr%ifRotation = .true. 
+        anyGridParamTo => pAnyGrdParam(interpStructPtr%gridTo%ag%indParam)
         if( allocated(anyGridParamTo%cos_map_rot) .and. &
                     & allocated(anyGridParamTo%sin_map_rot))then
 
           call msg('Computing wind rotation lonlat to anygrid')
-          anyGridParamTo => pAnyGrdParam(interpStructPtr%gridTo%ag%indParam)
           allocate(interpStructPtr%rotation(2, 2, nxTo, nyTo), stat=status)
           if (status /= 0) then
             call set_error('Allocating rotation map failed', 'fu_horiz_interp_struct')

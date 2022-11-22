@@ -603,7 +603,7 @@ CONTAINS
                                         & already_in_stack, &
                                         & fu_species(idTmp))
     else
-      CALL find_field_from_stack(stackpointer, idTmp, old, already_in_stack)
+      CALL find_field_from_stack_by_id(stackpointer, idTmp, old, already_in_stack)
     endif
 
     IF (already_in_stack) then

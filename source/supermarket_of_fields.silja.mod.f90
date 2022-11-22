@@ -1385,14 +1385,18 @@ CONTAINS
             if(error)return
 
             fMissingValue = fu_real_missing_replacement(fu_quantity(idList(i)))
+            call field_indices_from_netcdf_file(input_unit, idList(i), idStore, iVar, iTmp, ilev)
             if(ifVerbose)then
-              call msg('Reading netcdf field, time index', it)
+              call msg('Reading netcdf field, iVar, it, ilev', (/iVar, iTmp, ilev/))
+              call msg("id_requested")
               call report(idList(i))
+              call msg("id_read")
+              call report(idStore)
             endif
-            call read_field_from_netcdf_file(input_unit, &
-                                           & idList(i),&
+            call read_field_from_netcdf_indices(input_unit, ivar, iTmp, ilev, &
                                            & work_array, &
                                            & fill_value = fMissingValue)
+
 #ifdef DEBUG
             !
             !Dirty hack for bounaries
@@ -1417,7 +1421,7 @@ CONTAINS
           
            call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                      & nStacks, &
-                                      & idList(i), &
+                                      & idStore, &
                                       & work_array, &
                                       & iUpdateType, &       ! Overwrite or not existing fields
                                       & stack_type, &        ! stationary or time-dependent

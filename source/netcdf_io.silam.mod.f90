@@ -123,7 +123,7 @@ MODULE netcdf_io
     TYPE(silja_time) :: first_valid_time=time_missing, last_valid_time = time_missing, &
                      & tDimStart = time_missing, analysis_time = time_missing
     TYPE(silja_time), dimension(:), pointer :: times => null()
-    TYPE(silja_interval) :: step = interval_missing
+    TYPE(silja_interval) :: step = interval_missing, prec_acc_dt = interval_missing
     character (len = nf90_max_name) :: CHTDIMNAME = ''
     logical :: ifRegular = .false.
     integer :: tDimId, tVarId, time_label_position, analysis_t_from
@@ -141,6 +141,8 @@ MODULE netcdf_io
     LOGICAL :: if3D      = .false., ifTimeDep = .false.
     integer :: varid = int_missing
     integer :: xtype = int_missing
+    TYPE(silja_interval) :: acc_length = interval_missing !! Accumulation length 
+                                                    !!that is not since the forecast start
     type(netcdf_grid), pointer :: nGrid => null() !Pointer to files grid
     type(silam_vertical):: sVert
     TYPE(silja_logical) :: defined = silja_false
@@ -1595,10 +1597,12 @@ CONTAINS
              sPoleLat_tmp = fAtt(1)
            case ('POLE_LON') !SILAM thingies
              sPoleLon_tmp = fAtt(1)
+           case ('PREC_ACC_DT') ! WRF way to accumulate not from analysis, only in minutes so far
+             nf%nTime%prec_acc_dt = fu_set_interval_sec(fAtt(1)*60.)
            case default
               if (ifMsgs) then
                call msg_warning('Unrecognized global float att ' // &
-                  & trim(fu_str(iTmp)) // ' = '//trim(fu_str(fAtt(1))), sub_name)
+                  & trim(attname) // ' = '//trim(fu_str(fAtt(1))), sub_name)
               endif
           end select
 
@@ -2305,6 +2309,11 @@ CONTAINS
             !   endif
             case('long_name', 'description')
                nf%nVars(iVar)%long_name = chAtt
+               if (chAtt(1:11) == "ACCUMULATED") then
+                  if (index(chAtt, "prec_acc_dt") > 0) then 
+                    nf%nVars(iVar)%acc_length = nf%nTime%prec_acc_dt
+                  endif
+               endif
             case('coordinates')
                nf%nVars(iVar)%coordinates = chAtt
             case('stagger')
@@ -2323,7 +2332,8 @@ CONTAINS
 
       if(nf%nVars(iVar)%quantity == int_missing)then
         if(ifMsgs)then
-          call msg_warning(fu_connect_strings('Not a SILAM quantity:',nf%nVars(iVar)%chVarNm))
+          call msg_warning('No SILAM quantity for (var'// trim(fu_str(ivar))//'): '&
+                                    & //trim(nf%nVars(iVar)%chVarNm))
         endif
       endif
 
@@ -2393,7 +2403,9 @@ CONTAINS
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degrees_n' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degree_n' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreesn' .or. &
-                 & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreen')then
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreen' .or. &
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'grid_latitude' .or. &
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'latitude')then
                 nf%nDims(iDim)%axis = 'y'
                 nf%nDims(iDim)%defined = .true.
  
@@ -2402,7 +2414,9 @@ CONTAINS
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degrees_e' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degree_e' .or. &
                  & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'degreese' .or. &
-                 & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'decleneee')then
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%unit)) == 'decleneee' .or. &
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'grid_longitude' .or. &
+                 & fu_str_l_case(adjustl(nf%nVars(iVar)%standard_name)) == 'longitude')then
                 nf%nDims(iDim)%axis = 'x'
                 nf%nDims(iDim)%defined = .true.
  
@@ -2721,7 +2735,7 @@ CONTAINS
             call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
           elseif( chTmp == 'SIGMA_LEVEL')then
             do iLev = 1, nf%nDims(iTmp)%dimLen
-              lstLevs(ilev) = fu_set_sigma_level(real(nf%nDims(iTmp)%values(iLev)))
+              lstLevs(ilev) = fu_set_hybrid_level(iLev, 0., real(nf%nDims(iTmp)%values(iLev)))
             enddo
             lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
             call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
@@ -4239,9 +4253,7 @@ CONTAINS
   
     type(silja_field_id),dimension(:), pointer :: idList
     type(netcdf_file),pointer :: nf
-    type(silja_interval) :: length_of_accumulation, fc_length
-    integer :: iVar, iLev,  field_kind, nFields, ntimes, nlevs
-    type(silja_level) :: levTmp
+    integer :: iVar, iLev,   nFields,  nlevs
 
     if(.not. nfile(iUnit)%defined == silja_true )then
       call set_error('nf ptr not defined','id_list_from_netcdf_file')
@@ -4305,8 +4317,12 @@ CONTAINS
 
     if(fu_accumulated_quantity(nf%nVars(iVar)%quantity))then
       field_kind = accumulated_flag
-      length_of_accumulation = nf%nTime%times(iT) - nf%nTime%analysis_time
-      fc_length = length_of_accumulation
+      fc_length = nf%nTime%times(iT) - nf%nTime%analysis_time
+      if (defined(nf%nVars(iVar)%acc_length)) then
+        length_of_accumulation = nf%nVars(iVar)%acc_length
+      else
+        length_of_accumulation = fc_length
+      endif
     else
       if (nf%nTime%time_label_position == instant_fields) then
          field_kind = forecast_flag

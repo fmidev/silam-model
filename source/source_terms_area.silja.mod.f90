@@ -1308,7 +1308,7 @@ CONTAINS
           !
           ! Take entirely new cell
           !
-          if(a_src%nCells == size(a_src%cell_fx))then
+          if(a_src%nCells == size(a_src%cell_fx) .or. .not. associated(a_src%cell_fx))then
             call set_array_size(a_src%cell_fx, a_src%nCells+20, 0.0)
             call set_array_size(a_src%cell_fy, a_src%nCells+20, 0.0)
             call set_array_size(a_src%cell_val, a_src%nDescriptors, a_src%nCells+20, 0.0)

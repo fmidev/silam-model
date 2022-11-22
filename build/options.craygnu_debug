@@ -4,7 +4,7 @@ ARCH = linux_gnu
 # The compiler
 F90C = ftn
 # Flags for optimization, etc.
-OPTIMIZATION = -O0 -fopenmp 
+OPTIMIZATION = -O0 -fopenmp  -ffast-math
 # There used to be an option for using -openmp only for modules that include
 # omp_lib. But that doesn't work, so it is no longer here.
 DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888  -DDEBUG
