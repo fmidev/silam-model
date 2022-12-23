@@ -294,6 +294,7 @@ MODULE source_terms_volcano
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
     character(len=clen), dimension(100) :: arStr
     type(silja_logical) :: ifMastinUpdated 
+    character(len=*), parameter :: sub_name = "fill_volc_src_from_namelist"
     !
     ! Source name, sector, position
     !
@@ -314,12 +315,12 @@ MODULE source_terms_volcano
     call get_items(nlSrc, 'par_str_volcano', ptrItems, nt)
     if(error .or. nt < 1)then
       call report(nlSrc)
-      call set_error('No parameter items in namelist','fill_volc_src_from_namelist')
+      call set_error('No par_str_volcano items in namelist', sub_name )
       return
     endif
     if(.not. allocated(v_src%params))then
       allocate(v_src%params(nt), stat=iTmp)
-      if(fu_fails(iTmp == 0,'Failed to allocate parameters for volcano source', 'fill_volc_src_from_namelist'))return
+      if(fu_fails(iTmp == 0,'Failed to allocate parameters for volcano source',  sub_name ))return
       call set_missing(v_src%params, nt)
     endif
     do iTmp = 1, nt
@@ -337,7 +338,7 @@ MODULE source_terms_volcano
                                              ! or a multitude of lines  layer_borders = val_bottom val_top
     if(error)then
       call report(nlSrc)
-      call set_error('Failed vertical setup','fill_volc_src_from_namelist')
+      call set_error('Failed vertical setup', sub_name )
       return
     endif
     nz = fu_NbrOfLevels(v_src%vert4emis)
@@ -347,7 +348,7 @@ MODULE source_terms_volcano
     allocate(v_src%ems3d(v_src%nDescriptors, nz, nt), stat = iStat)
     if(iStat /= 0)then
       call report_volcano_source(v_src)
-      call set_error('Failed allocatoin of z-t emission matrix','fill_volc_src_from_namelist')
+      call set_error('Failed allocatoin of z-t emission matrix', sub_name )
       return
     endif
     v_src%ems3d = 0.0
@@ -367,7 +368,7 @@ MODULE source_terms_volcano
         allocate(v_src%fMastin_cocktail_fraction(v_src%nDescriptors), stat = iStat)
         if(iStat /= 0)then
           call report_volcano_source(v_src)
-          call set_error('Failed allocatoin of Mastin cocktail fractions','fill_volc_src_from_namelist')
+          call set_error('Failed allocatoin of Mastin cocktail fractions', sub_name )
           return
         endif
         call set_scalar_as_val(v_src%fMastin_height_pwr, fu_content_real(nlSrc,'mastin_height_power'))   ! = 0.241
@@ -376,13 +377,13 @@ MODULE source_terms_volcano
         call set_scalar_as_val(v_src%fMastin_fract_height_hat, fu_content_real(nlSrc,'mastin_height_fraction_hat'))  ! = 0.25
         spContent%sp = fu_content(nlSrc,'mastin_cocktail_fraction')
         allocate(v_src%fMastin_cocktail_fraction(v_src%nDescriptors), stat=iStat)
-        if(fu_fails(iStat==0,'Failed cocktail fractions allocation','fill_volc_src_from_namelist'))return
+        if(fu_fails(iStat==0,'Failed cocktail fractions allocation', sub_name ))return
         read(unit=spContent%sp, fmt=*, iostat=istat) &
                    & (chCocktail, v_src%fMastin_cocktail_fraction(fu_index(chCocktail, v_src%cocktail_descr_lst)), &
                     & iTmp=1, v_src%nDescriptors)
         if(istat /= 0)then
           call report_volcano_source(v_src)
-          call set_error('Failed reading mastin_cocktail_fraction','fill_volc_src_from_namelist')
+          call set_error('Failed reading mastin_cocktail_fraction', sub_name )
           return
         endif
         
@@ -396,7 +397,7 @@ MODULE source_terms_volcano
         call get_items(nlSrc, 'emission_cocktail_z_t', ptrItems, nItems)
         if(error .or. nItems < 1)then
           call report(nlSrc)
-          call set_error('Wrong z-t emission lines','fill_volc_src_from_namelist')
+          call set_error('Wrong z-t emission lines', sub_name )
           return
         endif
         !
@@ -411,14 +412,14 @@ MODULE source_terms_volcano
                              & iz = 1, fu_NbrOfLevels(v_src%vert4emis)) 
           if(iStat /= 0)then
             call report(nlSrc)
-            call set_error('Failed reading emission_cocktail_z_t:' + fu_content(ptrItems(iTmp)),'fill_volc_src_from_namelist')
+            call set_error('Failed reading emission_cocktail_z_t:' + fu_content(ptrItems(iTmp)), sub_name )
             return
           endif
         end do  ! emission_cocktail_z_t  items
 
       case default
         call set_error('emission_vs_vertical must be MASTIN or EXPLICIT_PROFILE, not:' + &
-                     & fu_Content(nlSrc,'emission_vs_vertical'),'fill_volc_src_from_namelist')
+                     & fu_Content(nlSrc,'emission_vs_vertical'), sub_name )
         return
     end select   ! if detailed emission matrix is given or Mastin relation is used
     !
@@ -439,7 +440,7 @@ MODULE source_terms_volcano
     
     if(nItems + nItemsZT > 0)then
       allocate(v_src%assimMaps(nItems + nItemsZT), stat=iStat)
-      if(fu_fails(iStat==0,'Failed allocation of assimilation mapping','fill_volc_src_from_namelist'))return
+      if(fu_fails(iStat==0,'Failed allocation of assimilation mapping', sub_name ))return
       do iTmp = 1, nItems+nItemsZT
         v_src%assimMaps(iTmp)%assimType = int_missing
       end do
@@ -453,7 +454,7 @@ MODULE source_terms_volcano
       do iTmp = 1, nitems
         spContent%sp = fu_content(ptrItems(iTmp))
         read(unit=spContent%sp,fmt=*, iostat=iStat) v_src%assimMaps(iTmp)%chAssimNm
-        if(fu_fails(iStat==0,'Failed reading assimilation request:'+spContent%sp,'fill_volc_src_from_namelist'))return
+        if(fu_fails(iStat==0,'Failed reading assimilation request:'+spContent%sp, sub_name ))return
         spContent%sp = adjustl(spContent%sp(index(spContent%sp,' ')+1 : ))  ! cut out the name
         !
         ! A special case: one line has several cocktails and variances:
@@ -475,9 +476,9 @@ MODULE source_terms_volcano
           
           do iz = 1, v_src%nDescriptors * 2, 2  ! go through the descriptor-stdev couples one by one
             iC = fu_index(arStr(iz), v_src%cocktail_descr_lst)
-            if(fu_fails(iC>0 .and. iC<=v_src%nDescriptors,'strange cocktail name in the line:'+ spContent%sp,'fill_volc_src_from_namelist'))return
+            if(fu_fails(iC>0 .and. iC<=v_src%nDescriptors,'strange cocktail name in the line:'+ spContent%sp, sub_name ))return
             read(unit=arStr(iz+1), fmt=*, iostat=iStat) v_src%assimMaps(iTmp)%cov(iC,1)
-            if(fu_fails(iStat==0,'Failed reading the cocktail variance line:'+spContent%sp,'fill_volc_src_from_namelist'))return
+            if(fu_fails(iStat==0,'Failed reading the cocktail variance line:'+spContent%sp, sub_name ))return
           end do
 
         elseif(v_src%assimMaps(iTmp)%chAssimNm == 'mastin_height_power')then
@@ -497,7 +498,7 @@ MODULE source_terms_volcano
           call set_signle_assim_param(spContent%sp, v_src%assimMaps(iTmp), v_src%fMastin_fract_height_hat)
         
         else
-          call set_error('Unknown assimilation request:' + spContent%sp,'fill_volc_src_from_namelist')
+          call set_error('Unknown assimilation request:' + spContent%sp, sub_name )
         endif  ! simple or multi-parameter line
         if(error)return
         call msg('Single parameter to assimilate: ' + v_src%assimMaps(iTmp)%chAssimNm)
@@ -520,7 +521,7 @@ MODULE source_terms_volcano
           ! Note: this is time-dependent vector with correlated components, same covariance for all times
           !
           if(fu_fails(index(fu_str_l_case(spContent%sp),'emission_cocktail_z_t') == 1, &
-                      & 'Unknown assimilation request:'+spContent%sp,'fill_volc_src_from_namelist'))return
+                      & 'Unknown assimilation request:'+spContent%sp, sub_name ))return
 
           call check_assimilation_setup(ifMastinUpdated, silja_false)
 
@@ -540,7 +541,7 @@ MODULE source_terms_volcano
             v_src%assimMaps(iC+nItems)%assimType = emis_z_t_assimilation
           endif
           read(unit=spContent%sp,fmt=*,iostat=iStat) arStr(1), iz, v_src%assimMaps(iC+nItems)%cov(1:nz, iz)
-          if(fu_fails(iStat==0,'Failed reading covariance:'+spContent%sp,'fill_volc_src_from_namelist'))return
+          if(fu_fails(iStat==0,'Failed reading covariance:'+spContent%sp, sub_name ))return
           v_src%assimMaps(iC+nItems)%ems_zt_ini(:,:) = v_src%ems3d(iC,:,:)  ! store the initial values
           v_src%assimMaps(iC+nItems)%nVals = nz
           v_src%assimMaps(iC+nItems)%conditions(1) = non_negative

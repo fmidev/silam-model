@@ -410,7 +410,7 @@ CONTAINS
     logical, dimension(:), allocatable :: ifSpecies
     type(silam_grid_position) :: posTmp
     type(silja_level) :: level
-    character(len=substNmLen) :: chSubstNm
+    character(len=substNmLen) :: chSubstNm, keyName
     real, dimension(:), pointer :: arTmp
     character (len=*), parameter :: sub_name="fill_p_src_from_namelist"
 
@@ -446,10 +446,10 @@ CONTAINS
     select case(chPointSrcFileVersion)
       case('4')
         iPointSrcFileVersion = 4
-        call get_items(nlSrc, 'par_str', ptrItems, nItems)
+        keyName = 'par_str'
       case('5')
         iPointSrcFileVersion = 5
-        call get_items(nlSrc, 'par_str_point', ptrItems, nItems)
+        keyName = 'par_str_point'
       case default
         call msg('Wrong point source file version (must be 4 or 5): "'// &
                     & trim(chPointSrcFileVersion)// '"')
@@ -457,9 +457,10 @@ CONTAINS
         return
     end select
 
+    call get_items(nlSrc, keyName, ptrItems, nItems)
     if(nItems < 1)then
       call report(nlSrc)
-      call set_error('No parameter items in namelist',sub_name)
+      call set_error('No '//trim(keyName)//' items in the namelist',sub_name)
       return
     endif
 

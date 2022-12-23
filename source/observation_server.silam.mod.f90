@@ -237,7 +237,7 @@ contains
     logical :: dealloc_obs_items, ifGroundToo, force_instant
     type(silja_time) :: time_in_filename
     !!FIXME some smarter allocation needed here
-    integer, parameter :: max_n_obs_per_time_window = 1
+    integer, parameter :: max_n_obs_per_time_window = 24
     character(len=*), parameter :: sub_name = 'read_observations'
 
 
@@ -1027,6 +1027,7 @@ contains
     if (error) return
 
     filename = fu_process_filepath(filenames(1)%sp, must_exist=.true.)
+    deallocate(filenames(1)%sp)
     deallocate(filenames)
   end subroutine expand_template
 
@@ -1400,15 +1401,12 @@ contains
     call collect_variance(observations, observations%obs_variance, observations%obs_size)
     observations%hasObservations = .true.
 
-    !!!!!!!!!!!!!!!!!!!!!!!!!!
    ! print *, 'Max obs value: ', maxval(observations%obs_values)
    ! print *, 'Number of obs: ', observations%obs_size
     call msg('Max obs value: ', maxval(observations%obs_values))
     call msg('Ave obs value: ', sum(observations%obs_values)/size(observations%obs_values))
     call msg('Number of obs: ', observations%obs_size)
-   ! call ooops("End obs read")
-    deallocate(station_list)
-    !!!!!!!!!!!!!!!!!!!!!!!!
+    if (allocated(station_list)) deallocate(station_list)
 
   contains
 

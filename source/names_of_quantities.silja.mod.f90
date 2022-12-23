@@ -133,7 +133,7 @@ MODULE names_of_quantities
   INTEGER, PARAMETER, PUBLIC :: Kz_scalar_3d_flag = 240043 ! [m2 s-1]
   INTEGER, PARAMETER, PUBLIC :: turb_kinetic_energy_SILAM_flag = 240044 ! [m2/s2]
   INTEGER, PARAMETER, PUBLIC :: turb_length_scale_flag = 240045 ! [m2/s2]
-  INTEGER, PARAMETER, PUBLIC :: brunt_vaisala_freq_flag = 240046 ! [m2/s2]
+  INTEGER, PARAMETER, PUBLIC :: brunt_vaisala_freq_flag = 240046 ! [1/s2] Actually N^2
 
   INTEGER, PARAMETER, PUBLIC :: geopotential_flag = 240047      ! m2/s2
   INTEGER, PARAMETER, PUBLIC :: height_flag = 240048 !m
@@ -992,7 +992,7 @@ CONTAINS
       string = 'turbulence length scale [m]'
 
       CASE (brunt_vaisala_freq_flag)
-      string = 'Brunt-Vaisala_frequency [1/s]'
+      string = 'Brunt-Vaisala_frequency square [1/s2]'
 
       CASE (windspeed_1lyr_flag)
       string = 'windspeed at 1st layer'
@@ -1991,9 +1991,7 @@ CONTAINS
 
     ! Description:
     ! Returns the unit of quantity in a readable string.
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
+
     IMPLICIT NONE
     !
     ! The return value of this function:
@@ -2004,6 +2002,7 @@ CONTAINS
     character( len=*), intent(in), optional :: massunit_
 
     character( len=10) :: massunit
+    character (len=*), parameter :: sub_name="fu_quantity_unit"
 
     !Replace crazy massunit with something more reasonable
     if (present(massunit_)) then 
@@ -2034,6 +2033,8 @@ CONTAINS
 
       CASE (u_flag,&
           & v_flag,&
+          & u_10m_flag, &
+          & v_10m_flag, &
           & u_mean_flag,&
           & v_mean_flag,&
           & w_alt_msl_flag, w_height_srf_flag, &
@@ -2111,7 +2112,7 @@ CONTAINS
       string = 'kg/kg'
 
       case(alluvial_sedim_index_flag)
-      string = ''
+      string = 'categoty'
 
       CASE (fraction_of_ice_flag)
         string = 'frac.'
@@ -2150,16 +2151,16 @@ CONTAINS
         string = 'm'
 
       CASE (charnock_parameter_flag)
-        string = ' '
+        string = '1'
 
       CASE (snowfall_rate_weq_flag)
         string = 'kg/m2s'
 
       CASE (soiltype_flag)
-        string = ' '
+        string = 'category'
 
       CASE (land_use_type_flag)
-        string = ' '
+        string = 'category'
         
       case(ref_evapotranspiration_flag)
         string = 'kg/m2sec'
@@ -2183,13 +2184,13 @@ CONTAINS
         string = massunit+'/m2'
 
       case(dust_emis_0_flag)
-        string = ''
+        string = 'unknown'
 
       case(c4_frac_flag)
-        string = ''
+        string = '1'
 
       case(irrigated_area_flag)
-        string = ''
+        string = '1'
 
       CASE (total_precipitation_acc_flag)
         string = 'kg/m2'
@@ -2395,10 +2396,10 @@ CONTAINS
         string = 'deg_time'
 
       case(physiography_field_set_flag)
-        string=''
+        string='XXX'
 
       case(Vd_correction_DMAT_flag)
-        string=''
+        string='1'
 
       case(water_salinity_flag)
         string = 'kg/kg'
@@ -2410,7 +2411,7 @@ CONTAINS
         string = 'm2/m2'
 
       case(optical_column_depth_flag)
-        string = ''
+        string = '1'
 
       case(absorption_coef_flag)
         string = '1/m'
@@ -2452,7 +2453,7 @@ CONTAINS
         string = 'kg/m3'
   
       case(emission_scaling_flag)
-        string = ''
+        string = '1'
 
       case(emis_factor_fire_flame_flag)
         string = 'kg/J'
@@ -2461,9 +2462,17 @@ CONTAINS
         string = 'kg/J'
 
     CASE default
-        string = ' '
+        string = ''
 
     END SELECT
+#ifdef DEBUG    
+    if (len_trim(string) == 0) then
+       call msg("Attempt to return empty unit for quantity "//trim(fu_quantity_short_string(quantity)))
+       call set_error("Empty units are not allowed anymore", sub_name)
+       !!! Some software, e.g. cdo often ommits empty attributes, and they do not see it as  a bug
+       !!!
+    endif
+#endif
 
 
   END FUNCTION fu_quantity_unit

@@ -566,7 +566,7 @@ CONTAINS
     real, dimension(:), pointer :: fVals
     logical :: ifGeoCoords, ifFound
     type(silja_level) :: level
-    character(len=substNmLen) :: chSubstNm
+    character(len=substNmLen) :: chSubstNm, keyName
     character(len=*), parameter :: sub_name = 'fill_a_src_from_namelist_v2_3'
 
 
@@ -611,19 +611,21 @@ CONTAINS
     !
     select case(iAreaSrcFileVersion)
       case(2)
-        call get_items(nlSrc, 'par_str', ptrItems, nItems)
+        keyName = 'par_str'
 
       case(3)
-        call get_items(nlSrc, 'par_str_area', ptrItems, nItems)
+        keyName = 'par_str_area' 
+
       case default
         call msg('Wrong area source file version (must be 2 or 3):',iAreaSrcFileVersion)
         call set_error('Wrong area source file version',sub_name)
         return
     end select
 
+    call get_items(nlSrc, keyName, ptrItems, nItems)
     if(nItems < 1)then
       call report(nlSrc)
-      call set_error('No parameter items in namelist',sub_name)
+      call set_error('No '//trim(keyName)//' items in the namelist',sub_name)
       return
     endif
 
@@ -1566,7 +1568,7 @@ CONTAINS
     call get_items(nlSrc, 'par_str_area', ptrItems, nItems)
     if(error .or. nItems < 1)then
       call report(nlSrc)
-      call set_error('No parameter items in namelist',sub_name)
+      call set_error('No par_str_area in the v4 namelist',sub_name)
       return
     endif
     allocate(a_src%params(nItems), stat=iTmp)
