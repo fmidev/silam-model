@@ -713,8 +713,8 @@ CONTAINS
         wdr%OrogrFileFormat(i) = fu_input_file_format(chTmp)
         if(error)return
         if(wdr%OrogrFileFormat(i)%iFormat == test_field_value_flag)then
-          call set_collection(wdr%fname_oro_template(i), adjustl(chTmp(index(adjustl(chTmp),' ')+1:))) ! just to store the stuff
           wdr%fname_oro_template(i) = template_missing
+          call set_collection(wdr%fname_oro_template(i), adjustl(chTmp(index(adjustl(chTmp),' ')+1:))) ! just to store the stuff
         else
           call decode_template_string(adjustl(chTmp(index(adjustl(chTmp),' ')+1:)), wdr%fname_oro_template(i))
         endif

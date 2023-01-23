@@ -839,7 +839,8 @@ CONTAINS
                                     & storage_grid = storage_grid, &
                                     & ifAdjust=ifAdjustLocal, &
                                     & st_time_feature = static_value, &
-                                    & ifforcemetsrcacceptance = .TRUE.) !!Accept test field
+                                    & ifforcemetsrcacceptance = .TRUE., & !!Accept test field
+                                    & ifVerbose_ = .true.)
           ifGotNewData = ifGotNewData .or. ifNewDataHere
 
       else
@@ -1547,37 +1548,44 @@ CONTAINS
        work_array => fu_work_array()
        timeTmp = shopStartTime
        call make_test_field(chFName, &  ! chFName contain the field name and value
-                          & idStore, &
+                          & id, & !idStore, &
                           & work_array, &
                           & shopStartTime, &
                           & zero_interval, & !
                           & storage_grid)
        eof = .true. ! Exit at the next cycle
-       id = idStore
-       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
+!       id = idStore
+       if(error)return
+       
+!       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
                                   !always coarse_geo_global_grid (see put_test_field_to_content)
                                   ! Thus we have separate id (to match the shoplist)
                                   ! and idStore (to store)
                                   
-       if (defined(obstime_interval)) then
-        times_found = int((fu_end_time(shopping_list) -  shopStartTime ) /obstime_interval) + 1
-        intervalTmp = obstime_interval
-       else
+       if (stack_type == single_time_stack_flag) then
         times_found = 1
         intervalTmp = zero_interval
+       else
+         if (defined(obstime_interval)) then
+           times_found = int((fu_end_time(shopping_list) -  shopStartTime ) /obstime_interval) + 1
+           intervalTmp = obstime_interval
+         else
+           times_found = 1
+           intervalTmp = zero_interval
+         endif
        endif
        fields_found = times_found
        do iT = 1, times_found
          timeTmp = shopStartTime + intervalTmp*(iT-1)
          call set_valid_time(id,      timeTmp )
-         call set_valid_time(idStore, timeTmp )
+!         call set_valid_time(idStore, timeTmp )
          call msg('The following test field has been created (store input)')
-         call report(idStore)
+         call report(id) !Store)
          call msg('')
          if(fu_field_id_in_list(id, shopping_list,  indexVar))then  
             call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                 & nStacks, &
-                                 & idStore, &
+                                & id, &  !idStore, &
                                  & work_array, &
                                  & iUpdateType, &       ! Overwrite or not existing fields
                                  & stack_type, &        ! stationary or time-dependent
@@ -1587,9 +1595,9 @@ CONTAINS
                                  & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
                                  & fu_if_randomise(wdr), &
                                  & shpLstPtr, indexVar, time_to_force)
-       
            if (.not. error) fields_accepted = fields_accepted + 1
          endif
+         if(error)return
        enddo
        call free_work_array(work_array) ! can be a huge array, so must be freed here
        
@@ -1838,6 +1846,13 @@ CONTAINS
       call SYSTEM_CLOCK(after)
       call msg('CPU time used: ', 1e-6*(after - before))
     endif
+    
+!    call msg('coarse_global_geo_grid')
+!    call report(coarse_geo_global_grid)
+!    call msg('global_geo_grid')
+!    call report(geo_global_grid)
+!    call msg('End grid reporting')
+!    stop
 
   END SUBROUTINE store_input_to_supermarket
 

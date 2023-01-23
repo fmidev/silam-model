@@ -989,19 +989,26 @@ CONTAINS
  ! ****************************************************************
   
   REAL FUNCTION fu_dynamic_viscosity(temperature) result(dyn_viscosity)
-
     ! Description:
-    !  Computes the "real" value for dynamic viscosity
-    !  using the ambient air temperature &  density
-    !
-    ! Method:
-    !   Approximation of the general formula
-    ! 
-    ! Units: temperature = Kelvins
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Ilkka Valkama, FMI
+    !  Air dynamic viscisity
+    ! Fit to the data 
+!# https://www.engineersedge.com/physics/viscosity_of_air_dynamic_and_kinematic_14483.htm
+!#T(C) mu(Pa s)
+!-50  1.474e-5
+!-40  1.527e-5
+!-30  1.579e-5
+!-20  1.630e-5
+!-10  1.680e-5
+!0    1.729e-5
+!5    1.754e-5
+!10   1.778e-5
+!15   1.802e-5
+!20   1.825e-5
+!25   1.849e-5
+!30   1.872e-5
+!35   1.895e-5
+!40   1.918e-5
+!50   1.963e-5
 
     IMPLICIT NONE
 
@@ -1010,15 +1017,9 @@ CONTAINS
 
     ! Local declarations
     REAL :: local_temp
-
-    !  temperature must be in degrees Celsius
-    local_temp = temperature - zero_celcius
+    real, parameter :: A = 4.89032e-08, B = 1.72558e-05  
  
-    IF(local_temp < 0.0)THEN 
-      dyn_viscosity = (1.718 + 0.005*local_temp - 1.2E-5*local_temp*local_temp)*1.0E-5
-    ELSE
-      dyn_viscosity = (1.718 + 0.005*local_temp)*1.0E-5
-    END IF 
+    dyn_viscosity = A*(temperature - zero_celcius) + B
     
   END FUNCTION fu_dynamic_viscosity
 

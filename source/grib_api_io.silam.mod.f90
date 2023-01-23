@@ -250,6 +250,7 @@ MODULE grib_api_io
 
     !! Attempt to prepend default definitions with local definitions 
     silamDefinitionPath = fu_process_filepath(fu_content(nlTmp,'local_definition_path'), superfile=chFNm)
+#ifndef VS2012
     if (silamDefinitionPath /= '') then
         inquire(file=silamDefinitionPath, exist=lTmp)
         if (.not. lTmp) then
@@ -263,7 +264,6 @@ MODULE grib_api_io
          call set_error("Failed to GET ECCODES definitions_path", sub_name)
          return
        endif
-
        newDefinitionPath = trim(silamDefinitionPath)//":"//trim(definitionPath)
 
        call msg("Resetting ECCODES definitions_path from '"//trim(definitionPath)//"' to '"//trim(newDefinitionPath)//"'" )
@@ -273,6 +273,7 @@ MODULE grib_api_io
            return
        endif
     endif
+#endif
     
     ptrItems => null()
     call get_items(nlTmp, 'var', ptrItems, nVals)

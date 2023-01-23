@@ -2391,9 +2391,6 @@ ifTuned = .true.
     ! Computes the general settling velocity for the given substance and given mode.
     ! Searches the right metedata by itself
     !
-    ! Formula: v = g * ro_part * d_part**2 * Cun / (18 * dyn_visc)
-    ! where Cun = 1 + 2*lambda/d * (1.26 + 0.4 * exp(-0.55 * d/lambda))
-    ! lambda = 2.37e-5 * T / P
     !
     ! ATTENTION. NO CHECKING to make the story fast
     !
@@ -2406,7 +2403,7 @@ ifTuned = .true.
     real, intent(in), optional :: forced_humidity
     
     ! Local variables
-    real :: fTempr, fPressure, fLambda, fCun, fWetDiam
+    real :: fTempr, fPressure, fWetDiam, mu_air
     type(TwetParticle) :: WetParticle
     integer :: iTmp
 
@@ -2433,6 +2430,7 @@ ifTuned = .true.
                 & fldPressure%future%p2d(iLevMeteo)%ptr(indexMeteo) * (1.-weight_past)
     endif
 
+    mu_air = fu_dynamic_viscosity(fTempr)
     do iTmp = 1, rulesDeposition%nAerosolsDepositing
       !
       ! Take the aerosol growth into account
@@ -2466,18 +2464,49 @@ ifTuned = .true.
 
       fWetDiam = fu_massmean_d(speciesTransport(rulesDeposition%indAerosolDepositing(iTmp))%mode) * &
                & WetParticle%fGrowthFactor
-      if(fWetDiam>25e-6 .and. WetParticle%fGrowthFactor>5)then
-        fWetDiam=25e-6
-      endif
 
-      fLambda = 2.37e-5 * fTempr / (fPressure*fWetDiam)
-      fCun = 1.+2*fLambda * (1.26 + 0.4 * exp(-0.55 / fLambda))
-      velocity(rulesDeposition%indAerosolDepositing(iTmp)) = g * fWetDiam * fWetDiam * &
-                                                           & WetParticle%fWetParticleDensity * &
-                                                           & fCun / (18.*fu_dynamic_viscosity(fTempr))
+      velocity(rulesDeposition%indAerosolDepositing(iTmp)) = &
+              & fu_settling_vel(fWetDiam, WetParticle%fWetParticleDensity, mu_air, fTempr, fPressure)
     end do ! aerosol species
 
   end subroutine get_settling_velocity_species
+
+ !*******************************************************
+
+real function fu_settling_vel(dp, rhop, mu_air, T, P) result(vs)
+  !
+  ! Implements settling velocity for the whole range of particles
+  !
+  ! Implements Solution for equation taht F_g + F_stokes + F_drag = 0
+  ! F_g = - pi/18  rho_p g  dp**3    
+  ! F_stokes = 3 pi mu_air dp vs / Cun
+  ! where Cun = 1 + 2*lambda/d * (1.26 + 0.4 * exp(-0.55 * d/lambda))
+  ! lambda = 2.18e-5 * T / P ## Constant to match eq 9.7 of SeinfeldPandis2006, p.399
+            !! Earlier was 2.37e-5 from unknown source
+  ! F_drag = pi/8 dp**2 rho_air C_d
+ 
+    implicit none
+    real, intent(in) :: dp, rhop, mu_air, T, P
+    real :: A, B, C, Det, lambda_over_dp, fCun, rho_air
+    character(len = *), parameter :: sub_name = 'fu_settling_vel'
+  
+      rho_air = P / (gas_constant_dryair * T)
+    ! Equation: A * vs * vs + B * vs + C =0 
+      A = rho_air * dp * 0.45  !! A = F_t * 6 /pi / U^2 /dp  Turbulent drag
+                                 !! Drag coefficient for a sphre Cd=0.45
+      B = 18 * mu_air   ! B = F_s *6 /pi  / U /dp ##Stokes drag without Cunningham
+      C = - 0.75 *  rhop  * g * dp * dp !! C = Fg *6 /pi /dp ##Gravity
+
+      if (abs(A*C) < 1e-4 * B*B) then !! Stokes dominates -- linear case
+        lambda_over_dp = 2.18e-5 * T / (P*dp) !!! lambda/d_p
+        fCun = 1.+2*lambda_over_dp * (1.26 + 0.4 * exp(-0.55 / lambda_over_dp))
+        vs = - fCun * C / B
+      else  !! quadractic can be solved without numerical issues
+        Det = B*B - 4*A*C !! No cunningham for large particles (hopefully)
+        vs = 0.5*(-B + sqrt(Det)) / A
+      endif
+  
+end function fu_settling_vel
 
 
   !*************************************************************************************
@@ -2506,7 +2535,7 @@ ifTuned = .true.
     real, dimension(:), intent(out):: velocity
     
     ! Local variables
-    real :: fLambda, fCun, fWetDiam
+    real :: mu_air, fWetDiam
     type(TwetParticle) :: WetParticle
     integer :: iTmp, iSp
 
@@ -2523,6 +2552,7 @@ ifTuned = .true.
     !
     ! Aerosols exist. Some preparation and proceed
 
+    mu_air = fu_dynamic_viscosity(fTempr)
     do iTmp = 1, rulesDeposition%nAerosolsDepositing
       iSp = rulesDeposition%indAerosolDepositing(iTmp)
       !
@@ -2539,14 +2569,7 @@ ifTuned = .true.
 
       fWetDiam = fu_massmean_d(speciesTransport(iSp)%mode) * WetParticle%fGrowthFactor
 
-      if(fWetDiam>25e-6 .and. WetParticle%fGrowthFactor>5)then
-        fWetDiam=25e-6
-      endif
-
-      fLambda = 2.37e-5 * fTempr / (fPressure*fWetDiam)
-      fCun = 1.+2*fLambda * (1.26 + 0.4 * exp(-0.55 / fLambda))
-      velocity(iSp) = g * fWetDiam * fWetDiam *  WetParticle%fWetParticleDensity * fCun / &
-                           & (18.*fu_dynamic_viscosity(fTempr))
+      velocity(iSp) = fu_settling_vel(fWetDiam, WetParticle%fWetParticleDensity, mu_air, fTempr, fPressure)
     end do ! aerosol species
 
     !Turn it to Pa/s Positive -- down
