@@ -31,6 +31,6 @@ SILAM_LIBS =
 INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCDIR}/include   -I${GRDIR}/include -I${PNCDIR}/include #-m64 -I${MKLROOT}/include 
 # Libraries given as linker options
 
-LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf  -lm -ldl -lbz2 -lscalapack -lproj -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_gnu_thread -lmkl_core
+LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf  -lm -ldl -lbz2 -lproj -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_sequential  -lmkl_intel_lp64 -lmkl_core
 
 #LFLAGS = -fopenmp -ljasper -llapack -ljasper -lblas -llapack -leccodes_f90 -leccodes  -lnetcdff -lnetcdf -lpnetcdf -lbz2

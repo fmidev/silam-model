@@ -1469,6 +1469,11 @@ call msg('finished processing')
     do iSet = 1, fire_src%nFRPdatasets
       iFire = 1
       do while(iFire <= fire_src%pFRPset(iSet)%nFires)
+        if (fire_src%pFRPset(iSet)%fX(iFire) == real_missing .or. &
+          & fire_src%pFRPset(iSet)%fY(iFire) == real_missing) then
+          call remove_fire(fire_src%pFRPset(iSet), iFire)
+          cycle
+        endif
         if(fire_src%ifGeoCoord)then
           call project_point_to_grid(fire_src%pFRPset(iSet)%fX(iFire), fire_src%pFRPset(iSet)%fY(iFire), &
                                    & grid, x, y)

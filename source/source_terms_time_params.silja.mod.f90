@@ -46,6 +46,8 @@ MODULE source_terms_time_params
   public add_input_needs_meteo_dependence
   public fu_meteodep_model
   public get_temp_dep_from_namelist
+  public IS4FIRES_vertical_profile
+  public fire_plume_rise_v2
 
   private set_release_parameters
   private reset_release_parameters
@@ -1804,6 +1806,164 @@ endif
       
   end function fu_meteodep_emis_scaling
   
+  !*************************************************************
+  
+  subroutine IS4FIRES_vertical_profile(FRP, &
+                                       & fABL_height, fBruntVaisFreq2, &
+                                       & ifOneStepProcedure, &
+                                       & fLevBottom, fLevTop)
+    implicit none
+
+    ! Imported parameters
+    real, intent(in) :: FRP, fABL_height, fBruntVaisFreq2 !!W, m, 1/s2
+    logical, intent(in) :: ifOneStepProcedure
+    real, intent(out) :: fLevBottom, fLevTop ! plume bounds, meter
+
+    ! Local parameters
+    real, parameter :: alpha_full=0.24, alpha_step_1 = 0.15, alpha_step_2 = 0.93, &
+                     & beta_full=169,   beta_step_1 = 102.,  beta_step_2 = 298., &
+                     & gamma_full=0.35, gamma_step_1 = 0.49, gamma_step_2 = 0.13, &
+                     & delta_full=254.,                      delta_step_2 = 259., &
+                     & FRP_scale=1.e-6
+    character(len = *), parameter :: sub_name = 'IS4FIRES_vertical_profile'
+    ! Local variables
+    real :: fABL_height_local
+    
+    !    fABL_height_local = max(fABL_height, 30.) !!!  Shouldwe put a limit here?
+    fABL_height_local = fABL_height
+
+    if(ifOneStepProcedure)then
+      !
+      ! One-step procedure means a unified formula
+      !
+      fLevTop = alpha_full * fABL_height_local + &
+              & beta_full * ((FRP * FRP_scale) **gamma_full) * exp(-delta_full * fBruntVaisFreq2)
+      fLevBottom = fLevTop / 3.
+    else
+      !
+      ! For two-steps, first compute the separation value, which is to be compared with ABL
+      ! Then - either FT- or unified formula (the later is also OK for ABL)
+      !
+      fLevTop = alpha_step_1 * fABL_height_local + beta_step_1 * ((FRP * FRP_scale) **gamma_step_1)
+      if(fLevTop > fABL_height_local)then
+        fLevTop = alpha_step_2 * fABL_height_local + &
+                & beta_step_2 * ((FRP * FRP_scale) **gamma_step_2) * &
+                & exp(-delta_step_2 * fBruntVaisFreq2)
+        fLevBottom = fLevTop / 2.
+      else
+        fLevTop = alpha_full * fABL_height_local + &
+                & beta_full * ((FRP * FRP_scale) **gamma_full) * exp(-delta_full * fBruntVaisFreq2)
+        fLevBottom = fLevTop / 3.
+      endif
+    endif
+
+  end subroutine IS4FIRES_vertical_profile
+  
+  subroutine fire_plume_rise_v2(FRP, indexMeteo, nz_meteo, weight_past, &
+                                       & fldT, fldQ, fldAblHeight, fldSrfPressure, &
+                                       & ifOneStepProcedure, &
+                                       & fStembottom, fHatBottom, fHatTop, ifPressure)
+    !
+    ! 
+    !    Plume calculator for v2 source
+    ! 
+    implicit none
+
+    ! Imported parameters
+    real, intent(in) :: FRP, weight_past
+    integer,  intent(in) :: indexMeteo, nz_meteo
+    type(field_4d_data_ptr), intent(in) :: fldT, fldQ                
+    type(field_2d_data_ptr), intent(in) :: fldAblHeight, fldSrfPressure   
+
+    logical, intent(in) ::  ifOneStepProcedure
+    real, intent(out) :: fStemBottom, fHatBottom, fHatTop ! plume bounds m or Pa
+    logical, intent(in) :: ifPressure ! If true -- fHatBottom, fHatTop come as pressure
+                                   ! otherwise -- as height
+    integer :: iLev
+    real, dimension(0:nz_meteo) :: met_layer_top_m
+    real :: fTmp, w, fBVFreq2, fBV2max, fBV2tmp, hBV, fABL_height, pBot, pTop, dz, p, pprev, z, zprev, rho, T, Tprev, sp, q
+    character(len = *), parameter :: sub_name = 'fire_plume_rise_v2'
+    real, parameter :: eps = molecular_weight_air/molecular_weight_water - 1.  !! 0.61
+
+    w = weight_past
+    fABL_height =  fldAblHeight%past%ptr(indexMeteo) * w +  fldAblHeight%future%ptr(indexMeteo)* (1.-w)
+    sp = fldSrfPressure%past%ptr(indexMeteo) * w +  fldSrfPressure%future%ptr(indexMeteo)* (1.-w)
+
+    pbot = sp
+    pPrev = sp
+    met_layer_top_m(0) = 0.
+
+    fBVFreq2 = real_missing
+    fBV2max = real_missing
+    hBV = min(fABL_height * 2.,  fABL_height + 1000.) !!! Height for Brunt-Vaisala calculation
+    Tprev = fldT%past%p2d(1)%ptr(indexMeteo)* w +  fldT%future%p2d(1)%ptr(indexMeteo)*(1.-w)
+
+    !! Fill met_layer_top_m and make BVFreq2
+    do iLev = 1, nz_meteo
+      p = a_met(iLev) + b_met(iLev)*sp  !! a_met and a_met are from levels
+      q = fldQ%past%p2d(iLev)%ptr(indexMeteo)* w +  fldQ%future%p2d(iLev)%ptr(indexMeteo)*(1.-w)
+      T = fldT%past%p2d(iLev)%ptr(indexMeteo)* w +  fldT%future%p2d(iLev)%ptr(indexMeteo)*(1.-w)
+      T = T * (1.+ eps*q) !! Virtual temperature
+
+      rho = p / (T * gas_constant_dryair)
+      dz = 2*(pBot - p)/ (rho * g)
+      met_layer_top_m(iLev) = met_layer_top_m(iLev - 1)  + dz
+      
+      if (fBVFreq2 < 0. .and. met_layer_top_m(iLev) > fABL_height) then  
+        !! Not yet made, above ABL (first levels might have stange fBVFreq2..)
+        !
+        !  Here we hanle exotic cases when there is an unstable layer above a stable one
+        !
+        fBV2tmp = - rho * g * g * ( (T - Tprev)/ (p - pPrev) / T - R_per_c_dryair / (0.5*(p+pPrev) ))
+        fBV2max = max(fBV2max, fBV2tmp) !! Largest so far
+        if (met_layer_top_m(iLev) > hBV) then !! right height  
+            fBVFreq2 = fBV2max
+            if (.not. ifPressure) exit
+        endif
+      endif
+      Tprev = T
+      pBot = 2*p - pBot
+      pPrev = p
+    enddo
+
+    if (fBVFreq2 < 0) then
+        call set_error("FailedBV", sub_name)
+    endif
+    call IS4FIRES_vertical_profile(FRP, fABL_height, fBVFreq2, &
+                                     & ifOneStepProcedure,  fHatBottom, fHatTop)
+    fStemBottom = 0 !!meters
+
+    if(ifPressure) then !! Translate heights to pressures
+      pBot = real_missing
+      pTop = real_missing
+      pprev = sp
+      zprev = 0.
+      do iLev = 1, nz_meteo
+        p = a_met(iLev) + b_met(iLev)*sp
+        z =  0.5*(met_layer_top_m(iLev-1) + met_layer_top_m(iLev))
+
+        if (( z >= fHatBottom) .and. (pBot < 0 ))  then
+               pBot = (pprev * (fHatBottom - zprev) + p * (z - fHatBottom)) / (z-zprev)
+        endif
+        if (( z >= fHatTop) .and. (pTop < 0 ))  then
+               pTop = (pprev * (fHatTop - zprev) + p * (z - fHatTop)) / (z-zprev)
+               exit
+        endif
+        pprev = p
+        zprev = z
+      enddo
+      if (iLev > nz_meteo) then
+        call set_error("Above meteo vertical after z to p", sub_name)
+      endif
+      if (.not. all ((/pBot,ptop/) > 0.) ) then
+        call set_error("Negative p after z to p", sub_name)
+      endif
+      fHatBottom = pBot
+      fHatTop  = pTop
+      fStemBottom = sp !!meters
+    endif
+
+  end subroutine fire_plume_rise_v2
   
 END MODULE source_terms_time_params
 

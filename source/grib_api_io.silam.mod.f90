@@ -169,7 +169,7 @@ MODULE grib_api_io
   ! Interface for high-level grib names to be used with GRIB2 (should be fine for GRIB1 as well)
   !
   type Tgrib_name_table
-      integer, dimension(max_quantities) :: paramId
+      integer (8), dimension(max_quantities) :: paramId
       character (len=clen), dimension(max_quantities) :: shortName, cfName, silam_species_io_str
       integer, dimension (max_quantities) :: silam_quantity
       type(silja_level), dimension(max_quantities) :: silam_level
@@ -356,7 +356,7 @@ MODULE grib_api_io
     implicit none
 
     ! Imported parameters
-    integer, intent(in) :: paramId
+    integer (8), intent(in) :: paramId
     character(len=*), intent(in) :: cfName, shortName
     integer, intent(out) :: silam_quantity
     character(len=*), intent(out) :: silam_species_string
@@ -1747,7 +1747,8 @@ MODULE grib_api_io
     real :: fTmp
     type(Taerosol_mode) :: aerosol_mode
 !DEBUG only
-    integer :: discipline, paramCategory, paramNbr, paramId
+    integer :: discipline, paramCategory, paramNbr
+    integer (8) :: paramId
     character (len=*), parameter :: sub_name = "gribheadings_to_field_id"
 
     call set_missing(id)
@@ -1794,7 +1795,7 @@ MODULE grib_api_io
        call get_silam_params_for_grib(paramId, cfName, shortName, quantity, chSpeciesString, level, scale_factor)
 
 #ifdef DEBUG_GRIB
-       write(unit=strtmp, fmt='(A,I10,1x,A, A30, A, A30, A, A30)') &
+       write(unit=strtmp, fmt='(A,I12,1x,A, A30, A, A30, A, A30)') &
                & " paramId = ", paramId, "cfName = ", cfName, &
                & " shortName = ", shortName, "SILAMq:", fu_quantity_short_string(quantity)
        call msg(strtmp)

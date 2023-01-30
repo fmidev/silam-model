@@ -614,6 +614,20 @@
          table2Version = 253 ;
          indicatorOfParameter = 1 ;
         }
+#Surface Pressure
+'Pa' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 1 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 0 ;
+        }
+#MSL Pressure
+'Pa' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 1 ;
+         indicatorOfTypeOfLevel = 103 ;
+         level = 0 ;
+        }
 #Precipitation Type
 'code' = {
          table2Version = 253 ;
@@ -853,6 +867,20 @@
          table2Version = 253 ;
          indicatorOfParameter = 238 ;
         }
+# 2m Temperature
+'K' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 11 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 2 ;
+        }
+# Surface Temperature
+'K' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 11 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 0 ;
+        }
 #Temperature
 'K' = {
          table2Version = 253 ;
@@ -877,6 +905,13 @@
 'K' = {
          table2Version = 253 ;
          indicatorOfParameter = 17 ;
+        }
+#2m Dew point temperature
+'K' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 17 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 2 ;
         }
 #Turbulent Kinetic Energy
 'J kg**-1' = {
@@ -928,6 +963,13 @@
          table2Version = 253 ;
          indicatorOfParameter = 33 ;
         }
+#10m u-component of wind
+'m s**-1' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 33 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 10 ;
+        }
 #Momentum flux, u-component
 'N m**-2' = {
          table2Version = 253 ;
@@ -952,6 +994,13 @@
 'm s**-1' = {
          table2Version = 253 ;
          indicatorOfParameter = 34 ;
+        }
+#10m v-component of wind
+'m s**-1' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 34 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 10 ;
         }
 #Vertical Divergence
 's**-1' = {

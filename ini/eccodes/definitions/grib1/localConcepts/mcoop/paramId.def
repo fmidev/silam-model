@@ -614,6 +614,20 @@
          table2Version = 253 ;
          indicatorOfParameter = 1 ;
         }
+#Surface Pressure
+'134' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 1 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 0 ;
+        }
+#MSL Pressure
+'151' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 1 ;
+         indicatorOfTypeOfLevel = 103 ;
+         level = 0 ;
+        }
 #Precipitation Type
 '251253144' = {
          table2Version = 253 ;
@@ -853,6 +867,20 @@
          table2Version = 253 ;
          indicatorOfParameter = 238 ;
         }
+# 2m Temperature
+'167' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 11 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 2 ;
+        }
+# Surface Temperature
+'235' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 11 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 0 ;
+        }
 #Temperature
 '251253011' = {
          table2Version = 253 ;
@@ -877,6 +905,13 @@
 '251253017' = {
          table2Version = 253 ;
          indicatorOfParameter = 17 ;
+        }
+#2m Dew point temperature
+'168' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 17 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 2 ;
         }
 #Turbulent Kinetic Energy
 '251001200' = {
@@ -928,6 +963,13 @@
          table2Version = 253 ;
          indicatorOfParameter = 33 ;
         }
+#10m u-component of wind
+'165' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 33 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 10 ;
+        }
 #Momentum flux, u-component
 '251253124' = {
          table2Version = 253 ;
@@ -952,6 +994,13 @@
 '251253034' = {
          table2Version = 253 ;
          indicatorOfParameter = 34 ;
+        }
+#10m v-component of wind
+'166' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 34 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 10 ;
         }
 #Vertical Divergence
 '251253213' = {

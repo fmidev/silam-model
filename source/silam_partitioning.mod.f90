@@ -6,6 +6,10 @@ MODULE silam_partitioning
   USE silam_times
   !$ use OMP_LIB
 
+#ifdef PUHTI_BUG
+!!!#pragma message("PUHTI_BUG enabled")
+    use,intrinsic :: ieee_arithmetic
+#endif
   IMPLICIT NONE
 
   PRIVATE
@@ -1500,9 +1504,31 @@ CONTAINS
 #ifdef SILAM_MPI    
     INTEGER :: required, provided, ierr
 
+#ifdef PUHTI_BUG
+    LOGICAL :: FLAGZ, FLAGO,FLAGI
+
+    ! save
+    CALL IEEE_GET_HALTING_MODE(IEEE_DIVIDE_BY_ZERO, FLAGZ)
+    CALL IEEE_GET_HALTING_MODE(IEEE_OVERFLOW, FLAGO)
+    CALL IEEE_GET_HALTING_MODE(IEEE_INVALID, FLAGI)
+    !mask
+    CALL IEEE_SET_HALTING_MODE(IEEE_DIVIDE_BY_ZERO, .FALSE.)
+    CALL IEEE_SET_HALTING_MODE(IEEE_OVERFLOW, .FALSE.)
+    CALL IEEE_SET_HALTING_MODE(IEEE_INVALID, .FALSE.)
+    print *, "FPE errors masked"
+#endif
+
     !required = MPI_THREAD_FUNNELED
     required = MPI_THREAD_SINGLE
+    
     CALL mpi_init_thread(required, provided, ierr)
+#ifdef PUHTI_BUG
+   !restore
+    CALL IEEE_SET_HALTING_MODE(IEEE_DIVIDE_BY_ZERO, FLAGZ)
+    CALL IEEE_SET_HALTING_MODE(IEEE_OVERFLOW, FLAGO)
+    CALL IEEE_SET_HALTING_MODE(IEEE_INVALID, FLAGI)
+    print *, "FPE errors mask restored"
+#endif
     if (smpi_error(ierr, "after mpi_init_thread",sub_name)) return
     IF (provided < required) THEN
        call msg('The MPI library does not support MPI_THREAD_SINGLE')

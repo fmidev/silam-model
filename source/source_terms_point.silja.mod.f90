@@ -196,6 +196,7 @@ MODULE source_terms_point
   integer, private, parameter :: singleLevelDynamic = 7771
   integer, private, parameter :: multiLevelFixed = 7772  
   integer, private, parameter :: plumeRise = 7773
+  integer, private, parameter :: plumeRiseBuoyancy = 7774
 
   integer, private, parameter :: LocalTimeIndex = -55555 ! Not actual index
   integer, private, parameter :: SolarTimeIndex = -66666
@@ -251,9 +252,10 @@ MODULE source_terms_point
     TYPE(silam_point_source) :: p_src
   end type p_src_ptr
 
-  type(field_4d_data_ptr), private, pointer, save :: fldTempr, fldWind, fldN2, fldPotTemp, &
+  type(field_4d_data_ptr), private, pointer, save :: fldT, fldQ, fldWind, fldN2, fldPotTemp, &
                                                    & fldPressure, fldRdown, fldZ
   type(field_2d_data_ptr), private, save, pointer :: fldAblHeight, fldTZindex
+  type(field_2d_data_ptr), private, pointer, save :: fldSrfPressure       
   integer, private, save :: ind_height
 
 CONTAINS
@@ -350,6 +352,13 @@ CONTAINS
     !
     ! Meteo data may be needed if the plume rise computations show up
     !
+    if (p_src%vertDispType == plumeRiseBuoyancy) then
+        iTmp = fu_merge_integer_to_array(abl_height_m_flag, q_met_dynamic)
+        iTmp = fu_merge_integer_to_array(temperature_flag, q_met_dynamic)
+        iTmp = fu_merge_integer_to_array(specific_humidity_flag, q_met_dynamic)
+        iTmp = fu_merge_integer_to_array(ground_pressure_flag, q_met_dynamic)
+    endif
+
     if (p_src%vertDispType == plumeRise) then
       iTmp = fu_merge_integer_to_array(abl_height_m_flag, q_met_dynamic)
       iTmp = fu_merge_integer_to_array(temperature_flag, q_met_dynamic)
@@ -741,6 +750,9 @@ CONTAINS
       ! Sets the basic parameters of the source
       !
       implicit none
+      logical :: needStack
+      
+      needStack = .FALSE.
 
       !
       ! Source name
@@ -794,21 +806,31 @@ CONTAINS
             end do
           endif
         
+        case ('PLUME_RISE_BUOYANCY')
+          p_src%vertDispType = plumeRiseBuoyancy
+          needStack = .True.
+
         case ('PLUME_RISE')
           p_src%vertDispType = plumeRise          
+          needStack = .True.
+
+        case default
+          p_src%vertDispType = singleLevelDynamic ! Default value
+          call set_error('Unknown vertical_distribution:' + fu_content(nlSrc,'vertical_distribution'), &
+                  & sub_name)
+      end select  
+
+      if (needStack) then
           p_src%stackHeight = fu_set_named_value(fu_content(nlSrc,'stack_height'))
-          if (p_src%stackHeight .eps. real_missing) then
+          if (p_src%stackHeight == real_missing) then
           call set_error('stack_height needed in plume rise mode.', &
                           & sub_name)
           call set_missing(p_src%vertLevs, .true.)
           nullify(p_src%levFraction)
           nullify(p_src%dz_m)
         endif
-        case default
-          p_src%vertDispType = singleLevelDynamic ! Default value
-          ! call set_error('Unknown vertical distripution type:' + fu_content(nlSrc,'vertical_distribution'), &
-          !        & sub_name)
-      end select    
+      endif
+
       
 
     
@@ -883,7 +905,7 @@ CONTAINS
                call set_error('Cannot collect species between different sources','fu_same_header')
             endif
           enddo
-        case(plumeRise)
+        case(plumeRise, plumeRiseBuoyancy)
           if(.not. (p_src%stackHeight .eps.  fu_content_real(nlSrc, 'stack_height')))then
             call msg('Stack heights are different:', &
                                          & p_src%stackHeight,fu_content_real(nlSrc, 'stack_height'))
@@ -988,7 +1010,7 @@ CONTAINS
               call set_error('Cannot collect chemicals between sources with different parameters', &
                        & 'fu_same_header')      
             endif
-          case(PlumeRise)
+          case(PlumeRise, PlumeRiseBuoyancy)
             if(.not.(paramTmp(1)%xy_size .eps. p_src%params(iTmp)%xy_size) .or. &
              & .not.(paramTmp(1)%z_velocity .eps. p_src%params(iTmp)%z_velocity) .or. &
              & .not.(paramTmp(1)%tempr .eps. p_src%params(iTmp)%tempr))then
@@ -1739,6 +1761,8 @@ CONTAINS
       end if  ! original grid
     else if (p_src%vertDispType == singleLevelDynamic) then
       write(uOut,fmt='(A)')'vertical_distribution = SINGLE_LEVEL_DYNAMIC'
+    else if (p_src%vertDispType == plumeRiseBuoyancy) then
+       write(uOut,fmt='(A)')'vertical_distribution = PLUME_RISE_BUOYANCY'
     else if (p_src%vertDispType == plumeRise) then
        write(uOut,fmt='(A)')'vertical_distribution = PLUME_RISE'
     else
@@ -2113,7 +2137,7 @@ CONTAINS
         call free_work_array(met_data_column)
       endif ! ifEmissionLagrangian
 
-    elseif(p_src%vertDispType == plumeRise)then
+    elseif(any(p_src%vertDispType == (/plumeRise, plumeRiseBuoyancy/)))then
       !
       ! For plume-rise, we have to just project the stack height
       !
@@ -2230,11 +2254,13 @@ CONTAINS
     integer :: iQ, iTmp
 
     ! nullify the pointers 
-    nullify(fldTempr)
+    nullify(fldT)
+    nullify(fldQ)
     nullify(fldWind)
     nullify(fldN2)
     nullify(fldPotTemp)
     nullify(fldAblHeight)
+    nullify(fldSrfPressure)  
     nullify(fldZ)
     nullify(fldRdown)
     nullify(fldTZindex)
@@ -2250,7 +2276,10 @@ CONTAINS
         select case(met_q(iQ))
 
           case(temperature_flag)
-            fldTempr => met_buf%p4d(iQ)
+            fldT => met_buf%p4d(iQ)
+
+          case(specific_humidity_flag)
+            fldQ => met_buf%p4d(iQ)
 
           case(windspeed_flag)
             fldWind => met_buf%p4d(iQ)
@@ -2285,6 +2314,9 @@ CONTAINS
           case(timezone_index_flag)
             fldTZindex => met_buf%p2d(iQ)
           
+          case(ground_pressure_flag)
+            fldSrfPressure => met_buf%p2d(iQ)
+
           case default
             cycle
             
@@ -2308,7 +2340,7 @@ CONTAINS
     type(THorizInterpStruct), intent(in) ::  interpCoefMeteo2DispHoriz
     logical, intent(in) :: ifMetVertInterp
     logical, intent(in) :: ifMetHorizInterp
-    real, intent(inout) :: plumeBottom, plumeTop
+    real, intent(inout) :: plumeBottom, plumeTop  !!!! Meters
     
     ! Local variables
     integer :: stackLevel, iTmp
@@ -2340,7 +2372,7 @@ CONTAINS
     stackLevel = p_src%izStackDispVert
     
     ! Get meteo data
-    if (.not.(associated(fldTempr) .and. associated(fldWind) .and. associated(fldN2) .and. &
+    if (.not.(associated(fldT) .and. associated(fldWind) .and. associated(fldN2) .and. &
             & associated(fldPotTemp) .and. associated(fldAblHeight)))then
       call set_error('Not all meteo found','calc_plume_rise')
       return
@@ -2349,7 +2381,7 @@ CONTAINS
                            & met_buf%weight_past, &
                            & interpCoefMeteo2DispHoriz, ifMetHorizInterp)
     
-    temperature = fu_get_value(fldTempr, nx_meteo, p_src%ixDispGrd, p_src%iyDispGrd, &
+    temperature = fu_get_value(fldT, nx_meteo, p_src%ixDispGrd, p_src%iyDispGrd, &
                              & stackLevel, met_buf%weight_past, interpCoefMeteo2DispHoriz, &
                              & interpCoefMeteo2DispVert, ifMetHorizInterp, ifMetVertInterp)
 
@@ -2366,17 +2398,19 @@ CONTAINS
                              & interpCoefMeteo2DispVert, ifMetHorizInterp, ifMetVertInterp)
 
     
-    ! Calculate
+    ! Calculate potential temperature gradient
     potTempDif = bruntVaisalaFreq * potentialTemp / g   ! bruntVaisalaFreq in silam is already squared
     
     
-    buoyancyFlux = g * exhSpeed * stackSize * exhSpeed * &
+    !!  Eq 3.11 from "Lectures on air pollution modelling, 1988"
+    buoyancyFlux = g * exhSpeed * stackSize * stackSize * &
       (exhTemperature - temperature) / (4.0 * exhTemperature)
 
-    if (potTempDif > 0.01) then
-      deltaH = 2.6 * (buoyancyFlux * potentialTemp / &
-            & (windSpeed * g * potTempDif))** (1.0/3.0)
+    if (potTempDif > 0.01) then !! Stable case, Eq 3.26, same book
+      deltaH = 2.6 * (buoyancyFlux  / &
+            & (windSpeed * bruntVaisalaFreq))** (1.0/3.0)
     else
+      !! Something strange with mysterious empirical constants
       deltaH = 40.0 * (log(1 + buoyancyFlux)**2.0) / &
             & (1.0 + 160.0/buoyancyFlux)**0.5 / windSpeed
     endif
@@ -2537,7 +2571,7 @@ CONTAINS
         fLevFraction = p_src%params(iSlotStart)%levFractDispVert(iLev) * fWeightPastSrc + &
                      & p_src%params(iSlotEnd)%levFractDispVert(iLev) * (1. - fWeightPastSrc)
    
-      elseif (p_src%vertDispType == plumeRise) then           !======================= PLUME RISE
+      elseif (any(p_src%vertDispType == (/plumeRise, plumeRiseBuoyancy/))) then           !======================= PLUME RISE
 
         overlapBottom = max(plumeBottom, disp_layer_top_m(iLev-1))
         overlapTop = min(plumeTop, disp_layer_top_m(iLev))
@@ -2777,7 +2811,7 @@ CONTAINS
       !
       nLevsToStart = 0
       do iLev = 1, nz_meteo
-        if(p_src%levFractDispVert(iLev) .eps. 0.0)cycle ! Disp is meteo here
+        if( abs(p_src%levFractDispVert(iLev)) < 1e-6) cycle ! Disp is meteo here
         nLevsToStart = nLevsToStart + 1
 
         xSize(nLevsToStart) = p_src%params(iSlotStart)%xy_size * fWeightPastSrc + &            ! size of the term
@@ -2835,7 +2869,7 @@ CONTAINS
 
 !call msg('9')
 
-    elseif(p_src%vertDispType == plumeRise) then                  !=================== PLUME RISE
+    elseif (p_src%vertDispType == plumeRise) then           !======================= PLUME RISE
       !
       ! Note that the plume top and bottom are to be converted to relative indices
       !
@@ -2860,6 +2894,10 @@ CONTAINS
                      & abs(timestep_sec) / 2.)
       ySize(1) = xSize(1)
       nPartInLev(1) = nP
+
+    elseif (p_src%vertDispType == plumeRiseBuoyancy) then           !======================= PLUME RISE
+      call set_error('plumeRiseBuoyancy not implemented for lagrangian', &
+                   & 'inject_emission_p_src')
     else
       call set_error('Vertical distribution type not supported:' + fu_str(p_src%vertDispType), &
                    & 'inject_emission_p_src')
@@ -3009,13 +3047,16 @@ call msg('Enlarging the number of particles, 1:',  lpset%nop + max(lpset%nop*5/4
     logical, intent(in) :: ifMetVertInterp
     logical, intent(in) :: ifMetHorizInterp
     real, dimension(:), intent(out) :: fMassTimeCommon
-    real, intent(out) :: fLevTop, fLevBottom, fWeightPastSrc
+    real, intent(out) :: fLevTop, fLevBottom  !!! Meters here
+    real, intent(out) :: fWeightPastSrc  !!! 
     logical, intent(out) :: ifFound
     integer, intent(out) :: iSlotStart, iSlotEnd
+    character(len=fnlen) :: chTmp
 
     ! Local variables
     integer :: iSlot, iLev, nLevs, iDescr, iTmp, iMeteo, iDow
-    real :: fLevFraction, fTimeScale, fCellTotal, factor, timestep_sec, exhTempr, exhSpeed, stackSize
+    real :: fLevFraction, fTimeScale, fCellTotal, factor, timestep_sec 
+    real ::  exhTempr, exhSpeed, stackSize, fTmp, FRPeff
     type(silja_time) :: timeStart, timeEnd
 
 !call msg('in')
@@ -3121,6 +3162,27 @@ call msg('Enlarging the number of particles, 1:',  lpset%nop + max(lpset%nop*5/4
                          & interpCoefMeteo2DispHoriz, ifMetHorizInterp, &
                          & interpCoefMeteo2DispVert, ifMetVertInterp, &
                          & fLevBottom, fLevTop)
+    elseif (p_src%vertDispType == plumeRiseBuoyancy) then
+      !! Actually buoyancy flux in (m4/s3)
+      exhSpeed = p_src%params(iSlotStart)%z_velocity * fWeightPastSrc + &
+                          & p_src%params(iSlotEnd)%z_velocity * (1. - fWeightPastSrc)
+
+      !!Convert Buoyancy flux to "FRP" 
+      iMeteo = fu_grid_index(nx_meteo, p_src%ixDispGrd, p_src%iyDispGrd, interpCoefMeteo2DispHoriz)
+      FRPeff = exhSpeed * std_pressure_sl / (g * R_per_c_dryair) !! ## fB to FRP
+
+      call fire_plume_rise_v2(FRPeff, iMeteo, nz_meteo, met_buf%weight_past, &
+                                       & fldT, fldQ, fldAblHeight, fldSrfPressure, &
+                                       & .TRUE., & ! ifOneStepProcedure, 
+                                       & fTmp, fLevBottom, fLevTop, .FALSE.) !!! Only meters here
+
+      !
+      ! For methane conversion from mass flux to buoyancy \SI{6}{m^4/kg/s^2}$
+      ! Here we do backward conversion
+      WRITE(chTmp,'(A,X,A,X,A,X,F8.0,X,F8.0,X,E10.4, E10.3)') fu_time_to_netcdf_string(now), &
+            & trim(p_src%src_nm), trim(p_src%sector_nm), fLevBottom, fLevTop, exhSpeed/6, FRPeff
+      call msg(cHtmp)
+
     else
       fLevBottom = real_missing
       fLevTop = real_missing

@@ -614,6 +614,20 @@
          table2Version = 253 ;
          indicatorOfParameter = 1 ;
         }
+#Surface Pressure
+'Surface Pressure' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 1 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 0 ;
+        }
+#MSL Pressure
+'MSL Pressure' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 1 ;
+         indicatorOfTypeOfLevel = 103 ;
+         level = 0 ;
+        }
 #Precipitation Type
 'Precipitation Type' = {
          table2Version = 253 ;
@@ -853,6 +867,20 @@
          table2Version = 253 ;
          indicatorOfParameter = 238 ;
         }
+# 2m Temperature
+'2m Temperature' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 11 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 2 ;
+        }
+# Surface Temperature
+'Surface temperature' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 11 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 0 ;
+        }
 #Temperature
 'Temperature' = {
          table2Version = 253 ;
@@ -877,6 +905,13 @@
 'Dew point temperature' = {
          table2Version = 253 ;
          indicatorOfParameter = 17 ;
+        }
+#2m Dew point temperature
+'2m Dew point temperature' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 17 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 2 ;
         }
 #Turbulent Kinetic Energy
 'Turbulent Kinetic Energy' = {
@@ -928,6 +963,13 @@
          table2Version = 253 ;
          indicatorOfParameter = 33 ;
         }
+#10m u-component of wind
+'10m u-component of wind ' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 33 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 10 ;
+        }
 #Momentum flux, u-component
 'Momentum flux, u-component' = {
          table2Version = 253 ;
@@ -952,6 +994,13 @@
 'v-component of wind' = {
          table2Version = 253 ;
          indicatorOfParameter = 34 ;
+        }
+#10m v-component of wind
+'10m v-component of wind' = {
+         table2Version = 253 ;
+         indicatorOfParameter = 34 ;
+         indicatorOfTypeOfLevel = 105 ;
+         level = 10 ;
         }
 #Vertical Divergence
 'Vertical Divergence' = {

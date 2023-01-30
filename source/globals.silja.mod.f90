@@ -261,7 +261,7 @@ MODULE globals
   !
   !        LOG FILE UNITS
   !
-  integer, public, save :: info_funit = int_missing, run_log_funit = int_missing
+  integer, public, save :: info_funit = int_missing, run_log_funit = 6 !! Should not acuse erro on write
   character(len=max_path_length), public, save :: run_log_name='',  run_log_tmp_name=''
 
   logical, public, save :: ifPrintDump = .false.

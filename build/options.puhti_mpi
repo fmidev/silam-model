@@ -6,12 +6,12 @@ F90C = mpif90
 # Flags for optimization, etc.
 OPTIMIZATION = -fopenmp -O2 -ffast-math
 
-DEBUG = -g -fbacktrace #-Waliasing #-DDEBUG
-#DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
+DEBUG = -g -fbacktrace #-fcheck=all #-DDEBUG
+#DEBUG =  -g  -fbacktrace -Waliasing  -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
 
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input -D WITH_NF90_NETCDF4 -D WITH_PNETCDF -DSILAM_MPI -D WITH_BZIP2  -D USE_PROJ4
-FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none
+PREPROCESS = -x f95-cpp-input -D WITH_NF90_NETCDF4 -D WITH_PNETCDF -DSILAM_MPI -D WITH_BZIP2  -D USE_PROJ4 -D PUHTI_BUG
+FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none 
 
 
 # netcdf install directory
@@ -31,6 +31,6 @@ SILAM_LIBS =
 INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCDIR}/include   -I${GRDIR}/include -I${PNCDIR}/include #-m64 -I${MKLROOT}/include 
 # Libraries given as linker options
 
-LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf -lm -ldl -lbz2 -lscalapack -lproj -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_gf_lp64 -lmkl_gnu_thread -lmkl_core -lpnetcdf 
+LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf -lm -ldl -lbz2 -lproj -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_sequential  -lmkl_intel_lp64 -lmkl_core -lpnetcdf 
 
 #LFLAGS = -fopenmp -ljasper -llapack -ljasper -lblas -llapack -leccodes_f90 -leccodes  -lnetcdff -lnetcdf -lpnetcdf -lbz2

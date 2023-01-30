@@ -35,6 +35,10 @@ module fishpack_silam
    ! Made explicit array boundaries
    ! Worked around addressing zero-th element in scratch arrays
 
+#ifdef   __FAST_MATH__
+#error Module fishpack is fast-math-unsafe!
+#endif
+
 use globals
   
 private

@@ -51,7 +51,7 @@ var     =       142     lsp           lwe_thickness_of_stratiform_precipitation_
 var     =      3062     lsp                     *                                            large_scale_accum_rain     undefined   SURFACE_LEVEL       -1     1       #
 var     =         *     msl                     *                                            msl_pressure               undefined   SURFACE_LEVEL       -1     1
 var     =         *     mld                     *                                            nwp_abl_height_m           undefined   SURFACE_LEVEL       -1     1
-var     =         *     pres                    *                                            pressure                   undefined   XXX                 -1     1
+var     =        54     pres                    *                                            pressure                   undefined   XXX                 -1     1
 var     =         *     q                       *                                            specific_humidity          undefined   XXX                 -1     1
 var     =         *     sde            lwe_thickness_of_surface_snow_amount                  weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## icon
 var     =         *     sd            lwe_thickness_of_surface_snow_amount                   weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## ecmwf
@@ -62,7 +62,7 @@ var     =         *     slhf                    *                               
 var     =         *     sp                      *                                            ground_pressure            undefined   SURFACE_LEVEL       -1     1
 var     =         *     sshf                    *                                            nwp_sensible_heatflux      undefined   SURFACE_LEVEL       -1     1
 var     =         *     sst                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1
-var     =         *     t                       *                                            temperature                undefined   XXX                 -1     1
+var     =       130     t                       *                                            temperature                undefined   XXX                 -1     1
 var     =         *     tcc                     *                                            total_cloud_cover          undefined   SURFACE_LEVEL       -1     1       ##
 var     =         *     tke                     *                                            turb_kinetic_energy_NWP    undefined   XXX                 -1     1
 var     =       228     tp                      *                                            total_precipitation        undefined   SURFACE_LEVEL       -1   1e3       # m -> kg/m2
@@ -102,7 +102,7 @@ var     =   *  land                    *                                        
 var     =   *  apcp                    *                                            total_precipitation        undefined   SURFACE_LEVEL       -1     1 #kg/m2
 var     =   *  ciwc_cond               *                                            cloud_ice                  undefined   XXX                 -1     1 # Metcoop v5 version
 var     =   *  cwat_cond               *                                            cloud_water                undefined   XXX                 -1     1 # Metcoop v5 version
-var     =   *  sd_meps                 *                                            weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## MEPS
+var     =   *  sd_meps                 *                                            weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## MEPS , kg/m2
 var     =   *  soilmoisture_lv         *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
 var     =   *  swavrs                *                                           surf_sw_down_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
 var     =   *  nswrs                *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
@@ -155,7 +155,12 @@ var = 210010 aermr10   * volume_mixing_ratio BC_m_60     XXX    -1  28.97e-3  #S
 var = 210011 aermr11   * volume_mixing_ratio SO4_m_30    XXX    -1  28.97e-3
 
 
-
-
-
+#  var  =      paramId  shortName             cfName                    silam_quantity         silam_sp silam_leveltype silam_levelval  factor
+# Commented those who has a generic shortName
+#var     =   251253006     z                     *                                           relief_height        undefined   SURFACE_LEVEL       -1     0.102       # 
+var     =   251253065    sdwe         lwe_thickness_of_surface_snow_amount                  weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## kg/m2
+#var     =   251253071     tcc                     *                                          total_cloud_cover        undefined   SURFACE_LEVEL       -1     1       # 
+var     =   251253061     tp                     *                                          total_precipitation        undefined   SURFACE_LEVEL       -1     1       # 
+#var     =   251253081     lsm                     *                                         fraction_of_land        undefined   SURFACE_LEVEL       -1     1       # 
+#var     =   251253067     mld                     *                                          nwp_abl_height_m        undefined   SURFACE_LEVEL       -1     1       # 
 
