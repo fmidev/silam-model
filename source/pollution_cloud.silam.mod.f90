@@ -827,7 +827,7 @@ CONTAINS
                                     & meteo_grid, dispersion_grid, meteo_vertical, dispersion_vertical, &
                                     & iAccuracy, ifRandomise)
     else  ! No Lagrangian dynamics
-      cloud%lpSet = lagrange_particles_set_missing
+      call set_lpset_missing(cloud%lpSet)
     endif  ! If Lagrangian present
     if(error)return
 

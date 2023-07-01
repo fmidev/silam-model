@@ -88,7 +88,7 @@ MODULE source_terms_time_params
   INTEGER, PARAMETER, PUBLIC :: wind_blown_dust_source = 2109
   INTEGER, PARAMETER, PUBLIC :: dms_source = 2110
   INTEGER, PARAMETER, PUBLIC :: volcano_source = 2111
- 
+  INTEGER, PARAMETER, PUBLIC :: soil_NO_source = 2112
 
   ! Vertical distribution:
   INTEGER, PARAMETER, PUBLIC :: vertically_even_distribution = 1

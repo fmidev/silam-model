@@ -125,10 +125,8 @@ CONTAINS
 !    real, dimension(:), pointer :: fWork
     real, dimension(:,:), pointer :: reactTmp 
     character (len=15) :: strTmp
-    character (len=worksize_string) :: strTmpLong
     character (len=*), parameter :: subname = "init_radioactive"
 
-    real(r8k), dimension(:,:), allocatable :: pMatrixTmp
 
     !
     ! Each emission species has to be checked for valid radioactive features of the material.
@@ -211,26 +209,60 @@ CONTAINS
 
     end if
     if(error)return
-    call msg('')
 
-    !!! The thing needed for doze-tool
-    allocate(pMatrixTmp(nNucsAdded,nNucsAdded))
-    pMatrixTmp = fu_sec(timestep_output)*reactTmp(1:nNucsAdded,1:nNucsAdded)
-    call  matrix_exponent(pMatrixTmp, nNucsAdded)
-    call msg('=========== Radioactive Decay matrix exponent for the output time step:' + &
-           & fu_str(timestep_output) + 'sec ============')
-    do iSp = 1, rules%precomputed_decay%nNuclides
-      write(unit=strTmpLong,fmt='(A20,I4,A,200(1x,F9.7))') &
-          & fu_str(rules%precomputed_decay%species(iSp)), iSp, ':', pMatrixTmp(1:nNucsAdded,iSp)
-      call msg(strTmpLong)
-    end do
-    call msg('------------- End of radioactive Decay matrix exponent --------------------')
-    call msg('')
-    deallocate(pMatrixTmp)
+
+    call   dump_decay_matrix(rules%precomputed_decay%species, nNucsAdded, reactTmp, fu_sec(timestep_output))
+
 
     call free_work_array(reactTmp)  !fWork)
 
   end subroutine init_radioactive
+
+
+   !*******************************************************
+  
+  subroutine dump_decay_matrix(splist, nSp, reactTmp, seconds)
+    !
+    !  Dump reaction rates (needed for the doze tool) to log 
+    !
+    implicit none
+    type (silam_species), dimension(nSp), intent(in) :: splist
+    real, dimension(:,:), intent(in) :: reactTmp !! Reaction rates Can be of different shape
+    real, intent(in) :: seconds !! Output timestep 
+    integer, intent(in) :: nSp
+    character (len=fnlen) :: strTmp
+    character (len=50+10*nsp) :: strTmpLong !! I could not find any solution wit allocatable-length string
+    real(r8k), dimension(:,:), allocatable :: MatrixTmp
+    character(len = *), parameter :: sub_name = 'dump_decay_matrix'
+
+    integer :: iSp
+
+
+
+    call msg('')
+    write(unit=strTmp,fmt='(A,I3,A)') '(A20,I4,A,', nsp,'(1x,F9.7))' !!! Format nsp can be quite long
+    allocate(MatrixTmp(nsp,nsp))
+    !allocate(character(len=50+10*NucsAdded) :: strTmpLong )
+    !!allocate(character(50+10*NucsAdded) :: strTmpLong )
+    !! Allocate crashes, but one does not need allocate in a modern fortran. See
+    !!! https://stackoverflow.com/questions/20908053/allocatable-character-variables-in-fortran
+
+    strTmpLong = ''
+    MatrixTmp = seconds*reactTmp(1:nsp,1:nsp)
+    call  matrix_exponent(MatrixTmp, nsp)
+
+    call msg('=========== Radioactive Decay matrix exponent for the output time step:' + &
+           & fu_str(seconds) + 'sec ============')
+    do iSp = 1, nSp
+      write(unit=strTmpLong,fmt=strTmp) & !! Dynamically-generated format string
+          & fu_str(splist(iSp)), iSp, ':', MatrixTmp(1:nsp,iSp)
+      call msg(strTmpLong)
+    end do
+    call msg('------------- End of radioactive Decay matrix exponent --------------------')
+    call msg('')
+    deallocate(MatrixTmp)
+  end subroutine dump_decay_matrix
+
 
 
   !************************************************************************************

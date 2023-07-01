@@ -2303,14 +2303,32 @@ CONTAINS
         !
         ! Amount units -> basic units. Here mole is default, the others are case-specific
         !
-      case('mkg')
-        if(chBasicUnit == 'kg')then
-          factor_to_basic_unit = 0.000000001
+      case('ng')
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1e-9
+        elseif(chBasicUnit == 'kg')then
+          factor_to_basic_unit = 1e-12
         elseif(chBasicUnit == 'mole')then
-          factor_to_basic_unit = 0.000000001/fu_mole_to_kg_by_material(material,1.)
+          factor_to_basic_unit = 1e-12/fu_mole_to_kg_by_material(material,1.)
         elseif(chBasicUnit == 'Bq')then
-          factor_to_basic_unit = 0.000000001 * fu_mole_to_bq(fu_nuclide(material),1.) / &
-                                             & fu_mole_to_kg_by_material(material,1.)
+          factor_to_basic_unit = 1e-12 * fu_mole_to_bq(fu_nuclide(material),1.) / &
+            & fu_mole_to_kg_by_material(material,1.)
+        else
+          call set_error(fu_connect_strings('Failed factor to basic unit:',chUnit,',',chBasicUnit), &
+                       & 'fu_factor_to_basic_unit_mater')
+          factor_to_basic_unit = 1. ! Zero is forbidden!!
+        endif
+
+      case('mkg','ug')
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1e-6
+        elseif(chBasicUnit == 'kg')then
+          factor_to_basic_unit = 1e-9
+        elseif(chBasicUnit == 'mole')then
+          factor_to_basic_unit = 1e-9/fu_mole_to_kg_by_material(material,1.)
+        elseif(chBasicUnit == 'Bq')then
+          factor_to_basic_unit = 1e-9 * fu_mole_to_bq(fu_nuclide(material),1.) / &
+                                      & fu_mole_to_kg_by_material(material,1.)
         else
           call set_error(fu_connect_strings('Failed factor to basic unit:',chUnit,',',chBasicUnit), &
                        & 'fu_factor_to_basic_unit_mater')
@@ -2318,7 +2336,9 @@ CONTAINS
         endif
 
       case('mg')
-        if(chBasicUnit == 'kg')then
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 0.001
+        elseif(chBasicUnit == 'kg')then
           factor_to_basic_unit = 0.000001
         elseif(chBasicUnit == 'mole')then
           factor_to_basic_unit = 0.000001/fu_mole_to_kg_by_material(material,1.)
@@ -2332,7 +2352,9 @@ CONTAINS
         endif
 
       case('g')
-        if(chBasicUnit == 'kg')then
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1.0
+        elseif(chBasicUnit == 'kg')then
           factor_to_basic_unit = 0.001
         elseif(chBasicUnit == 'mole')then
           factor_to_basic_unit = 0.001/fu_mole_to_kg_by_material(material,1.)
@@ -2346,7 +2368,9 @@ CONTAINS
         endif
 
       case('kg')
-        if(chBasicUnit == 'kg')then
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1e+3
+        elseif(chBasicUnit == 'kg')then
           factor_to_basic_unit = 1.
         elseif(chBasicUnit == 'mole')then
           factor_to_basic_unit = 1./fu_mole_to_kg_by_material(material,1.)
@@ -2360,7 +2384,9 @@ CONTAINS
         endif
 
       case('Mg','ton')
-        if(chBasicUnit == 'kg')then
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1e+6
+        elseif(chBasicUnit == 'kg')then
           factor_to_basic_unit = 1000.
         elseif(chBasicUnit == 'mole')then
           factor_to_basic_unit = 1000./fu_mole_to_kg_by_material(material,1.)
@@ -2374,13 +2400,15 @@ CONTAINS
         endif
 
       case('Gg','kton')
-        if(chBasicUnit == 'kg')then
-          factor_to_basic_unit = 1000000.
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1e+9
+        elseif(chBasicUnit == 'kg')then
+          factor_to_basic_unit = 1e+6
         elseif(chBasicUnit == 'mole')then
-          factor_to_basic_unit = 1000000./fu_mole_to_kg_by_material(material,1.)
+          factor_to_basic_unit = 1e+6 / fu_mole_to_kg_by_material(material,1.)
         elseif(chBasicUnit == 'Bq')then
-          factor_to_basic_unit = 1000000. * fu_mole_to_bq(fu_nuclide(material),1.) / &
-                                          & fu_mole_to_kg_by_material(material,1.)
+          factor_to_basic_unit = 1e+6 * fu_mole_to_bq(fu_nuclide(material),1.) / &
+                                      & fu_mole_to_kg_by_material(material,1.)
         else
           call set_error('Failed factor to basic unit:' + chUnit + ',' + chBasicUnit, &
                        & 'fu_factor_to_basic_unit_mater')
@@ -2388,13 +2416,15 @@ CONTAINS
         endif
 
       case('Mton')
-        if(chBasicUnit == 'kg')then
-          factor_to_basic_unit = 1000000000.
+        if(chBasicUnit == 'g')then
+          factor_to_basic_unit = 1.e+12
+        elseif(chBasicUnit == 'kg')then
+          factor_to_basic_unit = 1.e+9
         elseif(chBasicUnit == 'mole')then
-          factor_to_basic_unit = 1000000000./fu_mole_to_kg_by_material(material,1.)
+          factor_to_basic_unit = 1e+9 / fu_mole_to_kg_by_material(material,1.)
         elseif(chBasicUnit == 'Bq')then
-          factor_to_basic_unit = 1000000000. * fu_mole_to_bq(fu_nuclide(material),1.) / &
-                                             & fu_mole_to_kg_by_material(material,1.)
+          factor_to_basic_unit = 1e9 * fu_mole_to_bq(fu_nuclide(material),1.) / &
+                                     & fu_mole_to_kg_by_material(material,1.)
         else
           call set_error('Failed factor to basic unit:' + chUnit + ',' + chBasicUnit, &
                        & 'fu_factor_to_basic_unit_mater')
@@ -2471,7 +2501,7 @@ CONTAINS
         !
         ! All units not related to the mass transformation are handled in toolbox
         !
-        factor_to_basic_unit = fu_factor_to_basic_unit(chUnit, chBasicUnit)
+        factor_to_basic_unit = fu_conversion_factor(chUnit, chBasicUnit)
 
     end select
 

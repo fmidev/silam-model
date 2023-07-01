@@ -75,6 +75,7 @@ module depositions
   ! max_scav_rate_depends on one of these
   integer, public, parameter :: horiz_wind = 7001
   integer, public, parameter :: cape = 7002
+  integer, public, parameter :: cape_and_wind = 7003
 
   type Tdeposition_rules
     integer, dimension(:), pointer :: iDepositionType
@@ -86,6 +87,7 @@ module depositions
     integer :: DryDepType     ! Method for computing the dry deposition
     integer :: RsType         ! Method for surface resistance for gases
     integer :: max_scav_rate_depends_on = int_missing
+    real :: max_scav_rate_cape_scaling = 0.5, max_scav_rate_wind_scaling = 0.3
     logical :: ifHumidityDependent ! or just take the defualt humidity
     real :: fDefaultRelHumidity       ! the very default humidity
     logical :: ifSulphurSaturation
@@ -199,7 +201,7 @@ module depositions
                                               & pMetConvVel => null(), pMetSensHF => null(), pMetSnowDepth => null(), pMetLAI => null(), &
                                               & pMetGsto => null(), pMetIcefr => null(), pCAPE => null()
 
-  integer, private, pointer, save :: imet_cwc3d, imet_pwc3d, imet_press,    &
+  integer, private, pointer, save :: imet_cwc3d, imet_pwc3d, imet_press, imet_landfrac,   &
        & imet_temp, imet_u, imet_v, imet_cape, imet_tcc, imet_scav,  imet_dx_size, imet_dy_size, &
        & imet_dz_size, imet_abl, imet_airdens, imet_airmass, imet_cc3d, imet_cic, imet_cwc, imet_prec
 
@@ -298,14 +300,34 @@ CONTAINS
       rulesDeposition%max_scav_rate_depends_on = horiz_wind
     else if (fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')) == 'CAPE') then
       call msg('Max scavenging rate depends on the convective available potential energy')
-      rulesDeposition%max_scav_rate_depends_on = cape      
+      rulesDeposition%max_scav_rate_depends_on = cape
+    else if (fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')) == 'CAPE_AND_WIND') then
+      call msg('Max scavenging rate depends on the convective available potential energy and the horizontal wind')
+      rulesDeposition%max_scav_rate_depends_on = cape_and_wind
     end if
     
     if (rulesDeposition%max_scav_rate_depends_on == int_missing .neqv. &
        & any(rulesDeposition%scavengingType == (/scavStandard, scav2011, scav2011fc, scavNoScav/))) then
        call set_error("Incompatible max_scav_rate_depends_on and wet_deposition_scheme", sub_name)
        return
-     endif
+    endif
+
+    if (rulesDeposition%max_scav_rate_depends_on == cape_and_wind) then
+      rulesDeposition%max_scav_rate_wind_scaling = fu_content_real(nlSetup,'max_scav_rate_wind_scaling')
+      if(error .or. rulesDeposition%max_scav_rate_wind_scaling < 0.0)then
+        call msg('strange max_scav_rate_wind_scaling')
+        call set_error('Strange or missing max_scav_rate_wind_scaling. It could be 1.0 for a global ERA5 run or 0.3 for &
+             &a European run with EC oper',sub_name)
+        return
+      endif
+      rulesDeposition%max_scav_rate_cape_scaling = fu_content_real(nlSetup,'max_scav_rate_cape_scaling')
+      if(error .or. rulesDeposition%max_scav_rate_wind_scaling < 0.0)then
+        call msg('strange max_scav_rate_cape_scaling')
+        call set_error('Strange or missing max_scav_rate_cape_scaling. It could be 1.0 for a global ERA5 run or 0.4 &
+             &for a European run with EC oper.',sub_name)
+        return
+      endif
+    end if
     
     !
     ! Saturation of sulphur scavenging is so far the only non-linear species-specific process
@@ -898,7 +920,8 @@ CONTAINS
 
         end if
 
-        if(rulesDeposition%max_scav_rate_depends_on == horiz_wind) then                                                  
+        if(rulesDeposition%max_scav_rate_depends_on == horiz_wind .or. &
+             & rulesDeposition%max_scav_rate_depends_on == CAPE_AND_WIND) then
           nq = nq +1
           meteo_input_local%quantity(nq) = u_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
@@ -908,7 +931,7 @@ CONTAINS
           meteo_input_local%quantity(nq) = v_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
           imet_v => meteo_input_local%idx(nq)
-        else if (rulesDeposition%max_scav_rate_depends_on == CAPE) then
+       else if (rulesDeposition%max_scav_rate_depends_on == CAPE) then
           nq = nq +1
           meteo_input_local%quantity(nq) = cape_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
@@ -918,9 +941,26 @@ CONTAINS
           meteo_input_local%quantity(nq) = abl_height_m_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
           imet_abl => meteo_input_local%idx(nq)
+          
+        end if
+        if (rulesDeposition%max_scav_rate_depends_on == CAPE_AND_WIND) then
+          nq = nq +1
+          meteo_input_local%quantity(nq) = cape_flag
+          meteo_input_local%q_type(nq) = meteo_dynamic_flag
+          imet_cape => meteo_input_local%idx(nq)
+
+          nq = nq +1
+          meteo_input_local%quantity(nq) = abl_height_m_flag
+          meteo_input_local%q_type(nq) = meteo_dynamic_flag
+          imet_abl => meteo_input_local%idx(nq)
+
+          nq = nq +1
+          meteo_input_local%quantity(nq) = fraction_of_land_flag
+          meteo_input_local%q_type(nq) = meteo_single_time_flag
+          imet_landfrac => meteo_input_local%idx(nq)
         end if
 
-      case(scavNoScav)                                               
+      case(scavNoScav)
 
       case default                                                   
         call set_error('Unknown scavenging type', subname)                
@@ -1214,7 +1254,7 @@ CONTAINS
     
     ! Local variables
     real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
-          & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0,&
+          & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0, fTemperature, &
           & fVTFplus, fSensHeatVelplus, vsplusCorrTF, Cp_ro, fTmp, R2m, V, fIvd
     real, parameter :: ascale = 2e-3  ! Collection scale is prescribed for
                                           ! land. Should be taken from landuse
@@ -1284,7 +1324,9 @@ CONTAINS
       !if(rulesDeposition%ifHumidityDependent)then
       ! FIXME: Surface-layer humidity should be here!
       fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-                & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
+           & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
+      fTemperature = fldTempr%past%p2d(1)%ptr(indexMeteo) * weight_past + &
+           & fldTempr%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
       !else
       !  fHumidity = rulesDeposition%fDefaultRelHumidity
       !endif
@@ -1296,18 +1338,18 @@ CONTAINS
       fLambda = 2.37e-5 * pMetTempr2m(indexMeteo) / pMetSrfPressure(indexMeteo)
       fKn = 2*fLambda / fWetDiam
       fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
-            
+
       fDiffusivity = boltzmann_const * pMetTempr2m(indexMeteo) * fCun / &
                    & (3. * Pi * fDyn_visc * fWetDiam)
       fTau =  fWetDiam * fWetDiam * wetParticle%fWetParticleDensity * &
                        & fCun / (18. * fDyn_visc)
-      fVTFplus = - fSensHeatVelplus * fPrm  & !Thermophoretic velocity 
+      fVTFplus = - fSensHeatVelplus * fPrm  & !Thermophoretic velocity
           &        * 2*fCun *1.17 *(fkgkp+2.18*fKn) & ! (Friedlander 2000)
           &        / (1+3*1.14*fKn)/(1.+2.*fkgkp +2.*2.18*fKn) * timeSign
       fSc = fKin_visc / fDiffusivity
       tauplus = fTau * u_star * u_star / ( fKin_visc)
       vsplus = fTau * g / u_star * timeSign
-      rplus  = 0.5 * fWetDiam * u_star / fKin_visc   
+      rplus  = 0.5 * fWetDiam * u_star / fKin_visc
       Rsplus = 0. ! No surface resistance for particles
     endif ! gas or particles
         
@@ -1510,7 +1552,7 @@ CONTAINS
     
     ! Local variables
     real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
-          & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0,&
+          & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0, fTemperature, &
           & fVTFplus, fSensHeatVelplus, vsplusCorrTF, Cp_ro, fTmp, R2m, V, fIvd
         real, parameter :: ascale = 2e-3  ! Collection scale is prescribed for
                                           ! land. Should be taken from landuse
@@ -1587,7 +1629,9 @@ CONTAINS
           !if(rulesDeposition%ifHumidityDependent)then
           ! FIXME: Surface-layer humidity should be here!
             fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-                      & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
+                 & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
+            fTemperature = fldTempr%past%p2d(1)%ptr(indexMeteo) * weight_past + &
+                 & fldTempr%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
           !else
           !  fHumidity = rulesDeposition%fDefaultRelHumidity
           !endif
@@ -2743,7 +2787,7 @@ end function fu_settling_vel
 
     ! Local variables                                                                                                         
     real :: scav_coef_std, scav_coef,  timestep_sec_abs, fSO2, fS_rest, fMaxScav, precip_rate, &
-         & cape_met, tcc, fTempr_1, cell_size_x, cell_size_y, abl_height
+         & cape_met, tcc, fTempr_1, cell_size_x, cell_size_y, abl_height, landfrac
     integer :: iLev, iSrc, iSpecies, iSpTr, ithread
 
     real, dimension(max_species) :: rSettling
@@ -2977,14 +3021,16 @@ end function fu_settling_vel
         if (have_tla) TL_store_mass_in_air(:,:,ix,iy) = 0.
         return
       endif
-
     
       tcc = metdat_col(imet_tcc,1)
-      if (rulesDeposition%max_scav_rate_depends_on == cape) then
+      if (rulesDeposition%max_scav_rate_depends_on == cape .or. &
+           & rulesDeposition%max_scav_rate_depends_on == cape_and_wind) then
         cape_met = metdat_col(imet_cape,1)
         abl_height = metdat_col(imet_abl,1)
       end if
-
+      if (rulesDeposition%max_scav_rate_depends_on == cape_and_wind) then
+        landfrac = metdat_col(imet_landfrac,1)
+      end if
       if (associated(imet_cwc3d)) then ! Enable fakecloud branch
         cwc_col(1:num_levs) = metdat_col(imet_cwc3d,1:num_levs)
       else
@@ -3023,7 +3069,9 @@ end function fu_settling_vel
           call make_rain_in_cell_col(iLev, num_levs, r,  &
                & rulesDeposition%scavengingType, rulesDeposition%max_scav_rate_depends_on, &
                & metdat_col, pwc_col(iLev), pwc_column, pwc_above_top, pwc_above_bottom, &
-               & cwc_column_layer, cwc_col(1), cwc_col(iLev), precip_rate, tcc, cape_met, abl_height)
+               & cwc_column_layer, cwc_col(1), cwc_col(iLev), landfrac, precip_rate, tcc, cape_met, &
+               & abl_height, rulesDeposition%max_scav_rate_wind_scaling, &
+               & rulesDeposition%max_scav_rate_cape_scaling)
 
           r%ix = ix
           r%iy = iy
@@ -3055,11 +3103,21 @@ end function fu_settling_vel
         !                                                                                                                                                                             
         ! Make the preparation as usual: rain in the whole column                                                                                                                     
         !                                                                                                                                                                             
-        do iLev = mapConc%n3D,1,-1 !Top->bottom
+        do iLev = num_levs,1,-1 !Top->bottom
+
+          if (iLev < num_levs) then
+            cwc_column_layer = cwc_col(iLev) - cwc_col(iLev+1)
+          else
+            cwc_column_layer = cwc_col(iLev)
+          end if
+          cwc_column_layer = max(0.0, cwc_column_layer)
+
           call make_rain_in_cell_col(iLev, num_levs, r,  &
                & rulesDeposition%scavengingType, rulesDeposition%max_scav_rate_depends_on, &
                & metdat_col, pwc_col(iLev), pwc_column, pwc_above_top, pwc_above_bottom, &
-               & cwc_column_layer, cwc_col(1), cwc_col(iLev), precip_rate, tcc, cape_met, abl_height)
+               & cwc_column_layer, cwc_col(1), cwc_col(iLev), landfrac, precip_rate, tcc, cape_met, &
+               & abl_height, rulesDeposition%max_scav_rate_wind_scaling, &
+               & rulesDeposition%max_scav_rate_cape_scaling)
 
           !                call report_rain(r)                                                                                                                                                        
           if (.not. r%ifRainyCell) exit   ! leave the iLev cycle                                                                                                                      
@@ -3913,7 +3971,7 @@ end function fu_settling_vel
                         * exp (DepData%Henry_const_T_dep * ((1./r%fTemperature)-(1./298.)) )
 
       else ! particles
-
+        ! debug temperature!!!
         wetParticle = fu_wet_particle_features(species%material, 1.03) 
                                               !As high as it can be
         fWetDiam = wetParticle%fGrowthFactor * fu_massmean_D(species%mode)
@@ -3961,8 +4019,8 @@ end function fu_settling_vel
   !********************************************************************************************
 
   subroutine make_rain_in_cell_col(iLev, nLevels, r, scavType, max_scav_rate_depends_on, &
-       & metdat_col, pwcColumnLayer, pwcColumn, pwcAboveT, pwcAboveB, cwcColumnLayer, cwcColumn, cwcAbove, &
-       & rain_rate_scf, tcc, cape_met, abl_height)
+       & metdat_col, pwcColumnLayer, pwcColumn, pwcAboveT, pwcAboveB, cwcColumnLayer, cwcColumn, cwcAbove, landfrac, &
+       & rain_rate_scf, tcc, cape_met, abl_height, max_scav_rate_wind_scaling, max_scav_rate_cape_scaling)
     ! Prepares precipitation parameters for a dispersion cell,
     ! for which there is ready-made columnar meteo data
                                                 
@@ -3972,8 +4030,9 @@ end function fu_settling_vel
     integer, intent(in) :: iLev, nLevels  ! Dispersion indices
     integer, intent(in) :: scavType, max_scav_rate_depends_on
     real, dimension(:,:), pointer, intent(in) :: metdat_col
-    real, intent(in) :: rain_rate_scf, tcc, cape_met, abl_height
+    real, intent(in) :: rain_rate_scf, tcc, cape_met, abl_height, landfrac
     real, intent(in) :: pwcColumnLayer, pwcColumn, pwcAboveT, pwcAboveB, cwcColumnLayer, cwcColumn, cwcAbove
+    real, intent(in) :: max_scav_rate_wind_scaling, max_scav_rate_cape_scaling
     
     type (Train_in_cell), intent(out) :: r
 
@@ -4001,18 +4060,22 @@ end function fu_settling_vel
         if (max_scav_rate_depends_on == horiz_wind) then
           u = metdat_col(imet_u, iLev)
           v = metdat_col(imet_v, iLev)
-          r%max_scav_rate = 0.3 * sqrt(u*u+v*v+1.)/10000.0 !!! 1m/s minimum cell turnover speed
+          r%max_scav_rate = max_scav_rate_wind_scaling * sqrt(u*u+v*v+1.)/10000.0 !!! 1m/s minimum cell turnover speed
         else if (max_scav_rate_depends_on == cape) then
-          ! Andreas's thing -- Worse PM than depricated SCAV2019
-          !r%max_scav_rate = 0.01 * (3. + sqrt(cape_met))/max(500.0, abl_height)
-
-          !Slightly better
-          !r%max_scav_rate = 0.008 * (2. + sqrt(cape_met))/max(500.0, abl_height)
-
-          ! Very similar scores to SCAV2019, still with severe underestimate of
-          ! PM in winter. The underestimate should be treated vie particle
-          ! growth in post-processing (concluded after discussion with MAS). 
-          r%max_scav_rate = 0.005 * (1. + sqrt(cape_met))/max(500.0, abl_height)
+          ! "optimal" max_scav_rate_cape_scaling:
+          ! 1.0 for global 0.5 x 0.5 deg run with ERA5
+          ! 0.5 for European run with ECMWF operational meteodata
+          r%max_scav_rate = max_scav_rate_cape_scaling * 0.01 * (1. + sqrt(cape_met))/max(500.0, abl_height)
+        else if (max_scav_rate_depends_on == cape_and_wind) then
+          ! "good" max_scav_rate_cape_scaling:
+          ! 1.0 for global 0.5 x 0.5 deg run with ERA5
+          ! 0.4 for European run with ECMWF operational meteodata
+          ! "good" max_scav_rate_wind_scaling:
+          ! 1.0 for global 0.5 x 0.5 deg run with ERA5
+          ! 0.3 for European run with ECMWF operational meteodata
+          r%max_scav_rate = max_scav_rate_cape_scaling * 0.01 * (1. + sqrt(cape_met))/max(500.0, abl_height)
+          r%max_scav_rate = landfrac * r%max_scav_rate + &
+                & (1.0-landfrac) * max_scav_rate_wind_scaling * sqrt(u*u+v*v+1.)/10000.0
         end if
 
         if (scavType == scav2018) then

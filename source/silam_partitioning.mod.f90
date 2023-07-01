@@ -597,8 +597,14 @@ CONTAINS
        CALL mpi_cart_coords(smpi_adv_cart_comm, smpi_adv_cart_rank, 2, coords, ierr)
        if (smpi_error(ierr, "after mpi_cart_coords", sub_name)) return
 
+       if (any(coords > max_divisions)) then
+         call msg("My cartesian coords", coords(1), coords(2))
+         call set_error("Coords exceed max_divisions "//trim(fu_str(max_divisions)), sub_name)
+         return
+       endif
        my_x_coord = coords(1)
        my_y_coord = coords(2)
+       
        WHERE (adv_mpi_neighbours == smpi_proc_null) adv_mpi_neighbours = int_missing
        CALL msg('all-periodic MPI topology created (will be reset later)')
        CALL report_neighbours()

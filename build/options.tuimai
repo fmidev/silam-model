@@ -1,0 +1,48 @@
+#
+ARCH = linux_intel
+
+PYTHON = /usr/bin/python3
+
+F90C = ifort # mpif90 #gfortran
+# Flags for optimization, etc.
+OPTIMIZATION = -fopenmp -O3 -fp-model=fast
+
+DEBUG = -g -traceback -diag-disable 8291 
+#DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
+
+FIXED = -fixed
+PREPROCESS = -cpp -D WITH_NF90_NETCDF4 -D WITH_BZIP2  -D USE_PROJ4 
+#PREPROCESS = -cpp -D WITH_NF90_NETCDF4 -DSILAM_MPI -D WITH_BZIP2  -D USE_PROJ4
+FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) 
+#-ffree-line-length-none
+
+
+# netcdf install directory
+
+NCFDIR = /lustre/apps/scilibs/netcdf-fortran/4.5.4/intel-2021.8.0
+NCDIR = /lustre/apps/scilibs/netcdf-c/4.8.1/intel-2021.8.0
+ #${NETCDF_FORTRAN_INSTALL_ROOT}
+
+#PNCDIR = /lustre/apps/scilibs/parallel-netcdf/1.12.2/intel-2021.8.0
+#${PARALLEL_NETCDF_INSTALL_ROOT}
+
+# grib api install directory
+
+GRDIR = /lustre/apps/scilibs/eccodes/2.25.0/intel-2021.8.0
+ #${ECCODES_INSTALL_ROOT}
+
+# Libraries passed to ifort
+SILAM_LIBS = 
+
+MKL = -L${MKLROOT}/lib/intel64  -lmkl_sequential  -lmkl_intel_lp64 -lmkl_core 
+
+INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCFDIR}/include   -I${GRDIR}/include -m64 -I${MKLROOT}/include 
+# Libraries given as linker options
+
+LHDF5 = -L/lustre/apps/scilibs/hdf5/1.12.2/intel-2021.8.0/lib -lhdf5 -lhdf5_hl
+LBZIP2 = -L/lustre/apps/scilibs/bzip2/1.0.8/gcc-8.5.0/lib -lbz2
+LPROJ = -L/lustre/apps/scilibs/proj/7.2.1/gcc-8.5.0/lib -lproj
+
+LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf -lmkl_core -lm -L${NCDIR}/lib  -L ${NCFDIR}/lib -L ${GRDIR}/lib64 ${LHDF5} ${MKL} ${LBZIP2} ${LPROJ}
+
+#LFLAGS = -fopenmp -ljasper -llapack -ljasper -lblas -llapack -leccodes_f90 -leccodes  -lnetcdff -lnetcdf -lpnetcdf -lbz2

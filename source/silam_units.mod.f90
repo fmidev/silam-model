@@ -13,7 +13,7 @@ module silam_units
   public fu_conversion_factor
   public fu_unit_type
   public select_basic_unit
-  public fu_factor_to_basic_unit
+  !public fu_factor_to_basic_unit
   public fu_SI_unit
   public fu_set_named_value
   public set_named_value_and_unit
@@ -30,9 +30,9 @@ module silam_units
     module procedure fu_conversion_factor_general
   end interface
 
-  interface fu_factor_to_basic_unit
-    module procedure fu_factor_to_basic_unit_gen
-  end interface
+  !interface fu_factor_to_basic_unit
+  !  module procedure fu_factor_to_basic_unit_gen
+  !end interface
 
   
   ! Types of units used in the unit conversion routine
@@ -108,9 +108,8 @@ module silam_units
     ! much simpler and, e.g., independent from the availability of material
     !
     call select_basic_unit(chSubUnit1, chSubUnit3, chBasicUnit)
-
-    tmpFactor = tmpFactor * fu_factor_to_basic_unit_gen(chSubUnit1, chBasicUnit)
-
+    
+    tmpFactor = tmpFactor * fu_factor_to_basic_unit_gen(chSubUnit1, chBasicUnit)    
     unitType = fu_unit_type(chSubUnit1)
 
     if(unitType /= fu_unit_type(chSubUnit3))then
@@ -315,7 +314,8 @@ module silam_units
                          & 'select_basic_unit')
             return
           end if
-          chBasicUnit = 'kg'
+          !chBasicUnit = 'kg' changed basic unit of mass to g to handle conversion of mkg to kg
+          chBasicUnit = 'g'
         end if
 
       case default
@@ -346,8 +346,7 @@ module silam_units
     if(trim(chUnit) == trim(chBasicUnit))then
       factor_to_basic_unit = 1.0
       return
-    endif
-    
+   endif    
     !
     ! Check first if the unit is in some power - 2, 3 or 4 are allowed. 
     !
@@ -377,6 +376,7 @@ module silam_units
       ! Generic case: basic unit is a part of the unit. Deal with the case and return
       !
       chScale = chUnit(1:index(trim(chUnit),trim(chBasicUnit),.true.)-1)
+      !call msg('chUnit, chScale, chBasicUnit: ' + chUnit + ',' + chScale + ',' + chBasicUnit)
       factor_to_basic_unit = 1.0
 
       if(trim(chScale) == 'p')then        ! The standard meaning of these scalings
@@ -406,8 +406,10 @@ module silam_units
         return
       endif
 
-      if(trim(chBasicUnit) == 'kg') factor_to_basic_unit = factor_to_basic_unit * 1e-3
-
+      ! if(trim(chBasicUnit) == 'kg') then
+      !    factor_to_basic_unit = factor_to_basic_unit * 1e-3
+      ! end if
+      
     else
       !
       ! More complicated case when the unit is a separate word, different from basic unit
@@ -416,18 +418,41 @@ module silam_units
       select case(fu_unit_type(chBasicUnit))
 
         case(amount_unit)
-          if(trim(chBasicUnit) == 'kg')then  ! kg has connection to ton
+         
+          ! if(trim(chBasicUnit) == 'kg')then  ! kg has connection to ton
+          !   !if(chUnit(len_trim(chUnit):len_trim(chUnit)) == 'g')then
+          !   if (fu_if_ends_with(chUnit, 'g')) then
+          !     factor_to_basic_unit = fu_factor_to_basic_unit_gen(chUnit, 'g') * 1.0e-3
+          !   elseif(trim(chUnit) == 'ton' .or. trim(chUnit) == 't')then
+          !     factor_to_basic_unit = 1.0e+3
+          !   elseif(trim(chUnit) == 'kton' .or. trim(chUnit) == 'kt')then
+          !     factor_to_basic_unit = 1.0e+6
+          !   elseif(trim(chUnit) == 'Mton' .or. trim(chUnit) == 'Mt')then
+          !     factor_to_basic_unit = 1.0e+9
+          !   elseif(trim(chUnit) == 'Gton' .or. trim(chUnit) == 'Gt')then
+          !     factor_to_basic_unit = 1.0e+12
+          !   else
+          !     call set_error('Unknown amount_unit:' + chUnit,'')
+          !     return
+          !   endif
+          ! else
+          !   call set_error('Unknown combination of amount unit:' + chUnit + ', and basic unit:' + chBasicUnit, &
+          !                & 'fu_factor_to_basic_unit_gen')
+          !   return
+          ! endif
+         
+          if(trim(chBasicUnit) == 'g')then  ! kg has connection to ton
             !if(chUnit(len_trim(chUnit):len_trim(chUnit)) == 'g')then
-            if (fu_if_ends_with(chUnit, 'g')) then
-              factor_to_basic_unit = fu_factor_to_basic_unit_gen(chUnit, 'g') * 1.0e-3
-            elseif(trim(chUnit) == 'ton' .or. trim(chUnit) == 't')then
+            if (trim(chUnit) == 'kg') then
               factor_to_basic_unit = 1.0e+3
-            elseif(trim(chUnit) == 'kton' .or. trim(chUnit) == 'kt')then
+            elseif(trim(chUnit) == 'ton' .or. trim(chUnit) == 't')then
               factor_to_basic_unit = 1.0e+6
-            elseif(trim(chUnit) == 'Mton' .or. trim(chUnit) == 'Mt')then
+            elseif(trim(chUnit) == 'kton' .or. trim(chUnit) == 'kt')then
               factor_to_basic_unit = 1.0e+9
-            elseif(trim(chUnit) == 'Gton' .or. trim(chUnit) == 'Gt')then
+            elseif(trim(chUnit) == 'Mton' .or. trim(chUnit) == 'Mt')then
               factor_to_basic_unit = 1.0e+12
+            elseif(trim(chUnit) == 'Gton' .or. trim(chUnit) == 'Gt')then
+              factor_to_basic_unit = 1.0e+15
             else
               call set_error('Unknown amount_unit:' + chUnit,'')
               return

@@ -62,6 +62,8 @@ MODULE md ! The machine dependent code of silja on Intel platform
 #ifndef __GFORTRAN__
   public RENAME !FROM IFPORT
   public FTELL  !FROM IFPORT
+  public IERRNO
+  public GERROR
 #endif
   public revision_str
 
@@ -488,7 +490,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
     ! Local variables
     integer(4), dimension(13) :: stats !! Can also be integer8 in intel, but must integer4 in GNU
     integer :: istat
-    character(len=30) :: date
+    character(len=30) :: adate, mdate
 
 
       istat =  STAT(chfnm, stats)
@@ -501,10 +503,15 @@ MODULE md ! The machine dependent code of silja on Intel platform
       
       call msg('File name: ' // trim(chfnm))
       call msg('File size, kBytes:', real(stats(8)/1000.0))
-      call ctime(int(stats(10), 8), date)
-      call msg('Last modification: ' // date)
-      call ctime(int(stats(9), 8), date)
-      call msg('Last access: ' // date)
+#ifdef __GFORTRAN__
+      call ctime(int(stats(10), 8), mdate)
+      call ctime(int(stats(9), 8), adate)
+#else 
+      mdate = ctime(stats(10)) !! Intel has ctime as a function of INTEGER(4)
+      adate = ctime(stats(9))
+#endif
+      call msg('Last modification: ' // mdate)
+      call msg('Last access: ' // adate)
 
 #endif
   end subroutine display_file_parameters
@@ -643,10 +650,10 @@ subroutine fseek_md(iUnit, iOff,  from)
   ! Local variab;es
   integer :: iStat
 
-#ifdef VS2012  
-  iStat = FSEEK(iUnit, iOff,  from)
-#else
+#ifdef __GFORTRAN__ 
   call FSEEK(iUnit, iOff,  from, iStat)
+#else
+  iStat = FSEEK(iUnit, iOff,  from)
 #endif
   if(iStat == 0)then
     return

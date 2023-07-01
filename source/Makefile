@@ -78,6 +78,22 @@ puhti:
 	echo "SE=puhti" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
+tuimai:
+	echo "SE=tuimai" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+tuima_impi:
+	echo "SE=tuima_impi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+tuima_mpi:
+	echo "SE=tuima_mpi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+tuima:
+	echo "SE=tuima" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
 $(DefaultSetup):
 	echo "SE=$(SE)" > $(DefaultSetup)	
 	echo Switching make to `cat $(DefaultSetup)`

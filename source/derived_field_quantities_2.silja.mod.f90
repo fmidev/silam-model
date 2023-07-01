@@ -1541,7 +1541,7 @@ CONTAINS
                                           ! deltaU2 > 0.01  in any case
                                           ! Check for small deltaU2 removed (RK)
         if(ifFullABLParam)then
-          deltaT = theta_2(i)*(1.-eps*q_2(i)) - theta_1(i)*(1.-eps*q_1(i))
+          deltaT = theta_2(i)*(1.+eps*q_2(i)) - theta_1(i)*(1.+eps*q_1(i))
         else
           deltaT = theta_2(i) - theta_1(i)
         endif
@@ -2624,55 +2624,66 @@ CONTAINS
       real, dimension(:), pointer :: abl_height
 
       ! Local variables
-      real, dimension(:), pointer :: ground_pot_temperature, theta_up, theta_down, h2d_up, h2d_down
-      integer :: i, iCount, iCount2, iLev
+      real, dimension(:), pointer :: ground_virt_pot_temperature, theta_up, theta_down, h2d_up, h2d_down, &
+           & q3d_up, q3d_down, theta_virt_up, theta_virt_down
+      real :: slope_vpt
+      integer :: i, iCount, iLev
       
-      real, parameter :: a = 0.5, b=1.2
+      real, parameter :: a = 0.5, b = 5.0, slope_limit = 0.005
 
-      ground_pot_temperature => fu_work_array()
+      ground_virt_pot_temperature => fu_work_array()
+      theta_virt_up => fu_work_array()
+      theta_virt_down => fu_work_array()
 
-      theta_up  => fu_grid_data_from_3d(theta3d, 1)
+      ground_virt_pot_temperature(1:fs_meteo) = (1.0 + 0.62*q2m(1:fs_meteo)) * &
+           & temp2m(1:fs_meteo)*((std_pressure_sl/ps(1:fs_meteo))**R_per_c_dryair)
 
-      do i = 1, fs_meteo
-        if(sens_heat_flux(i) <= 0.0)then
-          ground_pot_temperature(i) = temp2m(i)*((std_pressure_sl/ps(i))**R_per_c_dryair) + a
-        else
-          ground_pot_temperature(i) = temp2m(i)*((std_pressure_sl/ps(i))**R_per_c_dryair) + b
-        endif
-      end do
+      where (sens_heat_flux(1:fs_meteo) <= 0.)
+        ground_virt_pot_temperature(1:fs_meteo) = ground_virt_pot_temperature(1:fs_meteo) + a
+      end where
 
       iCount = 0
-      iCount2 = 0
       DO iLev = 1, (nz_meteo-1)
-
+         
         theta_up  => fu_grid_data_from_3d(theta3d, iLev+1)
         theta_down => fu_grid_data_from_3d(theta3d, iLev)
         h2d_up => fu_grid_data_from_3d(height3d, iLev+1)
         h2d_down => fu_grid_data_from_3d(height3d, iLev)
+        q3d_up  => fu_grid_data_from_3d(q3d, iLev+1)
+        q3d_down  => fu_grid_data_from_3d(q3d, iLev)
         IF (error) EXIT
 
+        theta_virt_up(1:fs_meteo) = theta_up(1:fs_meteo) * (1.0 + 0.62 * q3d_up(1:fs_meteo))
+        theta_virt_down(1:fs_meteo) = theta_down(1:fs_meteo) * (1.0 + 0.62 * q3d_down(1:fs_meteo))
+
         DO i = 1, fs_meteo
-          IF (abl_height(i)<= 0.) THEN
-            IF (theta_up(i) > ground_pot_temperature(i)) THEN 
-              if(theta_down(i) > ground_pot_temperature(i))then
+          IF (abl_height(i)<= 0. .and. abs(abl_height(i)-anint(abl_height(i))) < 0.001) THEN
+            IF (theta_virt_up(i) > ground_virt_pot_temperature(i)) THEN 
+              if(theta_virt_down(i) > ground_virt_pot_temperature(i))then
                 abl_height(i) = h2d_down(i)
-                iCount2 = iCount2 + 1
               else
-                abl_height(i) = h2d_down(i) * (theta_up(i) - ground_pot_temperature(i)) &
-                            & + h2d_up(i) * (ground_pot_temperature(i) - theta_down(i))
-                abl_height(i) = abl_height(i) / (theta_up(i) - theta_down(i))
+                abl_height(i) = h2d_down(i) * (theta_virt_up(i) - ground_virt_pot_temperature(i)) &
+                            & + h2d_up(i) * (ground_virt_pot_temperature(i) - theta_virt_down(i))
+                abl_height(i) = abl_height(i) / (theta_virt_up(i) - theta_virt_down(i))
               endif
+              abl_height(i) = anint(abl_height(i)) + 0.1 !! So it can be distinguished
+            END IF
+          ELSE IF (abs(abl_height(i)-anint(abl_height(i))-0.1) < 0.001) THEN
+            slope_vpt = (theta_virt_up(i)-theta_virt_down(i))/(h2d_up(i)-h2d_down(i))
+            IF (slope_vpt > slope_limit .or. &
+                 & theta_virt_down(i) > ground_virt_pot_temperature(i) + b) THEN
+              abl_height(i) = anint(h2d_down(i)) + 0.2 !! So it can be distinguished
               iCount = iCount + 1
             END IF
-          END IF
+          END IF 
         END DO  !loop 1:fs
-        abl_height(1:fs_meteo) = anint(abl_height(1:fs_meteo))+0.2 !! So it can be
-                                                       !! distinguished
         IF(iCount >= fs_meteo) EXIT
 
       END DO ! loop_over_levels
 
-      call free_work_array(ground_pot_temperature)
+      call free_work_array(ground_virt_pot_temperature)
+      call free_work_array(theta_virt_up)
+      call free_work_array(theta_virt_down)
 
     end subroutine apply_parcel
 
@@ -4656,7 +4667,7 @@ CONTAINS
         if (associated(q3d)) then
               theta_2(1:fs_meteo) = t2(1:fs_meteo) * &
                    & ((std_pressure_sl/pml(1:fs_meteo))**R_per_c_dryair) &
-                   & * (1.-eps*q2(1:fs_meteo))
+                   & * (1.+eps*q2(1:fs_meteo))
         else
               theta_2(1:fs_meteo) = t2(1:fs_meteo) * &
                    & ((std_pressure_sl/pml(1:fs_meteo))**R_per_c_dryair)
@@ -4917,7 +4928,7 @@ CONTAINS
                   pml = a_full(lev) + b_full(lev)*psrf(i)
                   theta = t2(i) *  ((std_pressure_sl/pml)**R_per_c_dryair)
 
-                  if (associated(q3d)) theta = theta  * (1.-eps*q2(i))
+                  if (associated(q3d)) theta = theta  * (1.+eps*q2(i))
                       
                   z = height2(i)
                   if (lev > 1) zprev=height1(i)

@@ -3293,6 +3293,36 @@ endif
              & masses(iH2O_loc,iBin)*rules%mwH2O) / rho !Total volume of bin
       sad(iBin) = sad(iBin) + (Pi_36*naero(iBin) * fTmp * fTmp ) ** 0.3333333333333333333
     end do
+        
+    !
+    ! 12.06.2023. Faced ws + wn > 1 but very close to it. Since these are fractions, correct.
+    ! Potential problem with water amount in aerosol - I put it to zero here. MAS
+    !
+    if(ws + wn > 1.0)then
+      if(ws + wn < 1.0001)then
+        fTmp = 1.0 / (ws + wn)
+        ws = ws * fTmp
+        wn = wn * fTmp
+      else
+      !$OMP CRITICAL (BARK_TER)
+        call msg_warning('ws + wn > 1.0 substantially','TER')
+        call msg('v,sad(1:nBins),ws,wn,T,ms,msb,mn,mnb',(/v,sad(1:nBins),ws,wn,t,ms,msb,mn,mnb/))
+        write(unit=strTmp,fmt='(1x,1000(E9.3,2x))')masses
+        call msg(' Metamasses:' + strMetamasses)
+        call msg(' masses    :' + strTmp)
+        write(unit=strTmp,fmt='(1x,1000(E9.3,2x))')naero
+        call msg('Metanaero:' + strMetaNaero)
+        call msg('naero    :' + strTmp)
+        call set_error('ws + wn > 1.0','TER')
+        !$OMP END CRITICAL (BARK_TER)
+      endif
+    endif
+    !
+    ! Distribute H2SO4, HNO3, H2O in the aerosol phase
+    !
+
+
+
 
     if(sum(sad(1:nBins)) < 1.e-20)then
       !
@@ -3350,7 +3380,8 @@ endif
     endif   ! new or old STS
     
     if(.not. all(masses(:,:) >= 0.))then
-      call set_error('Negative volume','TER')
+      !$OMP CRITICAL (BARK_TER)
+      call msg_warning('Negative volume','TER')
       call msg('v,delta,sad(1:nBins),ws,wn,T,ms,msb,mn,mnb',(/v,delta,sad(1:nBins),ws,wn,t,ms,msb,mn,mnb/))
       write(unit=strTmp,fmt='(1x,1000(E9.3,2x))')masses
       call msg(' Metamasses:' + strMetamasses)
@@ -3358,6 +3389,8 @@ endif
       write(unit=strTmp,fmt='(1x,1000(E9.3,2x))')naero
       call msg('Metanaero:' + strMetaNaero)
       call msg('naero    :' + strTmp)
+      call set_error('Negative volume','TER')
+      !$OMP END CRITICAL (BARK_TER)
       return
     endif
 
@@ -3949,7 +3982,8 @@ endif
     real :: cf_clono2, cf_brono2, cf_n2o5, cf_hocl, cf_hobr, wt_mole_h2so4
     real :: pclono2,phcl,ph2o0,ph2o,pHBr,Mh2so4,A,t0,T_over_nya,ah,x,aw,b0,b1,b2
     real :: Sclono2,Hclono2,Dclono2,Hhcl,Mhcl,kh2o,kh,khydr,khcl,Gbh2o,RgasAtm,Hhbr
-    real :: lclono2_over_rp,fclono2,Grxn,Gbhcl,Gs,Fhcl,Gsp,Gbphcl,Gb,gam,thetaHBr,thetaHCl,KlangHCl,KlangHNO3
+    real :: lclono2_over_rp, lhocl_over_rp
+    real :: fclono2,Grxn,Gbhcl,Gs,Fhcl,Gsp,Gbphcl,Gb,gam,thetaHBr,thetaHCl,KlangHCl,KlangHNO3
     real(r8k) :: RgasScaled,Shocl,Hhocl,Dhocl,k5,lhocl,fhocl,Ghocl
     logical :: ifH2O, ifHCl
 
@@ -4236,7 +4270,10 @@ endif
         !lhocl = sqrt(Dhocl/k5)           ! reaction diffusive length, cm (NOTE: should be in meters as rp)
         lhocl = 0.01/sqrt(1.25e9*ah*Mhcl) ! reaction diffusive length, meters. Avoiding division by zero if Dhocl is zero (if viscosity nya is infinity/large)
         !fhocl = 1./tanh(rp/lhocl)-lhocl/rp
-        fhocl = max(min(1./tanh(rp/lhocl)-lhocl/rp,1.0),0.0) !avoid numerics to go beyond the actual limits of 0...1
+        lhocl_over_rp  =  lhocl/rp
+        fhocl = fclono(lhocl_over_rp)
+        !!!     fhocl = max(min(1./tanh(rp/lhocl)-lhocl/rp,1.0),0.0) !avoid numerics to go beyond the actual limits of 0...1
+
         Ghocl = Hhocl*RgasScaled*T*sqrt(Dhocl*k5)/cf_hocl !19Sep2017 by R.H. Corrected the equation. 
         if(fhocl*Ghocl*Fhcl <= 0.)then
           ! fhocl can become negative if lhocl is too big ?

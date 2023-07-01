@@ -233,6 +233,7 @@ MODULE names_of_quantities
   integer, parameter, public :: dust_emis_0_flag = 250055
   integer, parameter, public :: c4_frac_flag = 250056
   integer, parameter, public :: irrigated_area_flag = 250057
+  integer, parameter, public :: soil_NO_emis_0_flag = 250058
   !
   ! Precipitation and evaporation
   !
@@ -702,6 +703,9 @@ CONTAINS
 
       case(dust_emis_0_flag)
         string = 'dust emission'
+
+      case(soil_NO_emis_0_flag)
+        string = 'soil NO emission'  
 
       case(c4_frac_flag)
         string = 'vegetation c4 fraction'
@@ -1464,6 +1468,9 @@ CONTAINS
       case(dust_emis_0_flag)
         string = 'dust_emis_0'
 
+      case(soil_NO_emis_0_flag)
+        string = 'soil_NO_emis_0'
+
       case(c4_frac_flag)
         string = 'c4_frac'
 
@@ -2184,7 +2191,10 @@ CONTAINS
         string = massunit+'/m2'
 
       case(dust_emis_0_flag)
-        string = 'unknown'
+         string = 'unknown'
+
+      case(soil_NO_emis_0_flag)
+         string = 'unknown'
 
       case(c4_frac_flag)
         string = '1'
@@ -3020,6 +3030,9 @@ CONTAINS
       fMinAlert = -1.0; fMinForce = 0.0; fMaxForce = real_missing; fMaxAlert = real_missing
 
       CASE (dust_emis_0_flag)
+      fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
+
+      CASE (soil_NO_emis_0_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
       CASE (c4_frac_flag)
@@ -4094,6 +4107,7 @@ CONTAINS
          & emission_mask_flag, &
          & soil_moisture_vol_frac_nwp_flag, &
          & dust_emis_0_flag, &
+         & soil_NO_emis_0_flag, &
          & irrigated_area_flag)
 
         fu_regridding_method = average
@@ -4460,6 +4474,9 @@ CONTAINS
 
     elseif(trim(chQuantity) == "dust_emis_0")then
       iQ = dust_emis_0_flag
+
+    elseif(trim(chQuantity) == "soil_NO_emis_0")then
+      iQ = soil_NO_emis_0_flag
 
     elseif(trim(chQuantity) == "c4_frac")then
       iQ = c4_frac_flag
@@ -5085,6 +5102,9 @@ CONTAINS
         
       case(dust_emis_0_flag)
         string =   "dust_emis"
+
+      case(soil_NO_emis_0_flag)
+        string =   "soil_NO_emis"
 
       case(c4_frac_flag)
         string =   "c4_frac"

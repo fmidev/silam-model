@@ -3712,7 +3712,8 @@ CONTAINS
 #endif
 
        
-    elseif ( nint(nf%nVars(iVar)%missing_value) == -32767) then
+    elseif ( abs(nf%nVars(iVar)%missing_value + 32767.) < 1e-3) then  
+     !!      nint(nf%nVars(iVar)%missing_value) == -32767) then !!! Triggers FPE
        ! Too bad... The source was unpacked by someone who was unable to adjust minimal value...
        ! Just remove negatives and hope for best
        where(grid_data(1:nx*ny) < 0) grid_data(1:nx*ny) = 0

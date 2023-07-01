@@ -404,8 +404,8 @@ CONTAINS
         !!read(unit=strTmp, fmt=*, stat=istat) refProp(iRefSub)%chOpticStdSubst, refProp(iRefSub)%OpticalType, &
         read (unit=strTmp, fmt=*, iostat=iStat) refProp(iRefSub)%chOpticStdSubst, refProp(iRefSub)%OpticalType, &
                   & fTmp1, chrTmp1, fTmp2, chrTmp2
-        refProp(iRefSub)%min_wl =  fTmp1 * fu_factor_to_basic_unit(chrTmp1, 'm')
-        refProp(iRefSub)%max_wl =  fTmp2 * fu_factor_to_basic_unit(chrTmp2, 'm')
+        refProp(iRefSub)%min_wl =  fTmp1 * fu_conversion_factor(chrTmp1, 'm')
+        refProp(iRefSub)%max_wl =  fTmp2 * fu_conversion_factor(chrTmp2, 'm')
         if (error .or. iStat /=0 ) then
           call msg("Failes to parse line")
           call msg(strTmp)
@@ -444,7 +444,7 @@ CONTAINS
         refProp(iRefSub)%nWaves = nWavs
         allocate(refProp(iRefSub)%waves(nWavs))
         
-        fTmp1 = fu_factor_to_basic_unit(strTmp, 'm')
+        fTmp1 = fu_conversion_factor(strTmp, 'm')
         do iTmp = 1, nWavs
           refProp(iRefSub)%waves(iTmp) = fTmp1 * fu_content_real(pItems(iTmp))
         enddo
@@ -508,7 +508,7 @@ CONTAINS
           !Cross-sections
           !
           strTmp = fu_content(nlPtr, 'Csect_unit')
-          fTmp1 =  fu_factor_to_basic_unit(strTmp, 'm')
+          fTmp1 =  fu_conversion_factor(strTmp, 'm')
           
           call get_items(nlPtr, 'val', pItems, nVal)
           if(nVal /= nWavs * nTemprs) then

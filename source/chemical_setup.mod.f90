@@ -3995,7 +3995,7 @@ call msg('Flip...')
     !
     if(index(chUnitFrom,'/') > 0)then
       factor = factor / fu_conversion_factor(chUnitFrom(index(chUnitFrom,'/')+1:), &
-                                           & chUnitTo(index(chUnitTo,'/')+1:))
+           & chUnitTo(index(chUnitTo,'/')+1:))
     endif
     call free_work_array(arTmp)
   end function fu_conversion_factor_descr

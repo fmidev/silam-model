@@ -1553,9 +1553,9 @@ CONTAINS
                           & shopStartTime, &
                           & zero_interval, & !
                           & storage_grid)
+       if(error)return
        eof = .true. ! Exit at the next cycle
 !       id = idStore
-       if(error)return
        
 !       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
                                   !always coarse_geo_global_grid (see put_test_field_to_content)

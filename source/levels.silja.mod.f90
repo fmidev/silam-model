@@ -1524,7 +1524,7 @@ CONTAINS
       chSIunit="???"
     else
       chSIunit = fu_SI_unit(chUnit)
-      fScale = fu_factor_to_basic_unit(chUnit, chSIunit)
+      fScale = fu_conversion_factor(chUnit, chSIunit)
       if(error .or. fScale == real_missing)then
         call set_error('Failed to find factor to basic unit for:' + chUnit,'create_levels_from_namelist_v2')
         return

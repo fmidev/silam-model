@@ -47,7 +47,7 @@ MODULE max_sizes_and_limits
   ! so max_2d_fields < max_levels * max_quantities - not all
   ! quantities are alowed to be 3-dimensional.
 
-  integer, PARAMETER, PUBLIC :: max_divisions = 130
+  integer, PARAMETER, PUBLIC :: max_divisions = 1025 
   
   INTEGER, PARAMETER, PUBLIC :: max_times = 1500 
 
