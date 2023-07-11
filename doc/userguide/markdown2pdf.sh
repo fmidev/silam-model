@@ -8,7 +8,7 @@ ouf="SILAMv${version}-UserGuide.pdf"
 inf="silam_user-guide.md"
 
 #fonts:
-mainfont="Liberation Sans"
+mainfont="DejaVu Serif" #"Liberation Sans"
 sansfont="Liberation Sans Narrow"
 monofont="Liberation Mono"
 fontsize="14pt"
