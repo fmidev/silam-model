@@ -4073,6 +4073,8 @@ end function fu_settling_vel
           ! "good" max_scav_rate_wind_scaling:
           ! 1.0 for global 0.5 x 0.5 deg run with ERA5
           ! 0.3 for European run with ECMWF operational meteodata
+          u = metdat_col(imet_u, iLev)
+          v = metdat_col(imet_v, iLev) 
           r%max_scav_rate = max_scav_rate_cape_scaling * 0.01 * (1. + sqrt(cape_met))/max(500.0, abl_height)
           r%max_scav_rate = landfrac * r%max_scav_rate + &
                 & (1.0-landfrac) * max_scav_rate_wind_scaling * sqrt(u*u+v*v+1.)/10000.0

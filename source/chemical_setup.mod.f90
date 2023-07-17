@@ -11,6 +11,7 @@ module chemical_setup
   !
   public set_species
   public select_species
+  public select_single_species
   public addSpecies
 !  public fu_if_species_lists_overlap
   public fu_set_mode
@@ -811,8 +812,8 @@ CONTAINS
                 & species_in(i)%mode == mode .or. &
                 &( species_in(i)%mode%nominal_d > 0. .and. &
                    & abs(species_in(i)%mode%nominal_d - mode%nominal_d) < mode_diam_tolerance) )
-      if (.not. (wavelength .eps. real_missing)) then
-        ifselect = ifselect .and. (wavelength .eps. species_in(i)%wavelength)
+      if ( wavelength /= real_missing) then
+        ifselect = ifselect .and. (abs(wavelength - species_in(i)%wavelength) < wavelength_tolerance)
       end if
 
       if (ifselect) then
@@ -829,6 +830,44 @@ CONTAINS
 
   end subroutine select_species
 
+  !==================================================================================
+
+ integer  function select_single_species(species_in, nSpecies_in, substNm, mode, wavelength) &
+     & result (iSp)
+    
+    !
+    ! Select one species from a list using given criteria and return it index
+    ! Any of the conditions (susbtNm, mode, wavelength) can
+    ! be set to missing, in which case any species is taken to match.
+    ! Reurns int_missing on no match, and error on multiple matches
+
+    implicit none
+    type(silam_species), dimension(:), intent(in) :: species_in
+    integer, intent(in) :: nSpecies_in
+    character(len=*) :: substNm
+    type(Taerosol_mode), intent(in) :: mode
+    real, intent(in) :: wavelength
+    
+    integer, dimension(nSpecies_in+1):: indices
+    integer :: nSelected, iTmp
+    character(len = *), parameter :: sub_name = 'select_single_species'
+    
+    
+    call select_species(species_in, nSpecies_in, substNm, mode, wavelength, indices, nSelected)
+    if (nSelected == 0 ) then
+      iSp = int_missing
+    elseif (nSelected == 1 ) then
+      iSp = indices(1)
+    else
+      iSp = int_missing
+      call msg("Found species:")
+      do iTmp = 1,nSelected
+        call report(species_in(indices(iTmp)))
+      enddo
+      call set_error("More than one species matchs criteria", sub_name)
+    endif
+
+  end function select_single_species
 
   !==================================================================================
 

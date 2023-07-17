@@ -92,6 +92,7 @@ MODULE natural_constants
   real, parameter, public :: max_wind_speed = 200.0           ! m/s
   real, parameter, public :: SWRad_2_PAR = 2.7e-3 * 0.45 *4.6 ! PAR=0.45*SWR(W/m2)*4.6(microphotons/s per W)
   real, parameter, public :: mode_diam_tolerance = 1e-8 ! 10nm
+  real, parameter, public :: wavelength_tolerance = 1e-9 ! 1nm
 
   real, parameter, public :: cloud_saturation = 1.5e-4 !!!kg/kg water content, above which clouds produce rain
                                                 !! 3e-4 -- reported in literatire

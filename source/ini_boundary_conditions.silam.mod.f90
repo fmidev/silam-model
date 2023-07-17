@@ -112,9 +112,13 @@ MODULE ini_boundary_conditions
     integer, dimension(6) :: bTypes   !Types of boundaries for the whole run,
                             ! reset to the subdomain boundaries by 
     ! a list of files, each with a list of boundaries to apply
-    type(Tboundary_file), dimension(:), allocatable :: bFiles 
+    type(Tboundary_file), dimension(:), allocatable :: bFiles
+    integer :: nBfiles 
     logical :: ifBoundary = .false.   !! If any of the boundaries are of dirichlet or ploar type (i.e. requite boundary structures)
     logical :: ifRandomise = .true.        ! if smooth the reprojection aliasing
+    logical :: ifOnesBoundary = .False. !! If make a synthetic boundary for ones tracer
+    logical :: ifOnesInitial = .False. !! If make initialisation for ones tracer
+    logical :: ifTimetagInitial = .False. !! If make initialisation for ones tracer
     type(silja_logical) :: defined = silja_false
   end type Tini_boundary_rules
   public Tini_boundary_rules
@@ -179,7 +183,8 @@ MODULE ini_boundary_conditions
     integer, dimension(:,:), allocatable :: iTransportSpecies, & 
          ! index of transport species in boundary buffer (nTransportSpecies,6)
          & iBoundarySpecies  
-    ! Concentrations (per m3)
+    integer :: iOnesSp = int_missing !! index of "ones" species in Transport
+    ! Mass mixing ratios (SILAM mass per)
     real, dimension(:,:,:,:), pointer :: bNorth => null(), bSouth  => null()     ! (nSpecies, nSrc, nx, nz)
     real, dimension(:,:,:,:), pointer :: bEast => null(),  bWest => null()  ! (nSpecies, nSrc, ny, nz)
     real, dimension(:,:,:,:), pointer :: bTop => null(),   bBottom => null() ! (nSpecies, nSrc, nx, ny)
@@ -257,270 +262,313 @@ MODULE ini_boundary_conditions
     !
     nullify(ptrItems)
     call get_items(nlIni, 'initialize_quantity', ptrItems, iTmp)
-    if(iTmp < 1)then
-      call msg('')
-      call msg('Empty initialization namelist, start fields are all-zeroes')
-      call msg('')
-      nullify(rulesIniBoundary%qInitial, rulesIniBoundary%chIniFile)
-    else
-      !
-      ! Note that the list can include concentrations or deposition quantity, which require
-      ! substance name for complete definition. In this case the initialization procedure 
-      ! will take all substances available in the input files.
-      !
-      allocate(rulesIniBoundary%qInitial(iTmp), stat=iStat)
-      if(fu_fails(iStat == 0, 'Failed to allocate initial quantity list', sub_name))return
-      do iStat = 1, iTmp
-        rulesIniBoundary%qInitial(iStat) = fu_get_silam_quantity(fu_content(ptrItems(iStat)))
-        if(error)then
-          call set_error('Strange quantity name:' + fu_content(ptrItems(iStat)), sub_name)
-          return
-        endif
-      end do
-      !
-      ! Having something to initialize, let's get the input files.
-      ! Two types of the initialization are possible:
-      ! - from maps stored as GrADS or GRIB files
-      ! - concentrations given at a few points - observations-type files
-      ! At this level, they are all treated same way: 
-      ! initialization_file = GRIB/GRADS/POINT_DATA <fileName>
-      !
-      call get_items(nlIni, 'initialization_file', ptrItems, iTmp)
       if(iTmp < 1)then
-        call set_error('Initialization requested but no files given', sub_name)
-        return
+        call msg('')
+        call msg('Empty initialization namelist, start fields are all-zeroes')
+        call msg('')
+        nullify(rulesIniBoundary%qInitial, rulesIniBoundary%chIniFile)
       else
-        allocate(rulesIniBoundary%chIniFile(iTmp),stat=iStat)
-        if(fu_fails(iStat == 0, 'Failed to allocate initial file names', sub_name))return
+        !
+        ! Note that the list can include concentrations or deposition quantity, which require
+        ! substance name for complete definition. In this case the initialization procedure 
+        ! will take all substances available in the input files.
+        !
+        allocate(rulesIniBoundary%qInitial(iTmp), stat=iStat)
+        if(fu_fails(iStat == 0, 'Failed to allocate initial quantity list', sub_name))return
         do iStat = 1, iTmp
-          rulesIniBoundary%chIniFile(iStat) = fu_content(ptrItems(iStat))
+          rulesIniBoundary%qInitial(iStat) = fu_get_silam_quantity(fu_content(ptrItems(iStat)))
+          if(error)then
+            call set_error('Strange quantity name:' + fu_content(ptrItems(iStat)), sub_name)
+            return
+          endif
         end do
+        !
+        ! Having something to initialize, let's get the input files.
+        ! Two types of the initialization are possible:
+        ! - from maps stored as GrADS or GRIB files
+        ! - concentrations given at a few points - observations-type files
+        ! At this level, they are all treated same way: 
+        ! initialization_file = GRIB/GRADS/POINT_DATA <fileName>
+        !
+        call get_items(nlIni, 'initialization_file', ptrItems, iTmp)
+        if(iTmp < 1)then
+          call set_error('Initialization requested but no files given', sub_name)
+          return
+        else
+          allocate(rulesIniBoundary%chIniFile(iTmp),stat=iStat)
+          if(fu_fails(iStat == 0, 'Failed to allocate initial file names', sub_name))return
+          do iStat = 1, iTmp
+            rulesIniBoundary%chIniFile(iStat) = fu_content(ptrItems(iStat))
+          end do
+        endif
+
+      endif  ! if any fields to initialize
+
+
+      !----------------------------------------------------------------------
+      !
+      ! Boundary conditions for the whole domain parsed here:
+      !
+      chTmp = fu_str_u_case(fu_content(nlIni,'boundary_type'))
+      if (chTmp /= '')  then
+        call msg_warning("boundary_type, if_lateral_boundary, if_top_boundary, and if_bottom_boundary depricated", sub_name)
+        call msg("Please use lateral_boundary_type and top_boundary_type instead")
+        if(chTmp == '' .or. chTmp == 'ZERO')then
+          rulesIniBoundary%ifBoundary = .false.         ! Can be set .true. if global, hemispheric or MPI
+          rulesIniBoundary%bTypes(1:6) = zero_boundary_type
+        elseif(trim(chTmp) == 'DIRICHLET')then
+          rulesIniBoundary%ifBoundary = .true.
+          rulesIniBoundary%bTypes(1:6) = dirichlet_boundary_type
+         else
+            call set_error('Unknown boundary type:' + chTmp, sub_name)
+            return
+          endif
+
+          chTmp = fu_str_u_case(fu_content(nlIni,'if_lateral_boundary'))
+          if(trim(chtmp) == 'NO')then
+            rulesIniBoundary%bTypes(1:4) = zero_boundary_type
+          endif    
+
+          chTmp = fu_str_u_case(fu_content(nlIni,'if_top_boundary'))
+          if(trim(chtmp) == 'NO')then
+            rulesIniBoundary%bTypes(top_boundary) = zero_boundary_type
+          endif
+
+          chTmp = fu_str_u_case(fu_content(nlIni,'if_bottom_boundary'))
+          if(trim(chtmp) == 'NO')then
+            rulesIniBoundary%bTypes(bottom_boundary) = zero_boundary_type
+          endif
+
+      else !!  New BC definition: only lateral_boundary_type and top_boundary_type
+         rulesIniBoundary%ifBoundary = .FALSE. 
+         chTmp = fu_str_u_case(fu_content(nlIni,'lateral_boundary_type'))
+         if (chTmp == 'ZERO') then
+           rulesIniBoundary%bTypes(1:4) = zero_boundary_type
+         elseif (chTmp == 'PERIODIC') then
+           rulesIniBoundary%bTypes(1:4) = periodic_boundary_type
+         elseif(trim(chTmp) == 'DIRICHLET')then
+           rulesIniBoundary%ifBoundary = .TRUE.
+           rulesIniBoundary%bTypes(1:4) = dirichlet_boundary_type
+         else
+           call set_error('Unknown lateral_boundary_type: "' // trim(chTmp) // &
+               & '", can be ZERO, PERIODIC, or DIRICHLET' , sub_name)
+           return
+         endif
+
+         chTmp = fu_str_u_case(fu_content(nlIni,'top_boundary_type'))
+         if (chTmp == 'ZERO') then
+           rulesIniBoundary%bTypes(top_boundary) = zero_boundary_type
+         elseif(trim(chTmp) == 'DIRICHLET')then
+           rulesIniBoundary%ifBoundary = .TRUE.
+           rulesIniBoundary%bTypes(top_boundary) = dirichlet_boundary_type
+         else
+           call set_error('Unknown top_boundary_type: "' // trim(chTmp) // &
+               & '", can be ZERO or DIRICHLET' , sub_name)
+           return
+         endif
+
+         rulesIniBoundary%bTypes(bottom_boundary) = surface_boundary_type
+        
+      endif  ! Definition of the boundary types
+      !
+      ! If the boundaries around the whole domain defined, look for headers
+      !
+      if(rulesIniBoundary%ifBoundary)then
+
+        !
+        ! Having, may be, something to constrain at the boundary, let's get the input files.
+        ! Two types of the boundaries are possible:
+        ! - from maps stored as GrADS or GRIB or NETCDF files
+        ! At this level, they are all treated same way: 
+        ! boundary_data_file = GRIB/GRADS/NETCDF/POINT_DATA <fileName>
+        !
+        call get_items(nlIni, 'boundary_header_filename', ptrItems, iTmp)
+        rulesIniBoundary%nBfiles = iTmp
+        if(iTmp >0 )then
+          allocate(rulesIniBoundary%bFiles(iTmp),stat=iStat)
+          if(fu_fails(iStat == 0, 'Failed to allocate boundary files structure', sub_name))return !
+          ! Set the file format and decode the template
+          !
+          do iStat = 1, iTmp
+            rulesIniBoundary%bFiles(iStat)%bHeaderFNm = fu_process_filepath(fu_content(ptrItems(iStat)), &
+                                                            &  must_exist=.true.)
+          end do
+          ! Timestep in boundary files
+          rulesIniBoundary%bInterval = fu_set_named_interval(fu_content(nlIni,'boundary_time_step'))
+          rulesIniBoundary%start_time =  fu_round_closest(start_time, &
+                                                    & rulesIniBoundary%bInterval, backwards)  ! Forward run assumed
+        else
+          rulesIniBoundary%bInterval = interval_missing
+          rulesIniBoundary%start_time = start_time !! Whatever
+        endif   ! header file exists
+      endif  ! if boundaries
+      !
+      ! The reprojection aliasing may be smoothed by randomization
+      !
+      chTmp = fu_str_u_case(fu_content(nlStandardSetup, 'randomise_reprojection'))
+      rulesIniBoundary%ifRandomise = .not. (chTmp == 'NO')
+      
+      chTmp = fu_str_u_case(fu_content(nlIni, 'ones_boundary'))
+      rulesIniBoundary%ifOnesBoundary = (chTmp == 'YES')
+      if (rulesIniBoundary%ifOnesBoundary) then
+        call msg("Enabling synthetic ONES boundary")
+      endif
+      
+      chTmp = fu_str_u_case(fu_content(nlIni, 'ones_initial'))
+      rulesIniBoundary%ifOnesInitial = (chTmp == 'YES')
+      if (rulesIniBoundary%ifOnesInitial) call msg("Enabling ONES initialistion")
+      
+      chTmp = fu_str_u_case(fu_content(nlIni, 'timetag_initial'))
+      rulesIniBoundary%ifTimetagInitial = (chTmp == 'YES')
+      if (rulesIniBoundary%ifTimetagInitial) call msg("Enabling Timetag initialistion")
+      
+      rulesIniBoundary%defined = silja_true
+
+    end subroutine set_ini_boundary_rules_from_nl
+
+    
+    !************************************************************************************
+    
+    subroutine set_missing_b_rules(b_rules)
+      implicit none
+      type(Tini_boundary_rules), intent(out) :: b_rules
+      nullify(b_rules%chIniFile, b_rules%qInitial)
+      b_rules%ifBoundary = .false.
+      b_rules%defined = silja_false
+    end subroutine set_missing_b_rules
+
+
+    !************************************************************************************
+
+    logical function if_ini_boundary_rules_defined(rulesIniBoundary)
+      implicit none
+      type(Tini_boundary_rules), intent(in) :: rulesIniBoundary
+      if_ini_boundary_rules_defined = rulesIniBoundary%defined == silja_true
+    end function if_ini_boundary_rules_defined
+
+
+    !***********************************************************************************
+
+    subroutine add_ini_boundary_input_needs(rulesIniBoundary, &
+                                          & q_met_dyn, q_met_stat, q_disp_dyn, q_disp_stat)
+      !
+      ! Adds the requested quantities to the provided arrays
+      !
+      implicit none
+
+      ! Imported parameters
+      type(Tini_boundary_rules), intent(in) :: rulesIniBoundary
+      integer, dimension(:), intent(inout) :: q_met_dyn, q_met_stat, q_disp_dyn, q_disp_stat
+
+      ! Local variables
+      integer :: iTmp
+
+     ! cell mass might be needed to initialize ones or time tracer
+     ! Since advection needs it anyhow, just request 
+     iTmp = fu_merge_integer_to_array(disp_cell_airmass_flag, q_disp_dyn)
+
+      if(rulesIniBoundary%ifBoundary)then
+        if(any(rulesIniBoundary%bTypes(1:size(rulesIniBoundary%bTypes)) == dirichlet_boundary_type))then
+          iTmp = fu_merge_integer_to_array(temperature_flag, q_met_dyn)
+          iTmp = fu_merge_integer_to_array(pressure_flag, q_met_dyn)
+        endif
       endif
 
-    endif  ! if any fields to initialize
+    end subroutine add_ini_boundary_input_needs
 
 
-    !----------------------------------------------------------------------
+    !***********************************************************************************
+    !***********************************************************************************
     !
-    ! Boundary conditions for the whole domain parsed here:
+    ! INITIAL CONDITIONS
     !
-    chTmp = fu_str_u_case(fu_content(nlIni,'boundary_type'))
-    if (chTmp /= '')  then
-      call msg_warning("boundary_type, if_lateral_boundary, if_top_boundary, and if_bottom_boundary depricated", sub_name)
-      call msg("Please use lateral_boundary_type and top_boundary_type instead")
-      if(chTmp == '' .or. chTmp == 'ZERO')then
-        rulesIniBoundary%ifBoundary = .false.         ! Can be set .true. if global, hemispheric or MPI
-        rulesIniBoundary%bTypes(1:6) = zero_boundary_type
-      elseif(trim(chTmp) == 'DIRICHLET')then
-        rulesIniBoundary%ifBoundary = .true.
-        rulesIniBoundary%bTypes(1:6) = dirichlet_boundary_type
-       else
-          call set_error('Unknown boundary type:' + chTmp, sub_name)
+    !***********************************************************************************
+    !***********************************************************************************
+
+    subroutine set_initial_conditions(mapMass, mapPx, mapPy, mapPz, mapDD, mapWD, &
+                                    & pNorthBoundary, pSouthBoundary, &
+                                    & disp_buf, &
+                                    & rulesIniBoundary, now, direction, &
+                                    & meteoMarketPtr, dispersionMarketPtr)
+      !
+      ! Actually sets the initial conditions via setting the values of maps of TMassMap object
+      ! and, if needed, dispersion minimarket variables. 
+      ! Must be called after all these structures are properly initialized
+      !
+      ! For model run, initializes only concentration and advection moment. For
+      ! dispersion minimarket - any field that can be put there.
+      !
+      implicit none
+
+      ! Imported parameters
+      type(Tini_boundary_rules), intent(in) :: rulesIniBoundary
+      type(Tmass_map), intent(inout), target  :: mapMass, mapPx, mapPy, mapPz, mapDD, mapWD
+      type(TboundaryStruct), intent(inout) :: pNorthBoundary, pSouthBoundary
+      type(Tfield_buffer), pointer :: disp_buf
+      type(silja_time), intent(in) :: now
+      integer, intent(in) :: direction
+      type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr
+
+      ! Local variables
+      type(silja_shopping_list) :: shopLst
+      integer :: iFile, iQ, iQDispStackST, iQDispStackMT, iQmassMap, nQmarketST, nQmarketMT, nFields_updated, quantity, iSp
+      type(Tsilam_namelist), pointer :: nlPtr
+      type(silja_time) :: time_tmp
+      integer, dimension(:), pointer :: arQDispStackMT, arQDispStackST, arQmassMap, & 
+                                       & arQmarketST, arQmarketMT, arIntWork
+      type(Tmass_map_ptr), dimension(6) :: ptrMap
+      type(silam_species), dimension(:), pointer :: speciesTransp
+      integer :: nSpeciesTransp
+      logical :: ifNewDataHere, ifCheckMassPole
+      character(len=*), parameter :: sub_name="set_initial_conditions" 
+      integer, dimension(7), parameter :: MassMapQ = (/concentration_flag, drydep_flag, wetdep_flag, &
+        & mass_in_air_flag,  advection_moment_X_flag, advection_moment_Y_flag, advection_moment_Z_flag/)
+
+      nSpeciesTransp = mapMass%nSpecies
+      speciesTransp => mapMass%species
+
+
+      ifCheckMassPole = rulesIniBoundary%ifOnesInitial .or. rulesIniBoundary%ifTimetagInitial
+      if (rulesIniBoundary%ifOnesInitial) then
+            iSp = select_single_species(speciesTransp, nSpeciesTransp, &
+                              & 'ones',  in_gas_phase, real_missing)
+            if (error .or. iSp < 1) then
+              call set_error("Couldn't find 'ones' species", sub_name)
+              return
+            endif
+            call force_mass_map_cell_mmr(mapMass, iSp, disp_buf)
+      endif
+      if (rulesIniBoundary%ifTimetagInitial) then
+            iSp = select_single_species(speciesTransp, nSpeciesTransp, &
+                              & 'timetag',  in_gas_phase, real_missing)
+            if (error .or. iSp < 1) then
+              call set_error("Couldn't find 'timetag' species", sub_name)
+              return
+            endif
+            call force_mass_map_cell_mmr(mapMass, iSp, disp_buf)
+      endif
+      !
+      ! Stupidity check
+      !
+      if(associated(rulesIniBoundary%qInitial))then
+        if(size(rulesIniBoundary%qInitial) < 1 .or. size(rulesIniBoundary%qInitial) > 1000)then
+          call msg('No initialization is requested')
           return
         endif
-
-        chTmp = fu_str_u_case(fu_content(nlIni,'if_lateral_boundary'))
-        if(trim(chtmp) == 'NO')then
-          rulesIniBoundary%bTypes(1:4) = zero_boundary_type
-        endif    
-
-        chTmp = fu_str_u_case(fu_content(nlIni,'if_top_boundary'))
-        if(trim(chtmp) == 'NO')then
-          rulesIniBoundary%bTypes(top_boundary) = zero_boundary_type
-        endif
-
-        chTmp = fu_str_u_case(fu_content(nlIni,'if_bottom_boundary'))
-        if(trim(chtmp) == 'NO')then
-          rulesIniBoundary%bTypes(bottom_boundary) = zero_boundary_type
-        endif
-
-    else !!  New BC definition: only lateral_boundary_type and top_boundary_type
-       rulesIniBoundary%ifBoundary = .FALSE. 
-       chTmp = fu_str_u_case(fu_content(nlIni,'lateral_boundary_type'))
-       if (chTmp == 'ZERO') then
-         rulesIniBoundary%bTypes(1:4) = zero_boundary_type
-       elseif (chTmp == 'PERIODIC') then
-         rulesIniBoundary%bTypes(1:4) = periodic_boundary_type
-       elseif(trim(chTmp) == 'DIRICHLET')then
-         rulesIniBoundary%ifBoundary = .TRUE.
-         rulesIniBoundary%bTypes(1:4) = dirichlet_boundary_type
-       else
-         call set_error('Unknown lateral_boundary_type: "' // trim(chTmp) // &
-             & '", can be ZERO, PERIODIC, or DIRICHLET' , sub_name)
-         return
-       endif
-
-       chTmp = fu_str_u_case(fu_content(nlIni,'top_boundary_type'))
-       if (chTmp == 'ZERO') then
-         rulesIniBoundary%bTypes(top_boundary) = zero_boundary_type
-       elseif(trim(chTmp) == 'DIRICHLET')then
-         rulesIniBoundary%ifBoundary = .TRUE.
-         rulesIniBoundary%bTypes(top_boundary) = dirichlet_boundary_type
-       else
-         call set_error('Unknown top_boundary_type: "' // trim(chTmp) // &
-             & '", can be ZERO or DIRICHLET' , sub_name)
-         return
-       endif
-
-       rulesIniBoundary%bTypes(bottom_boundary) = surface_boundary_type
-      
-    endif  ! Definition of the boundary types
-    !
-    ! If the boundaries around the whole domain defined, look for headers
-    !
-    if(rulesIniBoundary%ifBoundary)then
-
-      ! Timestep in boundary files
-      rulesIniBoundary%bInterval = fu_set_named_interval(fu_content(nlIni,'boundary_time_step'))
-      rulesIniBoundary%start_time =  fu_round_closest(start_time, &
-                                                & rulesIniBoundary%bInterval, backwards)  ! Forward run assumed
-      !
-      ! Having, may be, something to constrain at the boundary, let's get the input files.
-      ! Two types of the boundaries are possible:
-      ! - from maps stored as GrADS or GRIB or NETCDF files
-      ! At this level, they are all treated same way: 
-      ! boundary_data_file = GRIB/GRADS/NETCDF/POINT_DATA <fileName>
-      !
-      call get_items(nlIni, 'boundary_header_filename', ptrItems, iTmp)
-      if(iTmp >0 )then
-        allocate(rulesIniBoundary%bFiles(iTmp),stat=iStat)
-        if(fu_fails(iStat == 0, 'Failed to allocate boundary files structure', sub_name))return !
-        ! Set the file format and decode the template
-        !
-        do iStat = 1, iTmp
-          rulesIniBoundary%bFiles(iStat)%bHeaderFNm = fu_process_filepath(fu_content(ptrItems(iStat)), &
-                                                          &  must_exist=.true.)
-        end do
-      endif   ! header file exists
-    endif  ! if boundaries
-    !
-    ! The reprojection aliasing may be smoothed by randomization
-    !
-    rulesIniBoundary%ifRandomise = .not. fu_str_u_case(fu_content(nlStandardSetup, &
-                                                                & 'randomise_reprojection')) == 'NO'
-    
-    rulesIniBoundary%defined = silja_true
-
-  end subroutine set_ini_boundary_rules_from_nl
-
-  
-  !************************************************************************************
-  
-  subroutine set_missing_b_rules(b_rules)
-    implicit none
-    type(Tini_boundary_rules), intent(out) :: b_rules
-    nullify(b_rules%chIniFile, b_rules%qInitial)
-    b_rules%ifBoundary = .false.
-    b_rules%defined = silja_false
-  end subroutine set_missing_b_rules
-
-
-  !************************************************************************************
-
-  logical function if_ini_boundary_rules_defined(rulesIniBoundary)
-    implicit none
-    type(Tini_boundary_rules), intent(in) :: rulesIniBoundary
-    if_ini_boundary_rules_defined = rulesIniBoundary%defined == silja_true
-  end function if_ini_boundary_rules_defined
-
-
-  !***********************************************************************************
-
-  subroutine add_ini_boundary_input_needs(rulesIniBoundary, &
-                                        & q_met_dyn, q_met_stat, q_disp_dyn, q_disp_stat)
-    !
-    ! Adds the requested quantities to the provided arrays
-    !
-    implicit none
-
-    ! Imported parameters
-    type(Tini_boundary_rules), intent(in) :: rulesIniBoundary
-    integer, dimension(:), intent(inout) :: q_met_dyn, q_met_stat, q_disp_dyn, q_disp_stat
-
-    ! Local variables
-    integer :: iTmp
-
-   ! cell mass might be needed to initialize ones or time tracer
-   ! Since advection needs it anyhow, just request 
-   iTmp = fu_merge_integer_to_array(disp_cell_airmass_flag, q_disp_dyn)
-
-    if(rulesIniBoundary%ifBoundary)then
-      if(any(rulesIniBoundary%bTypes(1:size(rulesIniBoundary%bTypes)) == dirichlet_boundary_type))then
-        iTmp = fu_merge_integer_to_array(temperature_flag, q_met_dyn)
-        iTmp = fu_merge_integer_to_array(pressure_flag, q_met_dyn)
-      endif
-    endif
-
-  end subroutine add_ini_boundary_input_needs
-
-
-  !***********************************************************************************
-  !***********************************************************************************
-  !
-  ! INITIAL CONDITIONS
-  !
-  !***********************************************************************************
-  !***********************************************************************************
-
-  subroutine set_initial_conditions(mapMass, mapPx, mapPy, mapPz, mapDD, mapWD, &
-                                  & pNorthBoundary, pSouthBoundary, &
-                                  & disp_buf, &
-                                  & rulesIniBoundary, now, direction, &
-                                  & meteoMarketPtr, dispersionMarketPtr)
-    !
-    ! Actually sets the initial conditions via setting the values of maps of TMassMap object
-    ! and, if needed, dispersion minimarket variables. 
-    ! Must be called after all these structures are properly initialized
-    !
-    ! For model run, initializes only concentration and advection moment. For
-    ! dispersion minimarket - any field that can be put there.
-    !
-    implicit none
-
-    ! Imported parameters
-    type(Tini_boundary_rules), intent(in) :: rulesIniBoundary
-    type(Tmass_map), intent(inout), target  :: mapMass, mapPx, mapPy, mapPz, mapDD, mapWD
-    type(TboundaryStruct), intent(inout) :: pNorthBoundary, pSouthBoundary
-    type(Tfield_buffer), pointer :: disp_buf
-    type(silja_time), intent(in) :: now
-    integer, intent(in) :: direction
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr
-
-    ! Local variables
-    type(silja_shopping_list) :: shopLst
-    integer :: iFile, iQ, iQDispStackST, iQDispStackMT, iQmassMap, nQmarketST, nQmarketMT, nFields_updated, quantity
-    type(Tsilam_namelist), pointer :: nlPtr
-    type(silja_time) :: time_tmp
-    integer, dimension(:), pointer :: arQDispStackMT, arQDispStackST, arQmassMap, & 
-                                     & arQmarketST, arQmarketMT, arIntWork
-    type(Tmass_map_ptr), dimension(4) :: ptrMap
-    logical :: ifNewDataHere
-    character(len=*), parameter :: sub_name="set_initial_conditions" 
-    integer, dimension(7), parameter :: MassMapQ = (/concentration_flag, drydep_flag, wetdep_flag, &
-      & mass_in_air_flag,  advection_moment_X_flag, advection_moment_Y_flag, advection_moment_Z_flag/)
-
-    !
-    ! Stupidity check
-    !
-    if(associated(rulesIniBoundary%qInitial))then
-      if(size(rulesIniBoundary%qInitial) < 1 .or. size(rulesIniBoundary%qInitial) > 1000)then
+      else
         call msg('No initialization is requested')
         return
       endif
-    else
-      call msg('No initialization is requested')
-      return
-    endif
 
-    if(.not. (defined(mapMass) .and. associated(disp_buf)))then
-      call set_error('mapMass and/or dispersion buffer are not associated','set_initial_conditions')
-      return
-    endif
+      if(.not. (defined(mapMass) .and. associated(disp_buf)))then
+        call set_error('mapMass and/or dispersion buffer are not associated','set_initial_conditions')
+        return
+      endif
 
-    arIntWork => fu_work_int_array(5*max_quantities)
-    if(error)return
-    arQDispStackMT => arIntWork(1:max_quantities)
-    arQDispStackST => arIntWork(1*max_quantities+1:2*max_quantities)
+      arIntWork => fu_work_int_array(5*max_quantities)
+      if(error)return
+      arQDispStackMT => arIntWork(1:max_quantities)
+      arQDispStackST => arIntWork(1*max_quantities+1:2*max_quantities)
     arQmassMap =>     arIntWork(2*max_quantities+1:3*max_quantities)
     arQmarketST =>    arIntWork(3*max_quantities+1:4*max_quantities)
     arQmarketMT =>    arIntWork(4*max_quantities+1:5*max_quantities)
@@ -644,18 +692,19 @@ MODULE ini_boundary_conditions
         ! Something is found to be initialized in the map of cocktails. Get it!
         !
         call msg('Mass map')
-        if(iQmassMap > 4)then
+        if(iQmassMap > 6)then
           call msg("iQmassMap", iQmassMap)
           do iQ = 1, iQmassMap
             call msg(fu_quantity_string(arQmassMap(iQ)))
           enddo
-          call set_error('Only 4 cocktail maps are known','set_initial_conditions')
+          call set_error('Only 6 cocktail maps are known','set_initial_conditions')
           return
         endif
         do iQ = 1, iQmassMap
           select case(arQmassMap(iQ))
             case(concentration_flag, mass_in_air_flag)
               ptrMap(iQ)%ptrMassMap => mapMass
+              ifCheckMassPole = .True.
 
             case(drydep_flag)
               ptrMap(iQ)%ptrMassMap => mapDD
@@ -679,30 +728,13 @@ MODULE ini_boundary_conditions
           end select
         end do        ! quantities to be initialised
 
-        do iQ = iQmassMap+1, 4
+        do iQ = iQmassMap+1, 6
           nullify(ptrMap(iQ)%ptrMassMap)
         end do
 
         call update_mass_map_from_namelist(nlPtr, 'initial_file', ptrMap, iQmassMap, now, &
                                          & rulesIniBoundary%ifRandomise, nFields_updated)
         if(error)return
-        !
-        ! Check whether this mass map is global and thus poles must be initialised
-        !
-        if(.not. (defined(pNorthBoundary) .and. defined(pSouthBoundary) ))then
-                call set_error("pNorthBoundary and pSouthBoundary nust be set by now!!!",&
-                & "set_initial_conditions")
-                return
-        endif
-        do iQ = 1, iQmassMap
-          if( any(arQmassMap(iQ) == (/concentration_flag, mass_in_air_flag/))) then
-              if (pNorthBoundary%boundaryType == polar_boundary_type) &
-                  & call check_poles(ptrMap(iQ)%ptrMassMap, pNorthBoundary, ptrMap(iQ)%ptrMassMap%ny)
-              if (pSouthBoundary%boundaryType == polar_boundary_type) &
-                  & call check_poles(ptrMap(iQ)%ptrMassMap, pSouthBoundary, 1)
-          endif
-        end do
-
 
         if(fu_fails(nFields_updated > 0, fu_str(iQmassMap) + &
                                       & '- massMap quantities requested but no fields updated', &
@@ -716,6 +748,22 @@ MODULE ini_boundary_conditions
       
     endif ! if anything to initialize at all
 
+    if (ifCheckMassPole) then
+      !
+      ! Check whether this mass map is global and thus poles must be initialised
+      !
+      if(.not. (defined(pNorthBoundary) .and. defined(pSouthBoundary) ))then
+              call set_error("pNorthBoundary and pSouthBoundary nust be set by now!!!",&
+              & "set_initial_conditions")
+              return
+      endif
+
+      if (pNorthBoundary%boundaryType == polar_boundary_type) &
+          & call check_poles(mapMass, pNorthBoundary, mapMass%ny)
+      if (pSouthBoundary%boundaryType == polar_boundary_type) &
+          & call check_poles(mapMass, pSouthBoundary, 1)
+    endif
+
     call free_work_array(arIntWork)
 
     CONTAINS
@@ -725,12 +773,12 @@ MODULE ini_boundary_conditions
     subroutine check_poles(pMap, pBoundary, indYEdge)
       !
       ! Poles are not initialised by above mapping, we have to do it manually here
-      ! It is simple: concentration over pole must be average over the near surrounding
+      ! It is simple: area-concentration over pole must be average over the near surrounding
       !
       implicit none
       
       ! Imported parameters
-      type(TMass_map), pointer :: pMap
+      type(TMass_map), intent(inout) :: pMap
       type(TboundaryStruct), intent(inout) :: pBoundary
       integer, intent(in) :: indYEdge
       
@@ -917,21 +965,25 @@ MODULE ini_boundary_conditions
     ! Stupidity checking
     !
     call msg('Initializing boundary conditions')
-    nullify(ptrItems, fnames)
+    nullify(ptrItems, fnames, lstId)
 
 
 
     if(any(rulesIniBoundary%bTypes(1:6) == dirichlet_boundary_type))then
 
-      if(fu_fails(allocated(rulesIniBoundary%bFiles),'Dirichlet boundary requested but no boundary files', &
-                                                       & 'init_boundary_structures'))return
+      if (rulesIniBoundary%nBfiles == 0 .and. &
+                  & .not. rulesIniBoundary%ifOnesBoundary ) then
+         call set_error('Dirichlet boundary requested but no boundary files', sub_name)
+         return
+      endif
+
       maxlevs = 0
       !-------------------------------------------------------------------------
       !
       ! Go through the header files setting the parameters of the input files in ini_boundary_rules 
       ! and analysing their content
       !
-      do iHeader = 1, size(rulesIniBoundary%bFiles)
+      do iHeader = 1, rulesIniBoundary%nBfiles
       
         call set_missing(rulesIniBoundary%bFiles(iHeader)%shopLst) 
         call set_missing(rulesIniBoundary%bFiles(iHeader)%vertical, .true.)
@@ -945,14 +997,14 @@ MODULE ini_boundary_conditions
         & unit=iFile, action='read', status='old', iostat=iStat)
         if(iStat /= 0)then
           call set_error('Failed to open boundary map file:' + &
-                       & rulesIniBoundary%bFiles(iHeader)%bHeaderFNm,'init_boundary_structures')
+                       & rulesIniBoundary%bFiles(iHeader)%bHeaderFNm,sub_name)
           return
         endif
         nlPtr => fu_read_namelist(iFile, .true.)
         close(iFile)
 
         if(fu_fails(associated(nlPtr),'Boundary species mapping namelist not associated',&
-                                    & 'init_boundary_structures'))return
+                                    & sub_name))return
 
         rulesIniBoundary%bFiles(iHeader)%bNames = fu_content(nlPtr, 'boundary_names')
         rulesIniBoundary%bFiles(iHeader)%ifToBoundary(:) = .false.    
@@ -975,7 +1027,7 @@ MODULE ini_boundary_conditions
             rulesIniBoundary%bFiles(iHeader)%ifStatic = .true.
           else
             call set_error('Only monthly and static values accepted for climatological boundaries ', &
-                         & 'init_boundary_structures')
+                         & sub_name)
             return
           endif
         endif
@@ -988,13 +1040,13 @@ MODULE ini_boundary_conditions
         call get_items(nlPtr, 'boundary_file', ptrItems, nFiles)
 
         if(nfiles<1)then
-          call set_error('No boundary data files given in header file','init_boundary_structures')
+          call set_error('No boundary data files given in header file',sub_name)
           return
         endif
 
         allocate(rulesIniBoundary%bFiles(iHeader)%bFnameTemplate(nFiles), stat = iStat)
         if(fu_fails(iSTat ==0,'Failed to allocate boundary file names array', &
-                            & 'init_boundary_structures'))return
+                            & sub_name))return
 
         do iFile = 1, nFiles
 
@@ -1073,8 +1125,7 @@ MODULE ini_boundary_conditions
         ! 
         call get_items(nlPtr, 'par_str', ptrItems, nLinks)
         if(nLinks < 1)then
-          call set_error('No mapping given between boundary and transport species', &
-                       & 'init_boundary_structures')
+          call set_error('No mapping given between boundary and transport species', sub_name)
           return
         endif
 
@@ -1086,7 +1137,7 @@ MODULE ini_boundary_conditions
 !call msg('Resolving link:' + chtmp)
           read(unit=chtmp, fmt=*, iostat=iStat) bSubstNm, tSubstNm, &
                                               & ch_bModeVal, ch_tModeVal, b2tFactor
-          if(fu_fails(iStat == 0,'Failed to parse string:'+chtmp,'init_boundary_structures'))return
+          if(fu_fails(iStat == 0,'Failed to parse string:'+chtmp,sub_name))return
           !
           ! Boundary mode...
           !
@@ -1142,8 +1193,7 @@ MODULE ini_boundary_conditions
               call report(speciesTransp(iTmp))
               call msg("")
             enddo
-            call set_error('Boundary header links to non-existent transport species', &
-                         & 'init_boundary_structures')
+            call set_error('Boundary header links to non-existent transport species', sub_name)
             return
           endif
           iTransportSpeciesInvolved(iTSpecies) = 1
@@ -1173,8 +1223,7 @@ MODULE ini_boundary_conditions
               call msg('substance:' + fu_substance_name(lstId(iId)))
               call report(fu_mode(lstId(iId)))
             end do
-            call set_error('Boundary header refers to non-existent input-file species', &
-                         & 'init_boundary_structures')
+            call set_error('Boundary header refers to non-existent input-file species', sub_name)
             return
           endif
 
@@ -1184,13 +1233,13 @@ MODULE ini_boundary_conditions
          
           call set_level(idTmp, level_missing)
           !call set_valid_time(idTmp, time_missing)
-          if(error)call unset_error('init_boundary_structures')
+          if(error)call unset_error(sub_name)
 
           call add_shopping_variable(rulesIniBoundary%bFiles(iHeader)%shoplst, idTmp, 2)
           if(.not. fu_field_id_in_list(idTmp, &
                                      & rulesIniBoundary%bFiles(iHeader)%shoplst, &
                                      & indexVar))then
-            call set_error('Problems with shopping list','init_boundary_structures')
+            call set_error('Problems with shopping list',sub_name)
           endif
           if(error)return
 
@@ -1268,7 +1317,7 @@ MODULE ini_boundary_conditions
         ! input files for bc-dr
         nSingletimeFs = 0
         nMultitimeFs = 0
-        do iFile = 1, size(rulesIniBoundary%bFiles)
+        do iFile = 1, rulesIniBoundary%nBfiles
           if(index(rulesIniBoundary%bFiles(iFile)%bNames, rulesIniBoundary%bNames(iTmp))>0)then
             if(rulesIniBoundary%bFiles(iFile)%ifStatic)then
               do iBSpecies = 1, size(rulesIniBoundary%bFiles(iFile)%bFnameTemplate)
@@ -1337,7 +1386,7 @@ MODULE ini_boundary_conditions
 
       IF ((.NOT. minimarket_initialized(boundaryMarketPtr, multi_time_stack_flag)) .or. &
         & (.not. minimarket_initialized(boundaryMarketPtr, single_time_stack_flag))) THEN
-        CALL set_error('Boundary market not init','init_boundary_structures')
+        CALL set_error('Boundary market not init',sub_name)
         RETURN
       END IF
       call msg('Boundary market initialized')
@@ -1346,7 +1395,7 @@ MODULE ini_boundary_conditions
 
       ! Now prepare the vertical interpolation structure
       !
-      do iHeader = 1, size(rulesIniBoundary%bFiles)
+      do iHeader = 1, rulesIniBoundary%nBfiles
         do iTmp = 1, 6
           ! Interpolate the boundary data to ~dispersion vertical
           !
@@ -1586,7 +1635,7 @@ MODULE ini_boundary_conditions
             do iZ = 1, fu_NbrOfLevels(bvertical)
 
               id = fu_set_field_id(met_src_missing,&
-                                 & concentration_flag, &
+                                 & volume_mixing_ratio_flag, &
                                  & rulesIniBoundary%start_time,&
                                  & zero_interval, &
                                  & bgrid,&
@@ -1831,6 +1880,19 @@ MODULE ini_boundary_conditions
       bBuffer%pBoundaryData(top_boundary)%ptr => bBuffer%bTop
       bBuffer%pBoundaryData(bottom_boundary)%ptr => bBuffer%bBottom
 
+      !
+      ! Select ones species
+      !
+      if (rulesIniBoundary%ifOnesBoundary) then
+          bBuffer%iOnesSp = select_single_species(speciesTransp, nSpeciesTransp, &
+                            & 'ones', in_gas_phase, real_missing)
+          if (error .or. bBuffer%iOnesSp < 1) then
+            call set_error("Couldn't find 'ones' species", sub_name)
+            return
+          endif
+      endif
+
+
     end subroutine init_boundary_buffer
 
   end subroutine init_boundary_structures
@@ -1878,7 +1940,7 @@ MODULE ini_boundary_conditions
     ! First check the necessary times for every file
     miss_obst_tmp(:) = time_missing
     ifNewDataAnywhere = .false.
-    do iHeader = 1, size(ibr%bFiles)
+    do iHeader = 1, ibr%nbFiles
 
       ! If static boundary, take it only once
       if(ibr%bFiles(iHeader)%ifStatic .and. .not. first_step)cycle
@@ -1905,7 +1967,7 @@ MODULE ini_boundary_conditions
       
     enddo
      
-    do iHeader = 1, size(ibr%bFiles)
+    do iHeader = 1, ibr%nBfiles
 
       listPtr => ibr%bFiles(iHeader)%shopLst
 
@@ -2102,7 +2164,7 @@ MODULE ini_boundary_conditions
 
       ! Cycle over the input file sets. 
       !
-      do iFile = 1, size(ibRules%bFiles)        ! sets of input files
+      do iFile = 1, ibRules%nBfiles        ! sets of input files
 
         if(ibRules%bFiles(iFile)%ifStatic)then
           if(ifFirstTime)then   
@@ -3060,7 +3122,7 @@ MODULE ini_boundary_conditions
     TYPE(Tini_boundary_rules), INTENT(in) :: bcRules
     integer :: fu_nr_boundary_inFiles
 
-    fu_nr_boundary_inFiles = size(bcRules%bFiles) 
+    fu_nr_boundary_inFiles = bcRules%nBfiles 
 
    end function fu_nr_boundary_inFiles
 
@@ -3094,7 +3156,7 @@ MODULE ini_boundary_conditions
   
   !*******************************************************************************************
   
-  subroutine force_mass_map_cell_mmr(mapConc, indSpecies, pBoundaryBuffer, disp_buf)
+  subroutine force_mass_map_cell_mmr(mapConc, indSpecies, disp_buf)
     !
     ! Sets massmap from cellmasses, initializes airmass in pole
     ! Note that it sets mass mixing ratio and thus needs air mass in the cell.
@@ -3103,14 +3165,12 @@ MODULE ini_boundary_conditions
     implicit none
 
     type(TMass_map), intent(inout) :: mapConc
-    type(TboundaryBuffer), intent(inout) :: pBoundaryBuffer
     TYPE(Tfield_buffer), intent(in) :: disp_buf
     integer, intent(in) :: indSpecies
 
     !Local
     real :: fTmp, fMass
     integer :: m_ind, ix, iy, iz, i1d, nx, ny, nz
-    real, dimension (:), pointer :: pXCellSize, pYCellSize
 
 
     nx=mapConc%nx
@@ -3121,38 +3181,11 @@ MODULE ini_boundary_conditions
     fTmp = 1. !MMR in mol/kg to force
 
     call msg('Resetting mass map with '//trim(fu_str(fTmp))// ' mol/kg cnc')
-    pXCellSize => fu_grid_data(dispersion_cell_x_size_fld)
-    pYCellSize => fu_grid_data(dispersion_cell_y_size_fld)
     do iz = 1,nz
       do iy =1,ny
            i1d = (iy-1)*nx+1
            mapConc%arm(indSpecies,1,iz,:,iy) = disp_buf%p4d(m_ind)%past%p2d(iz)%ptr(i1d:i1d+nx-1)*fTmp
       enddo
-
-
-      if(pBoundaryBuffer%iBoundaryType(northern_boundary) == polar_boundary_type)then
-            i1d  = nx*(ny-1)+1 ! Non-staggered index for masses/cell_sizes
-            ! Average area density of air in the layer (kg/m2) around * plar_cap_aro $a
-            fMass =     sum(disp_buf%p4d(m_ind)%past%p2d(iz)%ptr(i1d:i1d+nx-1))
-            fMass = fMass * pBoundaryBuffer%fPoleCapArea(northern_boundary)/ &
-                                 & (pYCellSize(i1d)*pXCellSize(i1d)*nx)  
-            pBoundaryBuffer%PoleCapAirmass(northern_boundary)%pp(iz) = fMass  ! kg of air
-            pBoundaryBuffer%bNorth(indSpecies,1,1,iz) = fMass*fTmp
-            pBoundaryBuffer%bNorth(indSpecies,1,2,iz) = 0.
-            pBoundaryBuffer%wind_to_pole(1:nx,northern_boundary,:) = 0
-
-       endif
-
-       if(pBoundaryBuffer%iBoundaryType(southern_boundary) == polar_boundary_type)then
-            ! Average area density of air in the layer (kg/m2) around * plar_cap_area
-            fMass =     sum(disp_buf%p4d(m_ind)%past%p2d(iz)%ptr(1:nx))
-            fMass = fMass * pBoundaryBuffer%fPoleCapArea(southern_boundary)/ & 
-                                 &( pYCellSize(1)*pXCellSize(1)*nx)  
-            pBoundaryBuffer%PoleCapAirmass(southern_boundary)%pp(iz) = fMass  ! kg of air
-            pBoundaryBuffer%bSouth(indSpecies,1,1,iz) = fMass*fTmp
-            pBoundaryBuffer%bSouth(indSpecies,1,2,iz) = 0.
-            pBoundaryBuffer%wind_to_pole(1:nx,southern_boundary,:) = 0
-       endif
     enddo
     call msg('Resetting mass map done')
 

@@ -364,9 +364,8 @@ CONTAINS
           & 1-nXBorder:nx+nXBorder, &
           & 1-nYBorder:ny+nYBorder) = val
     MassMap%ifColumnValid(1-nSrcBorder:nSrc+nSrcBorder, &
-                        & 1-nXBorder:nx+nXBorder, 1-nYBorder:ny+nYBorder) = .not. (val .eps. 0.0)
-    MassMap%ifGridValid(1-n3DBorder:n3D+n3DBorder, 1-nSrcBorder:nSrc+nSrcBorder) = &
-                                                                          & .not. (val .eps. 0.0)
+                        & 1-nXBorder:nx+nXBorder, 1-nYBorder:ny+nYBorder) = (val /= 0.0)
+    MassMap%ifGridValid(1-n3DBorder:n3D+n3DBorder, 1-nSrcBorder:nSrc+nSrcBorder) = (val /= 0.0)
 
     MassMap%defined = silja_true
 
@@ -557,8 +556,9 @@ CONTAINS
     ! Local variables
     integer :: ix,iy,iz,iSrc,iSpEmis, iref, iSpTransp, iSpTo
     integer :: nCellsEmit
-    real :: emission_mass, fraction, mass_cur, mass_new
+    real :: emission_mass, fraction, mass_cur, mass_new, fTmp
     type(TspeciesReference), dimension(:), pointer :: references, references_nbr
+    real, pointer :: fPtr
 
     !
     ! The only trick is to distribute the emission in accordance with the chemical setup
@@ -576,7 +576,7 @@ CONTAINS
 !!!!    !$OMP PARALLEL IF (nCellsEmit > 100000)  default(shared) &
     !$OMP PARALLEL default(shared) &
     !$OMP  &  private(ix,iy,iz,iSrc,iSpEmis, iref, iSpTransp, iSpTo, emission_mass, &
-    !$OMP             & fraction, mass_cur, mass_new)
+    !$OMP             & fraction, mass_cur, mass_new, fPtr, fTmp)
     !$OMP MASTER
     !$  call msg("Emission to transport in parallel. nthreads="+fu_str(omp_get_num_threads()))
     !$OMP END MASTER
@@ -598,15 +598,19 @@ CONTAINS
                    mass_cur = mapConc%arm(ispTransp,isrc,iz,ix,iy)
                    mass_new = emission_mass*fraction + mass_cur
                    mapConc%arm(ispTransp,isrc,iz,ix,iy) = mass_new
-                   mapPx_conc%arm(iSpTransp,isrc,iz,ix,iy) = (mapPx_conc%arm(iSpTransp,isrc,iz,ix,iy) * mass_cur &
-                                                            & + mapPx_emis%arm(iSpEmis,isrc,iz,ix,iy) * fraction) &
-                                                           & / mass_new
-                   mapPy_conc%arm(iSpTransp,isrc,iz,ix,iy) = (mapPy_conc%arm(iSpTransp,isrc,iz,ix,iy) * mass_cur &
-                                                            & + mapPy_emis%arm(iSpEmis,isrc,iz,ix,iy) * fraction) &
-                                                           & / mass_new
-                   mapPz_conc%arm(iSpTransp,isrc,iz,ix,iy) = (mapPz_conc%arm(iSpTransp,isrc,iz,ix,iy) * mass_cur &
-                                                            & + mapPz_emis%arm(iSpEmis,isrc,iz,ix,iy) * fraction) &
-                                                           & / mass_new
+
+                   ! MapEmis comes with moments, massmap with centers of mass
+                   fPtr => mapPx_conc%arm(iSpTransp,isrc,iz,ix,iy)
+                   fTmp = fPtr * mass_cur + mapPx_emis%arm(iSpEmis,isrc,iz,ix,iy) * fraction
+                   fPtr = fTmp / mass_new
+
+                   fPtr => mapPy_conc%arm(iSpTransp,isrc,iz,ix,iy)
+                   fTmp = fPtr * mass_cur + mapPy_emis%arm(iSpEmis,isrc,iz,ix,iy) * fraction
+                   fPtr = fTmp / mass_new
+
+                   fPtr => mapPz_conc%arm(iSpTransp,isrc,iz,ix,iy)
+                   fTmp = fPtr * mass_cur + mapPz_emis%arm(iSpEmis,isrc,iz,ix,iy) * fraction
+                   fPtr = fTmp / mass_new
 
                  end do
 
@@ -1959,19 +1963,21 @@ CONTAINS
             if (error) cycle  ! No further checks
             do iSpecies = 1, MM%nSpecies
               fMass = MM_cnc%arM(iSpecies,iSrc,iLev,ix,iy)
-              if (.not. (abs(MM%arM(iSpecies,iSrc,iLev,ix,iy)) <= 0.5*abs(fMass))) then
-               !$OMP critical (bark_cm)
-                call msg('Strange mass centre found,' + chPlace + ', in:' + chMMName + &
-                       & ', ix,iy,Level, source, ind_species:', (/ix,iy, iLev,iSrc, iSpecies/))
-                if ( fMass== 0.) then 
-                    centre = F_NAN  !!Avoid triggering FPE on division by zero bedore reporting
-                else
-                    centre = MM%arM(iSpecies,iSrc,iLev,ix,iy) / fMass
+              if (.not. (abs(MM%arM(iSpecies,iSrc,iLev,ix,iy)) < 0.5*abs(fMass))) then
+                if (.not. ((fMass == 0.) .and. (MM%arM(iSpecies,iSrc,iLev,ix,iy) == 0.)) ) then
+                 !$OMP critical (bark_cm)
+                  call msg('Strange mass centre found,' + chPlace + ', in:' + chMMName + &
+                         & ', ix,iy,Level, source, ind_species:', (/ix,iy, iLev,iSrc, iSpecies/))
+                  if ( fMass== 0.) then 
+                      centre = F_NAN  !!Avoid triggering FPE on division by zero bedore reporting
+                  else
+                      centre = MM%arM(iSpecies,iSrc,iLev,ix,iy) / fMass
+                  endif
+                  call msg('Mass centre, moment and mass:', &
+                          &(/centre, MM%arM(iSpecies,iSrc,iLev,ix,iy), fMass/))
+                  !$OMP end critical (bark_cm)
+                  ifError = .true.
                 endif
-                call msg('Mass centre, moment and mass:', &
-                        &(/centre, MM%arM(iSpecies,iSrc,iLev,ix,iy), fMass/))
-                !$OMP end critical (bark_cm)
-                ifError = .true.
               endif
             end do  ! species
             !
@@ -2030,9 +2036,9 @@ CONTAINS
            do iSrc = 1, MM%nSrc   ! emission sources
             if (error) cycle
             do iSpecies = 1, MM%nSpecies
-             if( .not. (abs(MM%arM(iSpecies,iSrc,iLev,ix,iy)) <=  0.5 ))then
+             if( .not. (abs(MM%arM(iSpecies,iSrc,iLev,ix,iy)) <  0.5 ))then
                fTmp = MM%arM(iSpecies,iSrc,iLev,ix,iy) * tolerance_factor
-               if( .not. (abs(fTmp) <=  0.5 ))then
+               if( .not. (abs(fTmp) <  0.5 ))then
                  !$OMP critical (bark_cm)
                  call msg('Strange mass centre found,' + chPlace + ', in:' + chMMName + &
                         & ', ix,iy,Level, source, ind_species:', (/ix,iy, iLev,iSrc, iSpecies/))

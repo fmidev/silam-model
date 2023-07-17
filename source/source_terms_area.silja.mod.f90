@@ -4762,8 +4762,11 @@ endif
         as%cellDispGrd_Val(iDescr,iCell) = fTmp
         fMassStored = fMassStored + fTmp
       end do
-      as%cellDispGrd_fx(iCell) = tmpCellDispGrd_fx(iCell) / fMassStored
-      as%cellDispGrd_fy(iCell) = tmpCellDispGrd_fy(iCell) / fMassStored
+      !! triangle slabs enforced
+      as%cellDispGrd_fx(iCell) = fu_trim_cell_fcoord(tmpCellDispGrd_fx(iCell) / fMassStored)
+      as%cellDispGrd_fy(iCell) = fu_trim_cell_fcoord(tmpCellDispGrd_fy(iCell) / fMassStored)
+
+
 #ifdef DEBUG     
       if  (as%cellDispGrd_fx(iCell) >= nxOut+0.5 .or. as%cellDispGrd_fy(iCell) >=  nyOut+0.5 .or.  &
          & as%cellDispGrd_fx(iCell) <= 0.5       .or. as%cellDispGrd_fy(iCell) <= 0.5 ) then 

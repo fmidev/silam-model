@@ -738,7 +738,7 @@ MODULE grib_api_io
     real(kind=8), dimension(:), allocatable, target :: x, y, x3d, y3d, z3d
     real(kind=8), dimension(:,:), pointer :: x2,y2,x3d2, y3d2, z3d2
 
-    real, dimension(:), pointer :: xr,yr
+    real, dimension(:), allocatable, target :: xr,yr
     real, dimension(:,:), pointer :: xr2d,yr2d
     integer :: iTmp, jTmp,fs, nx, ny
     real(kind=8) :: dx ,dy, projunitfactor
@@ -769,14 +769,12 @@ MODULE grib_api_io
      fs = nx*ny
 
      ! Work space and convenience pointers
-     allocate(x(fs), y(fs), x3d(fs), y3d(fs),z3d(fs))
+     allocate(x(fs), y(fs), x3d(fs), y3d(fs),z3d(fs), xr(fs), yr(fs))
      x2(1:nx,1:ny) => x(1:fs)
      y2(1:nx,1:ny) => y(1:fs) 
      x3d2(1:nx,1:ny) => x3d(1:fs) 
      y3d2(1:nx,1:ny) => y3d(1:fs) 
      z3d2(1:nx,1:ny) => z3d(1:fs) 
-     xr => fu_work_array(fs)
-     yr => fu_work_array(fs)
      xr2d(1:nx,1:ny) => xr(1:fs)
      yr2d(1:nx,1:ny) => yr(1:fs)
 
@@ -898,9 +896,7 @@ MODULE grib_api_io
      yr(1:fs) = yr(1:fs)*earth_radius 
      call setAnygridParam(grid, 'dy', yr)
 
-     call free_work_array(xr)
-     call free_work_array(yr)
-     deallocate(x, y, x3d, y3d,z3d)
+     deallocate(x, y, x3d, y3d,z3d, xr, yr)
 
   end subroutine gribrid2anygrid
 

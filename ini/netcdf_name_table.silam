@@ -802,6 +802,22 @@ var = c2h6 volume_mixing_ratio XXX -1 C2H6 -1 -1 0.9657 0
 var = c5h8 volume_mixing_ratio XXX -1 C5H8 -1 -1 0.4260 0
 var = so2 volume_mixing_ratio XXX -1 SO2 -1 -1 0.4527 0
 
+var = h2o2 volume_mixing_ratio XXX -1 H2O2 -1 -1 0.8529 0
+var = ch3ooh volume_mixing_ratio XXX -1 AACD -1 -1 0.4833 0
+var = par volume_mixing_ratio XXX -1 PAR -1 -1 2.4 0
+var = c2h4 volume_mixing_ratio XXX -1 ETH -1 -1 1.0357 0
+var = ole volume_mixing_ratio XXX -1 OLE -1 -1 0.4833 0
+var = ald2 volume_mixing_ratio XXX -1 ALD2 -1 -1 0.6591 0
+#var = onit volume_mixing_ratio XXX -1 ONIT  -1 -1 0.4527 0
+var = oh volume_mixing_ratio XXX -1 OH -1 -1 1.7 0
+var = ch3oh volume_mixing_ratio XXX -1 MEOH -1 -1 0.9062 0
+var = hcooh volume_mixing_ratio XXX -1 FACD -1 -1 0.6304 0
+var = c2h5oh volume_mixing_ratio XXX -1 ETOH -1 -1 0.6304  0 #Ethanol
+var = c3h8 volume_mixing_ratio XXX -1 C3H8 -1 -1 0.6591 0 #"Propane"
+var = ch3coch3 volume_mixing_ratio XXX -1  CH3COCH3 -1 -1 0.4527 0  #"Acetone
+
+
+
 # Aerosol boundaries. Include dust, SO4 , OC, BC.  Here only
 # conversion to "volume mixing ratio" (see above). Mode projection is
 # in boundary header. Here the mode value is the *lower boundary*. It
