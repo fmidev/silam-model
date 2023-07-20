@@ -677,7 +677,7 @@ MODULE grib_api_io
 
           corner_lon = corner_lon * ddeg_to_rad
           corner_lat = corner_lat * ddeg_to_rad
-          call lonalt2proj_pt(grGrid%proj4string, corner_lon, corner_lat, forwards)
+          call ll2proj_pt(grGrid%proj4string, corner_lon, corner_lat, forwards)
           !corner_lon  corner_lat are in projection units now (meters or degrees)
           grGrid%xmin = corner_lon
           grGrid%ymin = corner_lat
@@ -811,7 +811,7 @@ MODULE grib_api_io
      y3d(1:fs)=y(1:fs)
 
      ! projection returns radians
-     call lonalt2proj(grGrid%proj4string, x, y, fs, backwards)  
+     call ll2proj(grGrid%proj4string, x, y, fs, backwards)  
      ! now x is longitude in radian, y is latitude in radian
      xr(1:fs) = x(1:fs) * drad_to_deg
      yr(1:fs) = y(1:fs) * drad_to_deg
@@ -852,7 +852,7 @@ MODULE grib_api_io
      endif
       
      !rotations:  use x3d, y3d for shifted grid
-     call lonalt2proj(grGrid%proj4string, x3d, y3d, fs, backwards)
+     call ll2proj(grGrid%proj4string, x3d, y3d, fs, backwards)
      x3d(1:fs) = (x3d(1:fs) - x(1:fs)) * cos(y(1:fs))
      y3d(1:fs) = (y3d(1:fs) - y(1:fs)) 
      z3d(1:fs) = atan2(y3d(1:fs),x3d(1:fs)) !! map rotation angle
