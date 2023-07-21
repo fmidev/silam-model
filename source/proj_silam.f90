@@ -10,7 +10,8 @@ module proj_silam
   implicit none
   private
 
-  !public proj_trans!(generalized)
+  public proj_trans   
+  public proj_trans_pt
   public ll2proj
   public ll2proj_pt
   public test_proj
@@ -73,7 +74,6 @@ module proj_silam
        integer(C_INT), value :: point_offset
        type(C_PTR), value :: x, y, z
      end function pj_transform
-  
    end interface
 #endif
 #endif
@@ -97,11 +97,10 @@ subroutine proj_trans(s_srs,t_srs, x, y, np, direction)
 #ifdef USE_PROJ6
   type(c_ptr) :: CTX = c_null_ptr
   type(c_ptr) ::  PJ = c_null_ptr
-  type(c_ptr) ::  area= c_null_ptr
   integer     :: dir, iStat
   integer     :: sp              !size (in bytes of coordinates datatype)
 
-  print*,"Usando PROJ6.."  
+  call msg("Usando PROJ6..") 
 
   CTX=proj_context_create()
   PJ=proj_create_crs_to_crs(CTX, trim(s_srs)//achar(0),           &
@@ -123,7 +122,7 @@ subroutine proj_trans(s_srs,t_srs, x, y, np, direction)
                           & C_NULL_PTR ,  0, 0 , &
                           & C_NULL_PTR ,  0, 0  )
   if (iStat /= np) then                             
-    print*,"Number of transformations failed = ",np-iStat
+    print*,"Warning! Number of transformations failed = ",np-iStat
     call set_error("proj_trans_generic failed",sub_name)
   endif
 
@@ -137,7 +136,7 @@ subroutine proj_trans(s_srs,t_srs, x, y, np, direction)
    type(c_ptr) :: PJ1 = c_null_ptr
    type(c_ptr) :: PJ2 = c_null_ptr
 
-   print*,"Usando PROJ4.."  
+  call msg("Usando PROJ4..") 
 
    x=x*ddeg_to_rad  !convert degrees to radians
    y=y*ddeg_to_rad  !convert degrees to radians
@@ -156,6 +155,7 @@ subroutine proj_trans(s_srs,t_srs, x, y, np, direction)
    if (iStat /= 0) then
      call set_error("pj_transform failed",sub_name)
    endif
+
    x=x*drad_to_deg     !return to degrees!
    y=y*drad_to_deg     !return to degrees!
 
@@ -198,7 +198,7 @@ end subroutine
     call proj_trans(lonlat_proj4,t_srs,xa,ya,1,direction)
     x=xa(1);y=ya(1)
   end subroutine
-!ll2proj_pt:
+!proj_trans_pt:
   subroutine proj_trans_pt(s_srs, t_srs, x, y, direction)
     !      
     ! same that ll2proj but for a single value

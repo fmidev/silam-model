@@ -9,8 +9,7 @@ MODULE grib_api_io
   !
   ! All units: SI
   ! 
-  ! All degrees: real numbers in degrees (degrees and parts per
-  ! hundred/parts per thousand , NOT in degrees and minutes
+  ! All degrees: real numbers in decimal degrees 
   ! 
   ! Language: ANSI standard Fortran 90
   ! 
@@ -45,10 +44,10 @@ MODULE grib_api_io
 !  public release_grib_buffer
 
   ! Write stuff to GRIB
-  PUBLIC open_gribfile_o                ! file for GRIB output 
+  public open_gribfile_o                ! file for GRIB output 
   public switch_grib_binary_o           ! New binary for GRIB output
-  PUBLIC write_next_field_to_gribfile   ! with coding
-  PUBLIC close_gribfile_o
+  public write_next_field_to_gribfile   ! with coding
+  public close_gribfile_o
 
 
   ! The private functions and subroutines not to be used elsewhere:
@@ -57,16 +56,16 @@ MODULE grib_api_io
   private report_grib_grid
   private parse_grib_grid
   private gribheadings_to_field_id     ! from GRIB internal to field_id
-  PRIVATE get_grib_times
-  PRIVATE fu_grib_level
+  private get_grib_times
+  private fu_grib_level
   private fix_strange_quantities 
   private fu_if_replace_real_missing
   private fix_scan_mode
   ! writing
-  PRIVATE field_id_to_gribheadings
-  PRIVATE set_field_level_to_grib
-  PRIVATE set_field_time_to_grib
-!  PRIVATE fu_get_10_scale
+  private field_id_to_gribheadings
+  private set_field_level_to_grib
+  private set_field_time_to_grib
+!  privatE fu_get_10_scale
   private set_field_grid_to_grib
 
   private read_GRIB_name_table
@@ -77,23 +76,13 @@ MODULE grib_api_io
   !!!  Clumsy mechanism to initialize definitions path
   interface
     !Get a pointer
-!!#ifdef VS2012
-!!    type(C_PTR) function grib_definition_path(context) bind(C,name='_grib_definition_path')
-!!#else
     type(C_PTR) function grib_definition_path(context) bind(C,name='grib_definition_path')
-!!#endif
       USE ISO_C_BINDING
       IMPLICIT NONE
       type(C_PTR), value :: context
     end function grib_definition_path
 
-    !copy string from c_ptr to fortran string
-    !!! https://gcc.gnu.org/onlinedocs/gfortran/Interoperable-Subroutines-and-Functions.html
-!!#ifdef VS2012
-!!    subroutine strncpyptr(dest, src, n) bind(C, name='_strncpy')
-!!#else
     subroutine strncpyptr(dest, src, n) bind(C, name='strncpy')
-!!#endif
       USE ISO_C_BINDING
       IMPLICIT NONE
       character(kind=c_char),  intent(out) :: dest(*)
@@ -163,7 +152,6 @@ MODULE grib_api_io
 
  type(grib_grid_cache_item), dimension(max_nbr_of_GRIB_grids), target :: grib_grid_cache = &
                         & grib_grid_cache_item_missing
-
 
   !
   ! Interface for high-level grib names to be used with GRIB2 (should be fine for GRIB1 as well)
@@ -579,7 +567,7 @@ MODULE grib_api_io
 !$OMP END CRITICAL (write_string)
 #endif
         
-         !----------------------------------------
+      !----------------------------------------
       !
       ! Unknown grid-type. More parsings -- straighttforward: Just add  grGrid%proj4string generation
       !
@@ -667,18 +655,15 @@ MODULE grib_api_io
 
       elseif (updateGrid) then  !! Silam grid needs update -- make it and put to the cache
         
-        ! Make a new cahe item
+        ! Make a new cache item
         ! 
 
-        lon0 = corner_lon
-        lat0 = corner_lat
+        lon0 = corner_lon ! Save the original grib values
+        lat0 = corner_lat ! Save the original grib values
         if (.not. grGrid%defined) then !complete grib_grid definition
-          ! Save the original grib values
-
-          corner_lon = corner_lon * ddeg_to_rad
-          corner_lat = corner_lat * ddeg_to_rad
+          
           call ll2proj_pt(grGrid%proj4string, corner_lon, corner_lat, forwards)
-          !corner_lon  corner_lat are in projection units now (meters or degrees)
+
           grGrid%xmin = corner_lon
           grGrid%ymin = corner_lat
           grGrid%xmax = corner_lon + dx*(nx-1)
@@ -694,8 +679,8 @@ MODULE grib_api_io
                        & real(corner_lon), real(corner_lat), &
                        & .TRUE., & !corner_in_geographical_latlon
                        & nx, ny, pole_geographical,  real(dx), real(dy))
-  !        elseif (strGridType == "rotated_ll" .and. .FALSE.) then !!FIXME Test only
-  !                treat rll as anygrid
+         ! elseif (strGridType == "rotated_ll" .and. .FALSE.) then !!FIXME Test only
+         !         treat rll as anygrid
          elseif (strGridType == "rotated_ll") then 
           grid = fu_set_lonlat_grid ('rot_latlon_grid_from_grib', &
                        & real(corner_lon), real(corner_lat), &
@@ -704,7 +689,7 @@ MODULE grib_api_io
                        & fu_set_pole(south_flag,  pole_lat,  pole_lon ), & 
                        & real(dx), real(dy))
         else
-          call gribrid2anygrid(grGrid, grid)
+          call gribgrid2anygrid(grGrid, grid)
         endif
 
         !save to cache
@@ -724,7 +709,7 @@ MODULE grib_api_io
 
   !*****************************************************************
 
-  subroutine gribrid2anygrid(grGrid, grid)
+  subroutine gribgrid2anygrid(grGrid, grid)
     !
     ! Makes silam anygrid out of grGrid
     ! if grid is defined -- updates
@@ -743,42 +728,39 @@ MODULE grib_api_io
     integer :: iTmp, jTmp,fs, nx, ny
     real(kind=8) :: dx ,dy, projunitfactor
     character (len=10000) :: strTmp
-    character (len=*), parameter :: sub_name="gribrid2anygrid"
+    character (len=*), parameter :: sub_name="gribgrid2anygrid"
     
+    nx= grGrid%nx
+    ny= grGrid%ny
+    fs = nx*ny
 
-     nx= grGrid%nx
-     ny= grGrid%ny
+    ! Work space and convenience pointers
+    allocate(x(fs), y(fs), x3d(fs), y3d(fs),z3d(fs))
+    x2(1:nx,1:ny) => x(1:fs)
+    y2(1:nx,1:ny) => y(1:fs) 
+    x3d2(1:nx,1:ny) => x3d(1:fs) 
+    y3d2(1:nx,1:ny) => y3d(1:fs) 
+    z3d2(1:nx,1:ny) => z3d(1:fs) 
+    xr => fu_work_array(fs)
+    yr => fu_work_array(fs)
+    xr2d(1:nx,1:ny) => xr(1:fs)
+    yr2d(1:nx,1:ny) => yr(1:fs)
 
-     if (index(grGrid%proj4string, "+units=") > 0) then
-       if (index(grGrid%proj4string, "+units=m") > 0) then
-          projunitfactor = 1D0
-       else
-         call msg(grGrid%proj4string)
-         call set_error("only +units=m supported so far", sub_name)
-         return
-       endif
-
-     else
-       projunitfactor = ddeg_to_rad !! proj deals with radian angles
-
-       
-     endif
+    if (index(grGrid%proj4string, "+units=") > 0) then
+      if (index(grGrid%proj4string, "+units=m") > 0) then
+         projunitfactor = 1D0
+      else
+        call msg(grGrid%proj4string)
+        call set_error("only +units=m supported so far", sub_name)
+        return
+      endif
+    else
+      projunitfactor = ddeg_to_rad !! proj deals with radian angles (not true) 
+    endif
 
      dx = (grGrid%xmax - grGrid%xmin)*projunitfactor / (nx-1)
      dy = (grGrid%ymax - grGrid%ymin)*projunitfactor / (ny-1)
-     fs = nx*ny
 
-     ! Work space and convenience pointers
-     allocate(x(fs), y(fs), x3d(fs), y3d(fs),z3d(fs))
-     x2(1:nx,1:ny) => x(1:fs)
-     y2(1:nx,1:ny) => y(1:fs) 
-     x3d2(1:nx,1:ny) => x3d(1:fs) 
-     y3d2(1:nx,1:ny) => y3d(1:fs) 
-     z3d2(1:nx,1:ny) => z3d(1:fs) 
-     xr => fu_work_array(fs)
-     yr => fu_work_array(fs)
-     xr2d(1:nx,1:ny) => xr(1:fs)
-     yr2d(1:nx,1:ny) => yr(1:fs)
 
      ! Fill grid coordinates 
      do iTmp = 1, nx
@@ -812,25 +794,28 @@ MODULE grib_api_io
 
      ! projection returns radians
      call ll2proj(grGrid%proj4string, x, y, fs, backwards)  
-     ! now x is longitude in radian, y is latitude in radian
-     xr(1:fs) = x(1:fs) * drad_to_deg
-     yr(1:fs) = y(1:fs) * drad_to_deg
+     !lat y lon are passed on decimal degrees and return in decimal degrees
 
-!!        call msg(grGrid%proj4string)
-!!        call msg("Lon in Geo grid 1:10, 1:10")
-!!        jTmp = 10
-!!        do iTmp=1,jTmp
-!!             write (strTmp,"(I5,10(X,F8.3))") iTmp, x2(1:jTmp,iTmp)*drad_to_deg
-!!             call msg(strTmp)
-!!        enddo 
-!!        call msg("LAT in Geo  grid 1:10, 1:10")
-!!        jTmp = 10
-!!        do iTmp=1,jTmp
-!!             write (strTmp,"(I5,10(X,F8.3))") iTmp, y2(1:jTmp,iTmp)*drad_to_deg
-!!             call msg(strTmp)
-!!        enddo 
-!!        call ooops("GeoTrans")
-!!       
+     xr(1:fs) = x(1:fs)
+     yr(1:fs) = y(1:fs)
+     x=x*ddeg_to_rad 
+     y=y*ddeg_to_rad 
+
+     !!  call msg(grGrid%proj4string)
+     !!  call msg("Lon in Geo grid 1:10, 1:10")
+     !!  jTmp = 10
+     !!  do iTmp=1,jTmp
+     !!       write (strTmp,"(I5,10(X,F8.3))") iTmp, x2(1:jTmp,iTmp)*drad_to_deg
+     !!       call msg(strTmp)
+     !!  enddo 
+     !!  call msg("LAT in Geo  grid 1:10, 1:10")
+     !!  jTmp = 10
+     !!  do iTmp=1,jTmp
+     !!       write (strTmp,"(I5,10(X,F8.3))") iTmp, y2(1:jTmp,iTmp)*drad_to_deg
+     !!       call msg(strTmp)
+     !!  enddo 
+     !!  call ooops("GeoTrans")
+     !! 
      if (defined(grid)) then
         call grid_dimensions(grid,iTmp,jTmp)
         if (iTmp == nx .and. jTmp == ny) then
@@ -850,9 +835,14 @@ MODULE grib_api_io
      else
         grid = fu_set_any_grid('anygrid_from_grib', nx, ny, xr, yr)
      endif
+     
       
      !rotations:  use x3d, y3d for shifted grid
      call ll2proj(grGrid%proj4string, x3d, y3d, fs, backwards)
+
+     x3d=x3d*ddeg_to_rad 
+     y3d=y3d*ddeg_to_rad 
+
      x3d(1:fs) = (x3d(1:fs) - x(1:fs)) * cos(y(1:fs))
      y3d(1:fs) = (y3d(1:fs) - y(1:fs)) 
      z3d(1:fs) = atan2(y3d(1:fs),x3d(1:fs)) !! map rotation angle
@@ -868,7 +858,6 @@ MODULE grib_api_io
      z3d(1:fs) = sin(y)
 
      !
-     !
      ! cartesian geocentric
      xr(1:fs) = x3d(1:fs)
      call setAnygridParam(grid, 'x3dc', xr)
@@ -876,8 +865,6 @@ MODULE grib_api_io
      call setAnygridParam(grid, 'y3dc', xr)
      xr(1:fs) = z3d(1:fs)
      call setAnygridParam(grid, 'z3dc', xr)
-
-
 
      !!
      !! dx, dy as half-distance between two neighbouring cell centers
@@ -902,7 +889,7 @@ MODULE grib_api_io
      call free_work_array(yr)
      deallocate(x, y, x3d, y3d,z3d)
 
-  end subroutine gribrid2anygrid
+  end subroutine gribgrid2anygrid
 
 
 !************************************************************************
