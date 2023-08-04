@@ -536,6 +536,7 @@ MODULE ini_boundary_conditions
               call set_error("Couldn't find 'ones' species", sub_name)
               return
             endif
+            call msg("Initialising massmap for ones (can be overriden with files later)")
             call force_mass_map_cell_mmr(mapMass, iSp, disp_buf)
       endif
       if (rulesIniBoundary%ifTimetagInitial) then
@@ -545,6 +546,7 @@ MODULE ini_boundary_conditions
               call set_error("Couldn't find 'timetag' species", sub_name)
               return
             endif
+            call msg("Initialising massmap for timetag (can be overriden with files later)")
             call force_mass_map_cell_mmr(mapMass, iSp, disp_buf)
       endif
       !

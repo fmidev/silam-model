@@ -1019,6 +1019,7 @@ end do
       call data_for_photolysis_and_cld_model(mapTransport, chemRules, indO3, ind_soot, &
            & frac_soot, n_soot, density, diam)
       if (chemRules%ifOnesAdjust) then
+        call msg("Chemistry will use ones tracer as cell size")
         iSpOnes = select_single_species(mapTransport%species, mapTransport%nSpecies, &
                           & 'ones', in_gas_phase, real_missing)
         if (error .or. (iSpOnes < 1)) then
@@ -1233,6 +1234,11 @@ end do
                      & disp_buf%p4d(ind_air_mass)%future%p2d(i3d)%ptr(i1d) * (1.0-met_buf%weight_past)
 
             mass_ones = mapTransport%arM(iSpOnes,1,i3d,ix,iy)
+            if (.not. ( mass_ones > 0 )) then
+              call set_error("Strane mass_ones="//fu_str(mass_ones)//" at (i3d,ix,iy)=("//&
+                 &fu_str(i3d)//","//fu_str(ix)//","//fu_str(iy)//")", sub_name)
+              cycle
+            endif
             cell_volume = cell_volume * mass_ones / mass_air !! more ones -- biger cell
           endif
 
