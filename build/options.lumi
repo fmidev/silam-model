@@ -1,0 +1,35 @@
+ARCH = linux_gnu
+
+PYTHON = /usr/bin/python3
+
+F90C = gfortran
+# Flags for optimization, etc.
+OPTIMIZATION = -O3 -fopenmp -ffast-math
+OPENMP = 
+#DEBUG =  -g  -fbacktrace   # -finit-real=snan   -fcheck=all -finit-integer=-88888888 # -DDEBUG
+DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
+FIXED = -ffixed-form
+PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -DUSE_PROJ6
+FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none
+#FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS)  $(INCLUDE) -ffree-line-length-none -fbacktrace -msse4.2 #-fdefault-real-8
+INCLUDE = -I$(OBJDIR) -I/usr/include
+
+# netcdf install directory
+NCDIR = $(NETCDF_DIR)
+
+# grib api install directory
+GRDIR = $(EBROOTECCODES)
+
+#MKL = -lopenblas  #openblas
+MKL = -L$(CRAY_LIBSCI_PREFIX_DIR)/lib -lsci_gnu  #
+
+INCLUDE = -I$(OBJDIR) -I/usr/include -I$(NCDIR)/include   -I$(GRDIR)/include 
+# Libraries given as linker options
+
+LHDF5 = -L$(HDF5_DIR)/lib -lhdf5 -lhdf5_hl
+LBZIP2 = -L$(EBROOTBZIP2) -lbz2
+LPROJ = -L$(EBROOTPROJ) -lproj
+
+LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf  -L $(NCDIR)/lib -L $(GRDIR)/lib64 -L $(PNCDIR)/lib $(LHDF5) $(MKL) $(LBZIP2) $(LPROJ) 
+
+#LFLAGS = -fopenmp -ljasper -llapack -ljasper -lblas -llapack -leccodes_f90 -leccodes  -lnetcdff -lnetcdf -lpnetcdf -lbz2

@@ -62,6 +62,14 @@ newcray_mpi:
 	echo "SE=newcray_mpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
+lumimpi:
+	echo "SE=lumimpi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+lumi:
+	echo "SE=lumi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
 mahti_mpi:
 	echo "SE=mahti_mpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
@@ -92,6 +100,14 @@ tuima_mpi:
 
 tuima:
 	echo "SE=tuima" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)
+
+ec:
+	echo "SE=ec" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+ecmpi:
+	echo "SE=ecmpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
 $(DefaultSetup):

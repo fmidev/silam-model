@@ -3,7 +3,7 @@
 This is a full-featured source code of the Silam model
 with striped revision history
 
-## BUILDING SILAM v5.8 in Ubuntu 18.04, 20.04, 22.04
+## BUILDING SILAM v5.8 in Ubuntu 18.04, 20.04
 
 Get the source code
 
@@ -11,7 +11,7 @@ Get the source code
 
 Install needed packages
 
-`$ sudo apt install make python3 gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev libproj-dev`
+`$ sudo apt install make python gfortran libeccodes-dev libnetcdf-dev libnetcdff-dev liblapack-dev libblas-dev libbz2-dev libproj-dev`
 
 Compile the binary
 
@@ -23,19 +23,17 @@ Compile the binary
 
 The latter command should create a binary in ../bin
 
-Now run the binary
-
 `$ ../bin/silam_v5_7pub.gnu`
 
 Silam should run and complain about missing silam.ini.
 Then the binary is ready to use! You can test it with a test case from
 https://github.com/fmidev/silam-toypoint
 
-In Ubuntu 20.04 or 22.04 one might get an error message like
+In Ubuntu 20.04 one might get an error message like
 
 `grib_api.mod not found`
 
-There are several versions of gfortran available in 20.04 and 22.04. Some libraries
+There are several versions of gfortran available in 20.04. Some libraries
 have headers in a location specific for "module version", where gfortran can't find them:
 
 `/usr/lib/x86_64-linux-gnu/fortran/gfortran-mod-15/`
@@ -50,7 +48,7 @@ or
 
 A workaround would be to either explicitly call fortran with `-I
 /usr/lib/x86_64-linux-gnu/fortran/gfortran-mod-15` (by adding this option to
-FFLAGS in the file build/options.gnu).
+FFLAGS  in build/options.gnu).
 
 or add symlinks to the needed .mod files to your gfortran include
 directory (as root).

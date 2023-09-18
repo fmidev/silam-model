@@ -233,7 +233,7 @@ contains
     type(silam_species), dimension(:), pointer :: p_opt_species, p_obs_species
     type(grads_template) :: obs_templ
     character(len=fnlen), dimension(:), pointer :: p_obs_items
-    integer :: obs_index
+    integer :: obs_index, j
     logical :: dealloc_obs_items, ifGroundToo, force_instant
     type(silja_time) :: time_in_filename
     !!FIXME some smarter allocation needed here
@@ -287,13 +287,18 @@ contains
     do i = 1, nObsItems
       obs_item = p_obs_items(i)
       read(obs_item, fmt=*, iostat=status) obs_type
-      if (fu_fails(status == 0, 'Failed to parse:' // trim(obs_item), sub_name)) return
+      j = index(obs_item, ' ')
+      obs_type = obs_item(1:j)
 
       if (obs_type == 'cnc') then
         time_in_filename = obs_start
         if (fu_fails(nstations > 0, 'Surface observation given but no stations', sub_name)) return
-        read(obs_item, fmt=*, iostat=status) obs_type, obs_unit, file_name
-        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+        file_name = adjustl(obs_item(j+1:))  ! this is together with obs_unit 
+         obs_unit = adjustl(file_name(1:index(file_name,' ')))
+        file_name = adjustl(file_name(index(file_name,' ')+1:))
+!        read(obs_item, fmt=*, iostat=status) obs_type, obs_unit, file_name
+!        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+
         call decode_template_string(file_name, obs_templ)
         if (error) return
 
@@ -312,15 +317,16 @@ contains
             end if
             file_name_old = file_name
           else
-            call unset_error(sub_name)
+            if(error) call unset_error(sub_name)
           end if
           time_in_filename = time_in_filename + fu_set_interval_h(1)
         end do
         
       elseif (obs_type == 'dose_rate_no_ground') then
         ifGroundToo = .false.
-        read(obs_item, fmt=*, iostat=status) obs_type, file_name
-        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+        file_name = adjustl(obs_item(j+1:))
+!        read(obs_item, fmt=*, iostat=status) obs_type, file_name
+!        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
         call decode_template_string(file_name, obs_templ)
         if (error) return
         call expand_template(obs_templ, obs_start, file_name)
@@ -333,13 +339,14 @@ contains
           close(file_unit)
           n_dose_rate = n_dose_rate + nread
         else
-          call unset_error(sub_name)
+          if(error) call unset_error(sub_name)
         end if
          
       elseif (obs_type == 'dose_rate_with_ground') then
         ifGroundToo = .true.
-        read(obs_item, fmt=*, iostat=status) obs_type, file_name
-        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+        file_name = adjustl(obs_item(j+1:))
+!        read(obs_item, fmt=*, iostat=status) obs_type, file_name
+!        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
         call decode_template_string(file_name, obs_templ)
         if (error) return
         call expand_template(obs_templ, obs_start, file_name)
@@ -352,14 +359,13 @@ contains
           close(file_unit)
           n_dose_rate = n_dose_rate + nread
         else
-          call unset_error(sub_name)
+          if(error) call unset_error(sub_name)
         end if
 
 
       elseif (obs_type == var_name_aod) then
         time_in_filename = obs_start
-        read(obs_item, fmt=*, iostat=status) obs_type, file_name
-        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+        file_name = adjustl(obs_item(j+1:))
         call decode_template_string(file_name, obs_templ)
         if (error) return
 
@@ -382,14 +388,15 @@ contains
             if (error) return
             n_vert_obs = n_vert_obs + nread
           else
-            call unset_error(sub_name)
+            if(error) call unset_error(sub_name)
           end if
           time_in_filename = time_in_filename + fu_set_interval_h(1)
         end do
          
       else if (obs_type == 'eruption') then
-        read(obs_item, fmt=*, iostat=status) obs_type, obs_unit, file_name
-        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+        file_name = adjustl(obs_item(j+1:))  ! this is together with obs_unit 
+         obs_unit = adjustl(file_name(1:index(file_name,' ')))
+        file_name = adjustl(file_name(index(file_name,' ')+1:))
         call decode_template_string(file_name, obs_templ)
         if (error) return
         call expand_template(obs_templ, obs_start, file_name)
@@ -402,13 +409,14 @@ contains
           n_eruption = n_eruption + nread
           if (error) return
         else
-          call unset_error(sub_name)
+          if(error) call unset_error(sub_name)
         end if
 
       else if (obs_type == 'vertical') then
         time_in_filename = obs_start
-        read(obs_item, fmt=*, iostat=status) obs_type, var_name, file_name
-        if (fu_fails(status == 0, 'Failed to parse: ' // trim(obs_item), sub_name)) return
+        file_name = adjustl(obs_item(j+1:))  ! this is together with obs_unit 
+        var_name = adjustl(file_name(1:index(file_name,' ')))
+        file_name = adjustl(file_name(index(file_name,' ')+1:))
         call decode_template_string(file_name, obs_templ)
         if (error) return
         do while (time_in_filename <= obs_start + obs_period)
@@ -426,7 +434,7 @@ contains
             deallocate(p_obs_species)
             n_vert_obs = n_vert_obs + nread
          else
-            call unset_error(sub_name)
+           if(error) call unset_error(sub_name)
          end if
          time_in_filename = time_in_filename + fu_set_interval_h(1)
        end do
