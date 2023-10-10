@@ -2069,6 +2069,7 @@ CONTAINS
           & w_alt_msl_flag, w_height_srf_flag, &
           & wind_flag,&
           & mean_wind_flag, &
+          & windspeed_10m_flag, &
           & windspeed_flag, &
           & dispersion_u_flag,&
           & dispersion_v_flag)
@@ -2096,7 +2097,7 @@ CONTAINS
       CASE (latitude_flag)
         string = 'deg'
 
-      CASE (relative_humidity_flag)
+      CASE (relative_humidity_flag, relative_humidity_2m_flag)
         string = 'frac.'
 
       CASE (specific_humidity_flag)
@@ -2384,6 +2385,12 @@ CONTAINS
 
       case (stomatal_conductance_flag)
       string = 'm/s'
+
+      case(pollen_total_per_m2_flag)
+        string = '#/m2'
+
+      case(pollen_correction_flag, pollen_left_relative_flag)
+        string = '1'
 
       case(heatsum_flag)
         string = 'deg_time'
