@@ -100,7 +100,7 @@ tuima_mpi:
 
 tuima:
 	echo "SE=tuima" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
 
 ec:
 	echo "SE=ec" > $(DefaultSetup)
@@ -151,6 +151,7 @@ grads2grib:
 	cd ../build/ && $(MAKE) grads2grib -j 8  SETUP=$(SE)
 
 is4fires :
+	echo $(MAKE)
 	cd ../build/ && $(MAKE) is4fires SETUP=$(SE)
 
 dot:

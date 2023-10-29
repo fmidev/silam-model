@@ -2794,6 +2794,7 @@ end function fu_settling_vel
     real, dimension(:,:), pointer :: precipContent
     real, dimension(:,:,:), pointer :: precipContent3d
     real, dimension(:,:,:,:), pointer :: TL_store_mass_in_air => null()
+    real, dimension(mapConc%nSpecies,mapConc%n3D) :: tl_array
 
     integer :: istat, iMeteo, num_levs
     logical :: have_tla
@@ -3001,9 +3002,17 @@ end function fu_settling_vel
       endif
 
       ! Store TLA on forward run
-      if (have_tla .and. not_adjoint) then
-        TL_store_mass_in_air(:,:,ix,iy) = mapConc%arM(:, 1, :, ix, iy)
+
+      if ( not_adjoint) then
+        if (have_tla) TL_store_mass_in_air(:,:,ix,iy) = mapConc%arM(:, 1, :, ix, iy)
+      else !! Adjoint
+        if (have_tla) then
+           tl_array(:,:) = TL_store_mass_in_air(:,:,ix,iy)
+        else
+           tl_array(:,:)  = 0. !! No TLA, pretend they were all zeroes
+        endif
       end if
+
                   
       if (rulesDeposition%scavengingType == scav2020) then
         pwc_column = sum(pwc_col(1:num_levs))
@@ -3104,7 +3113,7 @@ end function fu_settling_vel
         call scavenge_column_2011_adjoint(mapConc%arM(:,:,:,ix,iy), & ! sensitivity in the air, column                                                                                
              & precipContent3d(:,:,:), &   ! sensitivity mass in precip, column                                                                            
              & arLowMassThreshold, &
-             & TL_store_mass_in_air(:,:,ix,iy), &     ! TL- stored mass in the air                                                                         
+             & tl_array, &     ! TL- stored mass in the air                                                                         
              & mapConc%species,  &
              & mapConc%nSpecies, mapConc%nSrc, mapConc%n3D, &
              & - timestep_sec, &   ! invert the sign to have it positive                                                                                   
@@ -3669,6 +3678,7 @@ end function fu_settling_vel
     real, dimension(Nspecies, 1) :: TL_store_mass_in_air_local   ! (nSpecies, nSrc=1)
     type(Tscav_coefs_1d) :: c1d  ! internal coefficients stored from forward model
     real, dimension(:,:), pointer :: pTL_L0, pTL_dLdm, pAdj
+    logical :: ifBusy_pTL_L0 , ifBusy_pTL_dLdm, ifBusy_pAdj  !!
 
     !
     ! Get the coefficients that depend on the system state. Essentially, we run the 
@@ -3711,6 +3721,9 @@ end function fu_settling_vel
       ! For the time being, SO2 is treated in exactly the same way as all others. See Notebook 11 p.49
       ! for explanations.
       !
+      ifBusy_pTL_dLdm = .false.
+      ifBusy_pAdj = .false. 
+      ifBusy_pTL_L0 = .false.
       if (iSp == indSO2)then
         !
         ! SO2 has complicated matrix dependent on other species and own concentrations
@@ -3719,12 +3732,14 @@ end function fu_settling_vel
         if(present(pTL_L0_in))then
           pTL_L0 => pTL_L0_in(iSp)%pp
         else
-          pTL_L0 => fu_work_array_2d(n3d, n3d)   ! L0=L(m0) for sulphur is same n3d x n3d matrix
+          pTL_L0 => fu_work_array_2d(n3d, n3d*nAcidityAffectingSpecies)   ! L0=L(m0) for sulphur is same n3d x n3d matrix
+          ifBusy_pTL_L0 = .true.
         endif
         if(present(pTL_dLdm_in))then
           pTL_dLdm => pTL_dLdm_in(iSp)%pp
         else
           pTL_dLdm => fu_work_array_2d(n3d, n3d*nAcidityAffectingSpecies)   ! Ldiff for SO2 is affected by other species
+          ifBusy_pTL_dLdm = .true.
         endif
         pTL_L0(1:n3d, 1:n3d*nAcidityAffectingSpecies) = 0.0
         pTL_dLdm(1:n3d, 1:n3d*nAcidityAffectingSpecies) = 0.0
@@ -3762,6 +3777,7 @@ end function fu_settling_vel
           pAdj => pAdj_in(iSp)%pp
         else
           pAdj => fu_work_array_2d(n3d*nAcidityAffectingSpecies, n3d)
+          ifBusy_pAdj = .true.
         endif
         do iTmp = 1,n3d
           pAdj(1:n3d*nAcidityAffectingSpecies, iTmp) = pTL_dLdm(iTmp, 1:n3d*nAcidityAffectingSpecies)
@@ -3778,6 +3794,7 @@ end function fu_settling_vel
           pTL_L0 => pTL_L0_in(iSp)%pp
         else
           pTL_L0 => fu_work_array_2d(n3d, n3d)
+          ifBusy_pTL_L0 = .true.
         endif
         if(present(pTL_dLdm_in))then
           pTL_dLdm => pTL_dLdm_in(iSp)%pp
@@ -3792,6 +3809,7 @@ end function fu_settling_vel
           pAdj => pAdj_in(iSp)%pp
         else
           pAdj => fu_work_array_2d(n3d, n3d)
+          ifBusy_pAdj = .true.
         endif
         do iTmp = 1,n3d
           pAdj(1:n3d,iTmp) = pTL_dLdm(iTmp,1:n3d)
@@ -3813,7 +3831,7 @@ end function fu_settling_vel
 !              call msg('SO2 Diagonal only')
 !              fTmp = fTmp + pTL_dLdm(iSp)%pp(iLev, iLev+(iAAS-1)*n3d) * &
 !                          & sens_mass_in_air(abs(indAcidityAffectingSp(iAAS)), 1, iLev)
-              call msg('SO2 Triangle full')
+!              call msg('SO2 Triangle full')
               do iTmp = 1, n3d
                 fTmp = fTmp + pTL_dLdm(iLev, iTmp+(iAAS-1)*n3d) * &
                             & sens_mass_in_air(abs(indAcidityAffectingSp(iAAS)), 1, iTmp)
@@ -3822,7 +3840,7 @@ end function fu_settling_vel
           else
             ! non-SO2, squared TL matrix
             fTmp = fTmp + pAdj(iLev,iLev) * sens_mass_in_air(iSp,1,iLev)
-            call msg('All Triangle full')
+!            call msg('All Triangle full 1')
             do iTmp = 1, n3d
               fTmp = fTmp + pTL_dLdm(iLev,iTmp) * sens_mass_in_air(iSp,1,iTmp)
             end do  ! iTmp 1:n3d
@@ -3831,11 +3849,9 @@ end function fu_settling_vel
           sens_mass_in_water(iSp, 1, iLev) = sens_mass_in_water(iSp, 1, iLev) - fTmp
       end do  ! iLev
 
-      if(.not. present(pTL_L0_in)) then
-        call free_work_array(pTL_L0)
-        call free_work_array(pTL_dLdm)
-      endif
-      if(.not. present(pAdj_in))call free_work_array(pAdj)
+      if(ifBusy_pTL_L0) call free_work_array(pTL_L0)
+      if(ifBusy_pTL_dLdm) call free_work_array(pTL_dLdm)
+      if(ifBusy_pAdj) call free_work_array(pAdj)
 
     end do  ! iSp=1:nSpecoes
 
@@ -4002,7 +4018,7 @@ end function fu_settling_vel
     ! Imported parameters             
     integer, intent(in) :: iLev, nLevels  ! Dispersion indices
     integer, intent(in) :: scavType, max_scav_rate_depends_on
-    real, dimension(:,:), pointer, intent(in) :: metdat_col
+    real, dimension(:,:), intent(in) :: metdat_col
     real, intent(in) :: rain_rate_scf, tcc, cape_met, abl_height, landfrac
     real, intent(in) :: pwcColumnLayer, pwcColumn, pwcAboveT, pwcAboveB, cwcColumnLayer, cwcColumn, cwcAbove
     real, intent(in) :: max_scav_rate_wind_scaling, max_scav_rate_cape_scaling

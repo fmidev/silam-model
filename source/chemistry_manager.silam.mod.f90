@@ -997,7 +997,7 @@ end do
     logical :: have_cb4, have_tla, print_it, ifNeeded
     real, dimension(:,:,:,:), pointer :: tla_point_cb4 => null(), tla_point_hstart => null()
     integer :: ithread, iLev, iSoot, istat
-    real :: fixed_albedo, ssa !, tcc_photo, tcc_scav
+    real :: fixed_albedo, ssa 
     logical, save :: if_first = .true.
     character(len=*), parameter :: sub_name = 'transform_maps'
     integer, save :: indO3, n_soot
@@ -1124,7 +1124,7 @@ end do
     !call msg('Total N before transformation:', get_total_n(mapTransport))
 
     !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, metdat_col, reactRates, ix, iy, i3d, itransf, isrc, print_it, &
-    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, & !tcc_photo, tcc_scav, mass_air, mass_ones, &
+    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, mass_air, mass_ones, &
     !$OMP & photorates, aodext, aodscat, o3column, cncAer, cncSL, ithread, soot_col, pwc_col, tau_above_bott, ssa, iSoot)
 
     iThread = 0
@@ -1210,7 +1210,14 @@ end do
         end if
 
         if (seconds < 0) then
-           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_step, seconds, &
+          ! WARNING! adjoint scavenging makes some noncense. Check for pollen leads to substantially
+          ! different mass in air with the below hack and without. Unless the check passes
+          ! the hack should be kept...
+          !  HACK here: 
+          ! Apply forward scavenging here (just flip he sign of "seconds")
+          ! Should be fine for particles and very soluble gases, and for non-soluble gases
+          ! Medium-solubility gasas and SO2 did not work anyway...
+           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_step, -seconds, &
                 & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col, &
                 & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)                                                                                                                                                                                                                 
            if(error)call set_error('Trouble with scavenging', sub_name)

@@ -27,22 +27,13 @@ PNCDIR = ${PARALLEL_NETCDF_INSTALL_ROOT}
 GRDIR = ${ECCODES_INSTALL_ROOT}
 
 MKL = -L${MKLROOT}/lib/intel64  -lmkl_sequential  -lmkl_intel_lp64 -lmkl_core 
-#MKL = -L${MKLROOT}/lib/intel64 -lmkl_cdft_core -lmkl_core -lmkl_blas95_lp64 -lmkl_gf_lp64 -lmkl_gnu_thread -lmkl_intel_lp64  -lmkl_lapack95_lp64 -lmkl_scalapack_lp64 -lmkl_sequential -lmkl_sycl  -lmkl_tbb_thread  -lmkl_blacs_intelmpi_lp64 
-# -lmkl_blacs_openmpi_lp64 
-# -lmkl_gf_ilp64 
-# -lmkl_blas95_ilp64 
-# -lmkl_intel_ilp64 
-# -lmkl_lapack95_ilp64 
-# -lmkl_scalapack_ilp64 
-# -lmkl_blacs_intelmpi_ilp64 
-# -lmkl_blacs_openmpi_ilp64 
 
-INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCDIR}/include   -I${GRDIR}/include -I${PNCDIR}/include #-m64 -I${MKLROOT}/include 
+INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCDIR}/include   -I${GRDIR}/include -I${PNCDIR}/include 
 # Libraries given as linker options
 
-LHDF5 = -L/lustre/apps/scilibs/hdf5/1.12.2/intel-2021.8.0/lib -lhdf5 -lhdf5_hl
-LBZIP2 = -L/lustre/apps/scilibs/bzip2/1.0.8/gcc-8.5.0/lib -lbz2
-LPROJ = -L/lustre/apps/scilibs/proj/7.2.1/gcc-8.5.0/lib -lproj
+LHDF5 = -L${HDF5_ROOT}/lib -lhdf5 -lhdf5_hl
+LBZIP2 = -L${BZIP2_ROOT}/lib -lbz2 
+LPROJ = -L${PROJ_ROOT}/lib -lproj
 
 LFLAGS = -fopenmp -leccodes_f90 -leccodes -lpnetcdf -lnetcdff -lnetcdf  -lm -ldl -lproj -L${NCCDIR}/lib  -L ${NCDIR}/lib -L ${GRDIR}/lib64 -L ${PNCDIR}/lib ${LHDF5} ${MKL} ${LBZIP2} ${LPROJ} 
 
