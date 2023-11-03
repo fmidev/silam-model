@@ -1588,7 +1588,7 @@ call msg('Done')
       type(TboundaryBuffer), pointer :: pBBuf
             
       !Local
-      real :: fMass
+      real :: fMass, fTmp
       integer, target :: ix, iy, iLev
       integer :: iSrc, iSpecies, iline, iPass, iTmp, nPass
       integer, pointer :: imy
@@ -1695,12 +1695,26 @@ nPass = 0
                    mystuff%passengers(nPass+1:nPass+2,iline,iSpecies,iSrc) & 
                         & = mystuff%passengers(nPass+1:nPass+2,iline,iSpecies,iSrc) * fMass 
                  endif
-                 ! with negative masses centres might get wild...
-                 if(have_negatives)then
-                   if(abs(mystuff%cm_line(iline,iSpecies, iSrc)) >= 0.5) then
+                 fTmp = abs(mystuff%cm_line(iline,iSpecies, iSrc)) !! This-axis center of mass
+                 if( .not. fTmp  < 0.5) then
+                   if(have_negatives)then
+                     ! with negative masses centres might get wild...
                      mystuff%cm_line(iline,iSpecies, iSrc) = 0.0
-                   end if
-                 endif
+                   else
+                     !$OMP critical(v4bark)
+                     call msg("Strange mass centre in "//sub_name// " "//&
+                         & trim(fu_str(mystuff%cm_line(iline,iSpecies, iSrc))) // &
+                         & " (advect_axis , iSpecies, iSrc, iLev, ix, iy)", (/advect_axis , iSpecies, iSrc, iLev, ix, iy/) )
+                     call msg("fMass = ", fMass)
+                     if  (fTmp < 0.500001 ) then
+                       mystuff%cm_line(iline,iSpecies, iSrc) = mystuff%cm_line(iline,iSpecies, iSrc)*0.9999
+                     else
+                         call set_error("Wrong center of mass", sub_name)
+                     end if
+                     !$OMP end critical(v4bark)
+                     if (error) return
+                   endif !! have_negatives
+                 endif !! cm out of range
                endif !!Non-zero mass
              ENDDO !! imy
           enddo !! iSp
@@ -4885,6 +4899,13 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                                                 &sub_name)
                     endif
                   enddo
+                  ! handle ones species
+                  iSpecies = pBBuf%iOnesSp
+                  if (pBBuf%iOnesSp /= int_missing) then
+                      mystuff%passengers(0,0,iSpecies,1:nSrc) = inflow_left
+                      massIn0(1:nSrc,iSpecies) = massIn0(1:nSrc,iSpecies) + inflow_left
+                      iCellStartAdv = 0
+                  endif
              case default
                 call set_error("Strange _"+BoundaryChar(left_boundary)+"_ boundary type:"+ &
                    &fu_str(pBBuf%iBoundaryType(left_boundary)), sub_name)
@@ -4936,6 +4957,13 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                       
                     endif
                   enddo
+                  ! handle ones species
+                  iSpecies = pBBuf%iOnesSp
+                  if (pBBuf%iOnesSp /= int_missing) then
+                      iCellEndAdv = nCells+1
+                      mystuff%passengers(0,nCells+1,iSpecies,1:nSrc) = inflow_right
+                      massInM(1:nSrc,iSpecies) = massInM(1:nSrc,iSpecies) + inflow_right
+                  endif
              case default
                 call set_error("Strange _"//BoundaryChar(right_boundary)//"_ boundary type: "// &
                    & trim(fu_str(pBBuf%iBoundaryType(right_boundary))), sub_name)

@@ -455,8 +455,12 @@ MODULE names_of_quantities
   integer, parameter, public :: reaction_rate_flag = 260046 ! Reaction rate (silam amount units / sec)
   integer, parameter, public :: Vd_correction_DMAT_flag = 260047
 
+  INTEGER, PARAMETER, PUBLIC :: advection_cm_X_flag = 260048  ! For Galperin's advection
+  INTEGER, PARAMETER, PUBLIC :: advection_cm_Y_flag = 260049  ! For Galperin's advection
+  INTEGER, PARAMETER, PUBLIC :: advection_cm_Z_flag = 260050  ! For Galperin's advection
+
   integer, parameter, public :: first_silam_own_q = 260000
-  integer, parameter, public :: last_silam_own_q = 260047
+  integer, parameter, public :: last_silam_own_q = 260050
 
   !
   ! This is the pointer to one of two possible vertical velocities: omega or w.
@@ -949,6 +953,15 @@ CONTAINS
 
       CASE (mass_in_air_flag)
       string = 'Mass in air'
+
+      CASE (advection_cm_X_flag)
+      string = 'Galp. X-advection cm'
+
+      CASE (advection_cm_Y_flag)
+      string = 'Galp. Y-advection cm'
+
+      CASE (advection_cm_Z_flag)
+      string = 'Galp. Z-advection cm'
 
       CASE (advection_moment_X_flag)
       string = 'Galp. X-advection moment'
@@ -1723,6 +1736,15 @@ CONTAINS
       CASE (mass_in_air_flag) 
       string = 'mass_in_air'
 
+      CASE (advection_cm_X_flag) 
+      string = 'adv_cm_x'
+
+      CASE (advection_cm_Y_flag) 
+      string = 'adv_cm_y'
+
+      CASE (advection_cm_Z_flag) 
+      string = 'adv_cm_z'
+
       CASE (advection_moment_X_flag) 
       string = 'adv_moment_x'
 
@@ -2035,7 +2057,7 @@ CONTAINS
       CASE (day_temperature_acc_flag, day_temperature_2m_acc_flag)
         string = 'K sec'
 
-      CASE (pressure_flag)
+      CASE (pressure_flag, surface_pressure_flag)
         string = 'Pa'
 
       CASE (u_flag,&
@@ -2047,6 +2069,7 @@ CONTAINS
           & w_alt_msl_flag, w_height_srf_flag, &
           & wind_flag,&
           & mean_wind_flag, &
+          & windspeed_10m_flag, &
           & windspeed_flag, &
           & dispersion_u_flag,&
           & dispersion_v_flag)
@@ -2074,7 +2097,7 @@ CONTAINS
       CASE (latitude_flag)
         string = 'deg'
 
-      CASE (relative_humidity_flag)
+      CASE (relative_humidity_flag, relative_humidity_2m_flag)
         string = 'frac.'
 
       CASE (specific_humidity_flag)
@@ -2330,6 +2353,9 @@ CONTAINS
       CASE (advection_moment_X_flag, advection_moment_Y_flag, advection_moment_Z_flag)
         string = massunit
 
+      CASE (advection_cm_X_flag, advection_cm_Y_flag, advection_cm_Z_flag)
+        string = '1'
+
       CASE (drydep_flag)
         string = massunit+'/m2/s'
 
@@ -2359,6 +2385,12 @@ CONTAINS
 
       case (stomatal_conductance_flag)
       string = 'm/s'
+
+      case(pollen_total_per_m2_flag)
+        string = '#/m2'
+
+      case(pollen_correction_flag, pollen_left_relative_flag)
+        string = '1'
 
       case(heatsum_flag)
         string = 'deg_time'
@@ -2391,7 +2423,6 @@ CONTAINS
         
       case(soil_moisture_threshold_flag)
         string = 'm3/m3'
-
 
       case(growth_season_start_day_flag)
         string = 'number'
@@ -2632,6 +2663,7 @@ CONTAINS
          & concentration_flag, &
          & mass_in_air_flag, &
          & advection_moment_X_flag, advection_moment_Y_flag, advection_moment_Z_flag, &
+         & advection_cm_X_flag, advection_cm_Y_flag, advection_cm_Z_flag, &
          & drydep_flag, &
          & wetdep_flag, &
          & heatsum_flag, chillsum_flag, start_heatsum_threshold_flag, &
@@ -2766,6 +2798,7 @@ CONTAINS
           & optical_density_flag, &
           & mass_in_air_flag, &
           & advection_moment_X_flag, advection_moment_Y_flag, advection_moment_Z_flag, &
+          & advection_cm_X_flag, advection_cm_Y_flag, advection_cm_Z_flag, &
           & emission_intensity_flag, &
           & emission_flux_flag, &
           & volume_mixing_ratio_flag, &
@@ -3266,14 +3299,11 @@ CONTAINS
       CASE (mass_in_air_flag) 
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
-      CASE (advection_moment_X_flag) 
+      CASE (advection_moment_X_flag, advection_moment_Y_flag, advection_moment_Z_flag) 
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
-      CASE (advection_moment_Y_flag) 
-      fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
-
-      CASE (advection_moment_Z_flag) 
-      fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
+      CASE (advection_cm_X_flag, advection_cm_Y_flag, advection_cm_Z_flag) 
+      fMinAlert = -0.5; fMinForce = -0.499; fMaxForce = 0.499; fMaxAlert = 0.5
 
       CASE (drydep_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
@@ -4703,14 +4733,23 @@ CONTAINS
     elseif(trim(chQuantity) == "mass_in_air")then
       iQ = mass_in_air_flag 
 
-    elseif(trim(chQuantity) == "advection_moment_x")then
-      iQ = advection_moment_X_flag 
+    elseif(trim(chquantity) == "advection_moment_x")then
+      iq = advection_moment_x_flag 
 
-    elseif(trim(chQuantity) == "advection_moment_y")then
-      iQ = advection_moment_Y_flag 
+    elseif(trim(chquantity) == "advection_moment_y")then
+      iq = advection_moment_y_flag 
 
-    elseif(trim(chQuantity) == "advection_moment_z")then
-      iQ = advection_moment_Z_flag 
+    elseif(trim(chquantity) == "advection_moment_z")then
+      iq = advection_moment_z_flag 
+
+    elseif(trim(chquantity) == "advection_cm_x")then
+      iq = advection_cm_x_flag 
+
+    elseif(trim(chquantity) == "advection_cm_y")then
+      iq = advection_cm_y_flag 
+
+    elseif(trim(chquantity) == "advection_cm_z")then
+      iq = advection_cm_z_flag 
 
     elseif(trim(chQuantity) == "drydep")then
       iQ = drydep_flag 

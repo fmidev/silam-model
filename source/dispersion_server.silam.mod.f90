@@ -1714,6 +1714,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
     type(silja_time), dimension(:), pointer ::  timeLst
     type(silja_field_id),dimension(:), pointer :: idList
     type(silam_vertical), dimension(:), pointer :: verticals
+    character(len = *), parameter :: sub_name = 'update_mass_map_from_file'
     
     
     dataIn => fu_work_array()
@@ -1721,7 +1722,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
     ifUpsideDown = .False.
     
     IF (nMaps < 1) THEN
-      CALL set_error('Mass map is not ready', 'update_mass_map_from_file')
+      CALL set_error('Mass map is not ready', sub_name)
       RETURN
     END IF
 
@@ -1733,7 +1734,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
     select case(fformat%iformat)
 
       case(grib_file_flag) ! we haven't needed it this far ..
-          call set_error('Initialization from grib is not implemented', 'update_mass_map_from_file')
+          call set_error('Initialization from grib is not implemented', sub_name)
           return
 
       case(ascii_file_flag)
@@ -1837,6 +1838,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
           vertIn = fu_silamVert_of_grads(uIn)
         else
           call levels_to_layers(fu_silamVert_of_grads(uIn), vertIn)
+          call msg_warning("Converting levels_to_layers for "//trim(chFName), sub_name)
         endif
         
         ! Find the right timestep in grads
@@ -1844,7 +1846,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
         if(indTime == int_missing) then ! GrADS file does not cover the needed time moment
           call set_error('Needed time:' + fu_str(timeOfMap) + &
                          & ', is not covered by GrADS file:' + chFName, &
-                         & 'update_mass_map_from_file')
+                         & sub_name)
           return
         endif
 
@@ -1888,6 +1890,26 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
 
               call read_field_from_grads_indices(uIn, iVar, iLevIn, indTime, dataIn, fill_value_=0.)
 
+
+
+              !!
+              !! Depite all atributes say that it is moment, actually SILAM dumps and restores centers of mass!!! 
+              !! We can check them here
+              !!
+              iTmp  = fu_quantity(id)
+              if (iTmp == advection_moment_X_flag) iTmp = advection_cm_X_flag
+              if (iTmp == advection_moment_Y_flag) iTmp = advection_cm_Y_flag
+              if (iTmp == advection_moment_Z_flag) iTmp = advection_cm_Z_flag
+
+              call grid_dimensions(fu_grid(id), ix, iy)
+              call check_quantity_range(iTmp, dataIn, ix*iy, ix, &
+                                       & .false., .false., &  ! ifRequireValidity, ifSilent
+                                       & n_out_of_range, npatched, n_failed)
+
+              if (n_out_of_range > 0) &
+                & call msg( fu_quantity_short_string(iTmp)+ &
+                   &": off-range, patched, total",(/n_out_of_range, npatched, ix*iy/))
+
               if(error)return
               !
               ! Bring them to the same grid
@@ -1912,21 +1934,19 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
                                                & nearestPoint)
                 if(error)return
 
-#ifdef DEBUG
-!call msg('')
-!call msg("Quantity: "//fu_quantity_string(fu_quantity(id)))
-!call report(fu_species(id))
-!call msg('Ave of GRADS3d, local unit:',sum(dataMap(1:fu_number_of_gridpoints(pMap%gridTemplate)))/fu_number_of_gridpoints(pMap%gridTemplate))
-#endif
-                call grid_dimensions(fu_grid(id), ix, iy)
-                call check_quantity_range(fu_quantity(id), dataMap, ix*iy, ix, &
-                                         & .false., .false., &  ! ifRequireValidity, ifSilent
-                                         & n_out_of_range, npatched, n_failed)
-
-                if (n_out_of_range > 0) &
-                  & call msg( fu_quantity_short_string(fu_quantity(id))+ &
-                     &": off-range, patched, total",(/n_out_of_range, npatched, ix*iy/))
               endif
+#ifdef DEBUG_INITIAL
+              call grid_dimensions(fu_grid(id), ix, iy)
+              call check_quantity_range(iTmp, dataMap, ix*iy, ix, &
+                                       & .false., .false., &  ! ifRequireValidity, ifSilent
+                                       & n_out_of_range, npatched, n_failed)
+
+              if (n_out_of_range > 0) &
+                & call msg( fu_quantity_short_string(iTmp)+ &
+                   &": after grid_data_horizontal_select off-range, patched, total",(/n_out_of_range, npatched, ix*iy/))
+
+              if(error)return
+#endif
               
               call convert_fld_to_mass_map_unit(dataMap, &           ! data array
                                               & conversion_type, &   ! what we actually do
@@ -1934,8 +1954,17 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
                                               & pMap%gridTemplate, & ! gridOut of the mass map and the field
                                               & vertIn, iLevIn)      ! vertical and level
               if(error)return
-#ifdef DEBUG                                                    
-!call msg('Ave of GRADS, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%gridTemplate)))/fu_number_of_gridpoints(pMap%gridTemplate))
+#ifdef DEBUG_INITIAL
+              call grid_dimensions(fu_grid(id), ix, iy)
+              call check_quantity_range(iTmp, dataMap, ix*iy, ix, &
+                                       & .false., .false., &  ! ifRequireValidity, ifSilent
+                                       & n_out_of_range, npatched, n_failed)
+
+              if (n_out_of_range > 0) &
+                & call msg( fu_quantity_short_string(iTmp)+ &
+                   &": after convert_fld_to_mass_map_unit off-range, patched, total",(/n_out_of_range, npatched, ix*iy/))
+
+              if(error)return
 #endif
               !
               ! Having grid reprojected and unit & area scaling applied, the final step is to project vertical
@@ -1970,7 +1999,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
             if(.not. ifSameVerticals)then
               do iLevMap = 1, fu_NbrOfLevels(pMap%vertTemplate)
                 if(weightSum_mapVert(iLevMap) > 1.05)then ! this should never happen
-                  call set_error('Vertical reprojection fail 3', 'update_mass_map_from_file')
+                  call set_error('Vertical reprojection fail 3', sub_name)
                   call msg('iLevMap, weightSum_mapVert(iLevMap)', iLevMap, weightSum_mapVert(iLevMap))
                   call report(fu_level(pMap%vertTemplate, iLevMap))
                   call report(vertIn)
@@ -1978,12 +2007,12 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
                 endif                
                 if(weightSum_mapVert(iLevMap) < 0.95)then  ! dispersion level only partially overlaps with input vertical - allowed for upper levels
                   if(iLevMap == 1)then ! error if this happens for the lowest level
-                    call set_error('Vertical reprojection fail 4, grads', 'update_mass_map_from_file')
+                    call set_error('Vertical reprojection fail 4, grads', sub_name)
                     call msg('iLevMap, weightSum_mapVert(iLevMap)', iLevMap, weightSum_mapVert(iLevMap))
                     call report(fu_level(pMap%vertTemplate, iLevMap))
                     call report(vertIn)
                   else ! upper levels not initialized 
-                    call msg_warning('Level not fully initialised', 'update_mass_map_from_file')
+                    call msg_warning('Level not fully initialised', sub_name)
                     call msg('iLevMap, weightSum_mapVert(iLevMap)', iLevMap, weightSum_mapVert(iLevMap))
                     call report(fu_level(pMap%vertTemplate, iLevMap))
                     call report(vertIn)
@@ -2073,7 +2102,7 @@ call msg('Ave of GRADS, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%g
           enddo
           call set_error('Needed time:' + fu_str(timeOfMap) + &
                          & ', is not covered by NETCDF file:' + chFName, &
-                         & 'update_mass_map_from_file')
+                         & sub_name)
           return
         endif
 
@@ -2099,7 +2128,7 @@ call msg('Ave of GRADS, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%g
             
             call get_netcdf_verticals(uIn, fu_quantity(id), fu_species(id), verticals, nTmp)
             if (nTmp /= 1)then
-              call set_error('Strange number of verticals for a variable', 'update_mass_map_from_file')
+              call set_error('Strange number of verticals for a variable', sub_name)
               return
             endif
    
@@ -2215,7 +2244,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
             if(.not. ifSameVerticals)then
               do iLevMap = 1, fu_NbrOfLevels(pMap%vertTemplate)
                 if(weightSum_mapVert(iLevMap) > 1.05)then ! this should never happen
-                  call set_error('Vertical reprojection fail 3', 'update_mass_map_from_file')
+                  call set_error('Vertical reprojection fail 3', sub_name)
                   call msg('iLevMap, weightSum_mapVert(iLevMap)', iLevMap, weightSum_mapVert(iLevMap))
                   call report(fu_level(pMap%vertTemplate, iLevMap))
                   call report(vertIn)
@@ -2223,12 +2252,12 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
                 endif                
                 if(weightSum_mapVert(iLevMap) < 0.95)then  ! dispersion level only partially overlaps with input vertical - allowed for upper levels
                   if(iLevMap == 1)then ! error if this happens for the lowest level
-                    call set_error('Vertical reprojection fail 4', 'update_mass_map_from_file')
+                    call set_error('Vertical reprojection fail 4', sub_name)
                     call msg('iLevMap, weightSum_mapVert(iLevMap)', iLevMap, weightSum_mapVert(iLevMap))
                     call report(fu_level(pMap%vertTemplate, iLevMap))
                     call report(vertIn)
                   else ! upper levels not initialized 
-                    call msg_warning('Level not fully initialised', 'update_mass_map_from_file')
+                    call msg_warning('Level not fully initialised', sub_name)
                     call msg('iLevMap, weightSum_mapVert(iLevMap)', iLevMap, weightSum_mapVert(iLevMap))
                     call report(fu_level(pMap%vertTemplate, iLevMap))
                     call report(vertIn)
@@ -2293,21 +2322,21 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
         
         ! Find the right map - need the quantity
         read(unit=chFName, iostat=uIn, fmt=*) spTmp%sp
-        if(fu_fails(uIn == 0,'Cannot read quantity name from:'+chFName, 'update_mass_map_from_file'))return
+        if(fu_fails(uIn == 0,'Cannot read quantity name from:'+chFName, sub_name))return
         call decode_id_params_from_io_str(spTmp%sp, &     ! string to decode
                                         & .false., &      ! ifMultiLevel
                                         & iVar, &         ! decoded quantity
                                         & species, &      ! decoded species
                                         & .true.)         ! scream if fail
         call free_work_array(spTmp%sp)
-        if(fu_fails(iVar /= int_missing,'Strange quantity name in:' + chFName, 'update_mass_map_from_file'))return
+        if(fu_fails(iVar /= int_missing,'Strange quantity name in:' + chFName, sub_name))return
 
         id = fu_set_field_id_simple(fmi_silam_src, iVar, timeOfMap, surface_level, species)
 
         call find_mass_map_4_input_id(ptrMap, nMaps, timeOfMap, id, iMap, &
                                     & iSubst, iMode, iWave, conversion_type)
         if(error)return
-       !        if(fu_fails(iMap /= int_missing, 'Unused test field:'+chFName,'update_mass_map_from_file'))return
+       !        if(fu_fails(iMap /= int_missing, 'Unused test field:'+chFName,sub_name))return
         if (iMap /= int_missing) then
 
             pMap => ptrMap(iMap)%ptrMassMap
@@ -2327,12 +2356,12 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
             end do   ! levels
             fields_accepted = fields_accepted + 1
         else
-                call msg_warning('Unused test field:'+chFName,'update_mass_map_from_file')
+                call msg_warning('Unused test field:'+chFName,sub_name)
         endif
         
       case default   
         call msg('Not supported file type for initialization',fformat%iformat)
-        call set_error('Not supported file type','update_mass_map_from_file')
+        call set_error('Not supported file type',sub_name)
 
     end select
 
@@ -2346,7 +2375,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
 
     call msg('Variables found: ',fields_found)
 !    if(fields_found > 0 .and. fields_accepted == 0)then
-!      call set_error('Zero updated fields: update failed','update_mass_map_from_file')
+!      call set_error('Zero updated fields: update failed',sub_name)
 !    else
       call msg('Variables updated: ',fields_accepted)
 !    endif
@@ -2410,7 +2439,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
       ! Did we manage to project this whole level into the new vertical?
       !
       if(weightSum_inLev > 1.05)then ! this should never happen
-        call set_error('Vertical reprojection fail 1', 'update_mass_map_from_file')
+        call set_error('Vertical reprojection fail 1', sub_name)
         call msg('iLevIn, weightSum_inLev', iLevIn, weightSum_inLev)
         call report(fu_level(vertIn, iLevIn))
         call report(pMap%vertTemplate)
@@ -2421,7 +2450,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
         if(fu_NbrOfLevels(vertIn) > 1 .and. iLevIn == 1 .and. (.not. ifUpsideDown))then ! .or. &
 !                                           & (iLevIn == fu_NbrOfLevels(vertIn) .and. ifUpsideDown)))then 
           ! error if this happens for the lowest level, unless there is just one
-          call set_error('Vertical reprojection fail 2', 'update_mass_map_from_file')
+          call set_error('Vertical reprojection fail 2', sub_name)
           call msg('iLevIn, weightSum_inLev', iLevIn, weightSum_inLev)
           call report(fu_level(vertIn, iLevIn))
           call report(pMap%vertTemplate)

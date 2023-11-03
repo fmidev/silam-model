@@ -125,6 +125,7 @@ module chemistry_manager
     logical :: ifPhotoAOD  = .false.             ! Use AOD to calculate photolysis
     integer :: cloud_model_for_photolysis = simple_cloud
     real :: photoAODwavelength = real_missing    ! Wavelength to use for photolysis attenuation by AOD
+    logical :: ifOnesAdjust  = .false.             ! Use ONES tracer to adjust concentrations
     type(Tchem_rules_passive) :: rulesPassive    ! Passive self-degrading substance
     type(Tchem_rules_pm_general) :: rulesPM      ! inert particulate matter
     type(Tchem_rules_radioactive) :: rulesRadioactive
@@ -986,21 +987,23 @@ end do
     real, intent(in) :: seconds
 
     integer :: ix, iy, i3d, iSrc, iTransf, iSpecies, status, ind_dz, i1d, cbm_type, itransf_cbm, &
-             & ind_air_mass, indTimeTag, indOnes, nReact
+             & nReact
     real, dimension(:,:), pointer :: cncTrn
     real, dimension(:,:), pointer :: garb_array, photorates, reactRates, metdat_col, o3column
     real, dimension(:), pointer :: soot_col, pwc_col, tau_above_bott
-    real :: cell_volume, zenith_cos, lat, lon, dz, air_mass
+    real :: cell_volume, zenith_cos, lat, lon, dz
     real, dimension(:), pointer :: cell_size_x, cell_size_y, dz_past, dz_future, cncAer, cncSL, &
          & aodext,  aodscat, metdat, cell_mass_past, cell_mass_future
     logical :: have_cb4, have_tla, print_it, ifNeeded
     real, dimension(:,:,:,:), pointer :: tla_point_cb4 => null(), tla_point_hstart => null()
     integer :: ithread, iLev, iSoot, istat
-    real :: fixed_albedo, ssa !, tcc_photo, tcc_scav
+    real :: fixed_albedo, ssa 
     logical, save :: if_first = .true.
     character(len=*), parameter :: sub_name = 'transform_maps'
     integer, save :: indO3, n_soot
+    real :: mass_air, mass_ones !!Masses of ir and of ones for the cell
     integer, dimension(max_species), save :: ind_soot
+    integer, save :: ind_air_mass, iSpOnes
     real, dimension(max_species), save :: frac_soot
     real, dimension(max_species), save :: diam, density
 
@@ -1015,6 +1018,15 @@ end do
       call allocate_scav_amount(mapTransport)
       call data_for_photolysis_and_cld_model(mapTransport, chemRules, indO3, ind_soot, &
            & frac_soot, n_soot, density, diam)
+      if (chemRules%ifOnesAdjust) then
+        call msg("Chemistry will use ones tracer as cell size")
+        iSpOnes = select_single_species(mapTransport%species, mapTransport%nSpecies, &
+                          & 'ones', in_gas_phase, real_missing)
+        if (error .or. (iSpOnes < 1)) then
+          call set_error("Couldn't find 'ones' species", sub_name)
+          return
+        endif
+      endif
       if_first = .false.
     end if
 
@@ -1047,8 +1059,8 @@ end do
     end if
     
     ind_air_mass = fu_index(disp_buf, disp_cell_airmass_flag)
-    if (ind_air_mass < 1) then
-      call set_error('Failed to find the ind_air_mass field', sub_name)
+    if (ind_air_mass < 1 .and. chemRules%ifOnesAdjust) then
+      call set_error('Failed to find the disp_cell_airmass field', sub_name)
       return
     end if
     
@@ -1104,29 +1116,6 @@ end do
        fixed_albedo = chemRules%defaultStaticAlbedo
     end if
     
-    !
-    ! Time tag tracer from passive transformations has to be initialised but we can do it
-    ! only here (and should do it only once!) because it needs air mass in the input
-    !
-    call if_need_init_time_tag(chemRules%rulesPassive, indTimeTag, ifNeeded, .true.)  ! ask and reset the request
-    if(ifNeeded)then
-      if (any(mapTransport%arm(indTimeTag,1,:,:,:) /= 0. ))then 
-              call msg('Time-tag field seems to be initialised already...')
-      else
-          call msg('Time-tag field is being initialised...')
-          call force_mass_map_cell_mmr(mapTransport, indTimeTag, pBoundaryBuffer, disp_buf)
-      endif
-    endif
-
-    call if_need_init_ones(chemRules%rulesPassive, indOnes, ifNeeded, .true.)  ! ask and reset the request
-    if(ifNeeded)then
-      if (any(mapTransport%arm(indOnes,1,:,:,:) /= 0. ))then 
-         call msg('Ones field seems to be initialised already...')
-      else
-         call msg('Ones field is being initialised...')
-         call force_mass_map_cell_mmr(mapTransport, indOnes, pBoundaryBuffer, disp_buf)
-      endif
-    endif
     !-------------------------------------------------------------------------
     !
     ! The main cycle over the grid
@@ -1135,7 +1124,7 @@ end do
     !call msg('Total N before transformation:', get_total_n(mapTransport))
 
     !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, metdat_col, reactRates, ix, iy, i3d, itransf, isrc, print_it, &
-    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, & !tcc_photo, tcc_scav, &
+    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, mass_air, mass_ones, &
     !$OMP & photorates, aodext, aodscat, o3column, cncAer, cncSL, ithread, soot_col, pwc_col, tau_above_bott, ssa, iSoot)
 
     iThread = 0
@@ -1221,7 +1210,14 @@ end do
         end if
 
         if (seconds < 0) then
-           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_step, seconds, &
+          ! WARNING! adjoint scavenging makes some noncense. Check for pollen leads to substantially
+          ! different mass in air with the below hack and without. Unless the check passes
+          ! the hack should be kept...
+          !  HACK here: 
+          ! Apply forward scavenging here (just flip he sign of "seconds")
+          ! Should be fine for particles and very soluble gases, and for non-soluble gases
+          ! Medium-solubility gasas and SO2 did not work anyway...
+           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_step, -seconds, &
                 & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col, &
                 & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)                                                                                                                                                                                                                 
            if(error)call set_error('Trouble with scavenging', sub_name)
@@ -1239,6 +1235,20 @@ end do
           dz_future => disp_buf%p4d(ind_dz)%future%p2d(i3d)%ptr
           dz = met_buf%weight_past*dz_past(i1d) + (1.0-met_buf%weight_past)*dz_future(i1d)
           cell_volume = dz * cell_size_x(i1d) * cell_size_y(i1d)
+
+          if (chemRules%ifOnesAdjust) then
+            mass_air = disp_buf%p4d(ind_air_mass)%past%p2d(i3d)%ptr(i1d) * met_buf%weight_past + &
+                     & disp_buf%p4d(ind_air_mass)%future%p2d(i3d)%ptr(i1d) * (1.0-met_buf%weight_past)
+
+            mass_ones = mapTransport%arM(iSpOnes,1,i3d,ix,iy)
+            if (.not. ( mass_ones > 0 )) then
+              call set_error("Strane mass_ones="//fu_str(mass_ones)//" at (i3d,ix,iy)=("//&
+                 &fu_str(i3d)//","//fu_str(ix)//","//fu_str(iy)//")", sub_name)
+              cycle
+            endif
+            cell_volume = cell_volume * mass_ones / mass_air !! more ones -- biger cell
+          endif
+
           !
           ! Masses are to be turned into concentrations
           !
@@ -1374,8 +1384,6 @@ end do
 #endif
               select case(chemrules%iTransformTypes(itransf))
                 case(transformation_passive)
-                  air_mass = disp_buf%p4d(ind_air_mass)%past%p2d(i3d)%ptr(i1d) * met_buf%weight_past + &
-                           & disp_buf%p4d(ind_air_mass)%future%p2d(i3d)%ptr(i1d) * (1.0-met_buf%weight_past)
                   call transform_passive(cncTrn(1:mapTransport%nSpecies,isrc), &
                                        & chemRules%rulesPassive, &
                                        & metdat, i3d, &
@@ -2922,6 +2930,12 @@ end do
 
       rulesChemistry%need_photo_lut = .false.
     end if
+
+    strTmp = fu_str_u_case(fu_content(nlTransf,'adjust_cell_volume_for_ones'))
+    if(  strTmp == 'YES') then !! Backward compatible
+      rulesChemistry%ifOnesAdjust = .True.
+      call msg("Using ONES to adjust air density for chemistry")
+    endif
 
     rulesChemistry%defined = silja_true
 

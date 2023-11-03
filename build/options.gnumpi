@@ -6,7 +6,7 @@ OPTIMIZATION = -O3 -fopenmp -ffast-math
 OPENMP = 
 DEBUG = -g  -fbacktrace  #-fcheck=all -fbacktrace   -finit-real=snan  #-DDEBUG
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -D WITH_PNETCDF -DSILAM_MPI -D USE_PROJ4 
+PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -D WITH_PNETCDF -DSILAM_MPI -D USE_PROJ6 
 FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none
 INCLUDE = -I$(OBJDIR) -I/usr/include -I /usr/include/x86_64-linux-gnu
 

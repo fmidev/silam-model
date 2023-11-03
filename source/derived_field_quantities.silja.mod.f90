@@ -4087,6 +4087,7 @@ CONTAINS
     TYPE(silja_field), POINTER :: td2m, p_srf, q2m
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: td, p_surf, q2m_data
+    REAL :: vaporization_latentheat_tempdep
     INTEGER :: number_of_levels, fs
 
 !    q2m_data => fu_work_array()
@@ -4133,9 +4134,11 @@ CONTAINS
       if(fu_fails(.not.error,'Failed 2m specific humidity field data pointer','dq_spechum_2m_from_dewp_2m'))return
 
       do i = 1, fs
+        vaporization_latentheat_tempdep = 2.50E6 - 2.38E3 * max(0.0, td(i) - 273.15)
         q2m_data(i) = gas_constant_ratio * 611. / p_surf(i) * &
-                             & exp(vaporization_latentheat / gas_constant_watervapour * &
-                                 & (1./273. - 1./td(i)))
+                             & exp(vaporization_latentheat_tempdep / gas_constant_watervapour * &
+                             & (1./273. - 1./td(i)))
+     
       end do
 
 !      CALL dq_store_2d(meteoMarketPtr, id, q2m_data, multi_time_stack_flag )

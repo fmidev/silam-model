@@ -39,9 +39,12 @@ MKL = -L${MKLROOT}/lib/intel64  -lmkl_sequential  -lmkl_intel_lp64 -lmkl_core
 INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCFDIR}/include   -I${GRDIR}/include -I${PNCDIR}/include -m64 -I${MKLROOT}/include 
 # Libraries given as linker options
 
-LHDF5 = -L/lustre/apps/scilibs/hdf5/1.12.2/intel-2021.8.0/lib -lhdf5 -lhdf5_hl
-LBZIP2 = -L/lustre/apps/scilibs/bzip2/1.0.8/gcc-8.5.0/lib -lbz2
-LPROJ = -L/lustre/apps/scilibs/proj/7.2.1/gcc-8.5.0/lib -lproj
+#LHDF5 = -L/lustre/apps/scilibs/hdf5/1.12.2/intel-2021.8.0/lib -lhdf5 -lhdf5_hl
+#LBZIP2 = -L/lustre/apps/scilibs/bzip2/1.0.8/gcc-8.5.0/lib -lbz2
+#LPROJ = -L/lustre/apps/scilibs/proj/7.2.1/gcc-8.5.0/lib -lproj
+LHDF5 = -L${LHDF5_PATH} -lhdf5 -lhdf5_hl
+LBZIP2 = -L${LBZIP2_PATH} -lbz2
+LPROJ = -L${LPROJ_PATH} -lproj
 
 #LFLAGS = -fopenmp -leccodes_f90 -leccodes -lpnetcdf -lnetcdff -lnetcdf  -lm -ldl -lbz2 -lopenblas -lscalapack -lproj -L ${NCDIR}/lib -L ${GRDIR}/lib64 -L ${PNCDIR}/lib
 LFLAGS = -fopenmp -leccodes_f90 -leccodes -lpnetcdf -lnetcdff -lnetcdf -lmkl_core -lm -L${NCDIR}/lib  -L ${NCFDIR}/lib -L ${GRDIR}/lib64 -L ${PNCDIR}/lib ${LHDF5} ${MKL} ${LBZIP2} ${LPROJ}

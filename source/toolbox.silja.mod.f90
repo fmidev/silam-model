@@ -91,6 +91,7 @@ MODULE toolbox
   public set_coastal_value
 
   public trim_precision
+  public fu_trim_cell_fcoord
 
   public test_sort
   public argMergeSort_char
@@ -4430,6 +4431,23 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
 #endif
 
   end subroutine trim_precision
+
+ !*******************************************************
+
+  real function fu_trim_cell_fcoord(f)
+    ! adjusts floating-point coordinate of cell in a grid
+    ! to avoid incomplete slab in advection
+      implicit none
+      real, intent(in) :: f
+      real :: intf, fracf
+
+      real, parameter :: fZcTrimin = 1.0/6  ! Maximum CM for trapezoid slab
+      character(len = *), parameter :: sub_name = 'fu_trim_cell_fcoord'
+    ! code
+
+      intf = nint(f)
+      fu_trim_cell_fcoord = max(intf - fZcTrimin,min(intf + fZcTrimin, f) )
+  end function fu_trim_cell_fcoord
 
   !***************************************************************************************
   

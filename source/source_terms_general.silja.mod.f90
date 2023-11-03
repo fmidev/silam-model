@@ -890,8 +890,6 @@ MODULE source_terms_general
     nValLinesTmp = 0
     chSubstNm = ''
 
-    call msg('dbg1')
-
     do while(.not.eof)
       !
       ! Get the type of the source
@@ -946,11 +944,9 @@ MODULE source_terms_general
         endif
 
       elseif (index(line,'emitted_substance') > 0)then
-        call msg('dbg2')
         if(iStarted /= int_missing)then
           iTmp = index(line,'=')
           chSubstNm = adjustl(line(iTmp+1:))
-          call msg('dbg sname ' + chSubstNm)
 !          srcInfoTmp(nSrcRead+1)%chSubstNm(1) = adjustl(line(iTmp+1:))
         else
           call set_error('source_sector_name is found prior to source start line', &

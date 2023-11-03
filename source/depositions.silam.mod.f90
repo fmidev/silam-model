@@ -113,10 +113,6 @@ module depositions
     real :: cell_zsize, cell_volume
   end type Train_in_cell
   private Train_in_cell
-  type Train_in_cell_1d   ! wrapper for the above rain data for the whole column
-    type(Train_in_cell), dimension(max_levels) :: r
-  end type Train_in_cell_1d
-  private Train_in_cell_1d
   !
   ! Private palceholders for internal scavenging coefficients in cell and column
   !
@@ -2798,17 +2794,16 @@ end function fu_settling_vel
     real, dimension(:,:), pointer :: precipContent
     real, dimension(:,:,:), pointer :: precipContent3d
     real, dimension(:,:,:,:), pointer :: TL_store_mass_in_air => null()
+    real, dimension(mapConc%nSpecies,mapConc%n3D) :: tl_array
 
-    logical, save :: ifFirst = .true.
-    integer, save :: istat, iMeteo, num_levs
+    integer :: istat, iMeteo, num_levs
     logical :: have_tla
-    type (Train_in_cell) :: r
-    type (Train_in_cell_1d) :: r1d  ! info for the whole column, needed for adjoint
     character(len=*), parameter :: sub_name = 'scavenge_column'
     real, dimension(:), pointer ::  pMetPrecTot, pCAPE, pMetTotCloud
     integer, dimension(:), pointer :: mdl_in_q
     type(field_4d_data_ptr), pointer ::  fldCwcabove, fldScavCoefStd
-    real, dimension(max_levels) :: cwc_col
+    real, dimension(mapConc%n3D) :: cwc_col
+    type (Train_in_cell), dimension(mapConc%n3D) :: r1d
 
     if (rulesDeposition%scavengingType == scavNoScav) return
 
@@ -3000,6 +2995,24 @@ end function fu_settling_vel
         nullify(TL_store_mass_in_air)
         have_tla = .false.
       end if
+      
+      if (.not. any(mapConc%ifColumnValid(:,ix, iy)))then
+        if (have_tla .and. not_adjoint) TL_store_mass_in_air(:,:,ix,iy) = 0.
+        return
+      endif
+
+      ! Store TLA on forward run
+
+      if ( not_adjoint) then
+        if (have_tla) TL_store_mass_in_air(:,:,ix,iy) = mapConc%arM(:, 1, :, ix, iy)
+      else !! Adjoint
+        if (have_tla) then
+           tl_array(:,:) = TL_store_mass_in_air(:,:,ix,iy)
+        else
+           tl_array(:,:)  = 0. !! No TLA, pretend they were all zeroes
+        endif
+      end if
+
                   
       if (rulesDeposition%scavengingType == scav2020) then
         pwc_column = sum(pwc_col(1:num_levs))
@@ -3017,10 +3030,6 @@ end function fu_settling_vel
         precipContent3d => scavAmount(1:mapConc%nSpecies, 1:mapConc%nSrc, 1:mapConc%n3D, ithread)
       endif
       
-      if (.not. any(mapConc%ifColumnValid(:,ix, iy)))then
-        if (have_tla) TL_store_mass_in_air(:,:,ix,iy) = 0.
-        return
-      endif
     
       tcc = metdat_col(imet_tcc,1)
       if (rulesDeposition%max_scav_rate_depends_on == cape .or. &
@@ -3037,10 +3046,7 @@ end function fu_settling_vel
         cwc_col(1:num_levs) = 0.
       endif
       
-      if(timestep_sec > 0.)then
-                
-        precipContent(1:mapConc%nSpecies, 1:mapConc%nSrc) = 0. !Reset
-        do iLev = num_levs,1,-1
+      do iLev = num_levs,1,-1
           if (rulesDeposition%scavengingType == scav2020) then
             if (iLev < num_levs) then
               pwc_above_top = sum(pwc_col(iLev+1:num_levs))
@@ -3066,22 +3072,23 @@ end function fu_settling_vel
 
           cwc_column_layer = max(0.0, cwc_column_layer)
           !
-          call make_rain_in_cell_col(iLev, num_levs, r,  &
+          call make_rain_in_cell_col(iLev, num_levs, r1d(iLev),  &
                & rulesDeposition%scavengingType, rulesDeposition%max_scav_rate_depends_on, &
                & metdat_col, pwc_col(iLev), pwc_column, pwc_above_top, pwc_above_bottom, &
                & cwc_column_layer, cwc_col(1), cwc_col(iLev), landfrac, precip_rate, tcc, cape_met, &
                & abl_height, rulesDeposition%max_scav_rate_wind_scaling, &
                & rulesDeposition%max_scav_rate_cape_scaling)
 
-          r%ix = ix
-          r%iy = iy
-          r%iLev = iLev
-          
-          if (have_tla) then
-            TL_store_mass_in_air(:,iLev,ix,iy) = mapConc%arM(:, 1, iLev, ix, iy)
-          end if
-                                                                                                                                    
-          if (.not. r%ifRainyCell) cycle  ! no rain at this level
+          r1d(iLev)%ix = ix
+          r1d(iLev)%iy = iy
+          r1d(iLev)%iLev = iLev
+      enddo
+
+      if(not_adjoint)then
+                
+        precipContent(1:mapConc%nSpecies, 1:mapConc%nSrc) = 0. !Reset
+        do iLev = num_levs,1,-1
+          if (.not. r1d(iLev)%ifRainyCell) cycle  ! no rain at this level
           
           call scavenge_puff_2011(mapConc%arM(:,:,iLev,ix,iy), &    ! stuff in the air                                                                                               
                & precipContent(:,:), & ! stuff in precipitation                                                                                                     
@@ -3091,7 +3098,7 @@ end function fu_settling_vel
                & mapConc%nSrc,&
                & timestep_sec,&
                & rulesDeposition, &
-               & r, r%cell_volume, r%cell_zsize)
+               & r1d(iLev), r1d(iLev)%cell_volume, r1d(iLev)%cell_zsize)
         end do
         mapWetDep%arM(1:mapConc%nSpecies,1:mapConc%nSrc,1,ix,iy) = &
              & mapWetDep%arM(1:mapConc%nSpecies,1:mapConc%nSrc,1,ix,iy) + &
@@ -3100,37 +3107,13 @@ end function fu_settling_vel
       else
         !                                                                                                                                      
         ! Adjoint                                                                                                                                                                     
-        !                                                                                                                                                                             
-        ! Make the preparation as usual: rain in the whole column                                                                                                                     
-        !                                                                                                                                                                             
-        do iLev = num_levs,1,-1 !Top->bottom
-
-          if (iLev < num_levs) then
-            cwc_column_layer = cwc_col(iLev) - cwc_col(iLev+1)
-          else
-            cwc_column_layer = cwc_col(iLev)
-          end if
-          cwc_column_layer = max(0.0, cwc_column_layer)
-
-          call make_rain_in_cell_col(iLev, num_levs, r,  &
-               & rulesDeposition%scavengingType, rulesDeposition%max_scav_rate_depends_on, &
-               & metdat_col, pwc_col(iLev), pwc_column, pwc_above_top, pwc_above_bottom, &
-               & cwc_column_layer, cwc_col(1), cwc_col(iLev), landfrac, precip_rate, tcc, cape_met, &
-               & abl_height, rulesDeposition%max_scav_rate_wind_scaling, &
-               & rulesDeposition%max_scav_rate_cape_scaling)
-
-          !                call report_rain(r)                                                                                                                                                        
-          if (.not. r%ifRainyCell) exit   ! leave the iLev cycle                                                                                                                      
-        end do  ! iLev                                                                                                                                                                
-        if (.not. r%ifRainyCell) return  ! go to the next column                                                                                                                       
-        !                                                                                                                                                                             
         ! Now, call the adjoint scavenging keeping in mind that we need the whole column                                                                                              
         ! There will be several passes along the vertical handled inside                                                                                                              
         !                                                                                                                                                                             
         call scavenge_column_2011_adjoint(mapConc%arM(:,:,:,ix,iy), & ! sensitivity in the air, column                                                                                
              & precipContent3d(:,:,:), &   ! sensitivity mass in precip, column                                                                            
              & arLowMassThreshold, &
-             & TL_store_mass_in_air(:,:,ix,iy), &     ! TL- stored mass in the air                                                                         
+             & tl_array, &     ! TL- stored mass in the air                                                                         
              & mapConc%species,  &
              & mapConc%nSpecies, mapConc%nSrc, mapConc%n3D, &
              & - timestep_sec, &   ! invert the sign to have it positive                                                                                   
@@ -3388,8 +3371,7 @@ end function fu_settling_vel
 !$OMP END CRITICAL(WC_SO2_1)
               cycle
             endif
-
-          endif
+          endif  ! total SIV in scavenging zone >< 0
  
           if (acid_mol < 2.5e-6) acid_mol = 2.5e-6 ! pH5.6
 
@@ -3678,7 +3660,7 @@ end function fu_settling_vel
     ! Imported parameters
     real, dimension(:,:), intent(in) :: TL_store_mass_in_air   ! (nSpecies, n3d)
     real, dimension(:,:,:), intent(inout) :: sens_mass_in_air, sens_mass_in_water ! (nSpecies, nSrc, n3d)
-    type (Train_in_cell_1d), intent(in) :: r1d                 ! rain info for the whole column
+    type (Train_in_cell), dimension(n3d),  intent(in) :: r1d                 ! rain info for the whole column
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, dimension(:), intent(in) :: sens_arLowMassThreshold
     type(silam_species), dimension(:), intent(in) :: species
@@ -3692,10 +3674,11 @@ end function fu_settling_vel
 !    ! Local variables
     integer :: iLev, iSp, iTmp, jTmp, iAAS, iSign, iSrc
     real :: fTmp
-    real, dimension(max_species, 1, max_levels) :: TL_mass_in_water
-    real, dimension(max_species, 1) :: TL_store_mass_in_air_local   ! (nSpecies, nSrc=1)
+    real, dimension(Nspecies, 1, n3d) :: TL_mass_in_water
+    real, dimension(Nspecies, 1) :: TL_store_mass_in_air_local   ! (nSpecies, nSrc=1)
     type(Tscav_coefs_1d) :: c1d  ! internal coefficients stored from forward model
     real, dimension(:,:), pointer :: pTL_L0, pTL_dLdm, pAdj
+    logical :: ifBusy_pTL_L0 , ifBusy_pTL_dLdm, ifBusy_pAdj  !!
 
     !
     ! Get the coefficients that depend on the system state. Essentially, we run the 
@@ -3709,7 +3692,7 @@ end function fu_settling_vel
       TL_store_mass_in_air_local(1:nSpecies, 1) = TL_store_mass_in_air(1:nSpecies, iLev)
       !
       ! run full forward model storing its coefficients
-      if (r1d%r(iLev)%ifRainyCell) then
+      if (r1d(iLev)%ifRainyCell) then
         call scavenge_puff_2011(TL_store_mass_in_air_local, &    ! stuff in the air, need (nSpecies,nSrc=1)
                               & TL_mass_in_water(:,:,iLev), & ! stuff in precipitation, need (nSpecies, nSrc=1)
                               & TL_arLowMassThreshold, &  ! what to do if forward model did not have mass ???
@@ -3718,7 +3701,7 @@ end function fu_settling_vel
                               & Nsources, &
                               & timestep_sec_abs, &  ! positive
                               & rulesDeposition, &
-                              & r1d%r(iLev), r1d%r(iLev)%cell_volume, r1d%r(iLev)%cell_zsize, &
+                              & r1d(iLev), r1d(iLev)%cell_volume, r1d(iLev)%cell_zsize, &
                               & c1d%c(iLev))     ! internal coefficients
       endif
       if(iLev>1)TL_mass_in_water(:,:,iLev-1) = TL_mass_in_water(:,:,iLev)
@@ -3738,6 +3721,9 @@ end function fu_settling_vel
       ! For the time being, SO2 is treated in exactly the same way as all others. See Notebook 11 p.49
       ! for explanations.
       !
+      ifBusy_pTL_dLdm = .false.
+      ifBusy_pAdj = .false. 
+      ifBusy_pTL_L0 = .false.
       if (iSp == indSO2)then
         !
         ! SO2 has complicated matrix dependent on other species and own concentrations
@@ -3746,12 +3732,14 @@ end function fu_settling_vel
         if(present(pTL_L0_in))then
           pTL_L0 => pTL_L0_in(iSp)%pp
         else
-          pTL_L0 => fu_work_array_2d(n3d, n3d)   ! L0=L(m0) for sulphur is same n3d x n3d matrix
+          pTL_L0 => fu_work_array_2d(n3d, n3d*nAcidityAffectingSpecies)   ! L0=L(m0) for sulphur is same n3d x n3d matrix
+          ifBusy_pTL_L0 = .true.
         endif
         if(present(pTL_dLdm_in))then
           pTL_dLdm => pTL_dLdm_in(iSp)%pp
         else
           pTL_dLdm => fu_work_array_2d(n3d, n3d*nAcidityAffectingSpecies)   ! Ldiff for SO2 is affected by other species
+          ifBusy_pTL_dLdm = .true.
         endif
         pTL_L0(1:n3d, 1:n3d*nAcidityAffectingSpecies) = 0.0
         pTL_dLdm(1:n3d, 1:n3d*nAcidityAffectingSpecies) = 0.0
@@ -3789,6 +3777,7 @@ end function fu_settling_vel
           pAdj => pAdj_in(iSp)%pp
         else
           pAdj => fu_work_array_2d(n3d*nAcidityAffectingSpecies, n3d)
+          ifBusy_pAdj = .true.
         endif
         do iTmp = 1,n3d
           pAdj(1:n3d*nAcidityAffectingSpecies, iTmp) = pTL_dLdm(iTmp, 1:n3d*nAcidityAffectingSpecies)
@@ -3805,6 +3794,7 @@ end function fu_settling_vel
           pTL_L0 => pTL_L0_in(iSp)%pp
         else
           pTL_L0 => fu_work_array_2d(n3d, n3d)
+          ifBusy_pTL_L0 = .true.
         endif
         if(present(pTL_dLdm_in))then
           pTL_dLdm => pTL_dLdm_in(iSp)%pp
@@ -3819,6 +3809,7 @@ end function fu_settling_vel
           pAdj => pAdj_in(iSp)%pp
         else
           pAdj => fu_work_array_2d(n3d, n3d)
+          ifBusy_pAdj = .true.
         endif
         do iTmp = 1,n3d
           pAdj(1:n3d,iTmp) = pTL_dLdm(iTmp,1:n3d)
@@ -3840,7 +3831,7 @@ end function fu_settling_vel
 !              call msg('SO2 Diagonal only')
 !              fTmp = fTmp + pTL_dLdm(iSp)%pp(iLev, iLev+(iAAS-1)*n3d) * &
 !                          & sens_mass_in_air(abs(indAcidityAffectingSp(iAAS)), 1, iLev)
-              call msg('SO2 Triangle full')
+!              call msg('SO2 Triangle full')
               do iTmp = 1, n3d
                 fTmp = fTmp + pTL_dLdm(iLev, iTmp+(iAAS-1)*n3d) * &
                             & sens_mass_in_air(abs(indAcidityAffectingSp(iAAS)), 1, iTmp)
@@ -3849,7 +3840,7 @@ end function fu_settling_vel
           else
             ! non-SO2, squared TL matrix
             fTmp = fTmp + pAdj(iLev,iLev) * sens_mass_in_air(iSp,1,iLev)
-            call msg('All Triangle full')
+!            call msg('All Triangle full 1')
             do iTmp = 1, n3d
               fTmp = fTmp + pTL_dLdm(iLev,iTmp) * sens_mass_in_air(iSp,1,iTmp)
             end do  ! iTmp 1:n3d
@@ -3858,11 +3849,9 @@ end function fu_settling_vel
           sens_mass_in_water(iSp, 1, iLev) = sens_mass_in_water(iSp, 1, iLev) - fTmp
       end do  ! iLev
 
-      if(.not. present(pTL_L0_in)) then
-        call free_work_array(pTL_L0)
-        call free_work_array(pTL_dLdm)
-      endif
-      if(.not. present(pAdj_in))call free_work_array(pAdj)
+      if(ifBusy_pTL_L0) call free_work_array(pTL_L0)
+      if(ifBusy_pTL_dLdm) call free_work_array(pTL_dLdm)
+      if(ifBusy_pAdj) call free_work_array(pAdj)
 
     end do  ! iSp=1:nSpecoes
 
@@ -3880,7 +3869,7 @@ end function fu_settling_vel
         implicit none
         !
         ! Imported parameters
-        type (Train_in_cell_1d), intent(in) :: r1d                 ! rain info for the whole column
+        type (Train_in_cell), dimension(n3d), intent(in) :: r1d                 ! rain info for the whole column
         type(Tscav_coefs_1d), intent(in) :: c1d  ! internal coefficients stored from forward model
         real, dimension(:,:), pointer :: pTL
         integer, intent(in) :: iSp, n3d, iShift
@@ -3902,7 +3891,7 @@ end function fu_settling_vel
             pTL(iTmp,jTmp+iShift) = c1d%c(jTmp)%scav_coef_tau(iSp) * fTmp
           end do
         enddo  ! iTmp=1:n3d-2
-        pTL(1:n3d,1+iShift:n3d+iShift) = pTL(1:n3d,1+iShift:n3d+iShift) * r1d%r(1)%fCloudCover
+        pTL(1:n3d,1+iShift:n3d+iShift) = pTL(1:n3d,1+iShift:n3d+iShift) * r1d(1)%fCloudCover
       end subroutine fill_triangle_L0
       
       !====================================================================
@@ -3917,7 +3906,7 @@ end function fu_settling_vel
         implicit none
         !
         ! Imported parameters
-        type (Train_in_cell_1d), intent(in) :: r1d                 ! rain info for the whole column
+        type (Train_in_cell), dimension(n3d), intent(in) :: r1d  ! rain info for the whole column
         type(Tscav_coefs_1d), intent(in) :: c1d  ! internal coefficients stored from forward model
         real, dimension(:,:), pointer :: pTL_diff
         integer, intent(in) :: iSp, n3d, iShift
@@ -4029,7 +4018,7 @@ end function fu_settling_vel
     ! Imported parameters             
     integer, intent(in) :: iLev, nLevels  ! Dispersion indices
     integer, intent(in) :: scavType, max_scav_rate_depends_on
-    real, dimension(:,:), pointer, intent(in) :: metdat_col
+    real, dimension(:,:), intent(in) :: metdat_col
     real, intent(in) :: rain_rate_scf, tcc, cape_met, abl_height, landfrac
     real, intent(in) :: pwcColumnLayer, pwcColumn, pwcAboveT, pwcAboveB, cwcColumnLayer, cwcColumn, cwcAbove
     real, intent(in) :: max_scav_rate_wind_scaling, max_scav_rate_cape_scaling
@@ -4073,6 +4062,8 @@ end function fu_settling_vel
           ! "good" max_scav_rate_wind_scaling:
           ! 1.0 for global 0.5 x 0.5 deg run with ERA5
           ! 0.3 for European run with ECMWF operational meteodata
+          u = metdat_col(imet_u, iLev)
+          v = metdat_col(imet_v, iLev) 
           r%max_scav_rate = max_scav_rate_cape_scaling * 0.01 * (1. + sqrt(cape_met))/max(500.0, abl_height)
           r%max_scav_rate = landfrac * r%max_scav_rate + &
                 & (1.0-landfrac) * max_scav_rate_wind_scaling * sqrt(u*u+v*v+1.)/10000.0
@@ -5224,7 +5215,7 @@ end function fu_settling_vel
     
     ! Imported parameters
     real, dimension(:,:), intent(in) :: mass_in_air ! (nSpecies, n3d)
-    type (Train_in_cell_1d), intent(in) :: r1d                 ! rain info for the whole column
+    type (Train_in_cell), dimension(n3d), intent(in) :: r1d  ! rain info for the whole column
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, dimension(:), intent(in) :: arLowMassThreshold
     type(silam_species), dimension(:), intent(in) :: species
@@ -5234,12 +5225,14 @@ end function fu_settling_vel
     ! Local variables
     integer, parameter :: nTimes=10
     integer :: iLev, iTime, iAAS, iSp, iTmp, indSpecies
-    real, dimension(max_species,1,max_levels,nTimes) :: Full_mass_in_air, TL_mass_in_air, &
+    real, dimension(Nspecies,1,n3d,nTimes) :: Full_mass_in_air, TL_mass_in_air, &
                           & Full_mass_in_water, TL_mass_in_water   ! (nSpecies, nSrc, n3d, nTimes)
     type(Tscav_coefs_1d) :: c1d  ! internal coefficients stored from forward model
     type(silja_rp_2d), dimension(:), pointer :: pTL_L0, pTL_dLdm, pAdj
     real :: fTmp
-    real, dimension(max_species) :: mass_factor = 1.0
+    real, dimension(Nspecies) :: mass_factor
+
+    mass_factor(:) = 1
     !
     ! Get the vectors of species and masses, then compute its forward non-linear scavenging
     ! over several time steps, then do the same with tangent linear matrix, which is made only 
@@ -5261,7 +5254,7 @@ end function fu_settling_vel
 !                            & Nsources, &
 !                            & timestep_sec_abs, &  ! positive
 !                            & rulesDeposition, &
-!                            & r1d%r(iLev), r1d%r(iLev)%cell_volume, r1d%r(iLev)%cell_zsize, &
+!                            & r1d(iLev), r1d(iLev)%cell_volume, r1d(iLev)%cell_zsize, &
 !                            & c1d%c(iLev))     ! internal coefficients
 !    end do
 !    ! (re)store intial masses
@@ -5310,7 +5303,7 @@ end function fu_settling_vel
     !
     do iTime = 2, nTimes-1
       do iLev = n3d, 1, -1
-        if (r1d%r(iLev)%ifRainyCell)then  ! there is rain at this level
+        if (r1d(iLev)%ifRainyCell)then  ! there is rain at this level
 !           call msg('Repository scavenging')
 !          call scavenge_puff_2011_repo(mass_in_air_local(1:Nspecies,:,iLev,iTime), &    ! stuff in the air, need (nSpecies,nSrc=1)
           call msg('Adjusted scavenging')
@@ -5322,7 +5315,7 @@ end function fu_settling_vel
                                 & Nsources, &
                                 & timestep_sec_abs, &  ! positive
                                 & rulesDeposition, &
-                                & r1d%r(iLev), r1d%r(iLev)%cell_volume, r1d%r(iLev)%cell_zsize)
+                                & r1d(iLev), r1d(iLev)%cell_volume, r1d(iLev)%cell_zsize)
         endif  ! if there is rain in the cell
         ! Cumulate the scavenged amount
         if(iLev> 1) Full_mass_in_water(1:Nspecies,:,iLev-1,iTime) = &
@@ -5385,16 +5378,16 @@ end function fu_settling_vel
     call msg('>>>>>>>>>>>>>>>>>>>>>>>>>> TEST TL SCAVENGING <<<<<<<<<<<<<<<<<<<<<<<<<<')
     call msg('')
     
-    call msg('Rain parameters for iMeteo=', r1d%r(1)%iMeteo)
+    call msg('Rain parameters for iMeteo=', r1d(1)%iMeteo)
     call msg('iLev fCloudCover  fPressure  fTemperature  fRainRateSfc  cwcColumn    mu_air     rho_air     nu_air     lambda_air   rain_rate_in   deltarain   cwcColumnLayer   is_liquid    drop_size    drop_mass    drop_vel   drop_Re   cell_zsize  cell_volume')
     do iLev = 1, n3d
-      call msg(fu_str(iLev),(/r1d%r(iLev)%fCloudCover, r1d%r(iLev)%fPressure, r1d%r(iLev)%fTemperature, &
-                            & r1d%r(iLev)%fRainRateSfc, r1d%r(iLev)%cwcColumn, &
-                            & r1d%r(iLev)%mu_air, r1d%r(iLev)%rho_air, r1d%r(iLev)%nu_air, r1d%r(iLev)%lambda_air, &
-                            & r1d%r(iLev)%rain_rate_in, r1d%r(iLev)%deltarain, r1d%r(iLev)%cwcColumnLayer, &
-                            & r1d%r(iLev)%is_liquid, r1d%r(iLev)%drop_size, r1d%r(iLev)%drop_mass, &
-                            & r1d%r(iLev)%drop_vel, r1d%r(iLev)%drop_Re, &
-                            & r1d%r(iLev)%cell_zsize, r1d%r(iLev)%cell_volume/))
+      call msg(fu_str(iLev),(/r1d(iLev)%fCloudCover, r1d(iLev)%fPressure, r1d(iLev)%fTemperature, &
+                            & r1d(iLev)%fRainRateSfc, r1d(iLev)%cwcColumn, &
+                            & r1d(iLev)%mu_air, r1d(iLev)%rho_air, r1d(iLev)%nu_air, r1d(iLev)%lambda_air, &
+                            & r1d(iLev)%rain_rate_in, r1d(iLev)%deltarain, r1d(iLev)%cwcColumnLayer, &
+                            & r1d(iLev)%is_liquid, r1d(iLev)%drop_size, r1d(iLev)%drop_mass, &
+                            & r1d(iLev)%drop_vel, r1d(iLev)%drop_Re, &
+                            & r1d(iLev)%cell_zsize, r1d(iLev)%cell_volume/))
     end do
 
     do iSp = 1, nSpecies

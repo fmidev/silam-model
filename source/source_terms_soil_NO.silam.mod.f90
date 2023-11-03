@@ -506,24 +506,18 @@ CONTAINS
 
 
     ! Local variables
-    integer :: iLev, iThresh, iZ, iSoilNO, &
+    integer :: iLev, iThresh, iZ, iSoilNO, iSpDisp, &
              & iMeteo, iDisp, ix, iy, ixMeteo, iyMeteo, iStat, iTmp, iMeteoTmp
     real :: fTmp, timestep_sec, fCellTotal, fSoilMassWater, &
           & fFluxTotal, fSoilMassWaterThresh, &
           & soil_moisture, snow_depth, lai, temp_2m, relhum_2m
+    real, pointer :: fPtr
     real, parameter :: a = 1.0, b = 5.0
     real, dimension(:), pointer :: ptrXSzDisp, ptrYSzDisp, pSoilVolumeWater, &
                                  & fMinDArray, fMaxDArray, ptemp2m, &
                                  & prelhum2m, pLAI, pLandFr, pNOEmis0, &
-                                 & pSnowWEQDepth, ptrLonMeteo, ptrLatMeteo
-    real*4, dimension(worksize) :: arTmp
+                                 & pSnowWEQDepth
     type(silja_field), pointer :: fldMaskPtr
-    integer, save :: iCount = 0, iCountTalking = 0, uDump, iRec
-    logical, save :: ifFirst=.true., ifTalking=.true.
-
-    integer, dimension(10), save :: iArStatistics=0
-
-    type(silam_sp) :: sp
 
     ! Local parameters 
 
@@ -551,9 +545,6 @@ CONTAINS
     ptrXSzDisp => fu_grid_data(dispersion_cell_x_size_fld)  ! get grid cell size in metres
     ptrYSzDisp => fu_grid_data(dispersion_cell_y_size_fld)
 
-    ptrLonMeteo => fu_grid_data(meteo_longitude_fld)
-    ptrLatMeteo => fu_grid_data(meteo_latitude_fld)
-
     timestep_sec = abs(fu_sec(timestep))
     if(error)return
 
@@ -566,11 +557,6 @@ CONTAINS
         iDisp = ix + (iy-1) * nx_dispersion
 
         iMeteo =  fu_grid_index(nx_meteo, ix, iy, pHorizInterpMet2DispStruct)
-        iyMeteo = int(iMeteo / nx_meteo)
-        ixMeteo = iMeteo - (iyMeteo-1)*nx_meteo
-        !
-        !   ... and separately if meteo-land mask is almost zero
-        !
         if(pLandFr(iMeteo) < 1.0e-5)cycle
 
         soil_moisture = pSoilVolumeWater(iMeteo)
@@ -603,25 +589,26 @@ CONTAINS
 
             fCellTotal = fCellTotal + fTmp
 
-            emisMap%arM(soil_NO_src%adaptor%iSp(iSoilNO),soil_NO_src%id_nbr,iLev,ix,iy) = fTmp + &
-                       & emisMap%arM(soil_NO_src%adaptor%iSp(iSoilNO),soil_NO_src%id_nbr,iLev,ix,iy)
-            fMassInjected(soil_NO_src%adaptor%iSp(iSoilNO)) = &
-                                        & fMassInjected(soil_NO_src%adaptor%iSp(iSoilNO)) + fTmp
+            iSpDisp = soil_NO_src%adaptor%iSp(iSoilNO)
+
+            fPtr => emisMap%arM(iSpDisp, soil_NO_src%id_nbr,iLev,ix,iy)
+            fPtr = fPtr + fTmp 
+
+            fMassInjected(iSpDisp) = fMassInjected(iSpDisp) + fTmp
+
+            if (ifSpeciesMoment) then
+               fPtr => mapCoordZ%arM(iSpDisp, soil_NO_src%id_nbr,iLev,ix,iy)
+               fPtr = fPtr + fTmp * soil_NO_src%fzDisp(iLev)
+            end if
 
           end do ! nSpecies
           emisMap%ifColumnValid(soil_NO_src%id_nbr,ix,iy) = .true.
           emisMap%ifGridValid(iLev,soil_NO_src%id_nbr) = .true.
 
-          if (ifSpeciesMoment) then
-             mapCoordZ%arm(soil_NO_src%adaptor%iSp(iSoilNO), soil_NO_src%id_nbr, ilev, ix,iy) = &
-                   mapCoordZ%arm(soil_NO_src%adaptor%iSp(iSoilNO), soil_NO_src%id_nbr, ilev, ix,iy) + &
-                   & fTmp * soil_NO_src%fzDisp(iLev)
-          end if
          
           if (.not. ifSpeciesMoment) then
-             mapCoordZ%arM(1,soil_NO_src%id_nbr, iLev, ix, iy) = &
-                           & soil_NO_src%fzDisp(iLev) * fCellTotal + &
-                           & mapCoordZ%arM(1,soil_NO_src%id_nbr, iLev, ix, iy)
+            fPtr => mapCoordZ%arM(1,soil_NO_src%id_nbr, iLev, ix, iy)
+            fPtr = fPtr + soil_NO_src%fzDisp(iLev) * fCellTotal
           end if
         end do      ! iLev
       end do     ! nx_dispersion

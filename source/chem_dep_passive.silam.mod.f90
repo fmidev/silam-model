@@ -30,8 +30,6 @@ MODULE chem_dep_passive
   public set_chem_rules_passive
   public fu_lifetime
   public fu_if_specific_deposition
-  public if_need_init_time_tag
-  public if_need_init_ones
 
 
   ! Private routines for passive chemistry rules
@@ -545,46 +543,6 @@ MODULE chem_dep_passive
 
   end function fu_if_tla_required_passive
 
-  
-  !************************************************************************************
-  
-  subroutine if_need_init_time_tag(rules, indTimeTag, ifNeedInit, ifReset)
-    !
-    ! Just says whether the time tracer field has been initialised - and returns the index of its species
-    !
-    implicit none
-    
-    ! Imported parameters
-    type(Tchem_rules_passive), intent(inout) :: rules
-    logical, intent(in) :: ifReset
-    integer, intent(out) :: indTimeTag
-    logical, intent(out) :: ifNeedInit
-    
-    ifNeedInit = rules%ifTimeTracer .and. (.not. rules%ifInitialisedTimeTag)
-    
-    indTimeTag = indPassTime_transp
-    if(ifReset) rules%ifInitialisedTimeTag = .true.  ! somewhat dangerous but saves a function call to reset this switch
-    
-  end subroutine if_need_init_time_tag
-
-  subroutine if_need_init_ones(rules, indOnes, ifNeedInit, ifReset)
-    !
-    ! Just says whether the time tracer field has been initialised - and returns the index of its species
-    !
-    implicit none
-    
-    ! Imported parameters
-    type(Tchem_rules_passive), intent(inout) :: rules
-    logical, intent(in) :: ifReset
-    integer, intent(out) :: indOnes
-    logical, intent(out) :: ifNeedInit
-    
-    ifNeedInit = rules%ifOnesTracer .and. (.not. rules%ifInitialisedOnes)
-    
-    indOnes = indPassOnes_transp
-    if(ifReset) rules%ifInitialisedOnes = .true.  ! somewhat dangerous but saves a function call to reset this switch
-    
-  end subroutine if_need_init_ones
   
 END MODULE chem_dep_passive
 

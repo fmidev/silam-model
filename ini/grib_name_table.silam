@@ -97,15 +97,17 @@ var     =   *  FR_LAND                  *                                       
 #
 #
 
-var     =   *  cdlyr                   *                                           total_cloud_cover      undefined   SURFACE_LEVEL       -1     0.01   #%    #
-var     =   *  land                    *                                           fraction_of_land      undefined   SURFACE_LEVEL       -1     1   #
-var     =   *  apcp                    *                                            total_precipitation        undefined   SURFACE_LEVEL       -1     1 #kg/m2
-var     =   *  ciwc_cond               *                                            cloud_ice                  undefined   XXX                 -1     1 # Metcoop v5 version
-var     =   *  cwat_cond               *                                            cloud_water                undefined   XXX                 -1     1 # Metcoop v5 version
-var     =   *  sd_meps                 *                                            weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## MEPS , kg/m2
-var     =   *  soilmoisture_lv         *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
-var     =   *  swavrs                *                                           surf_sw_down_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
-var     =   *  nswrs                *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
+var     =   *          cdlyr                   *                                           total_cloud_cover      undefined   SURFACE_LEVEL       -1     0.01   #%    #
+var     =   *          land                    *                                           fraction_of_land      undefined   SURFACE_LEVEL       -1     1   #
+var     =   *          apcp                    *                                            total_precipitation        undefined   SURFACE_LEVEL       -1     1 #kg/m2
+var     =   *          ciwc_cond               *                                            cloud_ice                  undefined   XXX                 -1     1 # Metcoop v5 version
+var     =   *          cwat_cond               *                                            cloud_water                undefined   XXX                 -1     1 # Metcoop v5 version
+var     =   *          sd_meps                 *                                            weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## MEPS , kg/m2
+var     =   *          soilmoisture_lv         *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
+var     =   *          swavrs                  *                                           surf_sw_down_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
+var     =   *          nswrs                   *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
+var     =   251253011  t                       *                                            temperature                  undefined   XXX                 -1     1
+var     =   251253160   cape                   *                                            cape                       undefined   SURFACE_LEVEL       -1     1
 
 #
 #  Copy of C_IFS netcdf_ametable

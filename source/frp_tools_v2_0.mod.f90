@@ -99,7 +99,7 @@ MODULE frp_tools
      !
 
      do while (.True.)
-       READ(unit = uIn, fmt = '(A)', iostat = status), chLine
+       READ(unit = uIn, fmt = '(A)', iostat = status) chLine
        if (status /= 0) exit
 
        if(index(chLine,'latitude') > 0)cycle
@@ -130,7 +130,7 @@ MODULE frp_tools
 
                read(unit=chLine, fmt=*, iostat=status) lat, lon, val, dx, dy, &
                                                    & imm, idd, iyyyy, hhmm, sat, iconf
-               WRITE(chDateTmp, fmt = '(I4.4,X,I2.2,X,I2.2)'), iyyyy,imm,idd
+               WRITE(chDateTmp, fmt = '(I4.4,X,I2.2,X,I2.2)') iyyyy,imm,idd
              endif
              if(status /= 0)then
                call msg_warning('Failed to read the line:' + chLine,'parse_MODIS_files')
@@ -195,8 +195,8 @@ MODULE frp_tools
 
     !local variables
 
-    real, dimension(worksize) :: frp, lat, lon, dx, dy, T21, T31, T21mean, T31mean, DTmean
-    integer , dimension(worksize) :: mark, confidence
+    real, dimension(:), allocatable :: frp, lat, lon, dx, dy, T21, T31, T21mean, T31mean, DTmean
+    integer , dimension(:),allocatable :: mark, confidence
     character(len=clen), dimension(:), pointer :: label
     integer :: i,j,iStatus, npnts,nzap, uFRPintermediate, uOut, indFire, npnts_max, iPoint, &
              & iSkip, nTimeSeries, nFiresInTimeSeries, iTmp, iTmp1, iTmp2, iTmp3, iTmp4, nzapTA, &
@@ -210,6 +210,9 @@ MODULE frp_tools
     logical, save :: ifFirst = .true.
     real :: FRP_grand_total, FRP_eaten, FRP_SILAM_file, fTmp1, fTmp2, fTmp3, fTmp4, fTmp_eliminated
 
+    allocate(frp(worksize), lat(worksize), lon(worksize), dx(worksize), dy(worksize), &
+       & T21(worksize), T31(worksize), T21mean(worksize), T31mean(worksize), DTmean(worksize), &
+       & mark(worksize), confidence(worksize))
     !
     ! read from files.
     ! Two groups of files: FRP and TA-as-FRP
@@ -387,11 +390,11 @@ call msg('After removing duplicates, valid fires and FRP:',iTmp1, fTmp1)
 call msg('... and eliminated fires and FRP:',iTmp2, fTmp2)
 call msg('Total:',iTmp1+iTmp2, fTmp1+fTmp2)
 fTmp_eliminated = fTmp2
-if(abs(fTmp1+fTmp2-FRP_grand_total)/FRP_grand_total > 0.001)then
+if(abs(fTmp1+fTmp2-FRP_grand_total)/(FRP_grand_total +1e-5) > 0.001)then
   call set_error('High error','main')
   stop
 endif
-if(abs(fTmp1+FRP_eaten-FRP_grand_total)/FRP_grand_total > 0.001)then
+if(abs(fTmp1+FRP_eaten-FRP_grand_total)/(FRP_grand_total + 1e-5) > 0.001)then
   call set_error('High error 2','main')
   stop
 endif
@@ -439,7 +442,7 @@ call msg('... and eliminated fires and FRP:',iTmp2, fTmp2)
 call msg('... and valid time series and FRP:',iTmp3, fTmp3)
 call msg('... and void time series and FRP:',iTmp4, fTmp4)
 call msg('Total N time series, FRP with eliminated duplicates:',iTmp1+iTmp2+iTmp3+iTmp4, fTmp3 + fTmp_eliminated)
-if(abs(fTmp3+fTmp_eliminated-FRP_grand_total)/FRP_grand_total > 0.001)then
+if(abs(fTmp3+fTmp_eliminated-FRP_grand_total)/(FRP_grand_total + 1e-5) > 0.001)then
   call set_error('High error 2','main')
   stop
 endif
@@ -706,7 +709,7 @@ call msg('Number of time series and max length of time series:', i, npnts_max)
     call msg('Day processed, FRP original and in SILAM file:', FRP_grand_total, FRP_SILAM_file)
     call msg('FRP in duplicates and total absolute error:', FRP_eaten, &
                                                    & FRP_grand_total - FRP_SILAM_file - FRP_eaten)
-    if(abs(FRP_grand_total - FRP_SILAM_file - FRP_eaten) / FRP_grand_total > 0.001)then
+    if(abs(FRP_grand_total - FRP_SILAM_file - FRP_eaten) / (FRP_grand_total +1e-5) > 0.001)then
       call set_error('Absolute error > 0.1% of total FRP','main')
     endif
 
@@ -1209,7 +1212,7 @@ call msg('Eliminating pixel:'+fu_str(pTimeFire(iPixelToSplit))+', FRP:' + &
     mask_array = 0.0
 
     !call read_field_from_grads_indices(igf, indVar_, indLev_, indTime_, grid_data, fill_value_)
-    call read_field_from_grads(igf, 1, 1, 1, mask_array, 0.)
+    call read_field_from_grads_indices(igf, 1, 1, 1, mask_array, 0.)
     call close_gradsfile_i(igf)
     !
     ! The rest is simple: read the fire files through copying the lines if they do not fall into 
@@ -1227,7 +1230,7 @@ call msg('Eliminating pixel:'+fu_str(pTimeFire(iPixelToSplit))+', FRP:' + &
       open(iUnitDest,file = chOutDir + dir_slash + chSrcFNm(index(chSrcFNm,dir_slash,.true.)+1:len_trim(chSrcFNm)))
       write(iUnitDest,'(A)')'# mask_wrong_fires observed more than '//fu_str(nYearsMax)//' years'
       do while (.True.)
-        READ(unit = iUnitSrc, fmt = '(A)', iostat = status), chLine
+        READ(unit = iUnitSrc, fmt = '(A)', iostat = status) chLine
         if (status /= 0) exit
          !        call next_line_from_input_file(iUnitSrc,chLine,eof2)
         if(index(chLine,'fire = ') > 0) then

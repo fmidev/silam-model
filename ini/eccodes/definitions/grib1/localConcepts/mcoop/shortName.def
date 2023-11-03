@@ -130,10 +130,13 @@
    level = 10 ;
   }
 
-
-
-
-
+'useless1' = {
+   centre = 251 ;
+   table2Version = 1 ;
+   indicatorOfParameter = 1 ;
+   indicatorOfTypeOfLevel = 105 ;
+   level = 810 ;
+  }
 
 
 ### HARMONIE tables ###
