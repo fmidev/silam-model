@@ -4771,6 +4771,7 @@ CONTAINS
     type(silam_any_grid_param), pointer :: ptr_grid_pars, ptr_grid_pars_new
     real, dimension(:), pointer :: lon_tmp, lat_tmp
     real, dimension(:,:), pointer :: ptr2dSrc, ptr2dDst
+    real :: fTmp
     logical :: ifNew
     character(len = *), parameter :: sub_name = 'cut_grid_size_params'
 
@@ -4780,12 +4781,15 @@ CONTAINS
     select case (grid_to_cut%gridtype)
     case (lonlat)
       grid_to_cut%name = trim(grid_to_cut%name)//"_cut"
-      grid_to_cut%lonlat%sw_corner_modlon = grid_to_cut%lonlat%sw_corner_modlon + &
-                                                    & (ix_start-1) * grid_to_cut%lonlat%dx_deg
+      fTmp = grid_to_cut%lonlat%sw_corner_modlon +  (ix_start-1) * grid_to_cut%lonlat%dx_deg
+      if (fTmp > 180.) fTmp = fTmp - 360.
+      grid_to_cut%lonlat%sw_corner_modlon = fTmp 
+
       grid_to_cut%lonlat%sw_corner_modlat = grid_to_cut%lonlat%sw_corner_modlat + &
                                                     & (iy_start-1) * grid_to_cut%lonlat%dy_deg
       grid_to_cut%lonlat%nx = nxnew
       grid_to_cut%lonlat%ny = nynew
+
  
     case(anygrid)
       !
