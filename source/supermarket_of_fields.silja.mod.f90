@@ -38,10 +38,10 @@ MODULE supermarket_of_fields
   public set_time_direction_sm
   public fu_get_time_direction_sm
   PUBLIC arrange_supermarket
-  public arrange_supermarket_multitime !Same, but only for multitime stacks
   public fill_minimarket_from_namelist
   PUBLIC fill_meteo_market
   PUBLIC store_input_to_supermarket
+  public set_all_times_processed
   public open_input_file
   public close_input_file
   public get_id_list_from_input_file
@@ -51,17 +51,18 @@ MODULE supermarket_of_fields
   public init_singletime_fields
 !  public merge_data_to_supermarket
 
-  public fu_get_field_from_mm_general
+  public get_field_from_mm_general
   PUBLIC fu_sm_obstime_field
   PUBLIC fu_sm_obstime_3d_field
-  PUBLIC fu_sm_obstime_3d_windfield
   PUBLIC fu_sm_simple_field    ! permanent or dispersion field
   public fu_sm_simple_3d_field ! permanent or dispersion field
   public find_field_data_storage_2d
   public find_field_storage_2d
+  public find_or_create_field
 
   PUBLIC fu_supermarket_cpu_usage
   PUBLIC supermarket_times
+  public fu_if_time_covered_by_maket
   public report
   PUBLIC supermarket_quantities
   PUBLIC supermarket_variables
@@ -82,6 +83,7 @@ MODULE supermarket_of_fields
   public set_met_srcs_in_sm_single_wdr
   public supermarket_met_srcs
   public check_supermarket_fields_range
+  public fu_met_src_storage_index
 
   ! The private functions and subroutines not to be used elsewhere:
   private fu_stack_by_indices
@@ -90,11 +92,9 @@ MODULE supermarket_of_fields
   PRIVATE check_sm_for_data_in_list
   PRIVATE find_field_from_hit_list
   PRIVATE put_field_to_hit_list
-  PRIVATE put_wind_to_hit_list
-  PRIVATE find_wind_from_hit_list
-  PRIVATE fu_met_src_storage_index
   private fu_time_storage_index
   PRIVATE update_obstimes
+  private store_new_data_times
   private check_grid
   private print_supermarket_contents
 
@@ -123,15 +123,19 @@ MODULE supermarket_of_fields
   ! Those include, however, all sorts of times and validities: long-valid, monthly-valid, etc.
   ! Therefore, the single-time stacks NEVER have their own valid_time defined.
   !
+  ! The market is supposed to be filled-in via two ways: by reading raw data and by
+  ! deriving / diagnosing the derived / diagnosed data. To avoid re-diagnosing the already
+  ! handled times, DQ_unprocessed_times provides the list of times, which have been 
+  ! filled with raw data but not yet passed through diagnostic routines.
+  !
   type mini_market_of_stacks
     private
     !
-    ! Main data and time structures
+    ! Main data and time structures, (nbr_of_srcs, nbr_of_timenodes)
     !
-    type(silam_stack_ptr), dimension(:,:),pointer :: stacks_multiTime
-!    type(silam_stack_ptr), dimension(:), pointer ::  stacks_irregularTime
-    type(silam_stack_ptr), dimension(:), pointer ::  stacks_singleTime
-    type(silja_time), dimension(:,:), pointer :: obstimes
+    type(silja_stack), dimension(:,:), allocatable :: stacks_multiTime
+    type(silja_stack), dimension(:), allocatable ::  stacks_singleTime
+    type(silja_time), dimension(:,:), allocatable :: obstimes, DQ_unprocessed_times
     !
     ! and some supplementary variables relating to this very mini-market
     !
@@ -146,8 +150,7 @@ MODULE supermarket_of_fields
     ! Here are the hit lists: the latest hits among data 
     !
     type(silja_fieldpointer), dimension(30) :: hit_list
-    type(silja_windfieldpointer), dimension(20) :: wind_list
-    integer :: hit_list_pointer = 0, wind_list_pointer = 0
+    integer :: hit_list_pointer = 0
 
   end type mini_market_of_stacks
   public mini_market_of_stacks
@@ -169,9 +172,7 @@ MODULE supermarket_of_fields
   INTEGER, PUBLIC :: hit_count = 0
   INTEGER, PUBLIC :: hit_miss = 0
   INTEGER, PUBLIC :: fields_delivered = 0
-  INTEGER, PUBLIC :: windfields_delivered = 0
   INTEGER, PUBLIC :: fields_3d_delivered = 0
-  INTEGER, PUBLIC :: windfields_3d_delivered = 0
   LOGICAL, PUBLIC, SAVE :: supermarket_info = .false.
 
   ! For direct operation with 2d fields
@@ -202,13 +203,10 @@ CONTAINS
                                   & nbr_of_srcs,&      ! first dimension of the stack arrays
                                   & nbr_of_timenodes,& ! if>0, the second dimension in multiTime stack
                                   & nbr_of_fields,&        ! for each timenode, if any
-                                  & nbr_of_windfields,&    ! for each timenode, if any
                                   & nbr_of_3d_fields,&     ! for each timenode, if any
-                                  & nbr_of_3d_windfields,& ! for each timenode, if any
                                   & replace_earliest_when_full,&
                                   & wdrAr, &
-                                  & ifSingleSrc, &
-                                  & print_info_to_stdout)
+                                  & ifSingleSrc)
     ! 
     ! Sets the sizes of data-fields kept in memory. Calling this routine is obligatory.
     !
@@ -232,12 +230,9 @@ CONTAINS
     INTEGER, INTENT(in) :: nbr_of_srcs
     INTEGER, INTENT(in) :: nbr_of_timenodes
     INTEGER, INTENT(in) :: nbr_of_fields
-    INTEGER, INTENT(in) :: nbr_of_windfields
     INTEGER, INTENT(in) :: nbr_of_3d_fields
-    INTEGER, INTENT(in) :: nbr_of_3d_windfields
     LOGICAL, INTENT(in) :: replace_earliest_when_full, ifSingleSrc
     type(wdr_ptr), dimension(:), pointer :: wdrAr
-    LOGICAL :: print_info_to_stdout ! if true, then some info is printed
     ! while retrieving data to supermarket
 
     ! Local declarations:
@@ -272,7 +267,8 @@ CONTAINS
         RETURN
       END IF
 
-      ALLOCATE(miniMarketPtr%obstimes(nbr_of_srcs, nbr_of_timenodes), stat=status)
+      ALLOCATE(miniMarketPtr%obstimes(nbr_of_srcs, nbr_of_timenodes), &
+             & miniMarketPtr%DQ_unprocessed_times(nbr_of_srcs, nbr_of_timenodes+2), stat=status)
       IF (status /= 0) THEN
         call msg('Allocation status: ', status)
         CALL set_error ( ' Cannot ALLOCATE space for obstimes', 'initialize_mini_market')
@@ -280,6 +276,7 @@ CONTAINS
       END IF
 
       miniMarketPtr%obstimes = time_missing
+      miniMarketPtr%DQ_unprocessed_times = time_missing
       miniMarketPtr%replace_earliest = replace_earliest_when_full
 
       !----------------------------------------
@@ -304,23 +301,23 @@ CONTAINS
           name_of_stack = miniMarketPtr%name + fu_str(i,3) + '_' + fu_str(j)
 
 !          call msg(name_of_stack)
-          allocate(miniMarketPtr%stacks_multiTime(i, j)%ptr, stat=status)
-          IF (status /= 0) THEN
-            call msg('Allocation status: ', status)
-            CALL set_error('Cannot ALLOCATE stack pointer', 'initialize_mini_market')
-            RETURN
-          END IF
+!          allocate(miniMarketPtr%stacks_multiTime(i, j)%ptr, stat=status)
+!          IF (status /= 0) THEN
+!            call msg('Allocation status: ', status)
+!            CALL set_error('Cannot ALLOCATE stack pointer', 'initialize_mini_market')
+!            RETURN
+!          END IF
 
-          call set_defined(miniMarketPtr%stacks_multiTime(i, j)%ptr, silja_false)
+!          call set_defined(miniMarketPtr%stacks_multiTime(i, j)%ptr, silja_false)
+          call set_defined(miniMarketPtr%stacks_multiTime(i, j), silja_false)
           CALL init_stack(nbr_of_fields,&
-                        & nbr_of_windfields,&
                         & TRIM(ADJUSTL(name_of_stack)),&
                         & .true., &          ! single time stacks
                         & ifSingleSrc, &          ! single met_src stacks
                         & nbr_of_3d_fields,& ! for each timenode
-                        & nbr_of_3d_windfields, &
                         & wdrPtr, &
-                        & miniMarketPtr%stacks_multiTime(i, j)%ptr)
+!                        & miniMarketPtr%stacks_multiTime(i, j)%ptr)
+                        & miniMarketPtr%stacks_multiTime(i, j))
           IF (error) RETURN
 !call report(fu_storage_grid(fu_wdr(miniMarketPtr%stacks_multiTime(i, j)%ptr)))
         END DO
@@ -358,23 +355,23 @@ CONTAINS
           return
         endif
         
-        allocate(miniMarketPtr%stacks_singleTime(i)%ptr, stat = status)
-        IF (status /= 0) THEN
-          call msg('Allocation status: ', status)
-          CALL set_error ( ' Cannot ALLOCATE stack pointer', 'initialize_mini_market')
-          RETURN
-        END IF
+!        allocate(miniMarketPtr%stacks_singleTime(i)%ptr, stat = status)
+!        IF (status /= 0) THEN
+!          call msg('Allocation status: ', status)
+!          CALL set_error ( ' Cannot ALLOCATE stack pointer', 'initialize_mini_market')
+!          RETURN
+!        END IF
         
-        call set_defined(miniMarketPtr%stacks_singleTime(i)%ptr, silja_false)
+!        call set_defined(miniMarketPtr%stacks_singleTime(i)%ptr, silja_false)
+        call set_defined(miniMarketPtr%stacks_singleTime(i), silja_false)
         CALL init_stack(nbr_of_fields, &       ! number of fields
-                      & nbr_of_windfields, &   ! number of windfields
                       & name_of_stack,&        ! name of stack
                       & .false., &             ! single_time
                       & ifSingleSrc, &         ! single_met_src
                       & nbr_of_3d_fields, &       ! number of 3d fields
-                      & nbr_of_3d_windfields, &   ! number of 3d windfields
                       & wdrPtr,& 
-                      & miniMarketPtr%stacks_singleTime(i)%ptr)  ! stack
+!                      & miniMarketPtr%stacks_singleTime(i)%ptr)  ! stack
+                      & miniMarketPtr%stacks_singleTime(i))  ! stack
         if(error) return
       end do
 
@@ -389,50 +386,15 @@ CONTAINS
     do i = 1, size(miniMarketPtr%hit_list)
       nullify(miniMarketPtr%hit_list(i)%fp)
     end do
-    do i = 1, size(miniMarketPtr%wind_list)
-      nullify(miniMarketPtr%wind_list(i)%fp)
-    end do
 
-    supermarket_info = print_info_to_stdout
 
   END SUBROUTINE initialize_mini_market
 
 
   ! ***************************************************************
 
-
-  SUBROUTINE arrange_supermarket_multitime(miniMarketPtr)
-
-    ! Description:
-    ! Forces all arrangements to be done in supermarket.
-    ! Updates the valid-time list.
-    !
-    IMPLICIT NONE
-    ! Argument:
-    type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
-
-
-    ! Local declarations:
-    INTEGER :: i, j
-    TYPE(silja_stack), POINTER :: stack
-
-    IF (miniMarketPtr%stack_multiTime_initialized) then
-      DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 1)
-        DO j = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
-            stack => miniMarketPtr%stacks_multiTime(i, j)%ptr
-            IF (defined(stack)) CALL arrange_fields_in_stack(stack, .true.)
-          IF (error) RETURN
-        END DO
-      END DO
-      CALL update_obstimes(miniMarketPtr)
-    end if
-
-  END SUBROUTINE arrange_supermarket_multitime
-
-  ! ***************************************************************
-
-
-  SUBROUTINE arrange_supermarket(miniMarketPtr, ifLookForPressure)
+  SUBROUTINE arrange_supermarket(miniMarket, ifMultitime, ifSingleTime, idxTimes, &
+                               & ifLookForPressure, ifArrange_times)
 
     ! Description:
     ! Forces all arrangements to be done in supermarket.
@@ -440,49 +402,88 @@ CONTAINS
     !
     IMPLICIT NONE
     ! Argument:
-    type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
-    logical, optional, intent (in) :: ifLookForPressure ! Look for matching pressure for
-                                              ! 3D fields in hybrid coordinates
-
-
+    type(mini_market_of_stacks), intent(inout) :: miniMarket
+    logical, intent(in) :: ifMultitime, ifSingleTime
+    integer, dimension(:,:), optional, intent(in) :: idxTimes
+    logical, optional, intent (in) :: ifLookForPressure, & ! Look for matching pressure for
+                                                           ! 3D fields in hybrid coordinates
+                                    & ifArrange_times ! whether obstimes should be re-created 
     ! Local declarations:
-    INTEGER :: i, j
-    TYPE(silja_stack), POINTER :: stack
-    logical MyifLookForPressure
+    INTEGER :: iSrc, iT
+    logical :: MyifLookForPressure, ifArrange_times_
+    character(len=clen) :: subname
 
-    if ( present(ifLookForPressure)) then 
-            MyifLookForPressure = ifLookForPressure
+    subname = 'arrange_supermarket'
+    call start_count(chCounterNm = subname)
+    
+    if(present(ifLookForPressure)) then 
+      MyifLookForPressure = ifLookForPressure
     else
-            MyifLookForPressure = .true.
+      MyifLookForPressure = .true.
     endif
-
-    IF (miniMarketPtr%stack_multiTime_initialized) then
-      DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 1)
-        DO j = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
-            stack => miniMarketPtr%stacks_multiTime(i, j)%ptr
-            IF (defined(stack)) CALL arrange_fields_in_stack(stack, MyifLookForPressure)
-          IF (error) RETURN
-        END DO
-      END DO
-      CALL update_obstimes(miniMarketPtr)
-    end if
-
-    if (miniMarketPtr%stack_singleTime_initialized) then
-      do i = 1, size(miniMarketPtr%stacks_singleTime)
-        stack => miniMarketPtr%stacks_singleTime(i)%ptr
-        if (defined(stack)) then
-
-                call arrange_fields_in_stack(stack, MyifLookForPressure)
-                if (error) return
+    if(present(ifArrange_times))then
+      ifArrange_times_ = ifArrange_times
+    else
+      ifArrange_times_ = .true.
+    endif
+    !
+    ! Multitime stacks
+    !
+    if(ifMultiTime)then
+      IF (miniMarket%stack_multiTime_initialized) then
+        if(present(idxTimes))then
+          !
+          ! Take only times explicitly mentioned in idxTimes.
+          ! Note that for different sources times might or might not exist or be different
+          !
+          DO iSrc = 1, SIZE(miniMarket%stacks_multiTime, 1)
+            DO iT = 1, SIZE(idxTimes, 2)
+              if(idxTimes(iSrc,iT) /= int_missing)then
+                if(defined(miniMarket%stacks_multiTime(iSrc, idxTimes(iSrc,iT)))) &
+                  & CALL arrange_fields_in_stack(miniMarket%stacks_multiTime(iSrc,idxTimes(iSrc,iT)), &
+                                               & MyifLookForPressure)
+                IF (error) RETURN
+              endif
+            END DO  ! time
+          END DO   ! MetSrc
+        else
+          ! Scan the whole minimarket
+          DO iSrc = 1, SIZE(miniMarket%stacks_multiTime, 1)
+            DO iT = 1, SIZE(miniMarket%stacks_multiTime, 2)
+              if(defined(miniMarket%stacks_multiTime(iSrc, iT))) &
+                & CALL arrange_fields_in_stack(miniMarket%stacks_multiTime(iSrc,iT), MyifLookForPressure)
+              IF (error) RETURN
+            END DO  ! time
+          END DO  ! MetSrc
+        endif  ! present idxTimes
+        !
+        ! Re-create the obstimes array if needed
+        !
+        if(ifArrange_times_) CALL update_obstimes(miniMarket)
+        if(error)return
+      end if  ! if initialized
+    endif  ! ifMultiTime
+    !
+    ! Single-time stack
+    !
+    if(ifSingleTime)then
+      if (miniMarket%stack_singleTime_initialized) then
+        do iSrc = 1, size(miniMarket%stacks_singleTime)
+          if(defined(miniMarket%stacks_singleTime(iSrc)))then
+            call arrange_fields_in_stack(miniMarket%stacks_singleTime(iSrc), MyifLookForPressure)
+            if (error) return
 !                call msg("-----------AFTER arrange--------"+ fu_name(stack))
-!                call report(fu_sm_simple_field(miniMarketPtr, met_src_missing, &
+!                call report(fu_sm_simple_field(miniMarket, met_src_missing, &
 !                    & ground_pressure_flag, level_missing, single_time_stack_flag))
 !                if (error) call unset_error("Tried to report..")
-!               !call report(fu_stack(miniMarketPtr,met_src_missing))
+!               !call report(fu_stack(miniMarket,met_src_missing))
 !                call msg("-----------AFTER Store--------")
-        endif
-      end do
-    end if
+          endif    ! stack defined
+        end do   ! met_src
+      end if  ! if initialized
+    end if   ! ifSingleTime
+
+    call stop_count(chCounterNm = subname)
 
   END SUBROUTINE arrange_supermarket
 
@@ -505,7 +506,7 @@ CONTAINS
     ! Local declarations:
     type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
     INTEGER :: i, j, status
-    TYPE(silja_stack), POINTER :: stack
+!    TYPE(silja_stack), POINTER :: stack
     logical, intent(in) :: ifSingleTime, ifMultiTime
 
 !    PRINT *, 'Setting supermarket empty...'
@@ -517,16 +518,16 @@ CONTAINS
       if(miniMarketPtr%stack_multiTime_initialized)then
         DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 1)
           DO j = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
-            stack => miniMarketPtr%stacks_multiTime(i, j)%ptr
+!            stack => miniMarketPtr%stacks_multiTime(i, j)%ptr
 !!!$          PRINT *, 'setting empty:'
 !!!$          CALL report(stack)
-            CALL set_stack_empty_free_memory(stack)
+            CALL set_stack_empty_free_memory(miniMarketPtr%stacks_multiTime(i, j))
             
-            deallocate(stack, stat=status)
-            if (status /= 0) then
-              call set_error('Failed to deallocate stack pointer', 'set_supermarket_empty')
-              return
-            end if
+!            deallocate(stack, stat=status)
+!            if (status /= 0) then
+!              call set_error('Failed to deallocate stack pointer', 'set_supermarket_empty')
+!              return
+!            end if
             
             IF (error) RETURN
           END DO
@@ -542,14 +543,14 @@ CONTAINS
     if(ifSingleTime)then
       if(miniMarketPtr%stack_singleTime_initialized)then
         DO i = 1, SIZE(miniMarketPtr%stacks_singleTime)
-          stack => miniMarketPtr%stacks_singleTime(i)%ptr
-          CALL set_stack_empty_free_memory(stack)
+!          stack => miniMarketPtr%stacks_singleTime(i)%ptr
+          CALL set_stack_empty_free_memory(miniMarketPtr%stacks_singleTime(i))
 
-          deallocate(stack)
-          if (status /= 0) then
-            call set_error('Failed to deallocate stack pointer', 'set_supermarket_empty')
-            return
-          end if
+!          deallocate(stack)
+!          if (status /= 0) then
+!            call set_error('Failed to deallocate stack pointer', 'set_supermarket_empty')
+!            return
+!          end if
           
           IF (error) RETURN
         END DO
@@ -568,17 +569,21 @@ CONTAINS
 
   SUBROUTINE nullify_minimarket(miniMarketPtr)
     ! 
-    ! Forces all pointers to null.
-    ! ATTENTION. in case minimarket is initialised, loss of memory will happen
+!    ! Forces all pointers to null.
+!    ! ATTENTION. in case minimarket is initialised, loss of memory will happen
+    ! Wipes out the allocation, if any
     ! 
     IMPLICIT NONE
 
     ! Imported parameters
     type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
 
-    nullify(miniMarketPtr%stacks_multiTime)
-    nullify(miniMarketPtr%stacks_singleTime)
-    nullify(miniMarketPtr%obstimes)
+    if(allocated(miniMarketPtr%stacks_multiTime)) deallocate(miniMarketPtr%stacks_multiTime)
+    if(allocated(miniMarketPtr%stacks_singleTime)) deallocate(miniMarketPtr%stacks_singleTime)
+    if(allocated(miniMarketPtr%obstimes)) deallocate(miniMarketPtr%obstimes)
+!    nullify(miniMarketPtr%stacks_multiTime)
+!    nullify(miniMarketPtr%stacks_singleTime)
+!    nullify(miniMarketPtr%obstimes)
 
     miniMarketPtr%minimarket_empty = .true.
 
@@ -603,7 +608,7 @@ CONTAINS
     logical, intent(in) :: ifMultiTime, ifSingleTime   ! what stacks to set
 
     ! Local declarations
-    type(silja_stack), pointer :: stackPtr
+!    type(silja_stack), pointer :: stackPtr
     integer :: i, j, met_src_idx
 
     !
@@ -628,7 +633,7 @@ CONTAINS
       ! If necessary to have single and multiple met src stacks in the same stackvector, the met src
       ! should be set met_src_missing for multi src stack  
       !
-      stackPtr => miniMarketPtr%stacks_multiTime(1,1)%ptr
+!      stackPtr => miniMarketPtr%stacks_multiTime(1,1)%ptr
 !      if(.not. fu_single_met_src_stack(stackPtr))then
 !        ! set all met-srces to met-src missing.
 !        do i=1,size(miniMarketPtr%stacks_multiTime,1)
@@ -649,8 +654,8 @@ CONTAINS
       ! Stackvector is OK - just fill the data sources for all single-source stacks
         do i=1,size(miniMarketPtr%stacks_multiTime,1)
           do j=1,size(miniMarketPtr%stacks_multiTime,2)
-            stackPtr => miniMarketPtr%stacks_multiTime(i,j)%ptr
-            call set_met_src(stackPtr, fu_mds(wdr,i))
+!            stackPtr => miniMarketPtr%stacks_multiTime(i,j)%ptr
+            call set_met_src(miniMarketPtr%stacks_multiTime(1,1), fu_mds(wdr,i))
           end do  ! Scan over time dimension
         end do  ! Scan over met_srcs dimension
 !      endif
@@ -686,8 +691,8 @@ CONTAINS
 
       ! Stackvector is OK - just fill the data sources for all single-source stacks
         do i=1,size(miniMarketPtr%stacks_singleTime)
-          stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
-          call set_met_src(stackPtr, fu_mds(wdr,i))
+!          stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
+          call set_met_src(miniMarketPtr%stacks_singleTime(i), fu_mds(wdr,i))
         end do  ! Scan over met_srcs dimension
 !      endif
 
@@ -839,8 +844,7 @@ CONTAINS
                                     & storage_grid = storage_grid, &
                                     & ifAdjust=ifAdjustLocal, &
                                     & st_time_feature = static_value, &
-                                    & ifforcemetsrcacceptance = .TRUE., & !!Accept test field
-                                    & ifVerbose_ = .true.)
+                                    & ifforcemetsrcacceptance = .TRUE.) !!Accept test field
           ifGotNewData = ifGotNewData .or. ifNewDataHere
 
       else
@@ -1105,11 +1109,16 @@ CONTAINS
         end do   ! size(fnames)
       !!!end do ! Template array
     
-      CALL arrange_supermarket(miniMarketPtr, .false.) !Do not look for surface pressure yet..
+      CALL arrange_supermarket(miniMarketPtr, .true., .true., ifLookForPressure=.false.) !Do not look for surface pressure yet..
       IF (error) RETURN
-      
+
     END DO times ! Missing times
 
+    ! Received times should be marked as non-processed
+    !
+    call store_new_data_times(miniMarketPtr, received_obstimes)
+    if(error)return
+    
 #ifdef PREFETCH
     !!!Generate next filename for last defined missing_obstimes
     if (defined(missing_obstimes(i-1)) .and. smpi_global_rank==0) then
@@ -1135,15 +1144,22 @@ CONTAINS
 #endif
       
     !
-    ! Maybe print some supermarket_info and exit.
+    ! Maybe, print some supermarket_info and exit.
     !
     IF (supermarket_info) THEN
-      CALL supermarket_times(miniMarketPtr, met_src,missing_obstimes,i) ! missing_obstimes, i are used temporarily
+      CALL supermarket_times(miniMarketPtr, met_src,missing_obstimes, i, .true.) ! missing_obstimes, i are used temporarily
       IF (error) RETURN
       call msg('********************************************************')
-      call msg('Data in supermarket now for the following times:')
-      CALL report(missing_obstimes)
-!      call report(miniMarketPtr)
+      if(i < 10)then
+        call msg('Data in supermarket now for the following times:')
+        CALL report(missing_obstimes)
+      else
+        call msg('Data in supermarket now for:' + fu_str(i) + '- times. Start-end:')
+        CALL report(missing_obstimes(1:3))
+        call msg('...')
+        CALL report(missing_obstimes(i-1:i))
+      endif
+      call report(miniMarketPtr, .false.)
     END IF
 
   END SUBROUTINE fill_meteo_market
@@ -1165,7 +1181,7 @@ CONTAINS
                                       & iBinary, &        ! optional: points at GrADS/NetCDF if already open
                                       & ifForceMetSrcAcceptance, ifadjust, &
                                       & st_time_feature, & ! Tweak time properties of the field ID in singletime stack
-                                      &ifVerbose_)
+                                      & ifVerbose_)
 
     ! 
     ! Finds fields in the given file and puts them to
@@ -1213,6 +1229,7 @@ CONTAINS
     INTEGER :: input_unit, i, fields_found, fields_accepted, indFldGrib, indStart, indEnd
     LOGICAL :: eof, ifForceMetSrcAcceptanceLocal, found, ifAdjustLocal, ifVerbose
     TYPE(silja_field_id) :: id, idStore
+    type(silja_grid) :: gridTmp
     
     real ::  scale_factor, fMissingValue
     integer (kind=8) :: before, after
@@ -1349,11 +1366,15 @@ CONTAINS
                                                         !      ifFirstTime, ifFirstLev
       call id_list_from_netcdf_file(input_unit, idList, fields_found)
       call timelst_from_netcdf_file(input_unit, timeLst, times_found)
-      call supermarket_times(miniMarketPtr, met_src_missing, valid_times, number_of_times)
+      
+      if(fu_list_time_indicator(shpLstPtr) == accept_same_month) then !! Not needed otherwise
+        call supermarket_times(miniMarketPtr, met_src_missing, valid_times, number_of_times, .true.)
+      endif
+      
   
       do it = 1, times_found
         if(.not. fu_time_in_list(timeLst(it), interval_missing, shopping_list))cycle
-        !!! Shuld be integer number of timesteps from
+        !!! Should be integer number of timesteps from
         if (defined(obstime_interval)) then
           if ( abs(modulo((timeLst(it)-shopStartTime)/obstime_interval + 0.5, 1.) - 0.5) > 0.001 ) cycle
         endif
@@ -1397,41 +1418,39 @@ CONTAINS
             call read_field_from_netcdf_indices(input_unit, ivar, iTmp, ilev, &
                                            & work_array, &
                                            & fill_value = fMissingValue)
-
 #ifdef DEBUG
             !
             !Dirty hack for bounaries
             if (nstacks> 3) then
-                    if (.not. all( work_array(1:fs_grid) >=0)) then
-                         do jTmp=1,fs_grid
-                            if (.not.  work_array(jTmp) >=0) then
-                              call msg("Negatibe value at index:", jTmp, fs_grid)
-                              exit
-                            endif
-                         enddo 
-                         call msg("Values nearby",  work_array(max(1,jTmp-5):min(fs_grid,jTmp+5)) )
-                          call set_error("Some negatives for boundaries..","store_input_to_supermarket")
+              if (.not. all( work_array(1:fs_grid) >=0)) then
+                do jTmp=1,fs_grid
+                  if (.not.  work_array(jTmp) >=0) then
+                    call msg("Negatibe value at index:", jTmp, fs_grid)
+                    exit
+                  endif
+                enddo 
+                call msg("Values nearby",  work_array(max(1,jTmp-5):min(fs_grid,jTmp+5)) )
+                call set_error("Some negatives for boundaries..","store_input_to_supermarket")
 
-                         call read_field_from_netcdf_file(input_unit, &
-                                         & idList(i),&
-                                         & work_array, fill_value = fMissingValue) !, &
-                         return
-                   endif
+                call read_field_from_netcdf_file(input_unit, idList(i),&
+                                               & work_array, fill_value = fMissingValue) !, &
+                return
+              endif
             endif
 #endif 
-          
+
            call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
-                                     & nStacks, &
-                                      & idStore, &
-                                      & work_array, &
-                                      & iUpdateType, &       ! Overwrite or not existing fields
-                                      & stack_type, &        ! stationary or time-dependent
-                                      & iAccuracy, &         ! of reporjection
-                                      & stack_indices, &  ! OVERWRITES met_src, stacks are picked directly
-                                      & storage_grid, &       ! storage grid
-                                      & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
-                                      & fu_if_randomise(wdr), &
-                                      & shpLstPtr, indexVar, time_to_force)
+                               & nStacks, &
+                               & idStore, &
+                               & work_array, &
+                               & iUpdateType, &       ! Overwrite or not existing fields
+                               & stack_type, &        ! stationary or time-dependent
+                               & iAccuracy, &         ! of reporjection
+                               & stack_indices, &  ! OVERWRITES met_src, stacks are picked directly
+                               & storage_grid, &       ! storage grid
+                               & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
+                               & fu_if_randomise(wdr), &
+                               & shpLstPtr, indexVar, time_to_force)
 
             if(ifVerbose)call msg('Accepted netcdf field total: ', work_array(1:10))
             if (.not. error) fields_accepted = fields_accepted + 1
@@ -1451,8 +1470,10 @@ CONTAINS
       !
       ! GrADS also has similar type of logic for picking the fields
       !
-      call supermarket_times(miniMarketPtr, met_src_missing, valid_times, number_of_times)
-      if(error)return
+      if(fu_list_time_indicator(shpLstPtr) == accept_same_month) then
+        call supermarket_times(miniMarketPtr, met_src_missing, valid_times, number_of_times, .true.)
+        if(error)return
+      endif
       
       indStart = fu_grads_time_index(input_unit, &
                                    & fu_start_time(shopping_list), back_and_forwards, &
@@ -1472,7 +1493,7 @@ CONTAINS
         indEnd = indStart
       endif
       !
-      ! Scan the required interval from the sopping list, taking care of accept_same_month
+      ! Scan the required interval from the shopping list, taking care of accept_same_month
       !
       do iT = indStart, indEnd
         timeTmp = fu_time_of_grads(input_unit, iT)
@@ -1541,6 +1562,9 @@ CONTAINS
     !
     !======================  TEST FIELD  ================================
     !
+    ! ATTENTION. Do NOT use idStore here the same way as elsewhere
+    !            The way it is below works.
+    !
      case(test_field_value_flag)        
        !
        ! For the test field, the grid must be selected to be something. 
@@ -1548,7 +1572,7 @@ CONTAINS
        work_array => fu_work_array()
        timeTmp = shopStartTime
        call make_test_field(chFName, &  ! chFName contain the field name and value
-                          & id, & !idStore, &
+                          & id, & !Store, &
                           & work_array, &
                           & shopStartTime, &
                           & zero_interval, & !
@@ -1556,15 +1580,24 @@ CONTAINS
        if(error)return
        eof = .true. ! Exit at the next cycle
 !       id = idStore
-       
+      if(error)return
+!       call msg('reporting coarse_geo_global_grid')
+!       gridTmp = coarse_geo_global_grid
+!       call report(gridTmp)
+!       call report(coarse_geo_global_grid)
+!       call msg('reporting geo_global_grid')
+!       gridTmp = geo_global_grid
+!       call report(gridTmp)
+!       call report(geo_global_grid)
+!       call msg('End reporting coarse_geo_global_grid')
 !       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
                                   !always coarse_geo_global_grid (see put_test_field_to_content)
                                   ! Thus we have separate id (to match the shoplist)
                                   ! and idStore (to store)
                                   
        if (stack_type == single_time_stack_flag) then
-        times_found = 1
-        intervalTmp = zero_interval
+           times_found = 1
+           intervalTmp = zero_interval
        else
          if (defined(obstime_interval)) then
            times_found = int((fu_end_time(shopping_list) -  shopStartTime ) /obstime_interval) + 1
@@ -1580,21 +1613,21 @@ CONTAINS
          call set_valid_time(id,      timeTmp )
 !         call set_valid_time(idStore, timeTmp )
          call msg('The following test field has been created (store input)')
-         call report(id) !Store)
+         call report(id)  !Store)
          call msg('')
          if(fu_field_id_in_list(id, shopping_list,  indexVar))then  
             call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                 & nStacks, &
-                                & id, &  !idStore, &
-                                 & work_array, &
-                                 & iUpdateType, &       ! Overwrite or not existing fields
-                                 & stack_type, &        ! stationary or time-dependent
-                                 & iAccuracy, &         ! of reporjection
-                                 & stack_indices, &  ! OVERWRITES met_src, stacks are picked directly
-                                 & storage_grid, &       ! storage grid
-                                 & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
-                                 & fu_if_randomise(wdr), &
-                                 & shpLstPtr, indexVar, time_to_force)
+                                & id, & !Store, &
+                                & work_array, &
+                                & iUpdateType, &       ! Overwrite or not existing fields
+                                & stack_type, &        ! stationary or time-dependent
+                                & iAccuracy, &         ! of reporjection
+                                & stack_indices, &  ! OVERWRITES met_src, stacks are picked directly
+                                & storage_grid, &       ! storage grid
+                                & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
+                                & fu_if_randomise(wdr), &
+                                & shpLstPtr, indexVar, time_to_force)
            if (.not. error) fields_accepted = fields_accepted + 1
          endif
          if(error)return
@@ -1609,8 +1642,7 @@ CONTAINS
       CALL SYSTEM_CLOCK(count0)
       call  id_list_from_grib_file(input_unit, idList, nIDs)
       IF (error) THEN
-           CALL msg_warning('error during GRIB-decoding',&
-                          & 'store_input_to_supermarket')
+        CALL msg_warning('error during GRIB-decoding', 'store_input_to_supermarket')
            return
       endif
       CALL SYSTEM_CLOCK(count1)
@@ -1623,12 +1655,13 @@ CONTAINS
       ifMapNeeded = .False.
 
       do iID = 1, nIDs  !Select messages and create storage for them
-        if(.not. defined(idList(iID))) cycle
-
         if(ifVerbose)then
+          call msg('')
           call msg('Found grib field:')
           call report(idList(iID))
         endif
+  
+        if(.not. defined(idList(iID))) cycle
   
         IF (fu_field_id_in_list(idList(iID), shopping_list, indexVar, data_time_features=TweakTime)) THEN ! Accept the field
           nOrder = nOrder + 1
@@ -1640,8 +1673,8 @@ CONTAINS
           fs_grid = max(fs_grid, fu_number_of_gridpoints(fu_grid(idList(iID))))
 
           ! Get final ID FIXME: 1:1 mapping assumed, i.e. not for boundaries
-          call  inputID2MarketID(idList(iID), id, &
-            & stack_type, storage_grid, TweakTime,  fuIfStaggeredWindsWDR(wdr), shopping_list,  indexVar, time_to_force)
+          call  inputID2MarketID(idList(iID), id, stack_type, storage_grid, TweakTime,  &
+                               & fuIfStaggeredWindsWDR(wdr), shopping_list, indexVar, time_to_force)
          ! Tfld_ptr
          ! MarketFldPtrs
           call find_field_data_storage_2d(miniMarketPtr, id, stack_type, &
@@ -1747,7 +1780,7 @@ CONTAINS
 
             call read_field_from_grib_file(input_unit, idList(iID), iID, work_array)
             
-            call   put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
+            call put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                & nStacks, &
                                & idList(iID), &
                                & work_array, &
@@ -1846,13 +1879,6 @@ CONTAINS
       call SYSTEM_CLOCK(after)
       call msg('CPU time used: ', 1e-6*(after - before))
     endif
-    
-!    call msg('coarse_global_geo_grid')
-!    call report(coarse_geo_global_grid)
-!    call msg('global_geo_grid')
-!    call report(geo_global_grid)
-!    call msg('End grid reporting')
-!    stop
 
   END SUBROUTINE store_input_to_supermarket
 
@@ -1936,8 +1962,6 @@ CONTAINS
 
   end subroutine inputID2MarketID
 
-
-
   
   !************************************************************************************
 
@@ -1953,12 +1977,12 @@ CONTAINS
                            & ifForceMetSrcAcceptance, TweakTime, ifAdjust, &
                            & ifRandomize, &
                            & shpLstPtr, indexVar, time_to_force)
-  ! Unification of a piece replicated many times in store_input_to_supermarket
-  ! Could it be also unified with dq_store_2d?
-  
-  !  !Treat missing value ???
-  ! At the unification stage t was enabled only for NetCDF  and only for mapped species
-  ! Ignoring it for a while
+    ! Unification of a piece replicated many times in store_input_to_supermarket
+    ! Could it be also unified with dq_store_2d?
+    !  !Treat missing value ???
+    ! At the unification stage, it was enabled only for NetCDF  and only for mapped species
+    ! Ignoring it for a while
+
     implicit none
 
     ! Imported parameters with intent IN:
@@ -2032,22 +2056,22 @@ CONTAINS
         s = stack_indices(iStack)
       endif
       IF (error) then
-        call unset_error('store_input_to_supermarket6')
+        call unset_error('put_field_to_sm')
         cycle
       endif
       if(stack_type == single_time_stack_flag) THEN
-        stack_to_fill => miniMarketPtr%stacks_singleTime(s)%ptr
+        stack_to_fill => miniMarketPtr%stacks_singleTime(s) !%ptr
       elseif(stack_type == multi_time_stack_flag) THEN
         t = fu_time_storage_index(miniMarketPtr, s, &
                 & fu_valid_time(id), ifForceMetSrcAcceptance)
         IF (error) then
-          call unset_error('store_input_to_supermarket7')
+          call unset_error('put_field_to_sm')
           cycle
         endif
-        stack_to_fill => miniMarketPtr%stacks_multiTime(s, t)%ptr
+        stack_to_fill => miniMarketPtr%stacks_multiTime(s, t) !%ptr
       else  ! Error - unknown stack type
         call msg('Strange stack type switcher:',stack_type)
-        call set_error('Wrong stack type switcher','store_input_to_supermarket')
+        call set_error('Wrong stack type switcher','put_field_to_sm')
       endif ! Stack type
 
       if(defined(Grid_in))then
@@ -2106,7 +2130,7 @@ CONTAINS
                               & iOutside = fu_outGridInterpType(fu_quantity(id)))
       endif
       IF (error) THEN
-        CALL unset_error('store_input_to_supermarket8')
+        CALL unset_error('put_field_to_sm')
         call msg("ID in trouble")
         call report(id)
         call msg("")
@@ -2118,6 +2142,69 @@ CONTAINS
   end subroutine put_field_to_sm
 
 
+  !********************************************************************************************
+
+  subroutine find_or_create_field(quantity, ptrMarket, species, start_time, level, &
+                                & ifFound, pField, pVals, fill_value)
+    ! 
+    ! Adding a new or finding an existing field in the minimarket
+    !
+    implicit none 
+      
+    ! Imported parameters
+    integer, intent(in) :: quantity
+    type(mini_market_of_stacks), pointer :: ptrMarket
+    type(silam_species), intent(in) :: species
+    type(silja_time), intent(in) :: start_time
+    type(silja_level), intent(in) :: level
+    logical, intent(out) :: ifFound
+    type(silja_field), pointer :: pField
+    real, dimension(:), pointer :: pVals
+    real, intent(in), optional :: fill_value
+    
+    ! Local variables
+    type(silja_field_id) :: id
+    
+    ! Check for existence (might be initialized and thus should not be overwritten) 
+    id = fu_set_field_id_simple(met_src_missing,&
+                              & quantity, &
+                              & time_missing, &        ! valid time
+                              & level, &
+                              & species)
+    call get_field_from_mm_general(ptrMarket, id, pField, .false.)
+    if(associated(pField))then
+      ifFound= defined(pField)    ! exists already
+      pVals => fu_grid_data(pField)
+    else
+      ifFound = .false.   ! not found in the market
+      !
+      ! make it !
+      !
+      id = fu_set_field_id(met_src_missing,&
+                         & quantity, &
+                         & start_time, &        ! analysis time
+                         & zero_interval, &     ! forecast length
+                         & dispersion_grid,&    ! grid
+                         & level, &     ! level
+                         & zero_interval, &     ! length of accumulation
+                         & zero_interval, &     ! length of validity
+                         & accumulated_flag, &  ! field_kind
+                         & species = species) ! species
+      if(fu_realtime_quantity(fu_quantity(id)))then
+        call find_field_data_storage_2d(ptrMarket, id, single_time_stack_flag, pVals)
+      else
+        call find_field_data_storage_2d(ptrMarket, id, multi_time_stack_flag, pVals)
+      endif
+      if(error)return
+
+      call get_field_from_mm_general(ptrMarket, id, pField, .false.)
+      
+      if(present(fill_value)) pVals(:) = fill_value          
+
+    endif   ! if field is in market
+
+  end subroutine find_or_create_field
+    
 
   ! ***************************************************************
 
@@ -2177,7 +2264,6 @@ CONTAINS
     integer :: quant, nx, ny, n_out_of_range, n_patched, n_failed
     character(len=*), parameter :: sub_name = 'get_input_field'
 
-
     !
     ! Start from opening file. 
     ! As one file can include several timesteps, for grads and netcdf files try following:
@@ -2218,7 +2304,6 @@ CONTAINS
       !
       ! NetCDF has own logic for picking the fields - there is a list of headers available
       !
-
       if(ifAcceptSameMonth) then 
         ! Take whatever with same month of validity
         call timelst_from_netcdf_file(input_unit, timeLst, nTimes)
@@ -2238,7 +2323,6 @@ CONTAINS
           call field_indices_from_netcdf_file(input_unit, idRequested, idOut, iVar, it, ilev)
       endif
 
-          
       IF (fu_field_id_covers_request(idOut, idRequested, .true.)) THEN
  !           call msg("Got it!")
 
@@ -2274,7 +2358,6 @@ CONTAINS
 !call report(idOut)
           
           fields_found = fields_found + 1
-
 
           if(fu_field_id_covers_request(idOut, idRequested, .true.))then
 
@@ -2338,12 +2421,7 @@ call msg('')
 
        do iID = 1,nIDs
          if(defined(idList(iID)))then
-            IF (fu_field_id_covers_request(idList(iID), idRequested, .true.)) exit
-         endif  ! read a resonable id
-       ENDDO
-
-       if( iID <= nIDs )then !Loop above terminated
-
+          IF(fu_field_id_covers_request(idList(iID), idRequested, .true.))then
          if(defined(Grid_in))then
            fs_grid=fu_number_of_gridpoints(fu_grid(idList(iID)))
            work_array => fu_work_array(fs_grid)
@@ -2355,8 +2433,12 @@ call msg('')
          !!!! FIXME No forced missing_replacement in read_field_from_grib_file, 
          ! It is decided from quantity
          if (fu_fails(.not. error, "after read_field_from_grib_file",'get_input_field')) return
-         found = .true.
-       endif
+            idOut = idList(iID)
+            found = .true.
+            exit
+          endif   ! covers the request
+        endif  ! read a resonable id
+      ENDDO
 
     case (ascii_file_flag)
       !
@@ -2376,7 +2458,6 @@ call msg('')
                                                & idOut,&
 !                                               & fMissingValue, & ! the grid-data
                                                & work_array, fFillValue) !data_requested)
- 
         !
         ! An error may have happened
         !
@@ -2424,7 +2505,6 @@ call msg('')
                         & iAccuracy, &
                         & fu_regridding_method(quant), &
                         & iOutside, dummyLocks)
-
          
            call grid_dimensions(Grid_in, nx, ny)
            call check_quantity_range(quant, data_requested, nx*ny, nx, &
@@ -2451,7 +2531,6 @@ call msg('')
         if(error)return
 
       endif  ! specific grid requested
-
 
     else
       !
@@ -2678,10 +2757,10 @@ call msg('')
           !
           ! GRADS
           
-if(.not. defined(fu_level(idTmp)))then
-  call report(idTmp)
-  call msg('Undefined level')
-endif
+!if(.not. defined(fu_level(idTmp)))then
+!  call report(idTmp)
+!  call msg('Undefined level')
+!endif
           if(grads_funit /= int_missing)then
             CALL write_next_field_to_gradsfile(grads_funit, idTmp, fu_grid_data(field_2d), now, &
                                              & if_regular_output_times)
@@ -2766,29 +2845,25 @@ endif
   ! ***************************************************************
   ! ***************************************************************
 
-  function fu_get_field_from_mm_general(miniMarket, id, ifMandatory) result(field)
+  subroutine get_field_from_mm_general(miniMarket, id, field, ifMandatory)
     !
     ! A generic function searching the given mini-market for the given ID.
     ! Some elements can be missing, then the first-met match for the defined parameters is returned
+    ! Note that the valid_time of the id will be reset to the actual value of the found field
     !
     implicit none
     
-    ! Return value of this function:
-    TYPE(silja_field), POINTER :: field
-
     ! Imported parameters with intent IN or pointer:
     type(mini_market_of_stacks), intent(in) :: miniMarket
     type(silja_field_id), intent(inout) :: id
+    TYPE(silja_field), POINTER :: field
     logical, intent(in) :: ifMandatory     ! whether the set error if not found
     
     ! Local variables
     TYPE(silja_stack), POINTER :: stack
     logical :: found
     integer :: iSrc, iTime
-    
-    !
-    ! Somethig simple...
-    !
+
     NULLIFY(field)
     IF (miniMarket%minimarket_empty)RETURN
 
@@ -2797,7 +2872,7 @@ endif
     !
     if(defined(fu_valid_time(id)))then
       IF (.NOT. miniMarket%stack_multiTime_initialized) THEN
-        if(ifMandatory) CALL set_error('minimarket not init','fu_get_field_from_mm_general')
+        if(ifMandatory) CALL set_error('minimarket not init','get_field_from_mm_general0')
         RETURN
       END IF
 
@@ -2806,7 +2881,7 @@ endif
                                         & fu_met_src(id), fu_valid_time(id), back_and_forwards, &
                                         & ifMandatory)
       if(error)then
-        call unset_error('fu_get_field_from_mm_general1')
+        call unset_error('get_field_from_mm_general1')
         return
       endif
 
@@ -2814,7 +2889,7 @@ endif
         call set_valid_time(id,fu_valid_time(stack))
         call find_field_from_stack(stack, id, field, found)  ! got it?
         if(found)return
-        if(error)call unset_error('fu_get_field_from_mm_general22')
+        if(error)call unset_error('get_field_from_mm_general2')
       endif
 
     endif  ! if time is defined
@@ -2827,10 +2902,10 @@ endif
       ! Check whether the stuff can be found in permanent stack
       !
       do iSrc = 1, size(miniMarket%stacks_singleTime)
-        stack => miniMarket%stacks_singleTime(iSrc)%ptr
-        call find_field_from_stack(stack, id, field, found)  ! got it?
+!        stack => miniMarket%stacks_singleTime(iSrc)%ptr
+        call find_field_from_stack(miniMarket%stacks_singleTime(iSrc), id, field, found)  ! got it?
         if(found)return
-        if(error)call unset_error('fu_get_field_from_mm_general3')
+        if(error)call unset_error('get_field_from_mm_general3')
       end do
     endif
       
@@ -2840,17 +2915,17 @@ endif
       !
       do iTime = 1, size(miniMarket%stacks_multiTime,2)
         do iSrc = 1, size(miniMarket%stacks_multiTime,1)
-          stack => miniMarket%stacks_multiTime(iSrc, iTime)%ptr
-          call find_field_from_stack(stack, id, field, found)  ! got it?
+!          stack => miniMarket%stacks_multiTime(iSrc, iTime)%ptr
+          call find_field_from_stack(miniMarket%stacks_multiTime(iSrc, iTime), id, field, found)  ! got it?
           if(found)return
-          if(error)call unset_error('fu_get_field_from_mm_general4')
+          if(error)call unset_error('get_field_from_mm_general4')
         end do
       end do
     endif
 
     nullify(field)  ! No luck, id is not found
 
-  end function fu_get_field_from_mm_general
+  end subroutine get_field_from_mm_general
 
 
   !******************************************************************************************
@@ -2964,8 +3039,11 @@ endif
       CALL put_field_to_hit_list(miniMarketPtr, field)
       fields_delivered = fields_delivered + 1
     ELSE
+      call msg("=============================")
       call msg( 'supermarket contents:')
       CALL report(miniMarketPtr)
+      call msg("=============================")
+      call msg("======== Failed ID  =============")
       CALL report(id)
       CALL set_error('field not found in supermarket', 'fu_sm_obstime_field')
       NULLIFY(field)
@@ -3059,79 +3137,6 @@ endif
 
   ! ***************************************************************
 
-
-  FUNCTION fu_sm_obstime_3d_windfield(miniMarketPtr, met_src, time, direction) result(field_3d)
-
-    ! Description:
-    ! Finds a 3D windfield for closest observation time.
-    !
-    ! If 3d-field contains hybrid-level data, then it always also
-    ! contains corresponding surface pressure field (which is needed
-    ! in vertical administration).
-    !
-    ! Direction may have values, backwards, forwards,
-    ! back_and_forwards or single_time.
-    ! If data is searched
-    ! only for one, exact time (not searched in any direction) then
-    ! set direction = single_time.
-    ! All units: SI
-    !
-    IMPLICIT NONE
-    !
-    ! Return value of this function:
-    TYPE(silja_3d_windfield), POINTER :: field_3d
-
-    ! Imported parameters with intent(in):
-    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), INTENT(in) :: time
-    INTEGER, INTENT(in) :: direction
-
-    ! Local declarations:
-    TYPE(silja_stack), POINTER :: stack
-    TYPE(silja_time) :: obstime
-    REAL :: before
-    LOGICAL :: found_in_stack
-
-    before = fu_total_cpu_time_sec()
-
-    IF (.NOT. miniMarketPtr%stack_multiTime_initialized) THEN
-      CALL set_error('minimarket not init','fu_sm_obstime_3d_windfield')
-      RETURN
-    END IF
-
-
-    IF (miniMarketPtr%minimarket_empty) THEN
-      NULLIFY(field_3d)
-      RETURN
-    END IF
-
-    ! Where the data shoud be:
-    stack => fu_closest_sm_met_src_time(miniMarketPtr, met_src, time, direction)
-    IF (error) RETURN
-
-    obstime = fu_valid_time(stack)
-    IF (error) RETURN
-
-    CALL find_wind_3d_from_stack(met_src, obstime, stack, field_3d, found_in_stack)
-
-    IF (found_in_stack) THEN
-      windfields_3d_delivered = windfields_3d_delivered + 1
-    ELSE
-      call msg('Met source:' + fu_name(met_src) + ',' + fu_str(obstime))
-      CALL set_error('wind 3d not found in supermarket','fu_sm_obstime_3d_windfield')
-      NULLIFY(field_3d)
-    END IF
-
-    cpu_usage = cpu_usage + fu_total_cpu_time_sec() - before
-
-  END FUNCTION fu_sm_obstime_3d_windfield
-
-
-
-  ! ***************************************************************
-
-
   FUNCTION fu_sm_simple_3d_field(miniMarketPtr, met_src, quantity, stack_type) result(field_3d)
 
     ! Description:
@@ -3162,7 +3167,7 @@ endif
     INTEGER :: ind
     LOGICAL :: found_in_memory, found_in_hit_list
     REAL :: before
-    TYPE(silja_stack), POINTER :: stack
+!    TYPE(silja_stack), POINTER :: stack
 
     nullify(field_3d)
 
@@ -3178,11 +3183,12 @@ endif
  
     IF (error) RETURN
 
-    stack => miniMarketPtr%stacks_singleTime(fu_met_src_storage_index(miniMarketPtr, stack_type, met_src))%ptr
+!    stack => miniMarketPtr%stacks_singleTime(fu_met_src_storage_index(miniMarketPtr, stack_type, met_src))%ptr
     CALL find_field_3d_from_stack(met_src, &
                                 & quantity, &
                                 & time_missing, &
-                                & stack, &
+                                & miniMarketPtr%stacks_singleTime(fu_met_src_storage_index(miniMarketPtr, &
+                                                                           & stack_type, met_src)), &
                                 & field_3d, &
                                 & found_in_memory)
     IF (error) RETURN
@@ -3225,7 +3231,7 @@ endif
     INTEGER :: ind
     LOGICAL :: found_in_memory, found_in_hit_list
     REAL :: before
-    TYPE(silja_stack), POINTER :: stack
+!    TYPE(silja_stack), POINTER :: stack
 
     nullify(field)
 
@@ -3241,10 +3247,10 @@ endif
     id = fu_set_field_id_simple(met_src, quantity,  time_missing, level)
     IF (error) RETURN
 
-    stack => miniMarketPtr%stacks_singleTime(fu_met_src_storage_index(miniMarketPtr, stack_type, met_src))%ptr
-    CALL find_field_from_stack(stack, id, field, found_in_memory)
+!    stack => miniMarketPtr%stacks_singleTime(fu_met_src_storage_index(miniMarketPtr, stack_type, met_src))%ptr
+    CALL find_field_from_stack(miniMarketPtr%stacks_singleTime(fu_met_src_storage_index(miniMarketPtr, &
+                                                & stack_type, met_src)), id, field, found_in_memory)
     IF (error) RETURN
-
 
     IF (.NOT.found_in_memory) THEN
       CALL set_error('field not found in supermarket','fu_sm_simple_field')
@@ -3280,7 +3286,7 @@ endif
     IMPLICIT NONE
 
     ! imported parameters
-    type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
+    type(mini_market_of_stacks), target, intent(inout) :: miniMarketPtr
     TYPE(silja_field_id), INTENT(in) :: IDin
     integer, INTENT(in) :: stack_type
     type(silja_field), pointer :: pfield !output: pointer to the stored field
@@ -3298,27 +3304,26 @@ endif
 
     ! Find the stack we need to address
     !
-      s = fu_met_src_storage_index(miniMarketPtr, stack_type, fu_met_src(IDin))
-      if(fu_fails(s >= 1 .and. s <= size(miniMarketPtr%stacks_multiTime,1), &
-                & 'Bad met_src, can not find proper stack',sub_name))return
-      select case(stack_type)
-        case(single_time_stack_flag)
-          pStack => miniMarketPtr%stacks_singleTime(s)%ptr
-        case(multi_time_stack_flag)
-          t = fu_time_storage_index(miniMarketPtr, s, fu_valid_time(IDin), .false.)
-          if(fu_fails(t >= 1 .and. t <= size(miniMarketPtr%stacks_multiTime,2), &
-                    & 'Bad met_src, can not find proper stack',sub_name))return
-          pStack => miniMarketPtr%stacks_multiTime(s, t)%ptr
-        case default
-          call msg('Strange stack type:', stack_type)
-          call set_error('Strange stack type:', sub_name)
-      end select
+    s = fu_met_src_storage_index(miniMarketPtr, stack_type, fu_met_src(IDin))
+    if(fu_fails(s >= 1 .and. s <= size(miniMarketPtr%stacks_multiTime,1), &
+              & 'Bad met_src, can not find proper stack',sub_name))return
+    select case(stack_type)
+      case(single_time_stack_flag)
+        pStack => miniMarketPtr%stacks_singleTime(s)  !%ptr
+      case(multi_time_stack_flag)
+        t = fu_time_storage_index(miniMarketPtr, s, fu_valid_time(IDin), .false.)
+        if(fu_fails(t >= 1 .and. t <= size(miniMarketPtr%stacks_multiTime,2), &
+                  & 'Bad met_src, can not find proper stack',sub_name))return
+        pStack => miniMarketPtr%stacks_multiTime(s, t) !%ptr
+      case default
+        call msg('Strange stack type:', stack_type)
+        call set_error('Strange stack type', sub_name)
+    end select
 
     id = IDin
     if (.not. defined(fu_grid(id))) then
-        call set_grid(id, fu_storage_grid(fu_wdr(pStack)))
+      call set_grid(id, fu_storage_grid(fu_wdr(pStack)))
     endif
-
     !
     ! Having the stack determined, get the field there - or create it.
     !
@@ -3332,6 +3337,8 @@ endif
     minimarketptr%minimarket_empty = .false.
 
   end subroutine find_field_storage_2d
+
+
   !**********************************************************************
   
   subroutine find_field_data_storage_2d(minimarketptr, idin, stack_type, pdata, pid)
@@ -3371,7 +3378,7 @@ endif
     ! given by field_id.
     !
     IMPLICIT NONE
-    type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
+    type(mini_market_of_stacks), target, intent(inout) :: miniMarketPtr
     TYPE(silja_field_id), INTENT(in) :: id
     REAL, DIMENSION(:), INTENT(in) :: grid_data
     integer, INTENT(in) :: stack_type
@@ -3438,7 +3445,7 @@ endif
       select case(stack_type)
 
         case(single_time_stack_flag)
-          stackptrLocal => miniMarketPtr%stacks_singleTime(s)%ptr
+          stackptrLocal => miniMarketPtr%stacks_singleTime(s) !%ptr
 
         case(multi_time_stack_flag)
 
@@ -3450,7 +3457,7 @@ endif
            call set_error('Bad met_src, can not find proper stack','dq_store_2d')
            return
          end if
-         stackptrLocal =>  miniMarketPtr%stacks_multiTime(s, t)%ptr
+         stackptrLocal =>  miniMarketPtr%stacks_multiTime(s, t) !%ptr
 
 
       case default
@@ -3517,85 +3524,281 @@ endif
 
   ! ***************************************************************
 
-
-  SUBROUTINE supermarket_times(miniMarketPtr, met_src, valid_times, number_of_times, analysis_time)
+  SUBROUTINE supermarket_times(miniMarketPtr, met_src, valid_times, number_of_times, &
+                             & if_include_DQ_processed, analysis_time, idxTimes)
     !
     ! Finds all observation times (valid times) that fields
     ! are found in supermarket.
     !
-    ! The analysis time returned is the first found. Use it when
+    ! The analysis time is the first that has been found. Use it when
     ! there is only data from one forecast run (post-processing or
     ! other tools) but not in dispersion model runs.
     !
     IMPLICIT NONE
 
-    ! Imported parameters with intent IN:
-    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
+    ! Imported parameters
+    type(mini_market_of_stacks), target, intent(in) :: miniMarketPtr
     type(meteo_data_source), INTENT(in) :: met_src
-
-    ! Imported parameters with intent OUT:
-    TYPE(silja_time), DIMENSION(:), INTENT(inout) :: valid_times
+    TYPE(silja_time), DIMENSION(:), INTENT(out) :: valid_times
     INTEGER, INTENT(out) :: number_of_times
-
-    ! Optional parameters with intent OUT:
+    logical, intent(in) :: if_include_DQ_processed
     TYPE(silja_time), INTENT(out), OPTIONAL :: analysis_time
+    integer, dimension(:,:), optional, intent(out) :: idxTimes
 
     ! Local declarations:
     TYPE(silja_stack), POINTER :: stack
-    INTEGER :: i, n_times, stack_from, stack_to
+    INTEGER :: i, iSrc, iT, n_times, src_from, src_to, time_size
 
     valid_times = time_missing
 
     if (.not. miniMarketPtr%stack_multiTime_exists) then
-            call msg("No multitime in:"+ fu_name(miniMarketPtr))
-            number_of_times = 0
-            return
+      call msg("No multitime in:"+ fu_name(miniMarketPtr))
+      number_of_times = 0
+      return
     endif
-
-    IF (SIZE(valid_times) < SIZE(miniMarketPtr%obstimes,2)) THEN
-      CALL set_error('valid_times vector too small','supermarket_times')
-      RETURN
-    END IF
-
-    if(met_src == met_src_missing)then
-      stack_from = 1
-      stack_to=size(miniMarketPtr%stacks_multiTime,1)
+    !
+    ! %obstimes include all times, %DQ_unprocessed_times are only for times not yet processed
+    ! by derived_field_quantities
+    !
+    if(if_include_DQ_processed)then
+      ! All supermarket times are requested
+      time_size = SIZE(miniMarketPtr%obstimes,2)
+      IF (SIZE(valid_times) < time_size) THEN
+        CALL set_error('valid_times vector too small','supermarket_times')
+        RETURN
+      END IF
     else
-      stack_from = fu_met_src_storage_index(miniMarketPtr, multi_time_stack_flag, met_src)
-      stack_to = stack_from
-      if(stack_from < 1 .or.stack_from > size(miniMarketPtr%stacks_multiTime,1))return
+      ! Only partly unprocessed times are requested (derived quantities are yet to be created)
+      time_size = SIZE(miniMarketPtr%DQ_unprocessed_times,2)
+      IF (SIZE(valid_times) < time_size) THEN
+        CALL set_error('valid_times vector too small','supermarket_times')
+        RETURN
+      END IF
+    endif
+    
+    if(met_src == met_src_missing)then
+      src_from = 1
+      src_to = size(miniMarketPtr%stacks_multiTime,1)
+    else
+      src_from = fu_met_src_storage_index(miniMarketPtr, multi_time_stack_flag, met_src)
+      src_to = src_from
+      if(src_from < 1 .or. src_from > size(miniMarketPtr%stacks_multiTime,1))return
     end if
 
-    n_times = 1
-    do i=stack_from, stack_to
-      stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
-      if(.not.defined(stack))cycle
-
-      valid_times(n_times:SIZE(miniMarketPtr%obstimes,2)) &
-           & = miniMarketPtr%obstimes(i,1:SIZE(miniMarketPtr%obstimes,2)-n_times+1)
-
-      do while(defined(valid_times(n_times)))
-        n_times = n_times+1
+    n_times = 0
+    if(if_include_DQ_processed)then
+      do i = src_from, src_to
+        stack => miniMarketPtr%stacks_multiTime(i,1)
+        if(.not.defined(stack))cycle
+        valid_times(n_times+1:time_size) = miniMarketPtr%obstimes(i,1:time_size-n_times)
+        do while(defined(valid_times(n_times+1)))
+          n_times = n_times+1
+        end do
       end do
-
-    end do
+    else
+      do i = src_from, src_to
+        stack => miniMarketPtr%stacks_multiTime(i,1)
+        if(.not.defined(stack))cycle
+        valid_times(n_times+1:time_size) = miniMarketPtr%DQ_unprocessed_times(i,1:time_size-n_times)
+        do while(defined(valid_times(n_times+1)))
+          n_times = n_times+1
+        end do
+      end do
+    endif ! if unprocessed times are included
     !
-    ! Sort the gathered time stamps
+    ! Sort the gathered time stamps, also eliminating repetitions
     !
-    CALL times_to_ascending_order(valid_times, number_of_times)
+    if (n_times > 0) then
+      CALL times_to_ascending_order(valid_times, number_of_times)
+    else
+      number_of_times = 0
+    endif
+    !
+    ! Get indices of the valid_times if requested
+    ! For each valid time, indices of stacks from different met sources can be different
+    !
+    if(present(idxTimes))then
+      idxTimes(:,:) = int_missing
+      do iSrc = src_from, src_to        ! in market, met_src
+        do iT = 1, SIZE(miniMarketPtr%obstimes,2)   ! in market, times
+          do i = 1, number_of_times     ! in valid_times
+            if(fu_valid_time(miniMarketPtr%stacks_multiTime(iSrc,iT)) == valid_times(i)) &
+                         & idxTimes(iSrc,i) = iT
+          end do
+        end do    ! valid_times
+      end do   ! met_src
+    endif   ! present idxTimes
 
     IF (PRESENT(analysis_time)) THEN
       ! In v5d-usage we assume that all data is from one forecats set,
       ! so one analysis time only:
-      stack => miniMarketPtr%stacks_multiTime(1,1)%ptr
+      stack => miniMarketPtr%stacks_multiTime(1,1) !%ptr
       analysis_time = fu_analysis_time(fu_first_field_from_stack(stack))
     END IF
 
   END SUBROUTINE supermarket_times
 
 
-    ! ***************************************************************
+  ! ***************************************************************
 
+  logical function fu_if_time_covered_by_maket(mm, reftime)
+    !
+    ! Checks if refime is between some times in the market
+    ! Not thread-safe
+    !! We assume that not more than one time changed between the calls
+    !! and the new latesttime appears next to the old latest
+    IMPLICIT NONE
+
+    ! Imported parameters
+    type(mini_market_of_stacks),  intent(in) :: mm
+    TYPE(silja_time), INTENT (in) :: reftime
+
+    ! Local declarations:
+    TYPE(silja_stack), POINTER :: stack
+    INTEGER :: i, iOff, n_times, it, iSide, n_sides
+    integer, save :: itime_latest = int_missing !! Store this thing to speedup the search
+    integer, save :: itime_earliest = int_missing !! Store this thing to speedup the search
+    character(len=*), parameter :: sub_name = 'fu_if_time_covered_by_maket'
+
+
+
+
+    fu_if_time_covered_by_maket = .FALSE.
+
+
+    if (.not. mm%stack_multiTime_exists) return
+    if (.not. allocated (mm%obstimes) ) return
+
+    !! In boundary market the times for unused sides are undefined
+    !! We have to find a defined one
+    n_sides = size(mm%obstimes,1)
+    if (n_sides > 1) then 
+      do iSide = 1,n_sides
+       if (defined(mm%obstimes(iSide,1))) exit
+      enddo
+      if (iSide>n_sides) return
+    else
+      iSide = 1 
+    endif
+
+    if (.not. defined(mm%obstimes(iSide,1))) return
+    if (.not. defined(mm%obstimes(iSide,2))) return
+
+    n_times = size(mm%obstimes,2)
+    if (itime_earliest < 1)  itime_earliest= 1
+    if (itime_latest < 1)  itime_latest = 2
+  
+    !adjust earliest if needed
+    do iOff = -1,1,2
+      it = modulo(itime_earliest + ioff -1,n_times)+1
+      if (defined (mm%obstimes(iSide,it))) then
+        if (mm%obstimes(iSide,it) < mm%obstimes(iSide,itime_earliest)) then
+          itime_earliest = it
+          exit
+        endif
+      endif
+    enddo
+
+    !adjust latest if needed
+    do iOff = -1,1,2 
+      it = modulo(itime_latest + ioff -1,n_times)+1
+      if (defined (mm%obstimes(iSide,it))) then
+        if (mm%obstimes(iSide,it) > mm%obstimes(iSide,itime_latest)) then
+          itime_latest = it
+          exit
+        endif
+      endif
+    enddo
+
+    fu_if_time_covered_by_maket = (reftime <= mm%obstimes(iSide,itime_latest)) &
+                           &.and. (reftime >= mm%obstimes(iSide,itime_earliest))
+
+  END function fu_if_time_covered_by_maket
+
+
+  ! ***************************************************************
+
+  subroutine store_new_data_times(miniMarketPtr, newtimes)
+    !
+    ! Stores the given times into the list of yet-unprocessed times
+    !
+    implicit none
+    
+    ! Imported parameters
+    type(mini_market_of_stacks), target, intent(inout) :: miniMarketPtr
+    type(silja_time), dimension(:), intent(in) :: newtimes
+    
+    ! local variables
+    integer :: iT, iNewT
+    !
+    ! Get the place
+    !
+    do iT = 1, size(miniMarketPtr%DQ_unprocessed_times)
+      if(miniMarketPtr%DQ_unprocessed_times(1,iT) == time_missing)exit
+    end do
+    if(iT >= size(miniMarketPtr%DQ_unprocessed_times))then
+      call msg_warning('%DQ_unprocessed_times is full', 'store_new_data_times')
+      do iT =1, size(miniMarketPtr%DQ_unprocessed_times)
+        call report(miniMarketPtr%DQ_unprocessed_times(1,iT))
+      end do    
+      call set_error('%DQ_unprocessed_times is full', 'store_new_data_times')
+      return
+    endif  ! receiving array is full
+    !
+    ! Go over times to add
+    !
+    do iNewT = 1, size(newtimes)
+      if(newtimes(iNewT) == time_missing)exit  ! done
+      !
+      ! Fits?
+      !
+      if(iT + iNewT > size(miniMarketPtr%DQ_unprocessed_times))then
+        call msg_warning('%DQ_unprocessed_times is too short', 'store_new_data_times')
+        call msg('Current %DQ_unprocessed_times:')
+        do iT =1, size(miniMarketPtr%DQ_unprocessed_times)
+          if(miniMarketPtr%DQ_unprocessed_times(1,iT) == time_missing)exit
+          call report(miniMarketPtr%DQ_unprocessed_times(1,iT))
+        end do
+        call msg('New times:')
+        do iT =1, size(newtimes)
+          if(newtimes(iT) == time_missing)exit
+          call report(newtimes(iT))
+        end do
+        call set_error('%DQ_unprocessed_times is too short', 'store_new_data_times')
+        return
+      endif  ! too short receiving array
+      !
+      ! Add, remembering that both indices start from 1
+      !
+      miniMarketPtr%DQ_unprocessed_times(:,iT+iNewT-1) = newtimes(iNewT)
+    end do  ! iNewT
+    
+  end subroutine store_new_data_times
+  
+  
+  ! ***************************************************************
+
+  SUBROUTINE set_all_times_processed(miniMarketPtr)
+    !
+    ! Resets unprocessed fields
+    !
+    implicit none
+
+    ! Imported parameters
+    type(mini_market_of_stacks), target, intent(inout) :: miniMarketPtr
+    
+    ! local variables
+    integer :: iT
+    
+    do iT = 1, size(miniMarketPtr%DQ_unprocessed_times)
+      if(miniMarketPtr%DQ_unprocessed_times(1,iT) == time_missing)exit
+      miniMarketPtr%DQ_unprocessed_times(:,iT) = time_missing
+    end do
+    
+  end SUBROUTINE set_all_times_processed
+    
+  
+  ! ***************************************************************
 
   SUBROUTINE supermarket_met_srcs(miniMarketPtr, stackType, metSrcs, nMetSrcs)
 
@@ -3610,7 +3813,7 @@ endif
     IMPLICIT NONE
 
     ! Imported parameters with intent IN:
-    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
+    type(mini_market_of_stacks), target, intent(in) :: miniMarketPtr
     integer, intent(in) :: stackType
 
     ! Imported parameters with intent OUT:
@@ -3633,9 +3836,9 @@ endif
 
       nMetSrcs = size(miniMarketPtr%stacks_singletime)
       do iMetSrc = 1, nMetSrcs
-        stack => miniMarketPtr%stacks_singleTime(iMetSrc)%ptr
+        stack => miniMarketPtr%stacks_singleTime(iMetSrc) !%ptr
         if(.not.defined(stack))cycle
-        metSrcs(iMetSrc) = fu_met_src(miniMarketPtr%stacks_singleTime(iMetSrc)%ptr)
+        metSrcs(iMetSrc) = fu_met_src(miniMarketPtr%stacks_singleTime(iMetSrc)) !%ptr)
       end do
 
       case(multi_time_stack_flag)
@@ -3647,9 +3850,9 @@ endif
 
       nMetSrcs = size(miniMarketPtr%stacks_multitime,1)
       do iMetSrc = 1, nMetSrcs
-        stack => miniMarketPtr%stacks_multiTime(iMetSrc, 1)%ptr
+        stack => miniMarketPtr%stacks_multiTime(iMetSrc, 1)  !%ptr
         if(.not.defined(stack))cycle
-        metSrcs(iMetSrc) = fu_met_src(miniMarketPtr%stacks_multiTime(iMetSrc,1)%ptr)
+        metSrcs(iMetSrc) = fu_met_src(miniMarketPtr%stacks_multiTime(iMetSrc,1)) !%ptr)
       end do
     end select
 
@@ -3680,7 +3883,7 @@ endif
 
     ! Local declarations:
     INTEGER :: i, j, stack_from, stack_to
-    TYPE(silja_stack), POINTER  ::  stack
+!    TYPE(silja_stack), POINTER  ::  stack
     INTEGER, dimension(max_quantities) :: qTmp
 
     quantities(1) = int_missing
@@ -3705,9 +3908,9 @@ endif
         end if
 
         do i=stack_from, stack_to
-          stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
-          if(.not.defined(stack))cycle
-          CALL stack_quantities(stack, qTmp, j)
+!          stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
+          if(.not.defined(miniMarketPtr%stacks_multiTime(i,1)))cycle
+          CALL stack_quantities(miniMarketPtr%stacks_multiTime(i,1), qTmp, j)
           j=fu_merge_int_arrays(qTmp, quantities, .false.)
           number_of_quantities = number_of_quantities + j
         end do
@@ -3729,9 +3932,9 @@ endif
         end if
 
         do i=stack_from, stack_to
-          stack => miniMarketPtr%stacks_singleTime(i)%ptr
-          if(.not.defined(stack))cycle
-          CALL stack_quantities(stack, qTmp, j)
+!          stack => miniMarketPtr%stacks_singleTime(i)%ptr
+          if(.not.defined(miniMarketPtr%stacks_singleTime(i)))cycle
+          CALL stack_quantities(miniMarketPtr%stacks_singleTime(i), qTmp, j)
           j=fu_merge_int_arrays(qTmp, quantities, .false.)
           number_of_quantities = number_of_quantities + j
         end do
@@ -3769,7 +3972,7 @@ endif
 
     ! Local declarations:
     INTEGER :: i, j, stack_from, stack_to
-    TYPE(silja_stack), POINTER  ::  stack
+!    TYPE(silja_stack), POINTER  ::  stack
     INTEGER, dimension(max_variables) :: qTmp
     type(silam_species), dimension(max_variables) :: arSpeciesTmp
 
@@ -3793,9 +3996,9 @@ endif
         end if
 
         do i=stack_from, stack_to
-          stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
-          if(.not.defined(stack))cycle
-          CALL stack_variables(stack, qTmp, arSpeciesTmp, j)
+!          stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
+          if(.not.defined(miniMarketPtr%stacks_multiTime(i,1)))cycle
+          CALL stack_variables(miniMarketPtr%stacks_multiTime(i,1), qTmp, arSpeciesTmp, j)
           if(j>0)then 
              call merge_variable_arrays(quantities, qTmp, arSpecies, arSpeciesTmp, number_of_variables)
           endif
@@ -3817,9 +4020,9 @@ endif
         end if
 
         do i=stack_from, stack_to
-          stack => miniMarketPtr%stacks_singleTime(i)%ptr
-          if(.not.defined(stack))cycle
-          CALL stack_variables(stack, qTmp, arSpeciesTmp, j)
+!          stack => miniMarketPtr%stacks_singleTime(i)%ptr
+          if(.not.defined(miniMarketPtr%stacks_singleTime(i)))cycle
+          CALL stack_variables(miniMarketPtr%stacks_singleTime(i), qTmp, arSpeciesTmp, j)
           if (j>0)  call merge_variable_arrays(quantities, qTmp, arSpecies, arSpeciesTmp, number_of_variables)
         end do
 
@@ -3901,7 +4104,7 @@ endif
 
     ! Local declarations:
     INTEGER :: i, j, stack_from, stack_to
-    TYPE(silja_stack), POINTER  ::  stack
+!    TYPE(silja_stack), POINTER  ::  stack
     INTEGER, dimension(max_quantities) :: qTmp
 
     quantities(:) = int_missing
@@ -3926,9 +4129,9 @@ endif
         end if
 
         do i=stack_from, stack_to
-          stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
-          if(.not.defined(stack))cycle
-          CALL stack_3d_quantities(stack, qTmp, j)
+!          stack => miniMarketPtr%stacks_multiTime(i,1)%ptr
+          if(.not.defined(miniMarketPtr%stacks_multiTime(i,1)))cycle
+          CALL stack_3d_quantities(miniMarketPtr%stacks_multiTime(i,1), qTmp, j)
           j = fu_merge_int_arrays(qTmp, quantities, .false.)
           number_of_quantities = number_of_quantities + j
         end do
@@ -3950,9 +4153,9 @@ endif
         end if
 
         do i=stack_from, stack_to
-          stack => miniMarketPtr%stacks_singleTime(i)%ptr
-          if(.not.defined(stack))cycle
-          CALL stack_3d_quantities(stack, qTmp, j)
+!          stack => miniMarketPtr%stacks_singleTime(i)%ptr
+          if(.not.defined(miniMarketPtr%stacks_singleTime(i)))cycle
+          CALL stack_3d_quantities(miniMarketPtr%stacks_singleTime(i), qTmp, j)
           j = fu_merge_int_arrays(qTmp, quantities, .false.)
           number_of_quantities = number_of_quantities + j
         end do
@@ -3986,7 +4189,7 @@ endif
 
     ! Local declarations:
     INTEGER :: i, j
-    TYPE(silja_stack), POINTER  ::  stack
+!    TYPE(silja_stack), POINTER  ::  stack
     INTEGER :: quantitity
     INTEGER, DIMENSION(max_quantities) :: quantities, quantities_3d
     INTEGER :: number_of_quantities, number_of_3d_quantities
@@ -4076,7 +4279,8 @@ endif
                                 & level,&
                                 & look_for_3d,&
                                 & permanent, &
-                                & species)
+                                & species, &
+                                & idxTimeStack_)
 
     ! Description:
     ! Returns true value if the given field is already in supermarket.
@@ -4085,7 +4289,7 @@ endif
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
+    type(mini_market_of_stacks), target, intent(in) :: miniMarketPtr
     type(meteo_data_source), INTENT(in) :: met_src
     INTEGER, INTENT(in) :: quantity
     TYPE(silja_time), INTENT(in) :: time ! must be exact obstime
@@ -4094,26 +4298,26 @@ endif
     LOGICAL, INTENT(in) :: look_for_3d ! search for 3d field only
     LOGICAL, INTENT(in) :: permanent
     type(silam_species), intent(in), optional :: species
+    integer, intent(in), optional :: idxTimeStack_    ! time index of the stack in multitime stack array
 
     ! Local declarations:
     TYPE(silja_stack), POINTER :: stack
     TYPE(silja_field_id) :: id
     TYPE(silja_field) , POINTER :: field
     TYPE(silja_3d_field), POINTER :: field_3d
-    TYPE(silja_windfield) , POINTER :: windfield
-    TYPE(silja_3d_windfield), POINTER :: windfield_3d
-    integer :: stack_from, stack_to, i, j
+    integer :: src_from, src_to, i, j, idxTimeStack, s
     
     !
     ! 1. Basic checks.
     !
     fu_field_in_sm = .false.
     nullify(field)
-
-    IF (miniMarketPtr%minimarket_empty) THEN
-      RETURN
-    END IF
-
+    IF (miniMarketPtr%minimarket_empty) RETURN
+    if(present(idxTimeStack_))then
+      idxTimeStack = idxTimeStack_
+    else
+      idxTimeStack = int_missing
+    endif
     !
     ! 2. Look for a permanent field.
     !
@@ -4121,40 +4325,37 @@ endif
       !
       ! Permanent stack
       !
-      IF (.NOT. miniMarketPtr%stack_singleTime_initialized) THEN
-        RETURN
-      END IF
+      IF (.NOT. miniMarketPtr%stack_singleTime_initialized) RETURN
       
       if(met_src == met_src_missing)then
-        stack_from = 1
-        stack_to=size(miniMarketPtr%stacks_singleTime)
+        src_from = 1
+        src_to=size(miniMarketPtr%stacks_singleTime)
       else
-          stack_from = fu_met_src_storage_index(miniMarketPtr, single_time_stack_flag, met_src)
-          stack_to = stack_from
-          if(stack_from < 1 .or. stack_from > size(miniMarketPtr%stacks_singleTime))return
+        src_from = fu_met_src_storage_index(miniMarketPtr, single_time_stack_flag, met_src)
+        src_to = src_from
+        if(src_from < 1 .or. src_from > size(miniMarketPtr%stacks_singleTime))return
       end if
 
       if (time == time_missing) then ! Do not care about time
-           do i=stack_from, stack_to
-              stack => miniMarketPtr%stacks_singleTime(i)%ptr
-              if(.not.defined(stack))cycle
-              IF (look_for_3d) THEN
-                 CALL find_field_3d_from_stack(met_src,&
-                                              & quantity,&
-                                              & time,&
-                                              & stack,&
-                                              & field_3d,&
-                                              & fu_field_in_sm)
-              ELSE
-                  CALL find_field_from_stack(met_src, &
+        do i = src_from, src_to
+          if(.not.defined(miniMarketPtr%stacks_singleTime(i)))cycle
+          IF (look_for_3d) THEN
+            CALL find_field_3d_from_stack(met_src,&
                                         & quantity,&
-                                        & time_missing,&
-                                        & stack,&
-                                        & field,&
-                                        & fu_field_in_sm, &
-                                        & species)
+                                        & time,&
+                                        & miniMarketPtr%stacks_singleTime(i),&
+                                        & field_3d,&
+                                        & fu_field_in_sm)
+          ELSE
+            CALL find_field_from_stack(met_src, &
+                                     & quantity,&
+                                     & time_missing,&
+                                     & miniMarketPtr%stacks_singleTime(i),&
+                                     & field,&
+                                     & fu_field_in_sm, &
+                                     & species)
 
-              ENDIF
+          ENDIF
 !                call msg("Trying: "+fu_quantity_string(quantity) )
 !                call report(stack)
 !                                DO j = 1, SIZE(stack%fields)
@@ -4165,19 +4366,18 @@ endif
 !                else
 !                        call msg("Not Found: "+fu_quantity_string(quantity))
 !                endif
-              if(fu_field_in_sm)exit
-           end do
+          if(fu_field_in_sm)exit
+        end do
       else ! respect field time... Is it needed in single-time stack at all??? R. 
-              id = fu_set_field_id_simple(met_src, quantity, time_missing, level)
-              IF (error) RETURN
-              if(present(species))call set_species(id, species)
+        id = fu_set_field_id_simple(met_src, quantity, time_missing, level)
+        IF (error) RETURN
+        if(present(species))call set_species(id, species)
 
-              do i=stack_from, stack_to
-                stack => miniMarketPtr%stacks_singleTime(i)%ptr
-                if(.not.defined(stack))cycle
-                CALL find_field_from_stack(stack, id, field, fu_field_in_sm)
-                if(fu_field_in_sm)exit
-              end do
+        do i = src_from, src_to
+          if(.not.defined(miniMarketPtr%stacks_singleTime(i)))cycle
+          CALL find_field_from_stack(miniMarketPtr%stacks_singleTime(i), id, field, fu_field_in_sm)
+          if(fu_field_in_sm)exit
+        end do
       endif
       return
       
@@ -4185,44 +4385,33 @@ endif
       !
       ! Non-permanent stack
       !
-      IF (.NOT. miniMarketPtr%stack_multiTime_initialized) THEN
-         RETURN
-      END IF
+      IF (.NOT. miniMarketPtr%stack_multiTime_initialized) RETURN
       !
-      ! 3. Where the time-dependent data shoud be
+      ! Where the time-dependent data shoud be
+      ! If time index is given, use it, if not, search brute-force
       !
-      stack => fu_closest_sm_met_src_time(miniMarketPtr, met_src, time, single_time, .false.) 
-                ! !not mandatory -- do not raise error at empty stack
-      IF (error) RETURN
-      IF (.NOT. associated(stack)) RETURN
+      if(idxTimeStack /= int_missing)then
+        if(met_src == met_src_missing) then ! Accept all sources
+          s = 1
+        else
+          s = fu_met_src_storage_index(miniMarketPtr, multi_time_stack_flag, met_src)
+        endif
+        stack => miniMarketPtr%stacks_multiTime(s, idxTimeStack)
+        if(.not. fu_valid_time(stack) == time)then
+          call set_error('Given time index:' + fu_str(idxTimeStack) + ', points at wrong stack time:' &
+                      &  + fu_str(fu_valid_time(stack)) + ', instead of:' + fu_str(time), &
+                      & 'fu_field_in_sm')
+          return
+        endif
+      else
+        stack => fu_closest_sm_met_src_time(miniMarketPtr, met_src, time, single_time, .false.) 
+      endif
       !
-      ! 4. Look for a windfield.
+      ! Not mandatory -- do not raise error at empty stack
       !
-      IF (quantity == wind_flag) THEN
- 
-        IF (look_for_3d) THEN
-
-          CALL find_wind_3d_from_stack(met_src,&
-                                     & time,&
-                                     & stack,&
-                                     & windfield_3d,&
-                                     & fu_field_in_sm)
-        ELSE
-          IF (.NOT.defined(level)) THEN
-            CALL set_error('please define level for wind 2D searching',&
-                         & 'fu_field_in_sm')
-            RETURN
-          END IF
-
-          id = fu_set_windfield_id_simple(quantity, met_src, time, level)
-          IF (error) RETURN
-
-          CALL find_wind_from_stack(stack, id, windfield, fu_field_in_sm)
-
-        END IF
-
-        RETURN
-      END IF ! Wind
+      IF (error .or. (.not.associated(stack))) RETURN
+      IF (.NOT. defined(stack)) RETURN
+      !
       !
       ! 5. Look for a scalar field.
       !
@@ -4249,12 +4438,9 @@ endif
         id = fu_set_field_id_simple(met_src, quantity, time, level)
         if(present(species)) call set_species(id, species)
         IF (error) RETURN
-
         CALL find_field_from_stack(stack, id, field, fu_field_in_sm)
-
       END IF
     endif  ! non-permanent
-
 
   END FUNCTION fu_field_in_sm
 
@@ -4344,79 +4530,6 @@ endif
   ! ***************************************************************
 
 
-  SUBROUTINE find_wind_from_hit_list(miniMarketPtr, field_id, field, found_in_hit_list)
-    !
-    ! Description:
-    ! 
-    ! Method:
-    ! 
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    TYPE(silja_field_id), INTENT(in) :: field_id
-    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
-
-    ! Imported parameters with intent out:
-    LOGICAL, INTENT(out) :: found_in_hit_list
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_windfield), POINTER :: field
-
-    ! Local declarations:
-    INTEGER :: i
-
-    found_in_hit_list = .false.
-
-    DO i = 1, SIZE(miniMarketPtr%wind_list)
-      IF (.NOT.ASSOCIATED(miniMarketPtr%wind_list(i)%fp)) EXIT
-      field => miniMarketPtr%wind_list(i)%fp
-      IF (field_id == fu_id(miniMarketPtr%wind_list(i)%fp)) THEN
-        found_in_hit_list = .true.
-        field => miniMarketPtr%wind_list(i)%fp
-        EXIT
-      END IF
-    END DO
-
-  END SUBROUTINE find_wind_from_hit_list
-
-
-  ! ***************************************************************
-
-
-  SUBROUTINE put_wind_to_hit_list(miniMarketPtr, field)
-
-    ! Description:
-    ! 
-    ! Method:
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_windfield), POINTER :: field
-    type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
-
-    ! Local declarations:
-    INTEGER :: i
-
-    ! The correct location in top_list:
-    miniMarketPtr%wind_list_pointer = miniMarketPtr%wind_list_pointer + 1
-    IF (miniMarketPtr%wind_list_pointer > SIZE(miniMarketPtr%wind_list)) miniMarketPtr%wind_list_pointer = 1
-
-    miniMarketPtr%wind_list(miniMarketPtr%wind_list_pointer)%fp => field
-
-
-  END SUBROUTINE put_wind_to_hit_list
-
-
-  ! ***************************************************************
-
-
   INTEGER FUNCTION fu_met_src_storage_index(miniMarketPtr, stack_type, met_src) result(i)
     ! 
     ! Returns the correct first index of the stack-matrix, that contains
@@ -4432,7 +4545,7 @@ endif
     type(mini_market_of_stacks), intent(in) :: miniMarketPtr
     integer, intent(in) :: stack_type
     ! Local variables
-    type(silja_stack), pointer :: stackPtr
+!    type(silja_stack), pointer :: stackPtr
     INTEGER :: j
 
     ! For time dependent stack
@@ -4442,15 +4555,17 @@ endif
       ! First look for exact match
       !
       DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 1)
-        stackPtr => miniMarketPtr%stacks_multiTime(i,1)%ptr
-        IF (fu_single_met_src_stack(stackPtr) .and. met_src == fu_met_src(stackPtr)) RETURN
+!        stackPtr => miniMarketPtr%stacks_multiTime(i,1)%ptr
+        IF (fu_single_met_src_stack(miniMarketPtr%stacks_multiTime(i,1)) &
+          & .and. met_src == fu_met_src(miniMarketPtr%stacks_multiTime(i,1))) RETURN
       END DO
      
       ! No match found. Look for multiple met_source stack or met_source missing stack
       !
       DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 1)
-        stackPtr => miniMarketPtr%stacks_multiTime(i,1)%ptr
-        IF ((.not. fu_single_met_src_stack(stackPtr)) .or. fu_met_src(stackPtr) == met_src_missing) RETURN
+!        stackPtr => miniMarketPtr%stacks_multiTime(i,1)%ptr
+        IF ((.not. fu_single_met_src_stack(miniMarketPtr%stacks_multiTime(i,1))) &
+            & .or. fu_met_src(miniMarketPtr%stacks_multiTime(i,1)) == met_src_missing) RETURN
       END DO
  
       ! Still not found - set error
@@ -4459,8 +4574,8 @@ endif
       call msg('Sources in the supermarket:')
       DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 1)
         do j =1, SIZE(miniMarketPtr%stacks_multiTime, 2)
-          stackPtr => miniMarketPtr%stacks_multiTime(i,j)%ptr
-        call msg(fu_name(fu_met_src(stackPtr))) 
+!          stackPtr => miniMarketPtr%stacks_multiTime(i,j)%ptr
+          call msg(fu_name(fu_met_src(miniMarketPtr%stacks_multiTime(i,j)))) 
         end do
       END DO
 
@@ -4475,15 +4590,17 @@ endif
 
       ! First look for exact match
       DO i = 1, SIZE(miniMarketPtr%stacks_singleTime)
-        stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
-        IF (fu_single_met_src_stack(stackPtr) .and. met_src == fu_met_src(stackPtr)) RETURN
+!        stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
+        IF (fu_single_met_src_stack(miniMarketPtr%stacks_singleTime(i)) &
+          & .and. met_src == fu_met_src(miniMarketPtr%stacks_singleTime(i))) RETURN
       END DO
 
       ! No match found. Look for multiple met_source stack or met_source missing stack
       !
       DO i = 1, SIZE(miniMarketPtr%stacks_singleTime)
-        stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
-        IF ((.not. fu_single_met_src_stack(stackPtr)) .or. fu_met_src(stackPtr) == met_src_missing) RETURN
+!        stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
+        IF ((.not. fu_single_met_src_stack(miniMarketPtr%stacks_singleTime(i))) &
+            & .or. fu_met_src(miniMarketPtr%stacks_singleTime(i)) == met_src_missing) RETURN
       END DO
  
       ! Still not found - set error
@@ -4491,8 +4608,8 @@ endif
       call msg('')
       call msg('Sources in the supermarket:')
       DO i = 1, SIZE(miniMarketPtr%stacks_singleTime)
-        stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
-        call msg(fu_name(fu_met_src(stackPtr))) 
+!        stackPtr => miniMarketPtr%stacks_singleTime(i)%ptr
+        call msg(fu_name(fu_met_src(miniMarketPtr%stacks_singleTime(i)))) 
       END DO
 
       CALL set_error('Below met_src is not in supermarket','fu_met_src_storage_index')
@@ -4529,7 +4646,7 @@ endif
 
     ! Local declarations:
     TYPE(silja_time) :: stack_valid
-    TYPE(silja_stack), POINTER :: stack
+!    TYPE(silja_stack), POINTER :: stack
     type(meteo_data_source) :: mds
 
     !
@@ -4537,8 +4654,8 @@ endif
     !
     DO t = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
 
-      stack => miniMarketPtr%stacks_multiTime(s, t)%ptr
-      stack_valid = fu_valid_time(stack)
+!      stack => miniMarketPtr%stacks_multiTime(s, t)%ptr
+      stack_valid = fu_valid_time(miniMarketPtr%stacks_multiTime(s, t))
       IF (error) RETURN
 
       ! Skip the empty stacks
@@ -4554,8 +4671,8 @@ endif
     !
     DO t = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
 
-      stack => miniMarketPtr%stacks_multiTime(s, t)%ptr
-      stack_valid = fu_valid_time(stack)
+!      stack => miniMarketPtr%stacks_multiTime(s, t)%ptr
+      stack_valid = fu_valid_time(miniMarketPtr%stacks_multiTime(s, t))
       IF (error) RETURN
 
       ! Empty one?
@@ -4571,17 +4688,18 @@ endif
     ELSE
       t = fu_latest_stack(miniMarketPtr, s)  ! adjoint run, the latest are to be overwritten
     END IF
-    stack => miniMarketPtr%stacks_multiTime(s, t)%ptr
+!    stack => miniMarketPtr%stacks_multiTime(s, t)%ptr
     IF (error) RETURN
-    call msg('Overwriting the stack with valid time:' + fu_str(fu_valid_time(stack)))
+    call msg('Overwriting the stack with valid time:' &
+           & + fu_str(fu_valid_time(miniMarketPtr%stacks_multiTime(s, t))))
     !
     ! Whle emptying the stack, may need to keep the MDS and restore it afterwards.
     !
-    if(ifPreserveMetSrcValue) mds = fu_met_src(miniMarketPtr%stacks_multiTime(s,t)%ptr)
+    if(ifPreserveMetSrcValue) mds = fu_met_src(miniMarketPtr%stacks_multiTime(s,t))
     
-    CALL set_stack_empty(miniMarketPtr%stacks_multiTime(s,t)%ptr)
+    CALL set_stack_empty(miniMarketPtr%stacks_multiTime(s,t)) !%ptr)
     
-    if(ifPreserveMetSrcValue) call set_met_src(miniMarketPtr%stacks_multiTime(s,t)%ptr, mds)
+    if(ifPreserveMetSrcValue) call set_met_src(miniMarketPtr%stacks_multiTime(s,t), mds)
 
   CONTAINS
 
@@ -4602,18 +4720,18 @@ endif
       ! Local declarations:
       TYPE(silja_time) :: earliest
       INTEGER :: i
-      TYPE(silja_stack), POINTER :: stack
+!      TYPE(silja_stack), POINTER :: stack
 
       ! Start value:
-      stack => miniMarketPtr%stacks_multiTime(s,1)%ptr
-      earliest = fu_valid_time(stack)
+!      stack => miniMarketPtr%stacks_multiTime(s,1)%ptr
+      earliest = fu_valid_time(miniMarketPtr%stacks_multiTime(s,1))
       fu_earliest_stack = 1
 
       DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
-        stack => miniMarketPtr%stacks_multiTime(s, i)%ptr
-        IF (.NOT.defined(stack)) CYCLE
-        IF (fu_valid_time(stack) < earliest) THEN
-          earliest = fu_valid_time(stack)
+!        stack => miniMarketPtr%stacks_multiTime(s, i)%ptr
+        IF (.NOT.defined(miniMarketPtr%stacks_multiTime(s, i))) CYCLE
+        IF (fu_valid_time(miniMarketPtr%stacks_multiTime(s, i)) < earliest) THEN
+          earliest = fu_valid_time(miniMarketPtr%stacks_multiTime(s, i))
           fu_earliest_stack = i
         END IF
         IF (error) RETURN
@@ -4637,18 +4755,18 @@ endif
       ! Local declarations:
       TYPE(silja_time) :: latest
       INTEGER :: i
-      TYPE(silja_stack), POINTER :: stack
+!      TYPE(silja_stack), POINTER :: stack
 
       ! Start value:
-      stack => miniMarketPtr%stacks_multiTime(s,1)%ptr
-      latest = fu_valid_time(stack)
+!      stack => miniMarketPtr%stacks_multiTime(s,1)%ptr
+      latest = fu_valid_time(miniMarketPtr%stacks_multiTime(s,1))
       fu_latest_stack = 1
 
       DO i = 1, SIZE(miniMarketPtr%stacks_multiTime, 2)
-        stack => miniMarketPtr%stacks_multiTime(s, i)%ptr
-        IF (.NOT.defined(stack)) CYCLE
-        IF (fu_valid_time(stack) > latest) THEN
-          latest = fu_valid_time(stack)
+!        stack => miniMarketPtr%stacks_multiTime(s, i)%ptr
+        IF (.NOT.defined(miniMarketPtr%stacks_multiTime(s, i))) CYCLE
+        IF (fu_valid_time(miniMarketPtr%stacks_multiTime(s, i)) > latest) THEN
+          latest = fu_valid_time(miniMarketPtr%stacks_multiTime(s, i))
           fu_latest_stack = i
         END IF
         IF (error) RETURN
@@ -4711,7 +4829,6 @@ endif
     INTEGER, DIMENSION(max_quantities) :: quantities
     TYPE(silja_field), POINTER :: field
     TYPE(silja_3d_field), POINTER :: field_3d
-    TYPE(silja_time) :: earliest_in_sm, latest_in_sm
     TYPE(silja_time) :: req_earliest, req_latest
 
     !-------------------------------------------------------------
@@ -4746,24 +4863,9 @@ endif
 
 !    IF (.NOT.ANY(met_srcs == met_src)) RETURN
 
-    quantities = fu_quantities(list_of_missing_stuff)
+    call all_quantities_from_list(list_of_missing_stuff, .false., quantities)
     IF (error) RETURN
 
-    !-------------------------------------------------------------
-    !
-    ! 3. Check for times in list that are missing in sm
-    !    -----------------------------------------------
-
-    !-------------------------------------------------------------
-    !
-    ! 3.1. Times that there is already data:
-
-    CALL supermarket_times(miniMarketPtr, met_src, sm_times, number_of_sm_times)
-    IF (error) RETURN
-    IF (number_of_sm_times == 0) RETURN
-
-    latest_in_sm = fu_latest_time(sm_times)
-    earliest_in_sm = fu_earliest_time(sm_times)
 
 
     !-------------------------------------------------------------
@@ -4775,8 +4877,7 @@ endif
 
     DO i = 1, SIZE(req_obstimes)
       IF (.NOT.defined(req_obstimes(i))) EXIT 
-      IF (.NOT.fu_between_times(req_obstimes(i), earliest_in_sm, &
-                              & latest_in_sm, .true.)) THEN
+      if (.not. fu_if_time_covered_by_maket(miniMarketPtr, req_obstimes(i))) then
         !Missing obstime found
         miss_count = miss_count + 1
         missing_obstimes(miss_count) = req_obstimes(i)
@@ -4816,8 +4917,7 @@ endif
                                 & level_missing,&
                                 & .true.,&
                                 & .false.)) THEN
-            call msg_warning(fu_connect_strings('missing multi-level quantity:', &
-                                              & fu_quantity_string(quantities(j))))
+            call msg_warning('missing multi-level quantity:' + fu_quantity_string(quantities(j)))
           END IF
         ENDIF
         IF (.NOT.fu_field_in_sm(miniMarketPtr, met_src,&
@@ -4826,8 +4926,7 @@ endif
                               & level_missing,& 
                               & .false.,&
                               & .false.)) THEN
-          call msg_warning(fu_connect_strings('missing single-level quantity:', &
-                                            & fu_quantity_string(quantities(j))))
+          call msg_warning('missing single-level quantity:' + fu_quantity_string(quantities(j)))
           RETURN
         END IF
 
@@ -4847,33 +4946,33 @@ endif
   ! ***************************************************************
 
 
-  SUBROUTINE check_bm_for_times_in_list(miniMarketPtr, list,&
+  SUBROUTINE check_bm_for_times_in_list(miniMarketPtr, shList,&
                                      & data_exists_already,&
                                      & missing_obstimes, &
                                      & observation_interval)
     ! Description:
-    ! Cheks if times required by the shopping list
+    ! Cheks if times required by the shopping shList
     ! are already stored in memory in the boundary market
     ! Returns a listwith missing obstimes.
     !
-    ! Also modifies the timelimits so, that the list contains enough
-    ! obstimes to cover whole timeperiod of given list. For this
+    ! Also modifies the timelimits so, that the shList contains enough
+    ! obstimes to cover whole timeperiod of given shList. For this
     ! we add the closest obstime from start-time backwards and closest
-    ! obstime from end-time forwards to the list. If either happens to be
+    ! obstime from end-time forwards to the shList. If either happens to be
     ! an obstime, then it is not modified.
     ! 
     ! Method:
     ! 1. If supermarket is empty, empty timelist is returned
     !
     ! 2. If observation times are found, that are required by the
-    ! shopping list, but are not in supermarket obs.times, then
-    ! a list is formed containing the missing times
+    ! shopping shList, but are not in supermarket obs.times, then
+    ! a shList is formed containing the missing times
 
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    type(mini_market_of_stacks), intent(inout) :: miniMarketPtr
-    type(silja_shopping_list), intent(inout), target :: list
+    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
+    type(silja_shopping_list), intent(inout), target :: shList
     ! Imported parameters with intent(out):
     LOGICAL, INTENT(out) :: data_exists_already
     TYPE(silja_time), DIMENSION(:), INTENT(out) :: missing_obstimes
@@ -4882,7 +4981,6 @@ endif
     ! Local declarations:
     TYPE(silja_time), DIMENSION(max_times) :: req_obstimes, sm_times
     INTEGER :: i,j, miss_count, number_of_sm_times
-    TYPE(silja_time) :: earliest_in_sm, latest_in_sm
     TYPE(silja_time) :: req_earliest, req_latest
     type(silja_shopping_list), pointer :: listPtr
 
@@ -4890,10 +4988,10 @@ endif
     !
     ! 1. Basic checks
     !
-    listPtr => list
+    listPtr => shList
 
-    if(.not. defined(list))then
-     call set_error('Boundary shopping list not defined','check_bm_for_times_in_list')
+    if(.not. defined(shList))then
+     call set_error('Boundary shopping shList not defined','check_bm_for_times_in_list')
      return
     endif
 
@@ -4911,28 +5009,28 @@ endif
     !    -----------------
 
     req_obstimes(:)=time_missing
-    if(fu_list_time_indicator(list)==accept_same_month)then
+    if(fu_list_time_indicator(shList)==accept_same_month)then
       
-      if(fu_day(fu_start_time(list))<16)then
-        i = fu_mon(fu_start_time(list))-1
-        j = fu_year(fu_start_time(list))
+      if(fu_day(fu_start_time(shList))<16)then
+        i = fu_mon(fu_start_time(shList))-1
+        j = fu_year(fu_start_time(shList))
         if(i == 0)then
           i = 12
           j = j-1
         endif
       else
-        i = fu_mon(fu_start_time(list))
-        j = fu_year(fu_start_time(list))
+        i = fu_mon(fu_start_time(shList))
+        j = fu_year(fu_start_time(shList))
       endif
 
       req_earliest = fu_set_time_utc(j, i, 16, 0, 0, 0.0)
 
-      if(fu_day(fu_end_time(list))<16)then
-        i = fu_mon(fu_start_time(list))
-        j = fu_year(fu_start_time(list))
+      if(fu_day(fu_end_time(shList))<16)then
+        i = fu_mon(fu_start_time(shList))
+        j = fu_year(fu_start_time(shList))
       else
-        i = fu_mon(fu_start_time(list))+1
-        j = fu_year(fu_start_time(list))
+        i = fu_mon(fu_start_time(shList))+1
+        j = fu_year(fu_start_time(shList))
         if(i == 13)then
           i = 1
           j = j+1
@@ -4949,8 +5047,8 @@ endif
 
     else
 
-      req_earliest = fu_closest_obstime(fu_start_time(list), backwards, observation_interval)
-      req_latest = fu_closest_obstime(fu_end_time(list), forwards, observation_interval)
+      req_earliest = fu_closest_obstime(fu_start_time(shList), backwards, observation_interval)
+      req_latest = fu_closest_obstime(fu_end_time(shList), forwards, observation_interval)
       IF (error) RETURN
   
       CALL fix_shopping_time_boundaries(listPtr, req_earliest, req_latest)
@@ -4960,25 +5058,6 @@ endif
 
     endif
 
-    missing_obstimes = req_obstimes ! set all missing first
-
-    !-------------------------------------------------------------
-    !
-    ! 3. Check for times in list that are missing in sm
-    !    -----------------------------------------------
-
-    !-------------------------------------------------------------
-    !
-    ! 3.1. Times that there is already data:
-    IF (miniMarketPtr%minimarket_empty)return
-    CALL supermarket_times(miniMarketPtr, met_src_missing, sm_times, number_of_sm_times)
-    IF (error) RETURN
-    IF (number_of_sm_times == 0) RETURN
-
-    latest_in_sm = fu_latest_time(sm_times)
-    earliest_in_sm = fu_earliest_time(sm_times)
-
-
     !-------------------------------------------------------------
     !
     ! 3.2. Find which req_obstimes are not within sm-timelimts
@@ -4987,13 +5066,11 @@ endif
     miss_count = 0
 
     DO i = 1, SIZE(req_obstimes)
-      IF (.NOT.defined(req_obstimes(i))) EXIT 
-      IF (.NOT.fu_between_times(req_obstimes(i), earliest_in_sm, &
-                              & latest_in_sm, .true.)) THEN
-        !Missing obstime found
-        miss_count = miss_count + 1
-        missing_obstimes(miss_count) = req_obstimes(i)
-      END IF
+      IF (.NOT.defined(req_obstimes(i))) EXIT
+      if ( fu_if_time_covered_by_maket(miniMarketPtr, req_obstimes(i))) cycle
+      !Missing obstime found
+      miss_count = miss_count + 1
+      missing_obstimes(miss_count) = req_obstimes(i)
     END DO
 
     !-------------------------------------------------------------
@@ -5026,15 +5103,15 @@ endif
 
     ! Local declarations:
     INTEGER :: s,t
-    TYPE(silja_stack), POINTER :: stack
+!    TYPE(silja_stack), POINTER :: stack
 
     miniMarketPtr%obstimes(:,:) = time_missing
 
     DO s = 1, SIZE(miniMarketPtr%stacks_multiTime,1)
       DO t = 1, SIZE(miniMarketPtr%stacks_multiTime,2)
-        stack => miniMarketPtr%stacks_multiTime(s,t)%ptr
-        IF (.NOT.defined(stack)) EXIT
-        miniMarketPtr%obstimes(s,t) = fu_valid_time(stack)
+!        stack => miniMarketPtr%stacks_multiTime(s,t)%ptr
+        IF (.NOT.defined(miniMarketPtr%stacks_multiTime(s,t))) EXIT
+        miniMarketPtr%obstimes(s,t) = fu_valid_time(miniMarketPtr%stacks_multiTime(s,t))
       END DO
     END DO
 
@@ -5074,7 +5151,7 @@ endif
 
 
   FUNCTION fu_closest_sm_met_src_time(miniMarketPtr, met_src, time, direction, ifMandatory) &
-                        & result(stack)
+                                    & result(stack)
     !
     ! Returns a pointer to the stack of the correct met_src and
     ! closest observation time found in supermarket. Used in retrieving
@@ -5087,7 +5164,7 @@ endif
     TYPE(silja_stack), POINTER :: stack
 
     ! Imported parameters with intent(in):
-    type(mini_market_of_stacks), intent(in) :: miniMarketPtr
+    type(mini_market_of_stacks), target, intent(in) :: miniMarketPtr
     TYPE(silja_time), INTENT(in) :: time
     INTEGER, INTENT(in) :: direction
     type(meteo_data_source), intent(in) :: met_src
@@ -5111,10 +5188,9 @@ endif
       endif
 
       IF (error) return
-      stack => miniMarketPtr%stacks_singleTime(s)%ptr
+      stack => miniMarketPtr%stacks_singleTime(s)  !%ptr
       RETURN
     END IF
-
 
     !-------------------------------------------------------------
     !
@@ -5145,9 +5221,9 @@ endif
       t = fu_closest_time(time, miniMarketPtr%obstimes(s,:), direction)
     endif
 
-    IF (error.or.(t==0)) return
+    IF (error .or. (t==0)) return
 
-    stack => miniMarketPtr%stacks_multiTime(s,t)%ptr
+    stack => miniMarketPtr%stacks_multiTime(s,t) !%ptr
 
   END FUNCTION fu_closest_sm_met_src_time
 
@@ -5160,7 +5236,7 @@ endif
     !
     implicit none
 
-    type(mini_market_of_stacks), intent(in) :: miniMarket
+    type(mini_market_of_stacks), target, intent(in) :: miniMarket
     integer, intent(in) :: indSrc
     integer, intent(in), optional :: indTime
 
@@ -5177,7 +5253,7 @@ endif
       if(miniMarket%stack_multiTime_initialized)then
         if(indTime > 0 .and. indTime <= size(miniMarket%stacks_multiTime,2))then
           if(indSrc > 0 .and. indSrc <= size(miniMarket%stacks_multiTime,1))then
-            stack => miniMarket%stacks_multiTime(indSrc,indTime)%ptr
+            stack => miniMarket%stacks_multiTime(indSrc,indTime) !%ptr
           else
             call msg('Source dimension is strange:',indSrc)
             call set_error('Source dimension is strange for miniMarket:' + miniMarket%name, &
@@ -5203,7 +5279,7 @@ endif
       !
       if(miniMarket%stack_singleTime_initialized)then
         if(indSrc > 0 .and. indSrc <= size(miniMarket%stacks_singleTime))then
-          stack => miniMarket%stacks_singleTime(indSrc)%ptr
+          stack => miniMarket%stacks_singleTime(indSrc)  !%ptr
          else
             call msg('Source dimension is strange:',indSrc)
             call set_error('Source dimension is strange for miniMarket:' + miniMarket%name , &
@@ -5251,8 +5327,8 @@ endif
     
     if(stack_type == multi_time_stack_flag)then
       DO t = 1, SIZE(miniMarket%stacks_multiTime, 2)
-        IF (.NOT.defined(fu_valid_time(miniMarket%stacks_multiTime(s, t)%ptr))) cycle
-        IF (time == fu_valid_time(miniMarket%stacks_multiTime(s, t)%ptr))then
+        IF (.NOT.defined(fu_valid_time(miniMarket%stacks_multiTime(s, t)))) cycle
+        IF (time == fu_valid_time(miniMarket%stacks_multiTime(s, t)))then
           stack => fu_stack_by_indices(miniMarket, s, t)
           return
         endif
@@ -5277,11 +5353,11 @@ endif
     call msg('Checking the validity of ranges in minimarket:' + mm%name)
 
     do iTmp = 1, size(mm%stacks_singleTime)
-      call check_stack_fields_ranges(mm%stacks_singleTime(iTmp)%ptr)
+      call check_stack_fields_ranges(mm%stacks_singleTime(iTmp))
     end do
     DO jTmp = 1, SIZE(mm%stacks_multiTime, 2)
       DO iTmp = 1, SIZE(mm%stacks_multiTime, 1)
-        call check_stack_fields_ranges(mm%stacks_multiTime(iTmp,jTmp)%ptr)
+        call check_stack_fields_ranges(mm%stacks_multiTime(iTmp,jTmp))
       end do
     end do
     
@@ -5307,7 +5383,7 @@ endif
   ! ***************************************************************
   ! ***************************************************************
 
-  SUBROUTINE print_supermarket_contents(miniMarketPtr)
+  SUBROUTINE print_supermarket_contents(miniMarketPtr, ifDetailed_)
 
     ! Description:
     ! Print info about the contents of the meteorological fields
@@ -5315,13 +5391,21 @@ endif
     !
     IMPLICIT NONE
     type(mini_market_of_stacks), intent(in) :: miniMarketPtr
+    logical, intent(in), optional :: ifDetailed_
+
     ! Local declarations:
-    INTEGER :: s,t
-    TYPE(silja_stack), POINTER :: stack
+    INTEGER :: s,t, nTimes, nSources
+    logical :: ifDetailed
 
     IF (error) RETURN
+    if(present(ifDetailed_))then
+      ifDetailed = ifDetailed_
+    else
+      ifDetailed = .false.
+    endif
 
-    IF (.NOT. (miniMarketPtr%stack_multiTime_initialized .or. miniMarketPtr%stack_singleTime_initialized)) THEN
+    IF (.NOT. (miniMarketPtr%stack_multiTime_initialized &
+        & .or. miniMarketPtr%stack_singleTime_initialized)) THEN
       call msg(' Supermarket untouched')
       RETURN
     END IF
@@ -5331,33 +5415,38 @@ endif
       RETURN
     END IF
 
-    if (associated(miniMarketPtr%stacks_multiTime)) then
-            DO s = 1, SIZE(miniMarketPtr%stacks_multiTime,1)
-              call msg(' Here is source number ', s, SIZE(miniMarketPtr%stacks_multiTime,1))
-              DO t = 1, SIZE(miniMarketPtr%stacks_multiTime,2)
-                call msg(' Here is time slot number ', t, SIZE(miniMarketPtr%stacks_multiTime,2))
-                stack => miniMarketPtr%stacks_multiTime(s,t)%ptr
-                IF (.NOT.defined(stack)) then
-                  call msg('Undefined stack')
-                  cycle
-                endif
-                IF (fu_stack_empty(stack)) then
-                  call msg('Empty stack')
-                  CYCLE
-                endif
-                CALL report(stack)
-              END DO
-            END DO
+    if (allocated(miniMarketPtr%stacks_multiTime)) then
+      if(ifDetailed)then
+        nSources = SIZE(miniMarketPtr%stacks_multiTime,1)
+        nTimes = SIZE(miniMarketPtr%stacks_multiTime,2)
+      else
+        nSources = 1
+        nTimes = 1
+      endif
+      DO s = 1, nSources
+        call msg('Source number ', s, SIZE(miniMarketPtr%stacks_multiTime,1))
+        DO t = 1, nTimes
+          call msg('Time slot number ', t, SIZE(miniMarketPtr%stacks_multiTime,2))
+          IF (.NOT.defined(miniMarketPtr%stacks_multiTime(s,t))) then
+            if(ifDetailed) call msg('Undefined stack')
+            cycle
+          endif
+          IF (fu_stack_empty(miniMarketPtr%stacks_multiTime(s,t))) then
+            if(ifDetailed) call msg('Empty stack')
+            CYCLE
+          endif
+          CALL report(miniMarketPtr%stacks_multiTime(s,t), .not. ifDetailed)
+        END DO
+      END DO  ! size of minimarket time dim
     endif
 
-    if (associated(miniMarketPtr%stacks_singleTime)) then
+    if (allocated(miniMarketPtr%stacks_singleTime)) then
       DO s = 1, SIZE(miniMarketPtr%stacks_singleTime,1)
-        call msg(' Here is source number in single-time stacks: ', s)
-        stack => miniMarketPtr%stacks_singleTime(s)%ptr
-        IF (fu_stack_empty(stack)) then
-          call msg('Permanent stack empty')
+        call msg('Source number in single-time stacks: ', s)
+        IF (fu_stack_empty(miniMarketPtr%stacks_singleTime(s))) then
+          call msg('Single-time stack empty')
         else
-          CALL report(stack)
+          CALL report(miniMarketPtr%stacks_singleTime(s), .not. ifDetailed)
         endif
       enddo
     endif
@@ -5398,12 +5487,9 @@ endif
                                & 50,& ! we assume: max 1 timenode per file
                                & 800,& ! for each timenode
                                & 100,& ! for each timenode
-                               & 100,& ! for each timenode
-                               & 50,& ! for each timenode
                                & .true.,&
                                & wdrar, & 
-                               &.true.,&
-                               & .true.)
+                               &.true.)
     IF (error) RETURN
 
     list = fu_set_shopping_list (met_src_missing, &
@@ -5424,17 +5510,17 @@ endif
                                  & ground_pressure_flag,&
                                  & msl_pressure_flag,&
                                  & cloud_water_flag,&
-                                 & total_precipitation_rate_flag /),&
+                                 & total_precipitation_int_flag /),&
                                  & time_missing,&
                                  & time_missing,&
                                  & level_missing,&
                                  & level_missing)
     IF (error) RETURN
 
-    CALL arrange_supermarket(miniMarketPtr)
+    CALL arrange_supermarket(miniMarketPtr, .true., .true.)
 
     call msg('data now for following times:')
-    CALL supermarket_times(miniMarketPtr, met_src, times, nt)
+    CALL supermarket_times(miniMarketPtr, met_src, times, nt, .true.)
     DO i = 1, nt
       call msg(fu_str(times(i)))
     END DO
@@ -5469,7 +5555,7 @@ endif
     integer::i,j
     call msg('')
     call msg('############### REPORTING GRID OF STACK ################')
-    call report(fu_storage_grid(fu_wdr(miniMarketPtr%stacks_multiTime(i, j)%ptr)))
+    call report(fu_storage_grid(fu_wdr(miniMarketPtr%stacks_multiTime(i, j))))
     call msg('')
   end subroutine check_grid
 
@@ -5492,7 +5578,7 @@ endif
       type(silja_grid) :: fieldGrid
       character(len=*), parameter :: sub_name = 'init_singletime_fields'
       integer :: fs_grid, iLev, shopQ, iVarLst, ind_grid
-     
+      call msg('Initialising single-time fields in:' + MarketPtr%name)
       do iVarLst = 1, fu_nbr_of_quantities(qList)
         shopQ = fu_quantity(qList,iVarLst)
         if (shopQ < 0) exit
@@ -5560,7 +5646,7 @@ endif
         
       enddo  !  Var list
 
-      call arrange_supermarket(MarketPtr)
+      call arrange_supermarket(MarketPtr, .true., .true.)
       if(error)return
   end subroutine init_singletime_fields
 

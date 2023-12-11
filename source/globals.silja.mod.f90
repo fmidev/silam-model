@@ -64,16 +64,12 @@ MODULE globals
   PUBLIC msg
   PUBLIC msg_test
   PUBLIC fu_connect_strings
-  private fu_connect_strings_old
-  public fu_connect_with_space
   public fu_index_non_delim
   public fu_str
   public ooops
   PUBLIC fu_name
-  PUBLIC crash
-  public i_check
-  public increase_print_count
   PUBLIC smpi_is_mpi_version
+  public report_vectorstat
 
 
   PRIVATE fu_compare_logicals_eq ! interface ==
@@ -261,8 +257,9 @@ MODULE globals
   !
   !        LOG FILE UNITS
   !
-  integer, public, save :: info_funit = int_missing, run_log_funit = 6 !! Should not acuse erro on write
-  character(len=max_path_length), public, save :: run_log_name='',  run_log_tmp_name=''
+  integer, public, save :: info_funit = int_missing, run_log_funit = int_missing
+  character(len=fnlen), public, save :: run_log_name='',  run_log_tmp_name=''
+  character(len=fnlen), public, save :: proc_ID_string = '' !! Set in silam_main, unique for the MPI process
 
   logical, public, save :: ifPrintDump = .false.
 
@@ -627,6 +624,11 @@ MODULE globals
 
   !****************************END of MPI stuff
 
+  !**********************Cinversion between concentrations mixing ratios and masses
+  integer, public, parameter :: cloud_metric_geometry_flag = 190011       !! Use geometric cell size to convert mass to cnc/mixing_ratio
+  integer, public, parameter :: cloud_metric_cellmass_flag = 190012       !! Use air mass in the cell -- acounts for compressibility
+  integer, public, parameter :: cloud_metric_ones_flag = 190013        !! Use ones tracer -- accounts for compressibility and
+                                                                       !!  advection artifacts
 
   ! Global error status variable is set here
   LOGICAL, SAVE, PUBLIC :: error
@@ -904,9 +906,10 @@ CONTAINS
     !$OMP END CRITICAL (globals_io)
     call flush(run_log_funit)
 #ifdef VS2012
+    !$OMP CRITICAL(globals_error)
     call tracebackqq(user_exit_code=-1)
-#endif
-#if defined(__GFORTRAN__) &&  (__GNUC__ > 4 || __GNUC__ == 4 &&  __GNUC_MINOR__ > 7)
+    !$OMP END CRITICAL(globals_error)
+#elif defined(__GFORTRAN__) &&  (__GNUC__ > 4 || __GNUC__ == 4 &&  __GNUC_MINOR__ > 7)
     ! gfortran must be at least 4.8 for this
     !$OMP CRITICAL(globals_error)
     if(error_counter < 20 .and. fresh_error)then      ! due to Cray GNU bug, backtrace leaks ~40 MB of memory per call
@@ -946,7 +949,6 @@ CONTAINS
 
   ! ****************************************************************
 
-
   SUBROUTINE unset_error(place)
 
     ! Unsets an error in case if the calling routine decides that the
@@ -960,20 +962,31 @@ CONTAINS
 
     ! Imported parameters with intent(in): 
     CHARACTER (LEN=*), OPTIONAL, INTENT(in) :: place
-    
+    character (len=fnlen) :: msg
+
     !$OMP CRITICAL(globals_io)
+    if (smpi_adv_tasks == 1) then
+       msg = 'Unsetting error' 
+    else
+       msg = 'MPI: NOT Unsetting error' 
+    endif
+
     IF (PRESENT(place)) THEN
-      IF (smpi_global_rank == 0) PRINT *, ' Unsetting error by:', TRIM(place)
-      write(run_log_funit,*)' Unsetting error by:', TRIM(place)
-    ELSE
-      IF (smpi_global_rank == 0) PRINT *, ' Unsetting error.'
-      write(run_log_funit,*)' Unsetting error.'
-    END IF
+      msg = trim(msg) // ' by: '//TRIM(place)
+    else
+      msg = trim(msg) // '.'
+    endif
+
+    IF (smpi_global_rank == 0) PRINT *,  TRIM(msg)
+    write(run_log_funit,*) TRIM(msg)
+
     !$OMP END CRITICAL(globals_io)
-    
+   
+    if (smpi_adv_tasks == 1) then
     !$OMP CRITICAL(globals_error)
     error = .false.
     !$OMP END CRITICAL (globals_error)
+     endif
 
   END SUBROUTINE unset_error
 
@@ -1021,9 +1034,15 @@ CONTAINS
      IMPLICIT NONE
      CHARACTER (LEN=*), intent(in) :: message
      
-#if defined(__GFORTRAN__) &&  (__GNUC__ > 4 || __GNUC__ == 4 &&  __GNUC_MINOR__ > 7)
+#ifdef VS2012
+    !$OMP CRITICAL(globals_error)
+    call tracebackqq(user_exit_code=-1)
+    !$OMP END CRITICAL(globals_error)
+#elif defined(__GFORTRAN__) &&  (__GNUC__ > 4 || __GNUC__ == 4 &&  __GNUC_MINOR__ > 7)
     ! gfortran must be at least 4.8 for this
+    !$OMP CRITICAL(globals_error)
     call backtrace()
+    !$OMP END CRITICAL(globals_error)
 #else
     call msg('(backtrace() not available in this compiler)')
 #endif
@@ -1674,82 +1693,31 @@ CONTAINS
       if(index(chDelimiters, strIn(fu_index_non_delim:fu_index_non_delim)) == 0) return
     end do
   end function fu_index_non_delim
+
+
+
+   !*******************************************************
   
-  
-  
-  ! ***************************************************************
+  subroutine report_vectorstat(str,arr, n)
+      implicit none
+      character(len = *) :: str
+      real, dimension(:), intent(in) :: arr
+      integer, intent(in) :: n
+      character(len = fnlen) :: chTmp
+      character(len = *), parameter :: sub_name = 'report_vectorstat'
 
-  FUNCTION fu_connect_strings_old(str1, str2, str3, str4, str5, str6) result(connected)
+      if (n > 0) then
+        write (chTmp, *) trim(str), ': len=', n, ' min=', minval(arr(1:n)),  ' max=', maxval(arr(1:n)), &
+            &' mean=', sum(arr(1:n))/n, ' norm=',  sum(arr(1:n)**2)/n
+       elseif (n == 0) then
+         write (chTmp, *) trim(str), "len= 0"
+       else
+         call set_error("Strange vector length n="//trim(fu_str(n)), sub_name)
+         return
+       endif
+       call msg(chTmp)
 
-    ! Description:
-    ! Connects character strings and returns them in one. The strings
-    ! 3, 4 and 5 are optional.
-    ! Trick. Digital debugger does not like the following sequence:
-    ! write(...) TRIM(ADJUSTL(str)),TRIM(ADJUSTL(str)),TRIM(ADJUSTL(str))
-    ! It leads to an immediate crush of debugger. So, a compromise
-    ! solution is applied below.
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    CHARACTER (LEN=worksize_string) :: connected
-
-    ! Imported parameters with intent(in):
-    CHARACTER (LEN=*), INTENT(in) :: str1, str2
-    CHARACTER (LEN=*), INTENT(in), OPTIONAL :: str3, str4, str5, str6
-
-    ! Local declarations:
-    LOGICAL :: present3, present4, present5, present6
-    CHARACTER (LEN=worksize_string) :: strTmp1, strTmp2, strTmp3, strTmp4, strTmp5, strTmp6
-    integer :: iStat
-
-    present3 = PRESENT(str3)
-    present4 = PRESENT(str4) 
-    present5 = PRESENT(str5) 
-    present6 = PRESENT(str6) 
-
-    strTmp1 = ADJUSTL(str1)
-    strTmp2 = ADJUSTL(str2)
-
-    IF (present6) THEN
-      strTmp3 = ADJUSTL(str3)
-      strTmp4 = ADJUSTL(str4)
-      strTmp5 = ADJUSTL(str5)
-      strTmp6 = ADJUSTL(str6)
-      WRITE(connected, fmt='(6A)',iostat=iStat)&
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3),TRIM(strTmp4),TRIM(strTmp5),TRIM(strTmp6)
-    ELSEIF (present5) THEN
-      strTmp3 = ADJUSTL(str3)
-      strTmp4 = ADJUSTL(str4)
-      strTmp5 = ADJUSTL(str5)
-      WRITE(connected, fmt='(5A)',iostat=iStat)&
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3),TRIM(strTmp4),TRIM(strTmp5)
-    ELSEIF (present4) THEN
-      strTmp3 = ADJUSTL(str3)
-      strTmp4 = ADJUSTL(str4)
-      WRITE(connected, fmt='(4A)',iostat=iStat)&
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3),TRIM(strTmp4)
-    ELSEIF (present3) THEN
-      strTmp3 = ADJUSTL(str3)
-      WRITE(connected, fmt='(3A)',iostat=iStat) &
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3)
-    ELSE
-      WRITE(connected, fmt='(2A)',iostat=iStat) TRIM(strTmp1),TRIM(strTmp2)
-    END IF
-    if(iStat /= 0)then
-      call set_error('Failed to connect the below strings','fu_connect_strings')
-      call msg(strTmp1)
-      call msg(strTmp2)
-      if(present3)call msg(strTmp3)
-      if(present4)call msg(strTmp4)
-      if(present5)call msg(strTmp5)
-      if(present6)call msg(strTmp6)
-    endif
-    
-  END FUNCTION fu_connect_strings_old
-
+  end subroutine report_vectorstat
 
   !******************************************************************
 
@@ -1773,79 +1741,6 @@ CONTAINS
   
   !*****************************************************************************
 
-  FUNCTION fu_connect_with_space(str1, str2, str3, str4, str5, str6) result(connected)
-
-    ! Description:
-    ! Connects character strings inserting space between them and returns them in one. The strings
-    ! 3, 4 and 5 are optional.
-    ! Trick. Digital debugger does not like the following sequence:
-    ! write(...) TRIM(ADJUSTL(str)),TRIM(ADJUSTL(str)),TRIM(ADJUSTL(str))
-    ! It leads to an immediate crush of debugger. So, a compromise
-    ! solution is applied below.
-    !
-    ! Author: Mikhail Sofiev, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    CHARACTER (LEN=worksize_string) :: connected
-
-    ! Imported parameters with intent(in):
-    CHARACTER (LEN=*), INTENT(in) :: str1, str2
-    CHARACTER (LEN=*), INTENT(in), OPTIONAL :: str3, str4, str5, str6
-
-    ! Local declarations:
-    LOGICAL :: present3, present4, present5, present6
-    CHARACTER (LEN=worksize_string) :: strTmp1, strTmp2, strTmp3, strTmp4, strTmp5, strTmp6
-    integer :: iStat
-
-    present3 = PRESENT(str3)
-    present4 = PRESENT(str4) 
-    present5 = PRESENT(str5) 
-    present6 = PRESENT(str6) 
-
-    strTmp1 = ADJUSTL(str1)
-    strTmp2 = ADJUSTL(str2)
-
-    IF (present6) THEN
-      strTmp3 = ADJUSTL(str3)
-      strTmp4 = ADJUSTL(str4)
-      strTmp5 = ADJUSTL(str5)
-      strTmp6 = ADJUSTL(str6)
-      WRITE(connected, fmt='(6(A,1x))',iostat=iStat)&
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3),TRIM(strTmp4),TRIM(strTmp5),TRIM(strTmp6)
-    ELSEIF (present5) THEN
-      strTmp3 = ADJUSTL(str3)
-      strTmp4 = ADJUSTL(str4)
-      strTmp5 = ADJUSTL(str5)
-      WRITE(connected, fmt='(5(A,1x))',iostat=iStat)&
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3),TRIM(strTmp4),TRIM(strTmp5)
-    ELSEIF (present4) THEN
-      strTmp3 = ADJUSTL(str3)
-      strTmp4 = ADJUSTL(str4)
-      WRITE(connected, fmt='(4(A,1x))',iostat=iStat)&
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3),TRIM(strTmp4)
-    ELSEIF (present3) THEN
-      strTmp3 = ADJUSTL(str3)
-      WRITE(connected, fmt='(3(A,1x))',iostat=iStat) &
-          & TRIM(strTmp1),TRIM(strTmp2),TRIM(strTmp3)
-    ELSE
-      WRITE(connected, fmt='(2(A,1x))',iostat=iStat) TRIM(strTmp1),TRIM(strTmp2)
-    END IF
-    if(iStat /= 0)then
-      call set_error('Failed to connect the below strings','fu_connect_with_space')
-      call msg(strTmp1)
-      call msg(strTmp2)
-      if(present3)call msg(strTmp3)
-      if(present4)call msg(strTmp4)
-      if(present5)call msg(strTmp5)
-      if(present6)call msg(strTmp6)
-    endif
-    
-  END FUNCTION fu_connect_with_space
-  
-  
-  ! ****************************************************************
 
   FUNCTION fu_int2str(int, iLengthRequested, ifForce) result(str)
     !
@@ -1960,6 +1855,8 @@ CONTAINS
     ! for instance.
     ! ATTENTION. 
     ! Not all switches are included below. It is up to everyone to keep that list populated
+    !
+    !  OBS: constants are hard-coded here. They might or might not match the parameter definitions...
     ! 
     IMPLICIT NONE
     !
@@ -2178,60 +2075,6 @@ CONTAINS
     !endif
 
   END FUNCTION fu_name_of_integer
-
-
-
-  ! ***************************************************************
-
-
-  SUBROUTINE crash()
-    !
-    ! Description:
-    ! Aborts the program by producing a sure error and core dump.
-    !
-    ! Method:
-    ! Divide by zero.
-
-    REAL :: a = 0.
-    REAL :: b = 1.  
-    CALL msg_warning('aborting with a big crash...')
-    PRINT *, b/a
-    
-  END SUBROUTINE crash
-
-
-  ! ***************************************************************
-
-
-  SUBROUTINE i_check (value, minimum, maximum, name)  ! integer checker
-
-    INTEGER, INTENT (in) :: value, minimum, maximum
-    CHARACTER (LEN = 10), INTENT (in) :: name
-
-    IF (value < minimum .or. value > maximum) THEN
-
-      IF (print_count < max_print_count) &
-        PRINT*, 'Check: CAUTION: ', name, ' may be out of range (value = ', &
-          value, ' )'
-      CALL increase_print_count
-
-    END IF
-
-  END SUBROUTINE i_check
-
-
-  ! ***************************************************************
-
-
-  SUBROUTINE increase_print_count
-
-    IF (print_count == max_print_count .and. max_print_count /= 0)  PRINT*, &
-      'Printing of messages was suppressed after', max_print_count, 'messages.'
-
-    print_count = print_count + 1
-
-  END SUBROUTINE increase_print_count
-
 
   ! **********************************************************************************
 

@@ -71,7 +71,7 @@ MODULE cocktail_basic
   private report_mass_map
   private fu_mass_map_defined  
 
-  private fu_index_in_meteo_input
+  public fu_index_in_meteo_input
 
   ! Interface part
   !
@@ -86,10 +86,6 @@ MODULE cocktail_basic
   interface fu_quantity
      module procedure fu_quantity_of_mass_map
   end interface
-
-!  interface fu_index
-!    module procedure fu_index_in_meteo_input
-!  end interface
 
   interface defined
      module procedure fu_mass_map_defined

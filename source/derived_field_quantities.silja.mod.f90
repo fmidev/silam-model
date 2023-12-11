@@ -25,6 +25,7 @@ MODULE derived_field_quantities
 
   ! The public functions and subroutines available in this module:
 !  PUBLIC quantities_for_derived !FIXME: not single-time clean
+  public fu_rate_quantity_for_acc   ! quick specific wrap-up from quantities_for_derived_one
   public quantities_for_derived_one
   public check_input_quantity
   public set_deriving_way
@@ -34,75 +35,26 @@ MODULE derived_field_quantities
   ! The private functions and subroutines not to be used elsewhere:
   private dq_surface_roughness
   private dq_surface_pressure
-  PRIVATE dq_windspeed
   PRIVATE dq_layer_thickness
   PRIVATE dq_average_between_obstimes
   PRIVATE dq_height_from_z
   PRIVATE dq_height_from_t
   PRIVATE dq_rh_from_spechum
-  PRIVATE dq_mean_vertically_from_bottom
   private dq_ground_pressure
   private dq_total_precipitation
-  private dq_total_prec_rate
   private dq_ground_pr_from_msl_pr
   private dq_windspeed_10m
   private dq_3d_pressure
   private dq_rh_from_spechum_2m
   private dq_spechum_2m_from_dewp_2m
-  private dq_total_precipitation_ls
-  private dq_total_prec_rate_ls
   private dq_tests
 
 
-CONTAINS
+  CONTAINS
 
-
-!       
-!  ! ***************************************************************
-!WARNINRG!!!  not single-time clean
-!  SUBROUTINE quantities_for_derived (quantities, q_st, wdr) !, ifPP)
-!  !
-!  ! Takes the list of quantites. If it contains derived ones, whose
-!  ! computing requires some other ones - it adds them.
-!  !
-!  IMPLICIT NONE
-!
-!  ! Imported with intent IN
-!  type(silja_wdr), intent(in) :: wdr
-!
-!  ! Imported with intent inout
-!  INTEGER, DIMENSION(:), INTENT(inout) :: quantities, q_st
-!
-!  ! Local stuff
-!  INTEGER iTmp, iCount
-!  integer, dimension(max_Q_4_derived) :: list, list_st
-!
-!  iCount=1
-!
-!  if(all(quantities == int_missing))then
-!    call set_error('No quantities given','quantities_for_derived')
-!    return
-!  end if
-!
-!  ! A trick: any added quantity may be a derived one, so it must be a 
-!  ! multi-pass cycle
-!
-!  DO WHILE (iCount > 0) ! Counter of added quantities
-!!    print *, iCount
-!    DO iTmp=1,SIZE(quantities)
-!!      print *, iCount, iTmp
-!      IF(quantities(iTmp) == int_missing) EXIT
-!      call quantities_for_derived_one(quantities(iTmp), list, list_st, wdr)
-!      iCount = max(fu_merge_int_arrays(list, quantities, .true.), &
-!                 & fu_merge_int_arrays(list_st, q_st, .true.))
-!!      print *, iCount
-!    END DO
-!  END DO
-!
-!  END SUBROUTINE quantities_for_derived
-!
 
   !*************************************************************************
+
   logical function ifCanBeSkippedInDerivation(q)
     ! True for quantities that 
     !    1. might be needed only as intermediate ones in derivation chain
@@ -119,7 +71,157 @@ CONTAINS
 
   end function ifCanBeSkippedInDerivation
 
-  SUBROUTINE quantities_for_derived_one(dq, request, ifST, list, list_st, requests, requests_st, wdr)
+
+  ! ***************************************************************
+
+  INTEGER FUNCTION fu_rate_quantity_for_acc(quantity)
+    !
+    ! Returns the "instantaneous" quantity flag corresponding to the 
+    ! provided accumulated one. 
+    ! In principle, repeats/clashes quantities_for_derived_one, but with two hints:
+    ! - it is more complete
+    ! - it does not say the derivation way, which can be in either direction depending on the input
+    !
+    ! Author: Mikhail Sofiev
+
+    IMPLICIT NONE
+
+    ! Imported parameters with intent(in):
+    INTEGER, INTENT(in) :: quantity
+
+    IF(.not.fu_accumulated_quantity(quantity))THEN
+      CAll set_error('Not an accumulated quantity:' + fu_quantity_string(quantity), &
+                   & 'fu_rate_quantity_for_acc')
+      fu_rate_quantity_for_acc = int_missing
+      RETURN
+    END IF
+
+    SELECT CASE (quantity)
+
+      CASE (large_scale_accum_rain_flag)
+        fu_rate_quantity_for_acc = large_scale_rain_int_flag
+
+      CASE (convective_accum_rain_flag)
+        fu_rate_quantity_for_acc = convective_rain_int_flag
+
+      case (total_precipitation_acc_flag)
+        fu_rate_quantity_for_acc = total_precipitation_int_flag
+
+      CASE (surf_sw_down_radiation_ac_flag)
+        fu_rate_quantity_for_acc = surf_sw_down_radiation_flag
+
+      CASE (surf_lw_down_radiation_ac_flag)
+        fu_rate_quantity_for_acc = surf_lw_down_radiation_flag
+
+      CASE (surf_sw_net_radiation_ac_flag)
+        fu_rate_quantity_for_acc = surf_sw_net_radiation_flag
+
+      CASE (top_sw_net_radiation_ac_flag)
+        fu_rate_quantity_for_acc = top_sw_net_radiation_flag
+
+      CASE (surf_lw_net_radiation_ac_flag)
+        fu_rate_quantity_for_acc = surf_lw_net_radiation_flag
+
+      CASE (top_lw_net_radiation_ac_flag)
+        fu_rate_quantity_for_acc = top_lw_net_radiation_flag
+
+      CASE (NWP_latent_heatflux_ac_flag)
+        fu_rate_quantity_for_acc = NWP_latent_heatflux_flag
+
+      CASE (NWP_sensible_heatflux_ac_flag)
+        fu_rate_quantity_for_acc = NWP_sensible_heatflux_flag
+
+      case(photosynth_active_rad_ac_flag)
+        fu_rate_quantity_for_acc = photosynth_active_rad_ac_flag
+
+      case(day_temperature_acc_flag)
+        fu_rate_quantity_for_acc = temperature_flag
+
+      case(day_temperature_2m_acc_flag)
+        fu_rate_quantity_for_acc = temperature_2m_flag
+
+      CASE(day_temperature_2m_acc_max_flag)
+        fu_rate_quantity_for_acc = temperature_2m_flag
+
+      CASE(day_windspeed_10m_acc_flag)
+        fu_rate_quantity_for_acc = windspeed_10m_flag
+
+      CASE(day_windspeed_10m_acc_max_flag)
+        fu_rate_quantity_for_acc = windspeed_10m_flag
+
+      CASE(day_precipitation_acc_flag)
+        fu_rate_quantity_for_acc = total_precipitation_int_flag
+
+      CASE(day_relat_humid_2m_acc_flag)
+        fu_rate_quantity_for_acc = relative_humidity_2m_flag
+
+      CASE(day_relat_humid_2m_acc_min_flag)
+        fu_rate_quantity_for_acc = relative_humidity_2m_flag
+  
+
+    CASE default
+      CALL set_error('no match available for:' + fu_quantity_string(quantity),&
+                   & 'fu_average_quantity')
+      fu_rate_quantity_for_acc = int_missing
+
+! Quantities without instantaneous analogies are: 
+!
+!                     sub_grid_scale_snowfall_flag,
+!                     grid_scale_snowfall_flag,
+!                     u_momentum_flux_flag,
+!                     v_momentum_flux_flag,
+!                     nuclear_cocktail_dep_flag
+
+    END SELECT
+
+  END FUNCTION fu_rate_quantity_for_acc
+
+  
+  !*************************************************************************
+
+  integer function fu_cumul_quantity_for_mean_one(meanQ) result(cumulQ)
+    !
+    ! Returns the cumulative quantity used for period-averaged one (daily-mean, for instance)
+    ! Also handles period-max or period-min quantities
+    !
+    implicit none
+    
+    ! Imported parameter
+    integer, intent(in) :: meanQ
+    
+    ! Local variables
+    integer, dimension(max_Q_4_derived) :: lst, lst_st
+    integer :: iTmp
+    !
+    ! Call the derivation procedure and check that it returned something useful
+    !
+    call quantities_for_derived_one(meanQ, fu_realtime_quantity(meanQ), lst, lst_st, wdr_missing)
+
+    if(error .or. lst(1) == int_missing .or. lst(2) /= int_missing .or. lst_st(1) /= int_missing)then
+      call msg_warning(fu_quantity_string(meanQ) &
+                   & + '- must require exactly one initial quanity','fu_cumul_quantity_for_mean_one')
+      call msg_warning('These reqiure dynamic quantities:','fu_cumul_quantity_for_mean_one')
+      do iTmp = 1, size(lst)
+        if(lst(iTmp) == int_missing)exit
+        call msg(fu_quantity_string(lst(iTmp)))
+      end do
+      call msg_warning('These reqiure single-time quantities:','fu_cumul_quantity_for_mean_one')
+      do iTmp = 1, size(lst_st)
+        if(lst_st(iTmp) == int_missing)exit
+        call msg(fu_quantity_string(lst_st(iTmp)))
+      end do
+      call set_error(fu_quantity_string(meanQ) &
+                 & + '- must require exactly one initial quanity','fu_cumul_quantity_for_mean_one')
+      cumulQ = int_missing
+      return
+    endif
+    cumulQ = lst(1)
+  end function fu_cumul_quantity_for_mean_one
+
+  
+  !*************************************************************************
+
+  SUBROUTINE quantities_for_derived_one(dq, ifST, list, list_st, wdr)
     !
     ! This function returns a list of quantities needed for the
     ! calculation of a given derived quantity. For example for
@@ -132,8 +234,8 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters 
-    INTEGER, DIMENSION(:), intent(out) :: list, list_st, requests, requests_st
-    INTEGER, INTENT(in) :: dq, request
+    INTEGER, DIMENSION(:), intent(out) :: list, list_st
+    INTEGER, INTENT(in) :: dq
     logical, intent(in) :: ifST 
     type(silja_wdr), intent(in) :: wdr
 
@@ -148,174 +250,164 @@ CONTAINS
 
       case(temperature_flag)
         list(1) = perturb_pot_temperature_flag
-        requests(1) = request
 
       case(day_mean_temperature_flag)
-        list_st(1) = day_temperature_acc_flag
-        requests_st(1) = request
-
+        list(1) = day_temperature_acc_flag
       case(day_temperature_acc_flag)
         list(1) = temperature_flag
-        requests(1) = request
 
       case(day_mean_temperature_2m_flag)
-        list_st(1) = day_temperature_2m_acc_flag
-        requests_st(1) = request
-
+        list(1) = day_temperature_2m_acc_flag
       case(day_temperature_2m_acc_flag)
         list(1) = temperature_2m_flag
-        requests(1) = request
+
+      case(day_max_temperature_2m_flag)
+        list(1) = day_temperature_2m_acc_max_flag
+      case(day_temperature_2m_acc_max_flag)
+        list(1) = temperature_2m_flag
+
+      case(day_mean_windspeed_10m_flag)
+        list(1) = day_windspeed_10m_acc_flag
+      case(day_windspeed_10m_acc_flag)
+        list(1) = windspeed_10m_flag
+
+      case(day_max_windspeed_10m_flag)
+        list(1) = day_windspeed_10m_acc_max_flag
+      case(day_windspeed_10m_acc_max_flag)
+        list(1) = windspeed_10m_flag
+
+      case(day_mean_relat_humid_2m_flag)
+        list(1) = day_relat_humid_2m_acc_flag
+      case(day_relat_humid_2m_acc_flag)
+        list(1) = relative_humidity_2m_flag
+
+      case(day_min_relat_humid_2m_flag)
+        list(1) = day_relat_humid_2m_acc_min_flag
+      case(day_relat_humid_2m_acc_min_flag)
+        list(1) = relative_humidity_2m_flag
+
+      case(day_sum_precipitation_flag)
+        list(1) = day_precipitation_acc_flag
 
       CASE (pasquill_class_flag)
         list(1:2) = (/MO_length_inv_flag, surface_roughness_meteo_flag/)
-        requests(1:2) = request
 
       CASE (scavenging_coefficient_flag)
         if (ifST) then ! Only single-time now
           list(1:2) = (/pressure_flag, &
                       & temperature_flag/)
-          requests(1:2) = request
           if (fu_number_of_precip_flds(wdr) == 2) then
             list_st(1:3) = (/large_scale_rain_int_flag, &
                            & convective_rain_int_flag, &
                            & ground_pressure_flag/)
-            requests_st(1:3) = request
           else
             list_st(1:2) = (/large_scale_rain_int_flag,&
                            & ground_pressure_flag/)
-            requests_st(1:2) = request
           endif
         else
             call msg('Requested quantity: ' + fu_quantity_short_string(dq))
-            call set_error("Requesting realtime quantity as a dynamic one..", &
-                        "quantities_for_derived_one")
+            call set_error("Requesting realtime quantity as a dynamic one 4..", &
+                           "quantities_for_derived_one")
         endif
 
       CASE (cloud_cond_water_flag) ! ...
-        list(1:2) = (/cloud_water_flag, &
-                          & cloud_ice_flag/)
-        requests(1:2) = request
+        list(1:2) = (/cloud_water_flag, cloud_ice_flag/)
 
       CASE (cwcabove_3d_flag, cwcolumn_flag, pwcabove_3d_flag, pwcolumn_flag, &
-           & lcwcabove_3d_flag, lcwcolumn_flag) ! ...
+          & lcwcabove_3d_flag, lcwcolumn_flag) ! ...
         list(1:2) = (/ground_pressure_flag, cloud_cond_water_flag/)
-        list_st(1) = large_scale_rain_int_flag
-        requests(1:2) = request
-        requests_st(1) = 1 !!! optional, so large_scale_rain_int_flag is available 
-               !! for scavenging if it can be done
+!        list_st(1) = large_scale_rain_int_flag
+!        requests(1:2) = request
+!        requests_st(1) = 1 !!! optional, so large_scale_rain_int_flag is available 
+!              !! for scavenging if it can be done
 
       case (r_a_flag)  !, r_b_flag, r_s_flag)
         list(1:3) = (/MO_length_inv_flag, surface_roughness_meteo_flag, &
                     & friction_velocity_flag /)
-        requests(1:3) = request
 
       CASE (pressure_flag, height_flag, cell_size_z_flag)
         list(1:2)=(/temperature_flag, ground_pressure_flag/)
-        requests(1:2) = request
-
-      CASE (windspeed_flag, mean_wind_flag)
-        list(1:2)=(/u_flag, v_flag/)
-        requests(1:2) = request
 
       CASE (windspeed_10m_flag)
         list(1:2)=(/u_10m_flag, v_10m_flag/)
-        requests(1:2) = request
 
       CASE (layer_thickness_flag)
         list(1)=(geopotential_flag)
-        requests(1) = request
 
       case(specific_humidity_2m_flag)
         list(1:2) = (/dew_point_temp_2m_flag, ground_pressure_flag/)
-        requests(1:2) = request
 
       CASE (relative_humidity_flag)
         list(1:3)=(/specific_humidity_flag, &
                   & temperature_flag, pressure_flag/)
-        requests(1:3) = request
 
       CASE (relative_humidity_2m_flag)
         list(1:3)=(/specific_humidity_2m_flag, &
                   & temperature_2m_flag, ground_pressure_flag/)
-        requests(1:3) = request
 
       CASE (eq_pot_temperature_flag)
         list(1:2)=(/specific_humidity_flag, temperature_flag/)
-        requests(1:2) = request
 
       CASE (potential_temperature_flag, tfp_flag) !tfp - thermal front parameter
         list(1:2)=(/temperature_flag, temperature_2m_flag/)  ! 2m is not needed for 3d one, but
                         ! dq_potential_temperature will use both in any case
-        requests(1:2) = request
 
       CASE (relative_vorticity_flag, abs_vorticity_advection_flag)
         list(1:3)=(/temperature_flag, u_flag, v_flag/)
-        requests(1:3) = request
 
       CASE (ipv_flag) ! isentropic potential vorticity
-        list(1:4)=(/potential_temperature_flag, & 
+        list(1:3)=(/ &   !potential_temperature_flag, & 
                   & u_flag, v_flag, & 
                   & temperature_flag/)
-        requests(1:4) = request
 
       CASE (bulk_richardson_nbr_flag)
-        list(1:6)=(/height_flag, &
+        list(1:5)=(/height_flag, &
                   & u_flag, &
                   & v_flag, &
                   & friction_velocity_flag, &
-                  & specific_humidity_flag, &
-                  & potential_temperature_flag/)
-        requests(1:6) = request
+                  & specific_humidity_flag/) !, &
+!                  & potential_temperature_flag/)
 
       CASE (gradient_richardson_nbr_flag)
         list(1:5)=(/height_flag, &
-                  & windspeed_flag, &
+                  & u_flag, v_flag, & 
                   & windspeed_10m_flag, &
-                  & temperature_2m_flag, &
-                  & potential_temperature_flag/)
-        requests(1:5) = request
+                  & temperature_2m_flag/) !, &
+!                  & potential_temperature_flag/)
 
       case(brunt_vaisala_freq_flag)
-        list(1:4) = (/potential_temperature_flag, &
+        list(1:4) = (/  surface_pressure_flag, &
                     & height_flag, &
                     & temperature_2m_flag, &
                     & abl_height_m_flag/)
-        requests(1:4) = request
 
       CASE (w_alt_msl_flag, w_height_srf_flag) ! m/s vertical wind
         list(1:2) = (/omega_flag, temperature_flag/)
-        requests(1:2) = request
 
       CASE (omega_flag)  ! Omega-vertical wind
         list(1:4)=(/u_flag, &
                   & v_flag, &
                   & temperature_flag, &
                   & ground_pressure_flag/)
-        requests(1:4) = request
 
       case(vertical_velocity_flag) ! vertical-dependent z-component of wind
         list(1) = omega_flag   ! at least this ...
-        requests(1) = request
 
       case(eta_dot_flag)
         list(1:3) = (/u_flag, v_flag, ground_pressure_flag/)
-        requests(1:3) = request
 
       CASE(wind_divergence_flag)  ! div(wind_vector)
         list(1:4)=(/u_flag, &
                   & v_flag, &
                   & w_height_srf_flag, &
                   & height_flag/)
-        requests(1:4) = request
 
       CASE(wind_vertical_shear_flag)  ! div(wind_vector)
         list(1:2)=(/u_flag, &
                   & v_flag/)
-        requests(1:2) = request
 
       CASE (bulk_tfp_flag)
         list(1:2)=(/layer_thickness_flag, temperature_flag/)
-        requests(1:2) = request
 
       CASE (friction_velocity_flag, & !They will be created by dq_ABL_params
           & temperature_scale_flag, &
@@ -326,16 +418,15 @@ CONTAINS
           & convective_velocity_scale_flag, &
           & abl_height_m_flag)
 
-        list(1:8)=(/ ground_pressure_flag,&
+        list(1:7)=(/ ground_pressure_flag,&
                    & temperature_2m_flag,&
                    & windspeed_10m_flag,&
                    & height_flag, &
                    & temperature_flag, &
-                   & potential_temperature_flag, &
+!                   & potential_temperature_flag, &
                    & u_flag, v_flag/) !, &
-        iQ = 9
+        iQ = 8
         list_st(1) = fraction_of_land_flag
-        requests_st(1) = request
 
         select case(fu_abl_param(wdr))
           case(abl_full_param)
@@ -358,7 +449,6 @@ CONTAINS
             call set_error('Unknown ABL height method:'+fu_str(fu_ablh_method(wdr)),'')
         end select
 
-        requests(1:iQ) = request
                 
       case(SILAM_latent_heat_flux_flag, humidity_scale_flag)
         list(1:7)=(/ground_pressure_flag, &
@@ -368,34 +458,12 @@ CONTAINS
                   & specific_humidity_2m_flag, &
                   & Kz_scalar_1m_flag, &
                   & Prandtl_nbr_flag/)
-        requests(1:7) = request
-
-      case(Kz_momentum_3d_flag, &
-         & Kz_heat_3d_flag, &
-         & Kz_scalar_3d_flag, &
-         & turb_kinetic_energy_SILAM_flag)
-        list(1:5) = (/gradient_richardson_nbr_flag, &
-                    & windspeed_flag, &
-                    & windspeed_10m_flag, &
-                    & height_flag, &
-                    & abl_height_m_flag/)
-        requests(1:5) = request
-
-
-    case(turb_length_scale_flag)
-        list(1:6) = (/ ground_pressure_flag, &
-                     & height_flag, &
-                     & specific_humidity_flag, &
-                     & u_flag, v_flag, & 
-                     & temperature_flag/)
-        requests(1:6) = request
 
     case(R_down_meteo_flag)
       select case(fu_kz_param(wdr))
         case(zero_kz)
           list(1:2) = (/ ground_pressure_flag, &
                              & height_flag/)
-          requests(1:2) = request
         case(simple_abl_ec_ft_kz, silam_abl_ec_ft_kz, ec_kz,silam_kz_emulator, hunten_kz, simple_kz)
 
           list(1:8) = (/ ground_pressure_flag, &
@@ -405,7 +473,6 @@ CONTAINS
                        & height_flag, &
                        & u_flag, v_flag, & 
                        & temperature_flag/)
-          requests(1:8) = request
         case default
           call msg('Unknown kz_method: ', fu_kz_param(wdr))
           call set_error("Unknown kz_method", "quantities_for_derived_one")
@@ -417,11 +484,9 @@ CONTAINS
              if (.not. ifSt) then
                 list(1:2) = (/leaf_area_indexhv_flag, &
                             & leaf_area_indexlv_flag /)
-                 requests(1:2) = request
 
                  list_st(1:2) = (/fraction_hv_flag, &
                             & fraction_lv_flag /)
-                 requests_st(1:2) = request
               else
                  call set_error("Tried to request lai static from dynamic ones", &
                      &  "quantities_for_derived_one")
@@ -433,26 +498,23 @@ CONTAINS
                             & leaf_area_indexlv_flag, &
                             & fraction_hv_flag, &
                             & fraction_lv_flag /)
-                 requests_st(1:4) = request
               else
                  call set_error("Tried to request lai dynamic from static ones", &
                                          &  "quantities_for_derived_one")
                  return
               endif
          case (LAI_static_1, LAI_dynamic_1)
-               if (ifSt .eqv. (fu_LAIsrc(wdr) == LAI_static_1) ) then
-                  call msg('Assumed initial quantity: ' + fu_quantity_short_string(dq))
-               else
-                  if (ifsT) call msg("Static LAI requested, while dynamic was set in control file")  
-                 call set_error("Tried to request wrong LAI", &
-                                         &  "quantities_for_derived_one")
-                 return
-               endif
+           if (ifSt .eqv. (fu_LAIsrc(wdr) == LAI_static_1) ) then
+             call msg('Assumed initial LAI quantity: ' + fu_quantity_short_string(dq))
+           else
+             if (ifsT) call msg("Static LAI requested, while dynamic was set in control file")  
+             call set_error("Tried to request wrong LAI", "quantities_for_derived_one")
+             return
+           endif
          case(int_missing)
              call set_error('leaf area inxed is required but data source - use_lai - is missing','')
          case default
-                 call set_error("unknown wdr%LAIsrc", &
-                                         &  "quantities_for_derived_one")
+                 call set_error("unknown wdr%LAIsrc", "quantities_for_derived_one")
       end select
     
     case(stomatal_conductance_flag)
@@ -464,10 +526,8 @@ CONTAINS
                         & relative_humidity_2m_flag,&
                         & leaf_area_index_flag, &
                         & soil_moisture_vol_frac_nwp_flag/)
-             requests(1:6) = request
              list_st(1:2) = (/c4_frac_flag,&
                         & irrigated_area_flag/)
-             requests_st(1:2) = request
 
            case (LAI_static_1, LAI_static_2)
              list(1:5) = (/  surface_pressure_flag,&
@@ -475,11 +535,9 @@ CONTAINS
                         & temperature_2m_flag, &
                         & relative_humidity_2m_flag, &
                         & soil_moisture_vol_frac_nwp_flag/)
-             requests(1:5) = request
              list_st(1:3) = (/leaf_area_index_flag, &
                         & c4_frac_flag, &
                         & irrigated_area_flag/)
-             requests_st(1:3) = request
            case default
               call msg("LAIsrc", fu_LAIsrc(wdr))
               call set_error("Unknown LAIsrc", "quantities_for_derived_one")
@@ -487,66 +545,57 @@ CONTAINS
 
       CASE (albedo_flag)
         list(1:2)=(/surf_sw_down_radiation_flag, surf_sw_net_radiation_flag/)
-        requests(1:2) = request
 
       CASE (surf_lw_down_radiation_flag) ! W/m2 come from 2-time fields J/m2
         list(1) = surf_lw_down_radiation_ac_flag
-        requests(1) = request
 
       CASE (surf_sw_down_radiation_flag) ! W/m2 come from 2-time fields J/m2
         list(1) = surf_sw_down_radiation_ac_flag
-        requests(1) = request
         
       CASE (surf_sw_down_radiation_ac_flag) ! W/m2 come from 2-time fields J/m2
         list(1:2)=(/surf_sw_net_radiation_ac_flag, climatological_albedo_flag/)
-        requests(1:2) = request
         
       CASE (surf_sw_net_radiation_flag) ! W/m2 come from 2-time fields J/m2
         list(1) = surf_sw_net_radiation_ac_flag
-        requests(1) = request
 
       CASE (large_scale_rain_int_flag) ! kg/m2s come from 2-time kg/m2
         if (ifST) then
           list(1) = large_scale_accum_rain_flag
-          requests(1) = request
         else
           call msg('Requested quantity: ' + fu_quantity_short_string(dq))
-          call set_error("Requesting realtime quantity as a dynamic one..", &
+          call set_error("Requesting realtime quantity as a dynamic one 1..", &
                         "quantities_for_derived_one")
         endif
 
       CASE(convective_rain_int_flag) ! kg/m2s come from 2-time kg/m2
         if (ifST) then
           list(1) = convective_accum_rain_flag
-          requests(1) = request
         else
             call msg('Requested quantity: ' + fu_quantity_short_string(dq))
-            call set_error("Requesting realtime quantity as a dynamic one..", &
+            call set_error("Requesting realtime quantity as a dynamic one 2..", &
                         "quantities_for_derived_one")
         endif
 
       CASE(NWP_sensible_heatflux_flag) ! W/m2 come from 1-time J/m2
         list(1) = NWP_sensible_heatflux_ac_flag
-        requests(1) = request
 
       CASE(NWP_latent_heatflux_flag) !  W/m2 come from 1-time J/m2
         list(1) = NWP_latent_heatflux_ac_flag
-        requests(1) = request
 
-      case (surface_roughness_meteo_flag)             ! Surface roughness has to be combined 
+      case (surface_roughness_meteo_flag)    ! Surface roughness has to be combined 
         list(1) = land_roughness_meteo_flag  ! from soil and water roughnesses
-        requests(1) =  1 !!!request Can force default
-        !list_st(1:2) = (/land_roughness_meteo_flag, fraction_of_land_flag/)  !DOES NOT WORK!!!
-        !requests_st(1:2) =(/1, request/)  
+!        requests(1) =  1 !!!request Can force default
+!        !list_st(1:2) = (/land_roughness_meteo_flag, fraction_of_land_flag/)  !DOES NOT WORK!!!
+!        !requests_st(1:2) =(/1, request/)  
         list_st(1) = fraction_of_land_flag
-        requests_st(1) = request
+!        requests_st(1) = request
 
       case (surface_roughness_disp_flag)             ! Surface roughness has to be combined 
          !Request both then priority is: Dynamic -> static -> default
         list(1) =  land_roughness_disp_flag  ! from soil and water roughnesses 
         list_st(1:2) = (/land_roughness_disp_flag, fraction_of_land_flag/)
-        requests(1) = 1
-        requests_st(1:2) =(/1, request/)  
+!        requests(1) = 1
+!        requests_st(1:2) =(/1, request/)  
 
 !      case (surface_pressure_flag) ! Points to one of them depending on vertical type
 !        list(1:2) = (/msl_pressure_flag, ground_pressure_flag/)
@@ -559,12 +608,9 @@ CONTAINS
       case (water_roughness_flag) 
         list(1) = friction_velocity_flag
         list_st(1) = fraction_of_land_flag
-        requests(1) = request
-        requests_st(1) = request
 
       CASE (abl_top_pressure_flag)
         list(1:2)=(/abl_height_m_flag,temperature_flag/)
-        requests(1:2) = request
 
       case (ground_pressure_flag)
         if (ifST) then ! Single-time is diagnosed from dynamic
@@ -572,52 +618,42 @@ CONTAINS
         else  !taken from meteo
           list(1) = log_ground_pressure_flag ! Ohh, stupid, but forced by ECMWF files
         endif
-        requests(1) = request
 
       case (log_ground_pressure_flag)
         list(1:2) = (/msl_pressure_flag, & ! Ohh, even worse but at least allows our standard way of branching
                     & temperature_2m_flag/)
         list_st(1) = relief_height_flag
-        requests(1:2) = request
-        requests_st(1) = request
 
       case (relief_height_flag)
         list_st(1) = geopotential_sfc_flag
-        requests_st(1) = request
 
-      case (total_precipitation_rate_flag)
+      case (total_precipitation_int_flag)
         if (ifST)  then
           list(1) = total_precipitation_acc_flag
-          requests(1) = request
         else
           call msg('Requested quantity: ' + fu_quantity_short_string(dq))
-          call set_error("Requesting realtime quantity as a dynamic one..", &
+          call set_error("Requesting realtime quantity as a dynamic one 3..", &
                         "quantities_for_derived_one")
         endif
 
       case (total_precipitation_acc_flag)
         if (fu_number_of_precip_flds(wdr) == 2) then
           list(1:2) = (/large_scale_accum_rain_flag, convective_accum_rain_flag/)
-          requests(1:2) = request
         else
           list(1) = large_scale_accum_rain_flag
-          requests(1) = request
         end if
       
       case (heatsum_flag)
         list(1:2) = (/temperature_flag, temperature_2m_flag/)
-        requests(1:2) = request
 
       case(concentration_flag)
         list(1:3) = (/volume_mixing_ratio_flag, temperature_flag, pressure_flag/)
-        requests(1:3) = request
 
       case(ref_evapotranspiration_flag)
         list(1:7) = (/ temperature_2m_flag, surf_sw_net_radiation_flag, surf_lw_net_radiation_flag, &
                      & leaf_area_index_flag, surface_pressure_flag, &
 !                     & air_density_flag, &
                      & relative_humidity_2m_flag, r_a_flag/)
-        requests(1:7) = request
       
       case(photosynth_active_rad_flag)
 !        list(1) = 
@@ -625,10 +661,9 @@ CONTAINS
         
       case(total_cloud_cover_flag)
         list(1) = cloud_cover_flag
-        requests(1) = request
 
       CASE DEFAULT
-        call msg('Assumed initial quantity: ' + fu_quantity_short_string(dq))
+        call msg('Assumed initial meteo quantity: ' + fu_quantity_short_string(dq))
 
     END SELECT
   
@@ -678,7 +713,7 @@ CONTAINS
     ! Local variables
     integer :: i, NAvail, NAvailSt,depth
     integer, dimension(max_Q_4_derived) :: QTmp, q_shopTmp, q_shopStaticTmp, q_st, &
-                                         & q_intermTmp, q_intermStaticTmp, req, req_st
+                                         & q_intermTmp, q_intermStaticTmp
 
     character(len=*), parameter :: lead= &
             & "--------------------------------------------------------------------------------------"
@@ -723,7 +758,6 @@ CONTAINS
  !      call msg(lead(1:depth)+'->Assumed constant:' + fu_quantity_short_string(q_derived))
       return
     end if
-
     !
     ! If the quantity is in q_avail - the task is solved. 
     !
@@ -765,13 +799,13 @@ CONTAINS
         !
         q_intermTmp(count(q_intermTmp /= int_missing)+1) = ground_pressure_flag
 
-        call quantities_for_derived_one(ground_pressure_flag, 2, .false., QTmp, q_st, req, req_st, wdr) ! One step only
+        call quantities_for_derived_one(ground_pressure_flag, .false., QTmp, q_st, wdr) ! One step only
         
         if(.not.all(QTmp(:) == int_missing)) then ! Can be derived, check if it helps
           do i=1, size(QTmp)
             if(QTmp(i) == int_missing) return ! all done
             ifOk = .True.
-            if (req(i) == 2) call check_input_quantity(QTmp(i), .false.,&   ! q_derived
+            call check_input_quantity(QTmp(i), .false.,&   ! q_derived
                                     & q_avail_dyn, &  ! available dynamic quantities
                                     & q_avail_st, &
                                     & q_shopTmp, &    ! needed to make the derivation
@@ -781,11 +815,11 @@ CONTAINS
             if(error)return
 
             if(ifOK) then
-              NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .true.) ! Prepare arrays
-              NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .true.)
+              NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .false.) ! Prepare arrays
+              NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .false.)
               if(present(q_intermediate))then
-                NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .true.)
-                NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .true.)
+                NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .false.)
+                NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .false.)
               endif
             else
               return  ! faliure
@@ -807,13 +841,13 @@ CONTAINS
         ! procedure. Idea: make a one step in-depth and see if it is enough
         !
         q_intermTmp(count(q_intermTmp /= int_missing)+1) = msl_pressure_flag
-        call quantities_for_derived_one(msl_pressure_flag, 2, .false., QTmp, q_st, req, req_st, wdr) ! One step only
+        call quantities_for_derived_one(msl_pressure_flag, .false., QTmp, q_st, wdr) ! One step only
 
         if(.not.all(QTmp(:) == int_missing)) then ! Can be derived, check if it helps
           do i=1, size(QTmp)
             if(QTmp(i) == int_missing) return ! all done successfully. Arrays have been made
             ifOK = .True.
-            if (req(i) == 2) call check_input_quantity(QTmp(i), .false., &   ! q_derived
+            call check_input_quantity(QTmp(i), .false., &   ! q_derived
                                     & q_avail_dyn, &  ! available dynamic quantities
                                     & q_avail_st, &
                                     & q_shopTmp, &    ! needed to make the derivation
@@ -822,11 +856,11 @@ CONTAINS
                                     & q_intermTmp, q_intermStaticTmp, depth+1)
             if(error)return
             if(ifOK) then
-              NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .true.)
-              NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .true.)
+              NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .false.)
+              NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .false.)
               if(present(q_intermediate))then
-                NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .true.)
-                NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .true.)
+                NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .false.)
+                NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .false.)
               endif
             else
               return  ! failure
@@ -842,18 +876,17 @@ CONTAINS
     ! procedure. Idea: make a one step in-depth and see if it is enough
     !
     q_intermTmp(count(q_intermTmp /= int_missing)+1) = q_derived
-    call quantities_for_derived_one(q_derived, 2, ifST, QTmp, q_st, req, req_st, wdr) ! One step only
+    call quantities_for_derived_one(q_derived, ifST, QTmp, q_st, wdr) ! One step only
 
     if((QTmp(1) == int_missing) .and. (q_st(1) == int_missing)) then ! No more deriving options.
-        call msg(fu_connect_strings('*** FAILED to find initial  quantity for ***:', &
-                                & fu_quantity_string(q_derived)))
+        call msg('*** FAILED to find initial  quantity for ***:' + fu_quantity_string(q_derived))
       return 
     end if
 
     do i=1, size(q_st)
       if(q_st(i) == int_missing) exit ! all done
       ifOK = .True.
-      if (req_st(i) == 2) call check_input_quantity(q_st(i), .true., &   ! q_derived static
+      call check_input_quantity(q_st(i), .true., &   ! q_derived static
                               & q_avail_dyn, &  ! available dynamic quantities
                               & q_avail_st, &
                               & q_shopTmp, &    ! needed to make the derivation
@@ -863,15 +896,14 @@ CONTAINS
 
       if(error)return
       if( ifOK ) then
-           NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .true.)  ! Fill-in arrays
-           NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .true.)
+           NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .false.)  ! Fill-in arrays
+           NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .false.)
            if(present(q_intermediate))then
-               NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .true.)
-               NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .true.)
+               NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .false.)
+               NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .false.)
            endif
        else
-           call msg(fu_connect_strings('*** FAILED to find derived singletime quantity:', &
-                                  & fu_quantity_string(q_st(i))))
+           call msg('*** FAILED to find derived singletime quantity:' + fu_quantity_string(q_st(i)))
            return
         endif
     end do
@@ -879,7 +911,7 @@ CONTAINS
     do i=1, size(QTmp)
       if(QTmp(i) == int_missing) exit ! all done
       ifOk=.true.
-      if (req(i) == 2) call check_input_quantity(QTmp(i), .false., &   ! q_derived dynamic
+      call check_input_quantity(QTmp(i), .false., &   ! q_derived dynamic
                               & q_avail_dyn, &  ! available dynamic quantities
                               & q_avail_st, &
                               & q_shopTmp, &    ! needed to make the derivation
@@ -889,15 +921,14 @@ CONTAINS
       if(error)return
 
       if(ifOK)then
-        NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .true.)  ! Fill-in arrays
-        NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .true.)
+        NAvail = fu_merge_int_arrays(q_shopTmp, q_shop, .false.)  ! Fill-in arrays
+        NAvailSt = fu_merge_int_arrays(q_shopStaticTmp, q_shop_st, .false.)
         if(present(q_intermediate))then
-          NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .true.)
-          NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .true.)
+          NAvail = fu_merge_int_arrays(q_intermTmp, q_intermediate, .false.)
+          NAvailSt = fu_merge_int_arrays(q_intermStaticTmp, q_intermediate_st, .false.)
         endif
       else  ! Failure
-        call msg(fu_connect_strings('*** FAILED to find derived dynamic quantity:', &
-                                  & fu_quantity_string(QTmp(i))))
+        call msg('*** FAILED to find derived dynamic quantity:' + fu_quantity_string(QTmp(i)))
         return
       end if
     end do
@@ -928,7 +959,7 @@ CONTAINS
 
     ! Local variables
     integer :: i
-    integer, dimension(max_quantities) :: requests, q_shop, q_shop_static, &
+    integer, dimension(max_quantities) :: q_shop, q_shop_static, q_avail, q_req, &
                                         & q_intermediate, q_intermediate_static
     type(silja_logical), dimension(max_quantities) :: if2Ds
     logical :: found
@@ -943,7 +974,6 @@ CONTAINS
     ! the same final list once again. Looks stupid, but alternative is to
     ! call fix_everything routines, which is longer.
     !
-
     final_dyn_list = requested_dyn_list
     final_static_list = requested_static_list
 
@@ -952,17 +982,13 @@ CONTAINS
     ! that are copied around. Not much harm if max_quantoties is large enough
     ! 
     !
-    call fix_shopping_quantities(final_dyn_list, &
-                               & fu_quantities(available_list,.true.), &
-                               & fu_requests(available_list,.true.), &
-                               & fu_if2Ds(available_list, .true.))
+    call all_quantities_from_list(available_list,.true., q_avail)
+    call fix_shopping_quantities(final_dyn_list, q_avail, fu_if2Ds(available_list, .true.))
 !    call msg("after fix_shopping_quantities: available")
 !    call report(final_dyn_list)
 !    call ooops("requested_dyn_list ")
-    call add_shopping_quantities(final_dyn_list, &
-                               & fu_quantities(requested_dyn_list,.true.), &
-                               & fu_requests(requested_dyn_list,.true.), &
-                               & fu_if2Ds(requested_dyn_list, .true.))
+    call all_quantities_from_list(requested_dyn_list,.true., q_req)
+    call add_shopping_quantities(final_dyn_list, q_req, fu_if2Ds(requested_dyn_list, .true.))
 !    call msg("after fix_shopping_quantities: requested")
 !    call report(final_dyn_list)
 !    call ooops("requested_dyn_list ")
@@ -970,10 +996,8 @@ CONTAINS
     ! Cycle through the final_quantities and expanding each of its quantity to appropriate level. 
     ! Criterion is - the input_list must contain all needed quantities
     !
-    do i=1, size(fu_quantities(requested_dyn_list))
-      if(fu_quantity(requested_dyn_list,i) == int_missing .or. &
-       & fu_request(requested_dyn_list,i) < 1) cycle ! There may be holes
-
+    do i=1, size(q_req)
+      if(fu_quantity(requested_dyn_list,i) == int_missing) exit
       !
       ! At this stage we have no clue, if the quantity will be used as dynamic
       ! or single-time one. Provide available quantities as both....
@@ -981,8 +1005,7 @@ CONTAINS
       call check_input_quantity(fu_quantity(requested_dyn_list,i), &
 !                              & fu_realtime_quantity (fu_quantity(requested_dyn_list,i)),&
                               & .false.,& ! only dynamic list here !
-                              & fu_quantities(available_list,.true.), & 
-                              & fu_quantities(available_list,.true.), &
+                              & q_avail, q_avail, &
                               & q_shop, q_shop_static, &
                               & found, &
                               & wdr, &
@@ -995,19 +1018,18 @@ CONTAINS
         return
       endif
       !
-      ! Variable found - add it with the corresponding requests.
+      ! Variable found - add it.
       ! Not to overlook - all intermediate quantities have to be added as well - they
       ! must be produced BEFORE the final ones can be made. So, this list must
       ! have them as well
       !
-      requests = fu_request(requested_dyn_list,i)
       if2Ds = fu_if2D(requested_dyn_list,i)
-      call add_shopping_quantities(final_dyn_list, q_shop, requests, if2Ds)
-      call add_shopping_quantities(final_dyn_list, q_intermediate, requests, if2Ds)
+      call add_shopping_quantities(final_dyn_list, q_shop, if2Ds)
+      call add_shopping_quantities(final_dyn_list, q_intermediate, if2Ds)
       !
       if2Ds = fu_if2D(requested_static_list,i)
-      call add_shopping_quantities(final_static_list, q_shop_static, requests, if2Ds)
-      call add_shopping_quantities(final_static_list, q_intermediate_static, requests, if2Ds)
+      call add_shopping_quantities(final_static_list, q_shop_static, if2Ds)
+      call add_shopping_quantities(final_static_list, q_intermediate_static, if2Ds)
 
     end do ! Cycle through the final_quantities
 
@@ -1016,9 +1038,9 @@ CONTAINS
     ! Cycle through the final_quantities and expanding each of its quantity to appropriate level. 
     ! Criterion is - the input_list must contain all needed quantities
     !
-    do i=1, size(fu_quantities(requested_static_list))
-      if(fu_quantity(requested_static_list,i) == int_missing .or. &
-       & fu_request(requested_static_list,i) < 1) cycle ! There may be holes
+    call all_quantities_from_list(requested_static_list, .true., q_req)
+    do i=1, size(q_req)
+      if(fu_quantity(requested_static_list,i) == int_missing) cycle ! There may be holes
       !
       ! At this stage we have no clue, if the quantity will be used as dynamic
       ! or single-time one. Provide available quantities as both....
@@ -1026,8 +1048,7 @@ CONTAINS
       call check_input_quantity(fu_quantity(requested_static_list,i), &
 !                              & fu_realtime_quantity (fu_quantity(requested_dyn_list,i)),&
                               & .true.,& ! static list here !
-                              & fu_quantities(available_list,.true.), & 
-                              & fu_quantities(available_list,.true.), &
+                              & q_avail, q_avail, &
                               & q_shop, q_shop_static, &
                               & found, &
                               & wdr, &
@@ -1040,19 +1061,18 @@ CONTAINS
         return
       endif 
       !
-      ! Variable found - add it with the corresponding requests.
+      ! Variable found - add it.
       ! Not to overlook - all intermediate quantities have to be added as well - they
       ! must be produced BEFORE the final ones can be made. So, this list must
       ! have them as well
       !
-      requests = fu_request(requested_static_list,i)
       if2Ds = fu_if2D(requested_static_list,i)
-      call add_shopping_quantities(final_dyn_list, q_shop, requests, if2Ds)
-      call add_shopping_quantities(final_dyn_list, q_intermediate, requests, if2Ds)
+      call add_shopping_quantities(final_dyn_list, q_shop, if2Ds)
+      call add_shopping_quantities(final_dyn_list, q_intermediate, if2Ds)
       !
       if2Ds = fu_if2D(requested_static_list,i)
-      call add_shopping_quantities(final_static_list, q_shop_static, requests, if2Ds)
-      call add_shopping_quantities(final_static_list, q_intermediate_static, requests, if2Ds)
+      call add_shopping_quantities(final_static_list, q_shop_static, if2Ds)
+      call add_shopping_quantities(final_static_list, q_intermediate_static, if2Ds)
 
     end do ! Cycle through the final_quantities
     
@@ -1061,17 +1081,18 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE make_derived_meteo_fields(meteoMarketPtr, list, wdr, if_high_stomatal_conductance, ifNewMeteoData)
+  SUBROUTINE make_derived_meteo_fields(meteoMarketPtr, shlist, wdr, if_high_stomatal_conductance, &
+                                     & ifNewMeteoData)
     !
     ! This is the top interface to derived fields calculation.
     ! For all quantities with known calculation method,
     ! fields are calculated for all observation times that are found
     ! in supermarket.
     !
-    ! If there is a quantity in the list, for which there is no
+    ! If there is a quantity in the shlist, for which there is no
     ! calculation tool, it is simply skipped and no error occurs.
     ! So all the desired quantities (either from nwp external or
-    ! calculated here) can be in the same list.
+    ! calculated here) can be in the same shlist.
     ! 
     ! This routine checks that the desired quantity is not already in
     ! supermarket.
@@ -1089,7 +1110,7 @@ CONTAINS
     ! IMPORTANT!!!. 
     ! 1. If a new quantity tool is added - do not forget to add corresponding lines 
     !    in quantities_for_derived.
-    ! 2. Most derived fields are computaed only when new meteodata arrive but some
+    ! 2. Most derived fields are computed only when new meteodata arrive but some
     !    are to be calculatd every time step. So, BE CAREFUL with ifNewMeteData switch
     !
     ! All units: SI
@@ -1097,7 +1118,7 @@ CONTAINS
     IMPLICIT NONE
 
     ! Imported parameters with intent IN:
-    TYPE(silja_shopping_list), INTENT(IN) :: list
+    TYPE(silja_shopping_list), INTENT(IN) :: shlist
     type(silja_wdr), intent(in) :: wdr
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     logical, intent(in) :: if_high_stomatal_conductance
@@ -1106,24 +1127,24 @@ CONTAINS
     ! Local declarations:
     INTEGER :: i, t, q
     TYPE(silja_time), DIMENSION(max_times) :: valid_times
-    INTEGER :: q_accum, q_average, number_of_times
+    integer, dimension(max_met_srcs, 10) :: idxTimes
+    INTEGER :: q_accum, q_rate, number_of_times
     INTEGER, DIMENSION(max_quantities) :: sm_quantities_2d, sm_quantities_3d
     INTEGER :: method, NbrOf3dQ, NbrOf2dQ
     real :: fTmp
     type(meteo_data_source) :: met_src
     logical :: boolTmp1, boolTmp2, boolTmp3
     logical, save :: ifTemprMean = .false., ifFirst = .true.
+    type(silja_field), pointer :: fieldPtr
+    character(len=clen) :: subname
 
+    subname = 'make_derived_meteo_fields'
+    call start_count(chCounterNm = subname)
     !
     ! Stupidity check
-    !
+    IF(fu_fails(defined(shlist),'undefined shopping list','make_derived_meteo_fields'))RETURN
 
-    IF (.NOT.defined(list)) THEN
-      CALL set_error('undefined shopping list','make_derived_meteo_fields')
-      RETURN
-    END IF
-
-    met_src = fu_met_src(list)
+    met_src = fu_met_src(shlist)
     !
     ! Now, almost always there will be someone who will need these arrays
     !
@@ -1131,10 +1152,23 @@ CONTAINS
                                  & sm_quantities_2d, NbrOf2dQ)
     CALL supermarket_3d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
                                  & sm_quantities_3d, NbrOf3dQ)
-    CALL supermarket_times(meteoMarketPtr, met_src, valid_times, number_of_times)
+    !
+    ! Only unprocessed times are needed
+    !
+    CALL supermarket_times(meteoMarketPtr, met_src, valid_times, number_of_times, .false., &
+                         & idxTimes=idxTimes)
     IF (error) RETURN
+    !
+    ! Do we actually need to do anything?
+    !
+    if(all(idxTimes == int_missing))then
+      call msg('Skipping derived quatities: nothing to do')
+      if(fu_fails(.not. ifNewMeteoData,'Strange, new meteodata are declared', &
+                & 'make_derived_meteo_fields'))return
+    endif
+
 !
-!    call report(list)
+!    call report(shlist)
 !    do i = 1, NbrOf2dQ
 !       call msg('sm_quantities_2d', sm_quantities_2d(i))
 !    enddo
@@ -1151,13 +1185,15 @@ CONTAINS
     ! Here we compute basics: pressure and temperature
     !
     if(ifNewMeteoData)then
-      call msg('Making the following derived fields:')
+      call msg('Making the following derived quantities for the following times:')
+      call report(valid_times)
+
       if (fu_LAIsrc(wdr) == LAI_DYNAMIC_2 ) then
-         if(fu_quantity_in_list(leaf_area_index_flag, list))then ! .and. &
+         if(fu_quantity_in_list(leaf_area_index_flag, shlist))then ! .and. &
            if(supermarket_info) call msg_test('Making dynamic leaf-area index out of HV and LV ...')
-           call dq_lai_dyn(meteoMarketPtr, met_src, valid_times, fu_LAIsrc(wdr), fu_if_randomise(wdr))
+           call dq_lai_dyn(meteoMarketPtr, met_src, valid_times, idxTimes, fu_LAIsrc(wdr), fu_if_randomise(wdr))
            if(error) return
-           IF(.not.ANY(sm_quantities_2d == leaf_area_index_flag)) THEN
+           IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == leaf_area_index_flag)) THEN
                NbrOf2dQ = NbrOf2dQ + 1
                sm_quantities_2d (NbrOf2dQ) = leaf_area_index_flag
                sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1169,9 +1205,9 @@ CONTAINS
       ! Ground pressure from the logarithm of the ground pressure
       ! or mean-sea-level pressure (msl)
       !
-      if(fu_quantity_in_list(ground_pressure_flag, list))then ! .and. &
+      if(fu_quantity_in_list(ground_pressure_flag, shlist))then ! .and. &
         if(supermarket_info) call msg_test('Making ground pressure field...')
-        call dq_ground_pressure(meteoMarketPtr, met_src, valid_times, sm_quantities_2d)
+        call dq_ground_pressure(meteoMarketPtr, met_src, valid_times, idxTimes, sm_quantities_2d)
         if(error) THEN
            CALL unset_error('make_derived_meteo_fields')
            call msg("dq_ground_pressure failed. MeteoMarket contents:")
@@ -1179,8 +1215,8 @@ CONTAINS
            CALL set_error('dq_ground_pressure failed', 'make_derived_meteo_fields')
            return
         endif
-        call arrange_supermarket_multitime(meteoMarketPtr) ! We need to set surface pressure to 3d fields
-        IF(.not.ANY(sm_quantities_2d == ground_pressure_flag)) THEN
+        call arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes,ifArrange_times=.false.) ! We need to set surface pressure to 3d fields
+        IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == ground_pressure_flag)) THEN
           NbrOf2dQ = NbrOf2dQ + 1
           sm_quantities_2d (NbrOf2dQ) = ground_pressure_flag
           sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1191,16 +1227,17 @@ CONTAINS
       !  ground_pressure fields depending on the type of the system 
       !  vertical structure
       !
-      if(fu_quantity_in_list(surface_pressure_flag, list))then
+      if(fu_quantity_in_list(surface_pressure_flag, shlist))then
         if(supermarket_info) call msg_test('Selecting surface pressure field...')
-        call dq_surface_pressure(meteoMarketPtr, met_src, valid_times)
+        call dq_surface_pressure(meteoMarketPtr, met_src, valid_times, idxTimes)
         if(error) THEN
 !          CALL unset_error('make_derived_meteo_fields')
            call msg("dq_surface_pressure failed. MeteoMarket contents:")
            call report(meteoMarketPtr)
            return
         ELSE
-          IF(.not.ANY(sm_quantities_2d == surface_pressure_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes,ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_2d(:NbrOf2dQ) == surface_pressure_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = surface_pressure_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1210,7 +1247,7 @@ CONTAINS
       !
       ! 3D temperature field from perturbational potential temperature
       !
-      IF (fu_quantity_in_list(temperature_flag, list)) then   ! .and. &
+      IF (fu_quantity_in_list(temperature_flag, shlist)) then   ! .and. &
      !   & .not. fu_quantity_in_quantities(temperature_flag, sm_quantities_3d)) THEN
 
         IF (fu_quantity_in_quantities(perturb_pot_temperature_flag, sm_quantities_3d).and. &
@@ -1218,12 +1255,12 @@ CONTAINS
 
           IF (supermarket_info) call msg_test('Making temperature from perturbed potential one...')
 
-          CALL dq_temperature_from_perturb(meteoMarketPtr, met_src, valid_times)
+          CALL dq_temperature_from_perturb(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == temperature_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes,ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == temperature_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = temperature_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1231,24 +1268,21 @@ CONTAINS
           END IF
         endif
       END IF
-    END IF   ! ifNewMeteodata
 
-    ! ------------------------------------------------------------
-    !
-    ! 2. 3D pressure field of hybrid level data
-    !
-    IF (ifNewMeteoData)then
-      IF(fu_quantity_in_list(pressure_flag, list) .and. &
+      !
+      ! 2. 3D pressure field of hybrid level data
+      !
+      IF(fu_quantity_in_list(pressure_flag, shlist) .and. &
        & (.NOT.fu_quantity_in_quantities(geopotential_flag, sm_quantities_3d))) THEN
 
         IF (supermarket_info) call msg_test('Making 3D hybrid level pressure...')
 
-        CALL dq_3d_pressure(meteoMarketPtr, met_src, valid_times)
+        CALL dq_3d_pressure(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == pressure_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes,ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d (1:NbrOf3dQ) == pressure_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = pressure_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1257,52 +1291,25 @@ CONTAINS
       END IF
 
       !
-      ! 3.1 Winspeed (scalar). U&V required.
-      !
-      IF (fu_quantity_in_list(windspeed_flag, list)) THEN
-
-        IF (fu_quantity_in_quantities(u_flag, sm_quantities_3d).and. &
-          & fu_quantity_in_quantities(v_flag, sm_quantities_3d)) THEN
-
-          IF (supermarket_info) call msg_test('Making 3D windspeed....')
-
-          CALL dq_windspeed(meteoMarketPtr, met_src, valid_times)
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == windspeed_flag)) THEN
-              NbrOf3dQ = NbrOf3dQ + 1
-              sm_quantities_3d (NbrOf3dQ) = windspeed_flag
-              sm_quantities_3d (NbrOf3dQ+1) = int_missing
-            END IF
-          END IF
-
-        ELSE
-          CALL msg_warning('windspeed required, but no U&V','make_derived_meteo_fields')
-        END IF
-      END IF
-
-      !
       ! 3.2 Winspeed at 10m (scalar). U_10m & V_10m required.
       !
       !Determine the 10m windspeed only if not already in meteo:
       !This will work with CESM but crashes e.g. with ERA5:   
-      !IF ( fu_quantity_in_list(windspeed_10m_flag, list) .and. &
+      !IF ( fu_quantity_in_list(windspeed_10m_flag, shlist) .and. &
       ! & (.NOT.fu_quantity_in_quantities(windspeed_10m_flag, sm_quantities_2d)) ) THEN
-      IF (fu_quantity_in_list(windspeed_10m_flag, list)) THEN
+      IF (fu_quantity_in_list(windspeed_10m_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(u_10m_flag, sm_quantities_2d).and. &
             & fu_quantity_in_quantities(v_10m_flag, sm_quantities_2d)) THEN
 
           IF (supermarket_info) call msg_test('Making 10m windspeed....')
 
-          CALL dq_windspeed_10m(meteoMarketPtr, met_src, valid_times)
+          CALL dq_windspeed_10m(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_2d == windspeed_10m_flag)) THEN
+!            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)  ! not needed
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == windspeed_10m_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = windspeed_10m_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1315,58 +1322,23 @@ CONTAINS
         END IF
       END IF
 
-      !
-      ! 4. Mean wind U & V.
-      !
-      IF (fu_quantity_in_list(mean_wind_flag, list)) THEN
-
-        IF (fu_quantity_in_quantities(u_flag, sm_quantities_3d).and. &
-            & fu_quantity_in_quantities(v_flag, sm_quantities_3d)) THEN
-
-          IF (supermarket_info) call msg_test('Making 3D mean windcomponents....')
-
-          CALL dq_mean_vertically_from_bottom(meteoMarketPtr, u_flag,& 
-                                            & u_mean_flag,& 
-                                            & met_src,&
-                                            & valid_times)
-
-          CALL dq_mean_vertically_from_bottom(meteoMarketPtr, v_flag,& 
-                                            & v_mean_flag,&
-                                            & met_src,&
-                                            & valid_times)
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == u_mean_flag)) THEN
-              NbrOf3dQ = NbrOf3dQ + 2
-              sm_quantities_3d (NbrOf3dQ-1) = u_mean_flag
-              sm_quantities_3d (NbrOf3dQ) = v_mean_flag
-              sm_quantities_3d (NbrOf3dQ+1) = int_missing
-            END IF
-          END IF
-
-        ELSE
-          CALL msg_warning('mean wind required, but no U&V','make_derived_meteo_fields')
-        END IF
-      END IF
 
       !
       ! 5. Metric layer thickness between pressure levels and
       !    surface level. Z required.
       !
-      IF (fu_quantity_in_list(layer_thickness_flag, list)) THEN
+      IF (fu_quantity_in_list(layer_thickness_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(geopotential_flag, sm_quantities_3d)) THEN
 
           IF (supermarket_info) call msg_test('Making metric layer thickness between pr-levels...')
 
-          CALL dq_layer_thickness(meteoMarketPtr, met_src, valid_times)
+          CALL dq_layer_thickness(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == layer_thickness_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == layer_thickness_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = layer_thickness_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1381,7 +1353,7 @@ CONTAINS
       !
       ! 6. Metric height from ground surface.
       !
-      IF (fu_quantity_in_list(height_flag, list)) THEN
+      IF (fu_quantity_in_list(height_flag, shlist)) THEN
 
         !
         ! 6.1. Metric height of pressure levels, Z and topo required
@@ -1390,12 +1362,12 @@ CONTAINS
 
           IF(supermarket_info)call msg_test('Making metric height of pressure levels...')
 
-          CALL dq_height_from_z(meteoMarketPtr, met_src, valid_times)
+          CALL dq_height_from_z(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == height_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == height_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = height_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1408,12 +1380,12 @@ CONTAINS
         ELSE IF (fu_quantity_in_quantities(temperature_flag, sm_quantities_3d)) THEN
           IF(supermarket_info)call msg_test('Making metric height of hybrid levels...')
 
-          CALL dq_height_from_t(meteoMarketPtr, met_src, valid_times)
+          CALL dq_height_from_t(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == height_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == height_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = height_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1421,25 +1393,25 @@ CONTAINS
           END IF
 
         ELSE
-          CALL msg_warning('height required, but no Z of T','make_derived_meteo_fields')
+          CALL msg_warning('height required, but no Z or T','make_derived_meteo_fields')
         END IF
       END IF
 
       !
       ! Specific humidity from dew point temperature
       !
-      IF (fu_quantity_in_list(specific_humidity_2m_flag, list)) THEN
+      IF (fu_quantity_in_list(specific_humidity_2m_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(dew_point_temp_2m_flag,sm_quantities_2d)) THEN
 
           IF(supermarket_info)call msg_test('Making specific humidity 2m from dew point tempr 2m...')
 
-          CALL dq_spechum_2m_from_dewp_2m(meteoMarketPtr, met_src, valid_times)
+          CALL dq_spechum_2m_from_dewp_2m(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_2d == specific_humidity_2m_flag)) THEN
+!            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == specific_humidity_2m_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = specific_humidity_2m_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1455,18 +1427,18 @@ CONTAINS
       !
       ! 7. Relative humidity from specific humidity
       !
-      IF (fu_quantity_in_list(relative_humidity_flag, list)) THEN
+      IF (fu_quantity_in_list(relative_humidity_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(specific_humidity_flag,sm_quantities_3d)) THEN
 
           IF(supermarket_info)call msg_test('Making relative humidity from specific...')
 
-          CALL dq_rh_from_spechum(meteoMarketPtr, met_src, valid_times)
+          CALL dq_rh_from_spechum(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == relative_humidity_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == relative_humidity_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = relative_humidity_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1480,17 +1452,17 @@ CONTAINS
       !
       ! 7a. Relative humidity 2m from specific humidity 2m 
       !
-      IF (fu_quantity_in_list(relative_humidity_2m_flag, list)) THEN
+      IF (fu_quantity_in_list(relative_humidity_2m_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(specific_humidity_2m_flag,sm_quantities_2d)) THEN
 
           IF(supermarket_info)call msg_test('Making 2m relative humidity from specific...')
 
-          CALL dq_rh_from_spechum_2m(meteoMarketPtr, met_src, valid_times)
+          CALL dq_rh_from_spechum_2m(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            IF(.not.ANY(sm_quantities_2d == relative_humidity_2m_flag)) THEN
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == relative_humidity_2m_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = relative_humidity_2m_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1504,51 +1476,58 @@ CONTAINS
       !
       ! Total precipitation - accumulated field from large-scale and convective ones
       !
-      IF (fu_quantity_in_list(total_precipitation_acc_flag, list)) THEN
+      IF (fu_quantity_in_list(total_precipitation_acc_flag, shlist)) THEN
         if (fu_quantity_in_quantities(large_scale_accum_rain_flag,sm_quantities_2d)) then
-
+          ! large-scale is present, can do the work
           IF(supermarket_info)call msg_test('Making total cumulative precipitation...')
-        
-          if (fu_number_of_precip_flds(wdr) == 1) then
-            CALL dq_total_precipitation_ls(meteoMarketPtr, met_src, valid_times)
-          else if (fu_quantity_in_quantities(convective_accum_rain_flag,sm_quantities_2d)) then
-            ! Both convective and large-scale rain required and available
-            CALL dq_total_precipitation(meteoMarketPtr, met_src, valid_times)
+          if(fu_quantity_in_quantities(convective_accum_rain_flag,sm_quantities_2d))then
+            ! Convective is present, should sum up
+            if (fu_number_of_precip_flds(wdr) == 2)then
+              CALL dq_total_precipitation(meteoMarketPtr, met_src, valid_times, idxTimes, .true.)
+            else
+              call set_error('Both conv.and large-scale rain present but nbr of precip fields =' + &
+                           & fu_str(fu_number_of_precip_flds(wdr)),'make_derived_meteo_fields')
+              return    ! bad error, no reason to continue
+            endif
           else
-            CALL msg_warning('Large-scale and convective prec required, but do not exist',&
-                           & 'make_derived_meteo_fields')
-          end if
-
+            ! Convective rain is not included, only large-scale is in
+            if (fu_number_of_precip_flds(wdr) == 1)then
+              CALL dq_total_precipitation(meteoMarketPtr, met_src, valid_times, idxTimes, .false.)
+            else
+              call set_error('Only large-scale rain present but nbr of precip fields =' + &
+                           & fu_str(fu_number_of_precip_flds(wdr)),'make_derived_meteo_fields')
+              return   ! bad error, no reason to continue
+            endif
+          endif   ! convective precipitation is in the meteo file
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_2d == total_precipitation_acc_flag)) THEN
+!            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == total_precipitation_acc_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = total_precipitation_acc_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
             END IF
           END IF
-
         ELSE
           CALL msg_warning('Large-scale prec required, but des not exist',&
                          & 'make_derived_meteo_fields')
-        END IF
-      END IF
+        END IF    ! large-scale preciptiation is in the meteo file
+      END IF  ! total precipitation is needed
     
       !
       ! 8. Equivivalent potential temperature (Pilvi's stuff).
       !
-      IF (fu_quantity_in_list(eq_pot_temperature_flag, list)) THEN
+      IF (fu_quantity_in_list(eq_pot_temperature_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making eq. pot. temperature...')
 
-        CALL dq_eq_potential_temperature(meteoMarketPtr, met_src, valid_times)
+        CALL dq_eq_potential_temperature(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == eq_pot_temperature_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == eq_pot_temperature_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = eq_pot_temperature_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1559,18 +1538,18 @@ CONTAINS
       !
       ! 9. Potential temperature (Pilvi's stuff).
       !
-      IF (fu_quantity_in_list(potential_temperature_flag, list)) THEN
+      IF (fu_quantity_in_list(potential_temperature_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(temperature_flag, sm_quantities_3d)) THEN
 
           IF (supermarket_info) call msg_test('Making potential temperature...')
 
-          CALL dq_potential_temperature(meteoMarketPtr, met_src, valid_times)
+          CALL dq_potential_temperature(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == potential_temperature_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == potential_temperature_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = potential_temperature_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1586,16 +1565,16 @@ CONTAINS
       !
       ! 10. Relative vorticity (Pilvi's stuff).
       !
-      IF (fu_quantity_in_list(relative_vorticity_flag, list)) THEN
+      IF (fu_quantity_in_list(relative_vorticity_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making relative vorticity....')
 
-        CALL dq_relative_vorticity(meteoMarketPtr, met_src, valid_times)
+        CALL dq_relative_vorticity(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == relative_vorticity_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == relative_vorticity_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = relative_vorticity_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1606,37 +1585,36 @@ CONTAINS
       !
       ! 11. Absolute vorticity advection (Pilvi's stuff).
       !
-      IF (fu_quantity_in_list(abs_vorticity_advection_flag, list)) THEN
+      IF (fu_quantity_in_list(abs_vorticity_advection_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making abs. vorticity advection...')
 
-        CALL dq_abs_vorticity_advection(meteoMarketPtr, met_src, valid_times)
+        CALL dq_abs_vorticity_advection(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == abs_vorticity_advection_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == abs_vorticity_advection_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = abs_vorticity_advection_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
           END IF
-        END IF
-
+        END IF
       END IF
 
       !
       ! 13. Isentropic potential vorticity (Pilvi's stuff).
       !
-      IF (fu_quantity_in_list(ipv_flag, list)) THEN
+      IF (fu_quantity_in_list(ipv_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making IPV...')
 
-        CALL dq_isentropic_pot_vorticity(meteoMarketPtr, met_src, valid_times)
+        CALL dq_isentropic_pot_vorticity(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == ipv_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == ipv_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = ipv_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1644,19 +1622,20 @@ CONTAINS
         END IF
 
       END IF
+
       !
       ! 14b. Brunt-Vaisala frequency
       !
-      IF (fu_quantity_in_list(brunt_vaisala_freq_flag, list)) THEN
+      IF (fu_quantity_in_list(brunt_vaisala_freq_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making Brunt-Vaisala frequency...')
 
-        CALL dq_brunt_vaisala_freq(meteoMarketPtr, met_src, valid_times)
+        CALL dq_brunt_vaisala_freq(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == brunt_vaisala_freq_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == brunt_vaisala_freq_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = brunt_vaisala_freq_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1668,16 +1647,16 @@ CONTAINS
       !
       ! 14c. Gradient Richardson number
       !
-      IF (fu_quantity_in_list(gradient_richardson_nbr_flag, list)) THEN
+      IF (fu_quantity_in_list(gradient_richardson_nbr_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making gradient Richardson number...')
 
-        CALL dq_gradient_richardson_number(meteoMarketPtr, met_src, valid_times, fu_abl_param(wdr))
+        CALL dq_gradient_richardson_number(meteoMarketPtr, met_src, valid_times, idxTimes, fu_abl_param(wdr))
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == gradient_richardson_nbr_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == gradient_richardson_nbr_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = gradient_richardson_nbr_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1689,16 +1668,16 @@ CONTAINS
       !
       ! 15. Thermal front parameter (Pilvi's stuff).
       !
-      IF (fu_quantity_in_list(tfp_flag, list)) THEN
+      IF (fu_quantity_in_list(tfp_flag, shlist)) THEN
       
         IF (supermarket_info) call msg_test('Making TFP...')
 
-        CALL dq_thermal_front_parameter(meteoMarketPtr, met_src, valid_times)
+        CALL dq_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == tfp_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == tfp_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = tfp_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1710,17 +1689,17 @@ CONTAINS
       !
       !  vertical velocity omega (Pa/s)
       !
-      IF (fu_quantity_in_list(omega_flag, list)) THEN
+      IF (fu_quantity_in_list(omega_flag, shlist)) THEN
  
         IF (supermarket_info) call msg_test('Making vertical velocity omega...')
 
-        CALL dq_omega(meteoMarketPtr, met_src, valid_times, .false.)  ! meteo source, time list, ifUpdate
+        CALL dq_omega(meteoMarketPtr, met_src, valid_times, idxTimes, .false.)  ! meteo source, time shlist, ifUpdate
 
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == omega_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == omega_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = omega_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1732,18 +1711,18 @@ CONTAINS
       !
       !  vertical velocity w (m/s) in sea-level-based vertical coordinates
       !
-      IF (fu_quantity_in_list(w_alt_msl_flag, list)) THEN
+      IF (fu_quantity_in_list(w_alt_msl_flag, shlist)) THEN
     
         IF (fu_quantity_in_quantities(omega_flag, sm_quantities_3d)) THEN
 
           IF (supermarket_info) call msg_test('Making vertical velocity w above msl...')
 
-          CALL dq_vertical_velocity_msl(meteoMarketPtr, met_src, valid_times)
+          CALL dq_vertical_velocity_msl(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == w_alt_msl_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == w_alt_msl_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = w_alt_msl_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1757,18 +1736,18 @@ CONTAINS
       !
       !  vertical velocity w (m/s) in surface-based vertical coordinates
       !
-      IF (fu_quantity_in_list(w_height_srf_flag, list)) THEN
+      IF (fu_quantity_in_list(w_height_srf_flag, shlist)) THEN
 
         IF (fu_quantity_in_quantities(omega_flag, sm_quantities_3d)) THEN
 
           IF (supermarket_info) call msg_test('Making vertical velocity w above surface...')
 
-          CALL dq_vertical_velocity_srf(meteoMarketPtr, met_src, valid_times)
+          CALL dq_vertical_velocity_srf(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == w_height_srf_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == w_height_srf_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = w_height_srf_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1784,21 +1763,21 @@ CONTAINS
       !  If it is omega, the above call has made it because this flag
       !  orders omega as a pre-requisite. But if it is w then it must be computed
       !
-      IF (fu_quantity_in_list(vertical_velocity_flag, list)) THEN
+      IF (fu_quantity_in_list(vertical_velocity_flag, shlist)) THEN
     
         IF (supermarket_info) call msg_test('Making vertical-dependent w-wind ...')
 
         select case(vertical_velocity_pointer)
           case(omega_flag)
-            CALL dq_omega(meteoMarketPtr, met_src, valid_times, .false.)  !meteo src, time list, ifUpdate
+            CALL dq_omega(meteoMarketPtr, met_src, valid_times, idxTimes, .false.)  !meteo src, time shlist, ifUpdate
           case(w_alt_msl_flag)
             if(.not. fu_quantity_in_quantities(omega_flag, sm_quantities_3d)) &
-                                & CALL dq_omega(meteoMarketPtr, met_src, valid_times, .false.)
-            CALL dq_vertical_velocity_msl(meteoMarketPtr, met_src, valid_times)
+                                & CALL dq_omega(meteoMarketPtr, met_src, valid_times, idxTimes, .false.)
+            CALL dq_vertical_velocity_msl(meteoMarketPtr, met_src, valid_times, idxTimes)
           case(w_height_srf_flag)
             if(.not. fu_quantity_in_quantities(omega_flag, sm_quantities_3d)) &
-                                & CALL dq_omega(meteoMarketPtr, met_src, valid_times, .false.)
-            CALL dq_vertical_velocity_srf(meteoMarketPtr, met_src, valid_times)
+                                & CALL dq_omega(meteoMarketPtr, met_src, valid_times, idxTimes, .false.)
+            CALL dq_vertical_velocity_srf(meteoMarketPtr, met_src, valid_times, idxTimes)
           case default
             call msg('vertical_velocity_pointer',vertical_velocity_pointer)
             call set_error('Unknown vertical_velocity_pointer','make_derived_meteo_fields')
@@ -1807,30 +1786,30 @@ CONTAINS
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
           CALL supermarket_3d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
                                        & sm_quantities_3d, NbrOf3dQ)
         END IF
 
       END IF
 
-      if (fu_quantity_in_list(eta_dot_flag, list)) then
+      if (fu_quantity_in_list(eta_dot_flag, shlist)) then
         if (supermarket_info) call msg_test('Making eta-dot...')
-        call dq_hybrid_vertical_wind(meteoMarketPtr, met_src, valid_times)
+        call dq_hybrid_vertical_wind(meteoMarketPtr, met_src, valid_times, idxTimes)
       end if
 
       !
       !  Wind vector divergence
       !
-      IF (fu_quantity_in_list(wind_divergence_flag, list)) THEN
+      IF (fu_quantity_in_list(wind_divergence_flag, shlist)) THEN
    
         IF (supermarket_info) call msg_test('Making wind divergence...')
       
-        CALL dq_wind_divergence(meteoMarketPtr, met_src, valid_times)
+        CALL dq_wind_divergence(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          IF(.not.ANY(sm_quantities_3d == wind_divergence_flag)) THEN
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == wind_divergence_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = wind_divergence_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1838,24 +1817,22 @@ CONTAINS
         END IF
       END IF
 
-    !
-    !  Bulk thermal front parameter (Pilvi's stuff).
-    !
-    IF (ifNewMeteoData .and. fu_quantity_in_list(bulk_tfp_flag, list)) THEN
+      !
+      !  Bulk thermal front parameter (Pilvi's stuff).
+      !
+      IF (fu_quantity_in_list(bulk_tfp_flag, shlist)) THEN
    
-      IF (.NOT.fu_quantity_in_quantities(layer_thickness_flag, sm_quantities_3d)) THEN
-          CALL msg_warning('bulkTFP wanted but no layer_thickness',&
-              & 'make_derived_meteo_fields')
+        IF (.NOT.fu_quantity_in_quantities(layer_thickness_flag, sm_quantities_3d)) THEN
+          CALL set_error('bulkTFP wanted but no layer_thickness', 'make_derived_meteo_fields')
         ELSE
-
           IF (supermarket_info) call msg_test('Making bulkTFP...')
         
-          CALL dq_bulk_thermal_front_parameter(meteoMarketPtr, met_src, valid_times)
+          CALL dq_bulk_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_3d == bulk_tfp_flag)) THEN
+            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == bulk_tfp_flag)) THEN
               NbrOf3dQ = NbrOf3dQ + 1
               sm_quantities_3d (NbrOf3dQ) = bulk_tfp_flag
               sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1868,50 +1845,50 @@ CONTAINS
       !
       !  Similarity parameters: Monin-obukhov length, friction velocity...
       !
-      IF (fu_quantity_in_list(MO_length_inv_flag, list) .or. &
-       & fu_quantity_in_list(friction_velocity_flag, list) .or. &
-       & fu_quantity_in_list(temperature_scale_flag, list) .or. &
-       & fu_quantity_in_list(humidity_scale_flag, list) .or. &
-       & fu_quantity_in_list(SILAM_sensible_heat_flux_flag, list) .or. &
-       & fu_quantity_in_list(SILAM_latent_heat_flux_flag, list) .or. &
-       & fu_quantity_in_list(Kz_scalar_1m_flag, list) .or. &
-       & fu_quantity_in_list(convective_velocity_scale_flag, list) .or.  &
-       & fu_quantity_in_list(ABL_height_m_flag, list)) THEN
+      IF (fu_quantity_in_list(MO_length_inv_flag, shlist) .or. &
+       & fu_quantity_in_list(friction_velocity_flag, shlist) .or. &
+       & fu_quantity_in_list(temperature_scale_flag, shlist) .or. &
+       & fu_quantity_in_list(humidity_scale_flag, shlist) .or. &
+       & fu_quantity_in_list(SILAM_sensible_heat_flux_flag, shlist) .or. &
+       & fu_quantity_in_list(SILAM_latent_heat_flux_flag, shlist) .or. &
+       & fu_quantity_in_list(Kz_scalar_1m_flag, shlist) .or. &
+       & fu_quantity_in_list(convective_velocity_scale_flag, shlist) .or.  &
+       & fu_quantity_in_list(ABL_height_m_flag, shlist)) THEN
    
         ! Needed parameters: ground_pressure_flag, temperature_2m_flag, height_flag, 
-        ! wind_10m_flag,temperature_flag,potential_temperature_flag,windspeed_flag
+        ! wind_10m_flag,temperature_flag,windspeed_flag   !!!!!!,potential_temperature_flag
         ! They are not checked - in case of problem error is set in dq_monin_obukhov
 
-          IF (supermarket_info) call msg_test('Making ABL parameters ...')
+        IF (supermarket_info) call msg_test('Making ABL parameters ...')
 
-          CALL dq_ABL_params(meteoMarketPtr, met_src, valid_times, &
-                                                     & fu_abl_param(wdr), fu_ablh_method(wdr))
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr) ! Several fields were added => full rebuild
-            sm_quantities_2d(:)  = int_missing
-            sm_quantities_3d(:)  = int_missing
-            CALL supermarket_2d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
-                                         & sm_quantities_2d, NbrOf2dQ)
-            CALL supermarket_3d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
-                                         & sm_quantities_3d, NbrOf3dQ)
-          END IF
-
-      END IF
-      !
-      ! Bulk Richardson number (Roux's stuff).
-      !
-      IF (fu_quantity_in_list(bulk_richardson_nbr_flag, list)) THEN
-
-        IF (supermarket_info) call msg_test('Making bulk Richardson number...')
-
-        CALL dq_bulk_richardson_number(meteoMarketPtr, met_src, valid_times, fu_abl_param(wdr))
+        CALL dq_ABL_params(meteoMarketPtr, met_src, valid_times, idxTimes, &
+                         & fu_abl_param(wdr), fu_ablh_method(wdr))
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == bulk_richardson_nbr_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.) ! Several fields were added => full rebuild
+!          sm_quantities_2d(:)  = int_missing
+!          sm_quantities_3d(:)  = int_missing
+          CALL supermarket_2d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
+                                       & sm_quantities_2d, NbrOf2dQ)
+          CALL supermarket_3d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
+                                       & sm_quantities_3d, NbrOf3dQ)
+        END IF
+      END IF
+       
+      !
+      ! Bulk Richardson number (Roux's stuff).
+      !
+      IF (fu_quantity_in_list(bulk_richardson_nbr_flag, shlist)) THEN
+
+        IF (supermarket_info) call msg_test('Making bulk Richardson number...')
+
+        CALL dq_bulk_richardson_number(meteoMarketPtr, met_src, valid_times, idxTimes, fu_abl_param(wdr))
+        IF (error) THEN
+          CALL unset_error('make_derived_meteo_fields')
+        ELSE
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == bulk_richardson_nbr_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = bulk_richardson_nbr_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -1922,19 +1899,19 @@ CONTAINS
       !
       !  R_a aerodynamic resistance
       !
-      IF (fu_quantity_in_list(R_a_flag, list))THEN
+      IF (fu_quantity_in_list(R_a_flag, shlist))THEN
    
         ! Needed parameters: basic surface scaling 
         ! They are not checked - in case of problem error is set in dq_monin_obukhov
 
         IF (supermarket_info) call msg_test('Making aerodynamic resistance...')
         
-        CALL dq_aerodynamic_resistance(meteoMarketPtr, met_src, valid_times, 2.0)  ! R_a for 2m
+        CALL dq_aerodynamic_resistance(meteoMarketPtr, met_src, valid_times, idxTimes, 2.0)  ! R_a for 2m
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_2d == R_a_flag)) THEN
+!          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == R_a_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = R_a_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1946,15 +1923,15 @@ CONTAINS
       !
       !  ABL top pressure
       !
-      IF (fu_quantity_in_list(abl_top_pressure_flag, list)) THEN
+      IF (fu_quantity_in_list(abl_top_pressure_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making ABL height [Pa]...')
 
-        CALL dq_abl_top_pressure(meteoMarketPtr, met_src, valid_times)
+        CALL dq_abl_top_pressure(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          IF(.not.ANY(sm_quantities_2d == abl_top_pressure_flag)) THEN
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == abl_top_pressure_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = abl_top_pressure_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -1963,102 +1940,48 @@ CONTAINS
 
       END IF
 
-
       !
-      ! Turbulence vertical profile: Kz for momentum, heat, scalar, TKE
-      ! After Zilitinkevich et al, 2007
+      ! Resistance from the given layer down to the previous layer
       !
-      IF (fu_quantity_in_list(wind_vertical_shear_flag, list) .or. &
-        & fu_quantity_in_list(Kz_momentum_3d_flag, list) .or. &
-        & fu_quantity_in_list(Kz_heat_3d_flag, list) .or. &
-        & fu_quantity_in_list(Kz_scalar_3d_flag, list) .or. &
-!        & fu_quantity_in_list(turb_length_scale_flag, list) .or. & !Now has
-!        different meaning used in R_down_meteo_flag
-        & fu_quantity_in_list(turb_kinetic_energy_SILAM_flag, list)) THEN
-
-        IF (.NOT.fu_quantity_in_quantities(gradient_richardson_nbr_flag, sm_quantities_3d)) THEN
-          CALL msg_warning('Turbulence wanted but no Ri nbr','make_derived_meteo_fields')
-        ELSE
-
-          IF (supermarket_info) call msg_test('Making turbulence vertical profile...')
-        
-          CALL dq_turbulence_profile(meteoMarketPtr, met_src, valid_times, list)
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            CALL supermarket_2d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
-                                         & sm_quantities_2d, NbrOf2dQ)
-            CALL supermarket_3d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
-                                         & sm_quantities_3d, NbrOf3dQ)
-          END IF
-
-        END IF
-      END IF
-
-
-      IF (fu_quantity_in_list(R_down_meteo_flag, list) ) THEN
+      IF (fu_quantity_in_list(R_down_meteo_flag, shlist) ) THEN
    
         ! Needed parameters: height_flag, temperature_flag, u_flag, v_flag,
         ! q_flag
         ! They are not checked - in case of problem error is set in
         ! dq_Rdown_profile
 
-          IF (supermarket_info) call msg_test('Making dq_Rdown_profile ...')
+        IF (supermarket_info) call msg_test('Making dq_Rdown_profile ...')
 
-          CALL dq_Rdown_profile(meteoMarketPtr, met_src, valid_times, fu_kz_param(wdr), fu_abl_min_m(wdr))
-          IF (error) THEN
+        CALL dq_Rdown_profile(meteoMarketPtr, met_src, valid_times, idxTimes, fu_kz_param(wdr), fu_abl_min_m(wdr))
+        IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr) 
-            IF(.not.ANY(sm_quantities_3d == R_down_meteo_flag)) THEN
-                 NbrOf3dQ = NbrOf3dQ + 1
-                 sm_quantities_3d (NbrOf3dQ) = R_down_meteo_flag
-                 sm_quantities_3d (NbrOf3dQ+1) = int_missing
-            END IF
+        ELSE
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.) 
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == R_down_meteo_flag)) THEN
+            NbrOf3dQ = NbrOf3dQ + 1
+            sm_quantities_3d (NbrOf3dQ) = R_down_meteo_flag
+            sm_quantities_3d (NbrOf3dQ+1) = int_missing
           END IF
-
+        END IF
       END IF
 
-      IF (fu_quantity_in_list(turb_length_scale_flag, list) ) THEN
-   
-        ! Needed parameters: height_flag, temperature_flag, u_flag, v_flag,
-        ! q_flag
-        ! They are not checked - in case of problem error is set in
-        ! dq_lscale_profile
-
-          IF (supermarket_info) call msg_test('Making dq_lscale_profile ...')
-
-          CALL dq_lscale_profile(meteoMarketPtr, met_src, valid_times, fu_kz_param(wdr), fu_abl_min_m(wdr))
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr) 
-            IF(.not.ANY(sm_quantities_3d == turb_length_scale_flag)) THEN
-                 NbrOf3dQ = NbrOf3dQ + 1
-                 sm_quantities_3d (NbrOf3dQ) = turb_length_scale_flag
-                 sm_quantities_3d (NbrOf3dQ+1) = int_missing
-            END IF
-          END IF
-
-      END IF
-            
       ! Downward radiation can be computed from net radiation and albedo
       ! use the climatological albedo here to indicate the meteo value
       ! and the cumulative quantities so the rest could work as it used to
-      IF (fu_quantity_in_list(surf_sw_down_radiation_ac_flag, list)) THEN
+      !
+      IF (fu_quantity_in_list(surf_sw_down_radiation_ac_flag, shlist)) THEN
     
         IF(fu_quantity_in_quantities(climatological_albedo_flag, sm_quantities_2d) .and. &
          & fu_quantity_in_quantities(surf_sw_net_radiation_ac_flag, sm_quantities_2d)) THEN
 
           IF (supermarket_info) call msg_test('Making solar down radiation...')
 
-          CALL dq_rad_sw_down_sfc(meteoMarketPtr, met_src, valid_times)
+          CALL dq_rad_sw_down_sfc(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_2d == surf_sw_down_radiation_ac_flag)) THEN
+!            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == surf_sw_down_radiation_ac_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = surf_sw_down_radiation_ac_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2069,41 +1992,40 @@ CONTAINS
           CALL msg_warning('Missing albedo or net solar radiation for down radiation', &
                          & 'make_derived_meteo_fields')
         END IF
-
       END IF
 
       !
       !  Surface roughness field from soil and water ones
       !
-      IF (fu_quantity_in_list(surface_roughness_meteo_flag, list))then
+      IF (fu_quantity_in_list(surface_roughness_meteo_flag, shlist))then
 
         IF (supermarket_info) call msg_test('Making surface roughness meteo ...')
 
-        CALL dq_surface_roughness(meteoMarketPtr, .false., met_src, valid_times)
+        CALL dq_surface_roughness(meteoMarketPtr, .false., met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          IF(.not.ANY(sm_quantities_2d == water_roughness_flag)) THEN
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == water_roughness_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = water_roughness_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing  
           END IF        
-          IF(.not.ANY(sm_quantities_2d == surface_roughness_meteo_flag)) THEN
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == surface_roughness_meteo_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = surface_roughness_meteo_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
           END IF
         END IF
       END IF
-      IF (fu_quantity_in_list(surface_roughness_disp_flag, list))then
+      IF (fu_quantity_in_list(surface_roughness_disp_flag, shlist))then
 
         IF (supermarket_info) call msg_test('Making surface roughness dispersion...')
 
-        CALL dq_surface_roughness(meteoMarketPtr, .true., met_src, valid_times)
+        CALL dq_surface_roughness(meteoMarketPtr, .true., met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          IF(.not.ANY(sm_quantities_2d == surface_roughness_disp_flag)) THEN
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == surface_roughness_disp_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = surface_roughness_disp_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2118,7 +2040,7 @@ CONTAINS
       !     Method: if some accumulated quantity is in supermarket
       !     than corresponding average one can be created if needed
       !
-      ! Create complete list of the supermarket
+      ! Create complete shlist of the supermarket
       sm_quantities_2d(NbrOf2dQ+1:NbrOf2dQ+NbrOf3dQ) =  sm_quantities_3d(1:NbrOf3dQ)
       NbrOf2dQ = NbrOf2dQ+NbrOf3dQ
       
@@ -2128,32 +2050,27 @@ CONTAINS
         IF(.not.fu_accumulated_quantity(sm_quantities_2d(q))) CYCLE
       
         q_accum = sm_quantities_2d(q)
-        q_average = fu_aver_quantity_for_acc(q_accum)
+        q_rate = fu_rate_quantity_for_acc(q_accum)
         !
-        ! Converting acc-av is wrong thing to do here. Skip it for rains...
+        ! Converting acc-rate is a wrong thing to do here. Skip it for rains...
         ! FIXME Should be disabled for all quantities.
         !
-      
-        if (q_average == large_scale_rain_int_flag .or. &
-          & q_average ==  convective_rain_int_flag .or. &
-          & q_average ==  total_precipitation_rate_flag .or. &
-          & q_average == temperature_flag .or. &
-          & q_average == temperature_2m_flag) cycle
+        if (q_rate == large_scale_rain_int_flag .or. &
+          & q_rate == convective_rain_int_flag .or. &
+          & q_rate == total_precipitation_int_flag .or. &
+          & q_rate == temperature_flag .or. &
+          & q_rate == temperature_2m_flag) cycle
 
-        ! Is the available average quantity in shopping list ?
-        IF (fu_quantity_in_list(q_average, list)) THEN
+        ! Is the available average quantity in shopping shlist ?
+        IF (fu_quantity_in_list(q_rate, shlist)) THEN
       
           IF(supermarket_info)THEN
-            call msg_test(fu_connect_strings('Converting:', &
-                                           & fu_quantity_string(q_accum),&
-                                           & ', to:', &
-                                           & fu_quantity_string(q_average)))
+            call msg_test('Converting:' + fu_quantity_string(q_accum) + ', to:' &
+                      & + fu_quantity_string(q_rate))
           END IF
       
-          CALL dq_average_between_obstimes(meteoMarketPtr, q_accum, &
-                                         & q_average, &
-                                         & met_src,&
-                                         & valid_times)
+          CALL dq_average_between_obstimes(meteoMarketPtr, q_accum, q_rate, met_src, valid_times, idxTimes)
+
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
             CYCLE
@@ -2164,10 +2081,10 @@ CONTAINS
       
       ! Temporary variables must be restored
       
-      sm_quantities_2d(:)  = int_missing
-      sm_quantities_3d(:)  = int_missing
+!      sm_quantities_2d(:)  = int_missing
+!      sm_quantities_3d(:)  = int_missing
       
-      CALL arrange_supermarket_multitime(meteoMarketPtr)
+      CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
       CALL supermarket_2d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
                                    & sm_quantities_2d, NbrOf2dQ)
       CALL supermarket_3d_quantities(meteoMarketPtr, met_src, multi_time_stack_flag, &
@@ -2176,19 +2093,19 @@ CONTAINS
       ! 24. Albedo can be calculated only after instantaneous radiation
       !     fluxes are known
       !
-      IF (fu_quantity_in_list(albedo_flag, list)) THEN
+      IF (fu_quantity_in_list(albedo_flag, shlist)) THEN
     
         IF(fu_quantity_in_quantities(surf_sw_down_radiation_flag, sm_quantities_2d) .and. &
          & fu_quantity_in_quantities(surf_sw_net_radiation_flag, sm_quantities_2d)) THEN
 
           IF (supermarket_info) call msg_test('Making albedo...')
 
-          CALL dq_albedo(meteoMarketPtr, met_src, valid_times)
+          CALL dq_albedo(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_2d == albedo_flag)) THEN
+!            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == albedo_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = albedo_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2202,20 +2119,19 @@ CONTAINS
 
       END IF
 
-
       !
       ! 28. Pasquil stability class
       !
-      IF (fu_quantity_in_list(pasquill_class_flag, list)) THEN
+      IF (fu_quantity_in_list(pasquill_class_flag, shlist)) THEN
    
         IF (supermarket_info) call msg_test('Making Pasquill stability class...')
         
-        CALL dq_pasquill(meteoMarketPtr, met_src, valid_times)
+        CALL dq_pasquill(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_2d == pasquill_class_flag)) THEN
+!          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == pasquill_class_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = pasquill_class_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2227,9 +2143,9 @@ CONTAINS
       !
       ! 29. 3D cloud water content column
       !
-      boolTmp1 = fu_quantity_in_list(cwcabove_3d_flag, list) .or. fu_quantity_in_list(cwcolumn_flag, list)
-      boolTmp2 = fu_quantity_in_list(pwcabove_3d_flag, list) .or. fu_quantity_in_list(pwcolumn_flag, list)
-      boolTmp3 = fu_quantity_in_list(lcwcabove_3d_flag, list) .or. fu_quantity_in_list(lcwcolumn_flag, list)
+      boolTmp1 = fu_quantity_in_list(cwcabove_3d_flag, shlist) .or. fu_quantity_in_list(cwcolumn_flag, shlist)
+      boolTmp2 = fu_quantity_in_list(pwcabove_3d_flag, shlist) .or. fu_quantity_in_list(pwcolumn_flag, shlist)
+      boolTmp3 = fu_quantity_in_list(lcwcabove_3d_flag, shlist) .or. fu_quantity_in_list(lcwcolumn_flag, shlist)
       IF (boolTmp1 .or. boolTmp2 .or. boolTmp3) THEN
    
         ! Needed parameters: pressure_flag 
@@ -2238,13 +2154,13 @@ CONTAINS
 
         IF (supermarket_info) call msg_test('Making 3d cloud water column(s)...')
 
-        CALL dq_cwcabove_3D(meteoMarketPtr, met_src, valid_times, boolTmp1, boolTmp2, boolTmp3)
+        CALL dq_cwcabove_3D(meteoMarketPtr, met_src, valid_times, idxTimes, boolTmp1, boolTmp2, boolTmp3)
         IF (error) THEN
           CALL set_error("Error after dq_cwcabove_3D", 'make_derived_meteo_fields')
           return
         ELSE
-          CALL arrange_supermarket_multitime(meteoMarketPtr)
-          IF(.not.ANY(sm_quantities_3d == cwcabove_3d_flag)) THEN
+          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == cwcabove_3d_flag)) THEN
             NbrOf3dQ = NbrOf3dQ + 1
             sm_quantities_3d (NbrOf3dQ) = cwcabove_3d_flag
             sm_quantities_3d (NbrOf3dQ+1) = int_missing
@@ -2254,18 +2170,18 @@ CONTAINS
       END IF
 
       !
-     ! Total cloud cover from 3d
-      IF (fu_quantity_in_list(total_cloud_cover_flag, list)) THEN
+      ! Total cloud cover from 3d
+      IF (fu_quantity_in_list(total_cloud_cover_flag, shlist)) THEN
         IF (fu_quantity_in_quantities(cloud_cover_flag, sm_quantities_3d)) THEN
 
           IF(supermarket_info)call msg_test('Making total cloud cover from 3d')
 
-          CALL dq_cloudcvr_from_3d(meteoMarketPtr, met_src, valid_times)
+          CALL dq_cloudcvr_from_3d(meteoMarketPtr, met_src, valid_times, idxTimes)
           IF (error) THEN
             CALL unset_error('make_derived_meteo_fields')
           ELSE
-            CALL arrange_supermarket_multitime(meteoMarketPtr)
-            IF(.not.ANY(sm_quantities_2d == total_cloud_cover_flag)) THEN
+!            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
+            IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == total_cloud_cover_flag)) THEN
               NbrOf2dQ = NbrOf2dQ + 1
               sm_quantities_2d (NbrOf2dQ) = total_cloud_cover_flag
               sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2278,16 +2194,16 @@ CONTAINS
         END IF
       END IF
       !
-      IF (fu_quantity_in_list(stomatal_conductance_flag, list)) THEN
+      IF (fu_quantity_in_list(stomatal_conductance_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making stomatal conductance [m/s]...')
 
-        CALL dq_stomatal_conductance(meteoMarketPtr, met_src, valid_times, fu_LAIsrc(wdr), &
+        CALL dq_stomatal_conductance(meteoMarketPtr, met_src, valid_times, idxTimes, fu_LAIsrc(wdr), &
              & if_high_stomatal_conductance)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          IF(.not.ANY(sm_quantities_2d == stomatal_conductance_flag)) THEN
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == stomatal_conductance_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = stomatal_conductance_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2297,15 +2213,15 @@ CONTAINS
       !
       !  Reference evapotranspiration
       !
-      IF (fu_quantity_in_list(ref_evapotranspiration_flag, list)) THEN
+      IF (fu_quantity_in_list(ref_evapotranspiration_flag, shlist)) THEN
 
         IF (supermarket_info) call msg_test('Making reference evapotranspiration [kg/m2sec]...')
 
-        CALL dq_ref_evapotranspiration(meteoMarketPtr, met_src, valid_times)
+        CALL dq_ref_evapotranspiration(meteoMarketPtr, met_src, valid_times, idxTimes)
         IF (error) THEN
           CALL unset_error('make_derived_meteo_fields')
         ELSE
-          IF(.not.ANY(sm_quantities_2d == ref_evapotranspiration_flag)) THEN
+          IF(.not.ANY(sm_quantities_2d(1:NbrOf2dQ) == ref_evapotranspiration_flag)) THEN
             NbrOf2dQ = NbrOf2dQ + 1
             sm_quantities_2d (NbrOf2dQ) = ref_evapotranspiration_flag
             sm_quantities_2d (NbrOf2dQ+1) = int_missing
@@ -2313,31 +2229,25 @@ CONTAINS
         END IF
       END IF
 
+      !
+      ! Having all fields processed, reset the time shlist
+      !
+      call set_all_times_processed(meteoMarketPtr)
+
+      !
+      ! All done, last-time, arrange all supermarket stacks for the just-procesed times
+      ! Also include the newly processed times.
+      !
+      CALL arrange_supermarket(meteoMarketPtr, .true., .true., idxTimes, ifArrange_times=.true.)
+
 !call report(meteoMarketPtr)
     else
        call msg("make_derived_meteo_fields: No new meteodata")
     ENDIF  ! ifNewMeteoData
 
+    call stop_count(chCounterNm = subname)
+
 !    IF(supermarket_info)THEN
-!      sm_quantities_2d(:)  = int_missing
-!      sm_quantities_3d(:)  = int_missing
-!
-!      CALL arrange_supermarket_multitime(meteoMarketPtr)
-!      CALL supermarket_2d_quantities(meteoMarketPtr, met_src, sm_quantities_2d)
-!      CALL supermarket_3d_quantities(meteoMarketPtr, met_src, sm_quantities_3d)
-!
-!      NbrOf2dQ = COUNT(sm_quantities_2d(1:SIZE(sm_quantities_2d)) /= int_missing)
-!      NbrOf3dQ = COUNT(sm_quantities_3d(1:SIZE(sm_quantities_3d)) /= int_missing)
-!
-!      PRINT *,'Now the following 2D quantities are in SM:'
-!      DO i= 1,NbrOf2dQ
-!        print*,sm_quantities_2d(i),'  ',fu_quantity_string(sm_quantities_2d(i))
-!      END DO
-!      PRINT *,'And the following 3D quantities are in SM:'
-!      DO i= 1,NbrOf3dQ
-!        print*,sm_quantities_3d(i),'  ',fu_quantity_string(sm_quantities_3d(i))
-!      END DO
-!    END IF
 
  END SUBROUTINE make_derived_meteo_fields
 
@@ -2360,7 +2270,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE dq_surface_roughness(meteoMarketPtr, ifRoughnessDispersion, met_src, valid_times)
+  SUBROUTINE dq_surface_roughness(meteoMarketPtr, ifRoughnessDispersion, met_src, valid_times, idxTimes)
 
     ! Creates surface roughness from constant soil roughness and 
     ! dynamical water roughness
@@ -2372,9 +2282,10 @@ CONTAINS
     logical, intent(in) :: ifRoughnessDispersion
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
 
     ! Local declarations:
-    INTEGER ::  i,j
+    INTEGER ::  i,j, iS
     TYPE(silja_field), POINTER :: land_roughness_field, water_roughness_field, &
                                 & fraction_of_land_field, friction_velocity_field
     TYPE(silja_field_id) :: id
@@ -2395,6 +2306,7 @@ CONTAINS
     endif
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -2405,7 +2317,8 @@ CONTAINS
                       & time,&
                       & level_missing,&
                       & look_for_3d = .false.,&
-                      & permanent = .false.)) CYCLE loop_over_times
+                      & permanent = .false., &
+                      & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
       !
       ! Get or take default ground roughness
       !
@@ -2414,7 +2327,8 @@ CONTAINS
                       & time,&
                       & level_missing,&
                       & .false.,&
-                      & .false.))then
+                      & .false., &
+                      & idxTimeStack_=idxTimes(iS,t)))then
          land_roughness_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
                                                    & iLandRoughnessFlag, &
                                                    & level_missing, &
@@ -2443,7 +2357,8 @@ CONTAINS
                       & time,&
                       & level_missing,&
                       & .false.,&
-                      & .false.))then
+                      & .false., &
+                       & idxTimeStack_=idxTimes(iS,t)))then
          call msg_warning('No static land roughness, using dynamic one','dq_surface_roughness')
          land_roughness_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
                                                    & iLandRoughnessFlag, &
@@ -2468,7 +2383,8 @@ CONTAINS
                       & time,&
                       & level_missing,&
                       & .true.,&
-                      & .false.))then
+                      & .false., &
+                       & idxTimeStack_=idxTimes(iS,t)))then
         water_roughness_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
                                                    & water_roughness_flag, &
                                                    & level_missing, &
@@ -2548,7 +2464,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE dq_ground_pressure(meteoMarketPtr, met_src, valid_times, sm_quantities_2d)
+  SUBROUTINE dq_ground_pressure(meteoMarketPtr, met_src, valid_times, idxTimes, sm_quantities_2d)
 
     ! Creates ground pressure from any input variable suitable for this task:
     ! logarithm of the ground pressure, msl pressure plus relief height
@@ -2560,15 +2476,18 @@ CONTAINS
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     integer, dimension(:), intent(in) :: sm_quantities_2d
+    integer, dimension(:,:), intent(in) :: idxTimes
 
     ! Local declarations:
-    INTEGER ::  i,j
+    INTEGER ::  i,j, iS
     TYPE(silja_field), POINTER :: ground_pressure_fld, log_ground_pressure_fld, &
                                 & msl_pressure_fld, temperature_2m_fld
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: pr, log_ground_pressure, msl_pressure, t2m, topo
     INTEGER :: t
     TYPE(silja_time) :: time
+
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
 
@@ -2580,7 +2499,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&  ! If look for 3D
-                       & .false.)) CYCLE loop_over_times  ! if Permanent
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times  ! if Permanent
       !
       ! The deriving way depends on the available quantities
       !
@@ -2666,7 +2586,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE dq_ground_pr_from_msl_pr(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_ground_pr_from_msl_pr(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Creates ground pressure from mean sea level one. Topography is evidently needed
     !
@@ -2675,10 +2595,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER ::  i,j
+    INTEGER ::  i,j, iS
     TYPE(silja_field), POINTER :: ground_pressure_field, msl_pressure_field, temperature_2m_field
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: pr, msl_pressure, t2m, topo
@@ -2688,6 +2609,7 @@ CONTAINS
 !    pr => fu_work_array()
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -2698,7 +2620,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&  ! If look for 3D
-                       & .false.)) CYCLE loop_over_times  ! if Permanent
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times  ! if Permanent
       if(supermarket_info) call msg_test('Making ground pressure from msl for:' + fu_str(time))
 
       msl_pressure_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
@@ -2748,7 +2671,7 @@ CONTAINS
 
 !*****************************************************************************
 
-  subroutine dq_surface_pressure(meteoMarketPtr, met_src, valid_times)
+  subroutine dq_surface_pressure(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Selects as a surface pressure either the mean sea level pressure (in
     ! case of the constant pressure vertical co-ordinate) or ground
@@ -2765,16 +2688,18 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_field), POINTER :: sp_field
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: sp
-    INTEGER :: t, fs, i, j
+    INTEGER :: t, fs, i, j, iS
     TYPE(silja_time) :: time
 
 !    sp => fu_work_array()
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -2786,7 +2711,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
       select case(fu_leveltype(meteo_vertical))
         case(constant_pressure, constant_altitude)
@@ -2829,208 +2755,9 @@ CONTAINS
   end subroutine dq_surface_pressure
 
 
-
-
-!******************************************************************************
-
-  SUBROUTINE dq_windspeed(meteoMarketPtr, met_src, valid_times)
-
-    ! Description:
-    ! Creates scalar windspeed 2D-fields for given one met_src and
-    ! one given valid time, and stores them into the supermarket.
-    ! The vertical level structure is defined by U and V -fields.
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Original code: Mika Salonoja
-    ! Author: Mikhail Sofiev
-
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    INTEGER ::  l, i,j
-    TYPE(silja_3d_field), POINTER :: u3d, v3d, speed_3d, t3d 
-    TYPE(silja_field_id) :: id
-    REAL, DIMENSION(:), POINTER :: u, v, u_t_grid, v_t_grid, speed
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, t, nx, ny, i1, i2, j1, j2
-    TYPE(silja_time) :: time
-    real :: u_shift_lon, u_shift_lat, v_shift_lon, v_shift_lat
-!    REAL, DIMENSION(2) :: u_grd_shift, v_grd_shift
-!    LOGICAL :: OK
-  !  TYPE(silja_grid) :: scalar_grid, u_grid, v_grid
-
-!    speed => fu_work_array()
-    u_t_grid => fu_work_array()
-    v_t_grid => fu_work_array()
-
-    IF (error) RETURN
-
-    loop_over_times: DO t = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
-      time = valid_times(t)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src, & ! Already done before?
-                       & windspeed_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .true.,&
-                       & .false.)) CYCLE loop_over_times
-
-      u3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, u_flag, time, single_time)
-      IF (error) RETURN
-
-      v3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, v_flag, time, single_time)
-      IF (error) RETURN
-
-      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
-      IF (error) RETURN
-
-!      u => fu_grid_data_from_3d(u3d, 10)
-!      v => fu_grid_data_from_3d(v3d, 10)
-!      print *,'u,v before windspeed: ',u(200),v(200)
-
-      IF (fu_number_of_fields(u3d) /=  fu_number_of_fields(v3d)) THEN
-        call msg('U_ and real(V_) field sizes:',fu_number_of_fields(u3d), real(fu_number_of_fields(v3d)))
-        CALL set_error('U and V sizes do not match','dq_windspeed')
-        RETURN
-      END IF
-
-!!!$      IF (.NOT.(fu_grid(u3d) == fu_grid(v3d))) THEN
-!!!$        CALL report(fu_grid(u3d))
-!!!$        CALL report(fu_grid(v3d))
-!!!$        CALL msg_warning('cannot make windspeed, U and V grid not matching',&
-!!!$            & 'dq_windspeed')
-!!!$        RETURN
-!!!$      END IF
-
-      CALL grid_dimensions(fu_grid(v3d), nx, ny)
-      IF (error) RETURN 
-
-      CALL vertical_levels(t3d, levels, number_of_levels)
-      IF (error) RETURN
-
-      loop_over_levels: DO l = 1, number_of_levels
-       
-        u => fu_grid_data_from_3d(u3d, l)
-        v => fu_grid_data_from_3d(v3d, l)
-
-        if(error)then 
-          call unset_error('dq_windspeed')
-          cycle
-        end if
-
-        !---------------------------------------------------------
-        ! Calculations differ depending on mutual shift of the grids
-        !
-        u_t_grid(1:fs_meteo) = u  ! Temporal arrays for centralised wind velocity
-        v_t_grid(1:fs_meteo) = v
-
-!        CALL grid_chk(fu_grid(u3d), meteo_grid, u_grd_shift, OK)
-        call grid_shift_indices(fu_grid(u3d), meteo_grid, u_shift_lon, u_shift_lat)
-        IF((u_shift_lon .eps. real_missing) .or. (u_shift_lat .eps. real_missing))THEN
-          call report(u3d)
-          call report(meteo_grid)
-          CALL set_error('Above u_grid is not close to the above meteo one','dq_speed')
-          return
-        END IF
-!        CALL grid_chk(fu_grid(v3d), meteo_grid, v_grd_shift, OK)
-        call grid_shift_indices(fu_grid(v3d), meteo_grid, v_shift_lon, v_shift_lat)
-        IF((v_shift_lon .eps. real_missing) .or. (v_shift_lat .eps. real_missing))THEN
-          call report(v3d)
-          call report(meteo_grid)
-          CALL set_error('Above v_grid is not close to the above meteo one','dq_speed')
-          return
-        END IF
-
-        IF((u_shift_lon .eps. 0.).and.(u_shift_lat .eps. 0.))THEN 
-            ! u grid corresponds to the system one - do nothing
-        ELSEIF(u_shift_lat .eps. 0.)THEN
-          DO j=1,ny   ! samelat_halfgrid_lon
-          DO i=2,nx-1
-            u_t_grid((j-1)*nx+i)= 0.5 * (u((j-1)*nx+i)+ u((j-1)*nx+i-NINT(SIGN(1.0,u_shift_lon))))
-          END DO
-          END DO
-        ELSEIF(u_shift_lon .eps. 0.)THEN
-          DO j=2,ny-1  ! samelon_halfgrid_lat
-          DO i=1,nx
-            u_t_grid((j-1)*nx+i)= 0.5*(u((j-1)*nx+i)+ u((j-1-NINT(SIGN(1.0,u_shift_lat)))*nx+i))
-          END DO
-          END DO
-        ELSE
-          DO j=2,ny-1  ! halfgrid_lon_lat - 4-point interpolation
-          DO i=2,nx-1
-            u_t_grid((j-1)*nx+i) = 0.25* (u((j-1)*nx+i)+ &
-             & u((j-1-NINT(SIGN(1.0,u_shift_lat)))*nx+i)+ &
-             & u((j-1)*nx+i-NINT(SIGN(1.0,u_shift_lon)))+ &
-             & u((j-1+NINT(SIGN(1.0,u_shift_lat)))*nx+i+NINT(SIGN(1.0,u_shift_lon))))
-          END DO
-          END DO
-        END IF
-
-        IF((v_shift_lon .eps. 0.).and.(v_shift_lat .eps. 0.))THEN 
-            ! v grid corresponds to the system one - do nothing
-        ELSEIF(v_shift_lat .eps. 0.)THEN
-          DO j=1,ny   ! samelat_halfgrid_lon
-          DO i=2,nx-1
-            v_t_grid((j-1)*nx+i)= 0.5 * (v((j-1)*nx+i)+ v((j-1)*nx+i-NINT(SIGN(1.0,v_shift_lon))))
-          END DO
-          END DO
-        ELSEIF(v_shift_lon .eps. 0.)THEN
-          DO j=2,ny-1  ! samelon_halfgrid_lat
-          DO i=1,nx
-            v_t_grid((j-1)*nx+i)= 0.5*(v((j-1)*nx+i)+ v((j-1-NINT(SIGN(1.0,v_shift_lat)))*nx+i))
-          END DO
-          END DO
-        ELSE
-          DO j=2,ny-1  ! halfgrid_lon_lat - 4-point interpolation
-          DO i=2,nx-1
-            v_t_grid((j-1)*nx+i) = 0.25* (v((j-1)*nx+i)+ &
-             & v((j-1-NINT(SIGN(1.0,v_shift_lat)))*nx+i)+ &
-             & v((j-1)*nx+i-NINT(SIGN(1.0,v_shift_lon)))+ &
-             & v((j-1+NINT(SIGN(1.0,v_shift_lat)))*nx+i+NINT(SIGN(1.0,v_shift_lon))))
-          END DO
-          END DO
-        END IF
-
-        id = fu_set_field_id(fu_met_src(u3d),&
-                           & windspeed_flag,&
-                           & fu_analysis_time(u3d),&
-                           & fu_forecast_length(u3d), &
-                           & meteo_grid,&
-                           & levels(l))
-
-        call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, speed)
-        if(fu_fails(.not.error,'Failed wind speed field data pointer','dq_windspeed'))return
-
-        do i=1,fs_meteo
-          speed(i) = SQRT(u_t_grid(i)*u_t_grid(i) + v_t_grid(i)*v_t_grid(i))
-        end do
-
-!        CALL dq_store_2d(meteoMarketPtr, id, speed, multi_time_stack_flag )
-
-      END DO loop_over_levels
-
-    END DO loop_over_times
-
-!    CALL free_work_array(speed)
-    CALL free_work_array(u_t_grid)
-    CALL free_work_array(v_t_grid)
-
-  END SUBROUTINE dq_windspeed
-
-
-
   ! ***************************************************************
 
-  SUBROUTINE dq_windspeed_10m(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_windspeed_10m(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Creates scalar 10m windspeed field for given one met_src and
     ! one given valid time, and stores it into the supermarket.
@@ -3046,10 +2773,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER ::  i,j
+    INTEGER ::  i,j, iS
     TYPE(silja_field), POINTER :: u_10m_field, v_10m_field, speed_10m_field
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: u_10m, v_10m, u_t_grid, v_t_grid, speed_10m
@@ -3064,6 +2792,7 @@ CONTAINS
     v_t_grid => fu_work_array()
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -3074,7 +2803,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&    ! search for 3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
       u_10m_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
                                        & u_10m_flag, &
@@ -3207,7 +2937,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_layer_thickness(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_layer_thickness(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Creates scalar layer_thickness 2D-fields for given one met_src and
@@ -3226,10 +2956,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER :: i
+    INTEGER :: i, iS
     TYPE(silja_3d_field), POINTER :: z3d
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: z, z_lowest, thickness
@@ -3239,18 +2970,20 @@ CONTAINS
 
 !    thickness => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
       time = valid_times(t)
 
       IF (fu_field_in_sm(meteoMarketPtr, & ! Already done before?
-          & met_src,&
-          & layer_thickness_flag,&
-          & time,&
-          & level_missing,&
-          & .true.,&
-          & .false.)) CYCLE loop_over_times
+                       & met_src,&
+                       & layer_thickness_flag,&
+                       & time,&
+                       & level_missing,&
+                       & .true.,&
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
       z3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&
                                   & geopotential_flag, &
@@ -3303,7 +3036,7 @@ CONTAINS
   SUBROUTINE dq_average_between_obstimes(meteoMarketPtr, quantity,& ! original accumulated quantity
                                        & average_quantity,& ! its obstime average counterpart
                                        & met_src,&
-                                       & times)
+                                       & times, idxTimes)
 
     ! Description:
     ! For a quantity, which has been accumulated from the beginning
@@ -3335,6 +3068,7 @@ CONTAINS
     INTEGER, INTENT(in) :: quantity, average_quantity
     type(meteo_data_source) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
 
@@ -3342,7 +3076,7 @@ CONTAINS
     TYPE(silja_field), POINTER :: latest, previous
     REAL :: aclen
     TYPE(silja_field_id) :: id
-    INTEGER :: t
+    INTEGER :: t, iS
     REAL, DIMENSION(:), POINTER :: ave
     logical :: previous_same_start
 
@@ -3356,6 +3090,7 @@ CONTAINS
 
 !    ave => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     timeloop: DO t = 1, SIZE(times)
 
@@ -3373,7 +3108,8 @@ CONTAINS
                        & times(t),&
                        & level_missing,&
                        & fu_multi_level_quantity(average_quantity),&
-                       & .false.)) then
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) then
         previous => latest
         CYCLE timeloop
       endif
@@ -3458,7 +3194,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_height_from_z(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_height_from_z(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates metric height from ground for constant pressure
@@ -3475,11 +3211,12 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
 
     ! Local declarations:
-    INTEGER :: i, t
+    INTEGER :: i, t, iS
     TYPE(silja_3d_field), POINTER :: z3d
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: z, topo, height
@@ -3490,6 +3227,7 @@ CONTAINS
 
 !    height => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -3504,7 +3242,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
       ! -------------------------------------------------------------
       !
@@ -3590,7 +3329,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_height_from_t(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_height_from_t(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Calculates metric height from ground for hybrid (model)
     ! levels. Vertical coordinate defined by 3D temperature field.
@@ -3606,10 +3345,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER :: i, j, t
+    INTEGER :: i, j, t, iS
     TYPE(silja_3d_field), POINTER :: t3d
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: t_up, &
@@ -3630,6 +3370,7 @@ CONTAINS
     p_level_up => fu_work_array()
     p_level_down => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -3644,7 +3385,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
 
       ! -------------------------------------------------------------
@@ -3779,7 +3521,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_3d_pressure(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_3d_pressure(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates 3D pressure fields for hybrid (model)
@@ -3796,10 +3538,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER :: t, l
+    INTEGER :: t, l, iS
     TYPE(silja_3d_field), POINTER :: t3d
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: p
@@ -3809,6 +3552,7 @@ CONTAINS
 
 !    p => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -3824,7 +3568,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
       ! -------------------------------------------------------------
       !
@@ -3882,7 +3627,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_rh_from_spechum(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_rh_from_spechum(meteoMarketPtr, met_src, valid_times, idxTimes)
     ! 
     ! Calculates relative humidity from specific humidity
     ! Vertical coordinate defined by 3D spec.hum field.
@@ -3898,10 +3643,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_time) :: time
     TYPE(silja_3d_field), POINTER :: t3d, q3d
     TYPE(silja_field_id) :: id
@@ -3911,6 +3657,7 @@ CONTAINS
 
     p => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
 !    rh => fu_work_array()
 !    IF (error) RETURN
@@ -3929,7 +3676,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       ! -------------------------------------------------------------
       !
@@ -3986,7 +3734,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_rh_from_spechum_2m(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_rh_from_spechum_2m(meteoMarketPtr, met_src, valid_times, idxTimes)
     ! 
     ! Calculates relative humidity at 2m from specific humidity
     !
@@ -3997,10 +3745,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_time) :: time
     TYPE(silja_field), POINTER :: t2m, p_srf, q2m
     TYPE(silja_field_id) :: id
@@ -4010,6 +3759,7 @@ CONTAINS
 
 !    rh => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -4024,7 +3774,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       ! -------------------------------------------------------------
       !
@@ -4068,7 +3819,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_spechum_2m_from_dewp_2m(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_spechum_2m_from_dewp_2m(meteoMarketPtr, met_src, valid_times, idxTimes)
     ! 
     ! Calculates specific humidity at 2m from dew point temperature
     !
@@ -4079,10 +3830,11 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_time) :: time
     TYPE(silja_field), POINTER :: td2m, p_srf, q2m
     TYPE(silja_field_id) :: id
@@ -4092,6 +3844,7 @@ CONTAINS
 
 !    q2m_data => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -4106,7 +3859,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       ! -------------------------------------------------------------
       !
@@ -4149,124 +3903,9 @@ CONTAINS
 
   END SUBROUTINE dq_spechum_2m_from_dewp_2m
 
-
   ! ***************************************************************
 
-
-  SUBROUTINE dq_mean_vertically_from_bottom(meteoMarketPtr, quantity, mean_quantity, met_src, valid_times)
-    !
-    ! For a given scalar 3D-quantity calculates its mean value
-    ! from lowest level up for every level available. The new quantity
-    ! is named named as given parameter mean_quantity.
-    ! 
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    INTEGER, INTENT(in) :: quantity   ! the original 3D scalar quantity
-    INTEGER, INTENT(in) :: mean_quantity  ! its vertically average counterpart
-    type(meteo_data_source), INTENT(in) ::  met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    INTEGER :: tloop, lev, fs
-    REAL, DIMENSION(:), POINTER :: sum_from_bottom, mean_from_bottom, field_now
-    TYPE(silja_field_id) :: id
-    TYPE(silja_3d_field), POINTER :: field_3d
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
-    TYPE(silja_time) :: time
-
-    sum_from_bottom => fu_work_array()
-!    mean_from_bottom => fu_work_array()
-    field_now  => fu_work_array()
-    IF (error) RETURN
-
-    loop_over_times: DO tloop = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
-      time = valid_times(tloop)
-
-
-      ! -------------------------------------------------------------
-      !
-      ! 1. Already done before?
-      !    ---------------------
-
-      IF (fu_field_in_sm(meteoMarketPtr, & 
-          & met_src,&
-          & mean_quantity,&
-          & time,&
-          & level_missing,&
-          & .true.,&
-          & .false.)) CYCLE loop_over_times
-
-
-      ! -------------------------------------------------------------
-      !
-      ! 2. Get the 3D scalar field
-      !    ------------------------
-
-      field_3d => fu_sm_obstime_3d_field(meteoMarketPtr, &
-          & met_src,&
-          & quantity, &
-          & time,&
-          & single_time)
-      IF (error) RETURN
-
-      fs = fu_size(fu_lowest_field(field_3d))
-
-
-      ! -------------------------------------------------------------
-      !
-      ! 3. Loop over levels from bottom up
-      !    -------------------------------
-
-      CALL vertical_levels(field_3d, levels, number_of_levels)
-      IF (error) RETURN
-
-      sum_from_bottom = 0.
-
-      loop_over_levels: DO lev = 1, number_of_levels
-
-        field_now => fu_grid_data_from_3d(field_3d, lev)
-
-        id = fu_set_field_id(fu_met_src(field_3d),&
-                           & mean_quantity,&
-                           & fu_analysis_time(field_3d),&
-                           & fu_forecast_length(field_3d), &
-                           & fu_grid(field_3d),&
-                           & levels(lev))
-
-        call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, mean_from_bottom)
-        if(fu_fails(.not.error,'Failed altitude mean field data pointer','dq_mean_vertically_from_bottom'))return
-
-        sum_from_bottom(1:fs) = sum_from_bottom(1:fs) + field_now
-        mean_from_bottom(1:fs) = sum_from_bottom(1:fs)/REAL(lev)
-
-
-!        CALL dq_store_2d(meteoMarketPtr, id, mean_from_bottom, multi_time_stack_flag )
-
-      END DO loop_over_levels
-    END DO loop_over_times
-
-    call free_work_array(sum_from_bottom)
-!    call free_work_array(mean_from_bottom)
-    call free_work_array(field_now)
-
-  END SUBROUTINE dq_mean_vertically_from_bottom
-
-
-
-  ! ***************************************************************
-
-
-  subroutine dq_total_precipitation(meteoMarketPtr, met_src, valid_times)
+  subroutine dq_total_precipitation(meteoMarketPtr, met_src, valid_times, idxTimes, ifConvectivePresent)
 
     ! Creates total precipitation field for given one met_src and
     ! given valid times, and stores it into the supermarket.
@@ -4283,10 +3922,12 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
+    logical, intent(in) :: ifConvectivePresent
 
     ! Local declarations:
-    INTEGER ::  i,j
+    INTEGER ::  i,j, iS
     TYPE(silja_field), POINTER :: ls_prec_field, conv_prec_field
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: ls_prec, conv_prec, tot_prec
@@ -4296,6 +3937,7 @@ CONTAINS
 
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO t = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
@@ -4305,8 +3947,9 @@ CONTAINS
                        & total_precipitation_acc_flag,&
                        & time,&
                        & level_missing,&
-                       & .false.,&           ! look for 3d
-                       & .false.)) CYCLE loop_over_times
+                       & .false.,&           ! do not look for 3d
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
 
       ls_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
                                          & large_scale_accum_rain_flag, &
@@ -4314,16 +3957,19 @@ CONTAINS
                                          & time,&
                                          & single_time)
       IF (error) RETURN
-
-      conv_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
-                                           & convective_accum_rain_flag, &
-                                           & level_missing, &
-                                           & time,&
-                                           & single_time)
+      ls_prec => fu_grid_data(ls_prec_field)
       IF (error) RETURN
 
-      ls_prec => fu_grid_data(ls_prec_field)
-      conv_prec => fu_grid_data(conv_prec_field)
+      if(ifConvectivePresent)then
+        conv_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
+                                             & convective_accum_rain_flag, &
+                                             & level_missing, &
+                                             & time,&
+                                             & single_time)
+        IF (error) RETURN
+        conv_prec => fu_grid_data(conv_prec_field)
+        IF (error) RETURN
+      endif
 
       id = fu_id(ls_prec_field)
       call set_quantity(id,total_precipitation_acc_flag)
@@ -4331,254 +3977,19 @@ CONTAINS
       call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, tot_prec)
       if(fu_fails(.not.error,'Failed total precipitation field data pointer','dq_total_precipitation'))return
 
-      tot_prec(1:fs_meteo) = ls_prec(1:fs_meteo) + conv_prec(1:fs_meteo)
+      if(ifConvectivePresent)then
+        tot_prec(1:fs_meteo) = ls_prec(1:fs_meteo) + conv_prec(1:fs_meteo)
+      else
+        tot_prec(1:fs_meteo) = ls_prec(1:fs_meteo)
+      endif
 
     END DO loop_over_times
-
 
   end subroutine dq_total_precipitation
 
-  !*****************************************************************
-
-  subroutine dq_total_precipitation_ls(meteoMarketPtr, met_src, valid_times)
-
-    ! Creates total precipitation field for given one met_src and
-    ! given valid times, and stores it into the supermarket. This
-    ! subroutine uses only large-scale rain fields, so it should be
-    ! called only if this is specified in wdr.
-    !
-    ! Not to overlook: it is an accumulated field
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mikhail Sofiev
-
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    INTEGER ::  i,j
-    TYPE(silja_field), POINTER :: ls_prec_field, conv_prec_field
-    TYPE(silja_field_id) :: id
-    REAL, DIMENSION(:), POINTER :: ls_prec, conv_prec, tot_prec
-    INTEGER :: t, nx, ny
-    TYPE(silja_time) :: time
-    LOGICAL :: OK
-
-!    tot_prec => fu_work_array()
-
-    IF (error) RETURN
-
-    loop_over_times: DO t = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
-      time = valid_times(t)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src, & ! Already done before?
-                       & total_precipitation_acc_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .false.,&                  ! Look for 3d
-                       & .false.)) CYCLE loop_over_times
-
-      ls_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
-                                         & large_scale_accum_rain_flag, &
-                                         & level_missing, &
-                                         & time,&
-                                         & single_time)
-      IF (error) RETURN
-
-      ls_prec => fu_grid_data(ls_prec_field)
-
-      id = fu_set_field_id(fu_met_src(ls_prec_field),&
-                         & total_precipitation_acc_flag,&
-                         & fu_analysis_time(ls_prec_field),&
-                         & fu_forecast_length(ls_prec_field), &
-                         & meteo_grid,&
-                         & ground_level, &
-                         & fu_accumulation_length(ls_prec_field), &
-                         & field_kind = accumulated_flag)
-
-      call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, tot_prec)
-      if(fu_fails(.not.error,'Failed total precipitation field data pointer','dq_total_precipitation_ls'))return
-
-      tot_prec(1:fs_meteo) = ls_prec(1:fs_meteo)
-
-!      CALL dq_store_2d(meteoMarketPtr, id, tot_prec, multi_time_stack_flag )
-
-    END DO loop_over_times
-
-!    CALL free_work_array(tot_prec)
-
-  end subroutine dq_total_precipitation_ls
-
-
-  !*****************************************************************
-
-  subroutine dq_total_prec_rate(meteoMarketPtr, met_src, valid_times)
-
-    ! Creates total precipitation field for given one met_src and
-    ! given valid times, and stores it into the supermarket.
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mikhail Sofiev
-
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    INTEGER ::  i,j
-    TYPE(silja_field), POINTER :: ls_prec_field, conv_prec_field
-    TYPE(silja_field_id) :: id
-    REAL, DIMENSION(:), POINTER :: ls_prec, conv_prec, tot_prec
-    INTEGER :: t, nx, ny
-    TYPE(silja_time) :: time
-    LOGICAL :: OK
-
-!    tot_prec => fu_work_array()
-
-    IF (error) RETURN
-
-    loop_over_times: DO t = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
-      time = valid_times(t)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src, & ! Already done before?
-                       & total_precipitation_rate_flag,&
-                       & time,&
-                       & level_missing,&
-                       & look_for_3d = .false.,&
-                       & permanent = .false.)) CYCLE loop_over_times
-
-      ls_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
-                                         & large_scale_rain_int_flag, &
-                                         & level_missing, &
-                                         & time,&
-                                         & single_time)
-      IF (error) RETURN
-
-      conv_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
-                                           & convective_rain_int_flag, &
-                                           & level_missing, &
-                                           & time,&
-                                           & single_time)
-      IF (error) RETURN
-
-      ls_prec => fu_grid_data(ls_prec_field)
-      conv_prec => fu_grid_data(conv_prec_field)
-
-      id = fu_set_field_id(fu_met_src(ls_prec_field),&
-                         & total_precipitation_rate_flag,&
-                         & fu_analysis_time(ls_prec_field),&
-                         & fu_forecast_length(ls_prec_field), &
-                         & meteo_grid,&
-                         & ground_level)
-
-      call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, tot_prec)
-      if(fu_fails(.not.error,'Failed total precipitation field data pointer','dq_total_prec_rate'))return
-
-      tot_prec(1:fs_meteo) = ls_prec(1:fs_meteo) + conv_prec(1:fs_meteo)
-
-!      CALL dq_store_2d(meteoMarketPtr, id, tot_prec, multi_time_stack_flag )
-
-    END DO loop_over_times
-
-!    CALL free_work_array(tot_prec)
-
-  end subroutine dq_total_prec_rate
-
-  !*****************************************************************
-
-  subroutine dq_total_prec_rate_ls(meteoMarketPtr, met_src, valid_times)
-
-    ! Creates total precipitation field for given one met_src and
-    ! given valid times, and stores it into the supermarket. This
-    ! subroutine uses only large-scale rain fields, so it should be
-    ! called only if this is specified in wdr.
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mikhail Sofiev
-
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    INTEGER ::  i,j
-    TYPE(silja_field), POINTER :: ls_prec_field, conv_prec_field
-    TYPE(silja_field_id) :: id
-    REAL, DIMENSION(:), POINTER :: ls_prec, conv_prec, tot_prec
-    INTEGER :: t, nx, ny
-    TYPE(silja_time) :: time
-    LOGICAL :: OK
-
-!    tot_prec => fu_work_array()
-
-    IF (error) RETURN
-
-    loop_over_times: DO t = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
-      time = valid_times(t)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src, & ! Already done before?
-                       & total_precipitation_rate_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .true.,&
-                       & .false.)) CYCLE loop_over_times
-
-      ls_prec_field => fu_sm_obstime_field(meteoMarketPtr, met_src,&
-                                         & large_scale_rain_int_flag, &
-                                         & level_missing, &
-                                         & time,&
-                                         & single_time)
-      IF (error) RETURN
-
-      ls_prec => fu_grid_data(ls_prec_field)
-
-      id = fu_set_field_id(fu_met_src(ls_prec_field),&
-                         & total_precipitation_rate_flag,&
-                         & fu_analysis_time(ls_prec_field),&
-                         & fu_forecast_length(ls_prec_field), &
-                         & meteo_grid,&
-                         & ground_level)
-
-      call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, tot_prec)
-      if(fu_fails(.not.error,'Failed total precipitation field data pointer','dq_total_prec_rate_ls'))return
-
-      tot_prec(1:fs_meteo) = ls_prec(1:fs_meteo)
-
-                         
-!      CALL dq_store_2d(meteoMarketPtr, id, tot_prec, multi_time_stack_flag )
-
-    END DO loop_over_times
-
-!    CALL free_work_array(tot_prec)
-
-  end subroutine dq_total_prec_rate_ls
 
   
-
   ! ***************************************************************
-
   ! ***************************************************************
   ! 
   !
@@ -4617,8 +4028,7 @@ CONTAINS
                                  & fu_set_shopping_list (met_src,&
                                                        & (/temperature_flag,&
                                                          & u_flag, v_flag,&
-                                                         & pressure_flag,&
-                                                         & windspeed_flag/),&
+                                                         & pressure_flag/), &
                                                        & time_missing, &
                                                        & time_missing, &
                                                        & level_missing,&
@@ -4643,7 +4053,7 @@ CONTAINS
 !    CALL report(meteoMarketPtr) 
 !    IF (error) RETURN
     
-    CALL arrange_supermarket_multitime(meteoMarketPtr)
+    CALL arrange_supermarket(meteoMarketPtr,.true., .true.)
 
 !    CALL  report(meteoMarketPtr)
 

@@ -39,6 +39,8 @@ module photolysis
 
   public compute_water_cloud_properties
 
+  public aerosol_number_conc
+
 
   ! Indices for each reaction in the photodissociation rate array:
   ! 
@@ -139,6 +141,7 @@ module photolysis
   integer, parameter, public :: fake_cloud = 1003
 
   ! Source of O3 column for photolysys
+  integer, parameter, public :: photoAny = 14000
   integer, parameter, public :: standard_atmosphere = 14001
   integer, parameter, public :: mass_map = 14002
   integer, parameter, public :: meteo_column = 14003
@@ -981,8 +984,41 @@ contains
   !***********************************************************************************
 
 
-  subroutine compute_water_cloud_properties(masses, metdat_col, col_ext, col_scat, density, diam, &
-       & soot_col, ix, iy, pwc_col, tau_above_bott, ssa)
+  subroutine aerosol_number_conc(masses, metdat_col, density, diam, numconc)
+
+    ! Used for both the detailed cloud model for photolysis and the precipitable water
+    ! for 2020_scavenging
+
+    real, dimension(:,:,:), intent(in) :: masses !nSp, nSrc, nLev  slice of a massmap                                      
+    real, dimension(:,:), intent(in) :: metdat_col
+    real, dimension(:), intent(in) ::  density, diam
+    real, dimension(:), intent(out):: numconc
+
+    integer :: iLev, iSpecies, nSpecies, num_levs
+
+    character(len=*), parameter :: sub_name = 'aerosol_number_conc'
+
+    numconc(:) = 0.0
+
+    nSpecies = size(masses,1)
+    num_levs = size(masses,3)
+
+    do iLev=1,num_levs 
+
+        ! Sum over aerosols only: diam>0; real_missing**3 is -Inf in gfortran, 
+        ! leads to formal zero, but triggers floating-point exception
+        numconc(iLev) = sum(&
+            &  masses(:,1,iLev)/(density(1:nSpecies)*1.33*3.14*(0.5*diam(1:nSpecies))**3),&
+            & MASK = (diam(1:nSpecies) > 0)&
+            &) *  metdat_col(imet_airdens,iLev)/metdat_col(imet_airmass,iLev)
+
+    enddo
+  end  subroutine aerosol_number_conc
+
+  !***********************************************************************************
+
+  subroutine compute_water_cloud_properties(numberconc, metdat_col, col_ext, col_scat, &
+       & soot_col, pwc_col, tau_above_bott, ssa)
 
     ! Used for both the detailed cloud model for photolysis and the precipitable water
     ! for 2020_scavenging
@@ -992,10 +1028,8 @@ contains
     ! For precipitable water:
     ! wet_deposition_scheme = 2020_SCAVENGING
 
-    real, dimension(:,:,:), intent(in) :: masses !nSp, nSrc, nLev  slice of a massmap                                      
     real, dimension(:,:), intent(in) :: metdat_col
-    real, dimension(:), intent(in) :: col_ext, col_scat, density, diam, soot_col
-    integer, intent(in) :: ix, iy
+    real, dimension(:), intent(in) :: numberconc, col_ext, col_scat, soot_col
 
     real, intent(out) :: ssa !, tcc_photo, tcc_scav
     real, dimension(:), intent(out):: pwc_col, tau_above_bott
@@ -1003,7 +1037,7 @@ contains
     !real, dimension(max_levels) :: col_cwcabove, col_lcwcabove, col_cwcabove2
     real :: lwc_d, cdnc, B, T, iwc_normalized, dp_dyn, tau, ssa0, aerosol_nbr_cnc
     real :: norm, tcc, area
-    integer :: iLev, iSpecies, nSpecies, num_levs
+    integer :: iLev, num_levs
     integer, parameter :: mu = 3 ! the asymmetry parameter of the gamma distribution
     real, parameter :: m_liq = mu*14., m_ice = mu*1800. ! Integration limits for the formation of
                                                        ! precipitable water in 2019_scav
@@ -1020,6 +1054,7 @@ contains
     ! without this check it segfaults on pollen runs with 2020 scavenging
     if (.not. (associated(imet_cwc) .or.  associated(imet_cic)) ) then
       call set_error( "could not get cloud properties.. Incompatible scavenging?", sub_name)
+      return
     endif
 
     if (maxval(metdat_col(imet_cwc,:) + metdat_col(imet_cic,:)) < 1e-25) then
@@ -1027,8 +1062,7 @@ contains
       return
     end if
 
-    nSpecies = size(masses,1)
-    num_levs = size(masses,3)
+    num_levs = size(metdat_col,2)
 
     area = metdat_col(imet_dx_size,1) * metdat_col(imet_dy_size,1)
 
@@ -1060,12 +1094,8 @@ contains
       lwc_d = 1e-3*clw_dens_col(iLev)
 
       if (lwc_d > 0) then
-        ! Sum over aerosols only: diam>0; real_missing**3 is -Inf in gfortran, 
-        ! leads to formal zero, but triggers floating-point exception
-        aerosol_nbr_cnc = sum(&
-            &  masses(:,1,iLev)/(density(1:nSpecies)*1.33*3.14*(0.5*diam(1:nSpecies))**3),&
-            & MASK = (diam(1:nSpecies) > 0)&
-            &) *  metdat_col(imet_airdens,iLev)/metdat_col(imet_airmass,iLev)
+
+        aerosol_nbr_cnc = numberconc(iLev)
 
         if (aerosol_nbr_cnc > 9e7) then
           cdnc = max(-765.5 + 395.71 * log10(aerosol_nbr_cnc*1e-6), 15.0)

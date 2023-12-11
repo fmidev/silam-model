@@ -1,0 +1,36 @@
+AREA_SOURCE_4
+source_name = fire
+source_sector_name = fire
+!
+! Do we get time variation from the binary files or it comes from header?
+!
+if_time_and_vertical_resolved_field_file = YES   ! YES or NO
+!
+! Time parameters: some might not be used in case of time-vertical resolved file
+!
+release_rate_unit = DESCRIPTOR_DEFAULT
+vertical_unit = m
+!           yr mon day hr min sec bottom top  descr1  rate1 descr2 rate2  ...
+par_str_area = $tStart 0.  0.1   1000.0  $rates
+par_str_area = $tEnd  0.  0.1   1300.0 $rates
+!
+! These are needed only if  if_time_and_vertical_resolved_field_file = NO
+!
+  hour_in_day_index =       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000
+  day_in_week_index =       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000
+  month_in_year_index =       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000       1.0000000
+  source_timezone = LOCAL     ! LOCAL SOLAR or actual name
+
+  vertical_distribution = MULTI_LEVEL_FIXED   ! or SINGLE_LEVEL_DYNAMIC
+  vert_level = HEIGHT_FROM_SURF        1.0000000       90.0000000        0.2000000
+  vert_level = HEIGHT_FROM_SURF      90.0000000      500.0000000         0.4000000
+  vert_level = HEIGHT_FROM_SURF      500.0000000    1200.0000000         0.4000000
+
+if_temperature_dependent_emission = NO    ! should be NO for a_src v.4
+    
+highest_emission_injection_height = BLH   ! BLH or anything else => disable
+
+field_emission_file = $binary_input
+
+END_AREA_SOURCE_4
+

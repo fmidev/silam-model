@@ -108,25 +108,19 @@ CONTAINS
                               & fu_NbrOfMetSrcs(pdr), &  ! nbr of MDS
                               & 12, &   ! 12 timenodes = 12 months
                               & 100,& ! for each timenode - fields
-                              & 0,&  ! for each timenode - windfields
                               & 5, &  ! for each timenode - 3d fields
-                              & 0, &  ! for each timenode  - 3d windfields
                               & .true., & ! if replace oldest (true) or latest (false) when full
                               & wdrAr, &
-                              & .false., &  ! if single src
-                              & .true.) ! info to stdout <=> supermarket_info = .true.
+                              & .false.)   ! if single src
     CALL initialize_mini_market(physiographyMarketPtr, &
                               & 'physiography_market', &
                               & 1, &  ! nbr of MDS
                               & 0,&   ! timenodes in memory (assume: max 1 timenode per file)
                               & 10,& ! for each timenode - fields
-                              & 0,&  ! for each timenode - windfields
                               & 0, &  ! for each timenode - 3d fields
-                              & 0, &  ! for each timenode  - 3d windfields
                               & .true.,& ! if replace oldest (true) or latest (false) when full
                               & wdrar, &
-                              & .false., &
-                              & .true.) ! info to stdout <=> supermarket_info = .true.
+                              & .false.)
     call msg('physiography market is initialized')
     IF (error) RETURN
 
@@ -170,7 +164,7 @@ CONTAINS
     INTEGER :: i, j,n_req, n_avail, iSrc, n_shop, iTempl, nx_met, ny_met, fs_met
     REAL, DIMENSION(:), POINTER :: arTmp, ptrTopo
     LOGICAL :: OK
-    integer, dimension(max_quantities) :: Qs, q_shop, req
+    integer, dimension(max_quantities) :: Qs, q_shop
     type(silam_vertical) :: vertTmp
     type(silam_fformat)::fform
     character(len=fnlen), dimension(:), pointer :: descriptors
@@ -207,10 +201,9 @@ CONTAINS
     Qs(2) = cell_size_y_flag
     Qs(3) = longitude_flag
     Qs(4) = latitude_flag
-    req(1:max_quantities) = 2
 
-    call add_shopping_quantities(static_shopping_list, Qs, req)
-    call add_shopping_quantities(full_static_shopping_list, Qs, req)
+    call add_shopping_quantities(static_shopping_list, Qs)
+    call add_shopping_quantities(full_static_shopping_list, Qs)
     if(error)return
 
     Qs(1:4) = int_missing
@@ -232,8 +225,7 @@ CONTAINS
     !
     n_shop = fu_nbr_of_quantities(full_static_shopping_list)
 
-    Q_shop(1:max_quantities) = fu_quantities(full_static_shopping_list)
-    req(1:max_quantities) = fu_requests(full_static_shopping_list)
+    call all_quantities_from_list(full_static_shopping_list, .false., Q_shop)
 !    if(n_shop < size(Q_shop)) Q_shop(n_shop+1)=int_missing
 
     call set_missing(shopping_list)
@@ -246,8 +238,7 @@ CONTAINS
                                & meteo_grid, &
                                & vertTmp, &
                                & int_missing, & 
-                               & met_src_missing, &
-                               & req(i)) ! Requests
+                               & met_src_missing)
     end do
     call msg("Q_shop(1:n_req)",Q_shop(1:i-1))
 
@@ -339,15 +330,10 @@ CONTAINS
     ! Now we shall search only those variables, which were not found before
     !
     do i=1,n_shop
-      if(any(Qs(1:n_avail)==q_shop(i))) then
-        q_shop(i)=int_missing
-        req(i) = int_missing
-      endif
+      if(any(Qs(1:n_avail)==q_shop(i))) q_shop(i)=int_missing
     end do
     n_req = n_shop
     call compress_int_array(q_shop, int_missing, n_req) 
-    n_req = n_shop
-    call compress_int_array(req, int_missing, n_req)
 
     if(n_req > 0)then !n_shop)then
 
@@ -366,8 +352,7 @@ CONTAINS
                                          & time_missing, & !fu_start_time(wdr), & ! First time boundary
                                          & time_missing, & !fu_start_time(wdr) + fu_period_to_compute(wdr), &
                                          & level_missing, &
-                                         & level_missing, &
-                                         & requests = req(1:n_req))
+                                         & level_missing)
       
       call consume_fields(shopping_list)
       call supermarket_quantities(meteoMarketPtr, met_src_missing, single_time_stack_flag, Qs, n_avail) 
@@ -508,7 +493,6 @@ CONTAINS
         end if
       end if
 
-
       !
       ! Funny but static geopotential means relief height, for which
       ! we have own flag.
@@ -561,7 +545,9 @@ CONTAINS
     end do ! scan of the sources
 
     if(.not.OK)then
-      call msg_warning('Not all permanent fields are found','set_physiography')
+      !! Used to be warning.. As a result missing values in land-sea mask caused 
+      !! Quite spectacular depositions
+      call set_error('Not all permanent fields are found','set_physiography')
     end if
 
     ! If two LAIs come --  sum them up
@@ -584,8 +570,7 @@ CONTAINS
     ! After all - let's finally check that we got all mandatory fields.
     ! Note that this time we look for the quantities in the requested list, not full one.
     !
-    Q_shop(1:max_quantities) = fu_quantities(static_shopping_list)
-    req(1:max_quantities) = fu_requests(static_shopping_list)
+    call all_quantities_from_list(static_shopping_list, .false., Q_shop)
 
     ! Here I silently assume that there is only one meteo source. If not, there will 
     ! be an error
@@ -610,14 +595,9 @@ CONTAINS
         endif
       end do
       if(.not. OK)then
-        if(req(i) < 2)then
-          call msg_warning('Desirable quantity not found:' + fu_quantity_short_string(q_shop(i)), &
-                         & 'set_physiography')
-        else
-          call set_error('Mandatory quantity not found:' + fu_quantity_short_string(q_shop(i)), &
-                       & 'set_physiography')
-          return
-        endif
+        call set_error('Mandatory quantity not found:' + fu_quantity_short_string(q_shop(i)), &
+                     & 'set_physiography')
+        return
       endif
     enddo
     
@@ -667,16 +647,14 @@ CONTAINS
                                       & ifWait = .false.)
           IF (error) then
             call set_error('Problem with one of input files','set_physiography')
-            RETURN
-          end if
-          if(associated(fnames))then
-            if(fnames(1)%sp == '') then
-              call set_error('Problem with one of input files','set_physiography')
-              return
-            end if
           else
-            call set_error('names array is not associated','set_physiography')
-            return
+            if(associated(fnames))then
+              if(fnames(1)%sp == '') then
+                call set_error('Problem with one of input files','set_physiography')
+              end if
+            else
+              call set_error('names array is not associated','set_physiography')
+            endif
           endif
         else
           call enlarge_array(fnames,1)
@@ -684,11 +662,15 @@ CONTAINS
           fnames(1)%sp = fu_collection(fu_fname_oro_template(wdr, iTempl))
           if(size(fnames) > 1) fnames(2)%sp = ''
         endif  ! 
+        if(error)return
         !
         ! fnames now contain the set of either file names or instruction for field creation
         !
         do i = 1, size(fnames)
           if(fnames(i)%sp == '')exit
+#ifdef DEBUG
+call msg('Physiography reads:' + fnames(i)%sp)
+#endif
           CALL store_input_to_supermarket(meteoMarketPtr, fnames(i)%sp, fu_file_oro_format(wdr,iTempl), &
                                         & shopping_list_local, &
                                         & wdr, &
@@ -752,7 +734,7 @@ CONTAINS
         !
         ! Add the ID to the shopping list for the update
         !
-        call add_shopping_variable(shopping_list_local, fu_id(fldPhysiography(iFld)%fp), 2)
+        call add_shopping_variable(shopping_list_local, fu_id(fldPhysiography(iFld)%fp))
         if(error)return
         ifProceed = .true.
       endif
@@ -913,7 +895,6 @@ CONTAINS
                                          & avail_physiography_quantities))cycle
         nFlds = nFlds + 1
         MeteoOutLstTmp%ptrItem(i)%quantity = fu_quantity(fu_id(field_2d))
-        MeteoOutLstTmp%ptrItem(i)%request = 2
         MeteoOutLstTmp%ptrItem(i)%AvType = iAsIs
         MeteoOutLstTmp%ptrItem(i)%if3D = .False.
         MeteoOutLstTmp%ptrItem(i)%iVerticalTreatment = do_nothing_flag

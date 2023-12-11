@@ -47,6 +47,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
   public fseek_md
   public fu_irand
   public get_hostname
+  public sleep_md
 
   ! Local declarations:
 
@@ -62,8 +63,6 @@ MODULE md ! The machine dependent code of silja on Intel platform
 #ifndef __GFORTRAN__
   public RENAME !FROM IFPORT
   public FTELL  !FROM IFPORT
-  public IERRNO
-  public GERROR
 #endif
   public revision_str
 
@@ -76,12 +75,6 @@ MODULE md ! The machine dependent code of silja on Intel platform
 !                              & NF90_INT64 = int_missing+2, NF90_UINT64 = int_missing+3, &
 !                              & NF90_NETCDF4 = int_missing+4
 
-!  interface
-!  subroutine GetCurrentProces (proc) bind (c, NAME='GetCurrentProcess')
-!      use, intrinsic :: ISO_C_BINDING
-!      integer(c_int), value :: proc
-!  end subroutine
-!  end interface
 #else
 
   interface
@@ -95,6 +88,9 @@ MODULE md ! The machine dependent code of silja on Intel platform
   
   CONTAINS 
 
+  
+  !****************************************************************************************
+  
   subroutine open_binary_md(unit, file, recl, status, action, convert, access, iostat)
     implicit none
     integer, intent(in) :: unit, recl
@@ -423,11 +419,17 @@ MODULE md ! The machine dependent code of silja on Intel platform
 
       call msg("Attempt "//trim(fu_str(itry))//" failed. Sleeping 5s")
       call sleep(5)
-      if (itry == maxtries) then
-        call set_error('Could not create directory: '//trim(chDir), sub_name)
+      INQUIRE (file=chDir, EXIST=exists)
+      if (exists) then !!Making directory in parallel might return error if few processes try to create a directory
+          call msg("Something with the name '"//trim(chDir)//"' appeared. continuing then ")
+          exit
       endif
-      
      enddo
+
+     if (itry > maxtries) then
+      call set_error('Could not create directory: '//trim(chDir), sub_name)
+     endif
+      
 
 #endif
   end subroutine create_directory_tree
@@ -490,7 +492,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
     ! Local variables
     integer(4), dimension(13) :: stats !! Can also be integer8 in intel, but must integer4 in GNU
     integer :: istat
-    character(len=30) :: adate, mdate
+    character(len=30) :: date
 
 
       istat =  STAT(chfnm, stats)
@@ -503,15 +505,10 @@ MODULE md ! The machine dependent code of silja on Intel platform
       
       call msg('File name: ' // trim(chfnm))
       call msg('File size, kBytes:', real(stats(8)/1000.0))
-#ifdef __GFORTRAN__
-      call ctime(int(stats(10), 8), mdate)
-      call ctime(int(stats(9), 8), adate)
-#else 
-      mdate = ctime(stats(10)) !! Intel has ctime as a function of INTEGER(4)
-      adate = ctime(stats(9))
-#endif
-      call msg('Last modification: ' // mdate)
-      call msg('Last access: ' // adate)
+      call ctime(int(stats(10), 8), date)
+      call msg('Last modification: ' // date)
+      call ctime(int(stats(9), 8), date)
+      call msg('Last access: ' // date)
 
 #endif
   end subroutine display_file_parameters
@@ -587,6 +584,10 @@ MODULE md ! The machine dependent code of silja on Intel platform
     !
     ! Get valueRSS of the current process (in kB)
     !
+#ifdef VS2012
+    use KERNEL32, only: GetCurrentProcess
+#endif
+    
     implicit none
 
     character(len=200):: filename=' '
@@ -606,15 +607,13 @@ MODULE md ! The machine dependent code of silja on Intel platform
 
     hProcess = NULL
     
-!    call GetCurrentProcess(hProcess)
+    hProcess = GetCurrentProcess()
     if (hProcess == NULL) return
     
     iTmp = sizeof(pmc)
     ret = GetProcessMemoryInfoEx (hProcess, pmc, iTmp)
 
-!    print *, pmc
-!    stop
-    print *, mem_usage
+    mem_usage = pmc%WORKINGSETSIZE / 1024  ! to KB
         !!! Something smarter can be invented here
 #else
     character(len=*), parameter  :: statm='/proc/self/statm'
@@ -629,7 +628,7 @@ MODULE md ! The machine dependent code of silja on Intel platform
         my_pagesize = getpagesize()
         mem_usage = int( (rss) * my_pagesize / 1024_8, kind=4) !!!To kB
     else
-      call msg("Faileled to open: "//statm//'  status:',stat)
+      call msg("Failed to open: "//statm//'  status:',stat)
     endif
 
 #endif
@@ -650,10 +649,10 @@ subroutine fseek_md(iUnit, iOff,  from)
   ! Local variab;es
   integer :: iStat
 
-#ifdef __GFORTRAN__ 
-  call FSEEK(iUnit, iOff,  from, iStat)
-#else
+#ifdef VS2012  
   iStat = FSEEK(iUnit, iOff,  from)
+#else
+  call FSEEK(iUnit, iOff,  from, iStat)
 #endif
   if(iStat == 0)then
     return
@@ -672,6 +671,23 @@ integer function fu_irand()
   !
   fu_irand = irand()
 end function fu_irand
+
+
+!*****************************************************************************
+
+subroutine sleep_md(nSeconds)
+  !
+  ! Sleeps for a given number of seconds
+  !
+  integer, intent(in) :: nSeconds
+
+#ifdef VS2012
+  call sleepqq(nSeconds)
+#else
+  call sleep(nSeconds)
+#endif
+
+end subroutine sleep_md
 
 
 END MODULE md

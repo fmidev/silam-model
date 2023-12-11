@@ -1105,17 +1105,16 @@ CONTAINS
 
   !***************************************************************************************
 
-  SUBROUTINE smpi_bcast_string(str)
+  SUBROUTINE smpi_bcast_string(str, comm)
 
      CHARACTER (*), intent(inout)  :: str
+     integer, intent(in) :: comm
 #ifdef SILAM_MPI    
      INTEGER :: clen,ierr
      clen=len(str)
 
-     call MPI_Bcast( str,  clen, MPI_CHARACTER, 0,  smpi_adv_comm, ierr)
-     IF (fu_fails(ierr == MPI_SUCCESS, '', '')) RETURN
-#else    
-    call set_error("Should not be called ever", "smpi_bcast_string")
+     call MPI_Bcast( str,  clen, MPI_CHARACTER, 0,  comm, ierr)
+     IF (fu_fails(ierr == MPI_SUCCESS, 'MPI_Bcast failed', 'smpi_bcast_string')) RETURN
 #endif    
 
   end SUBROUTINE smpi_bcast_string
@@ -1526,7 +1525,6 @@ CONTAINS
 
     !required = MPI_THREAD_FUNNELED
     required = MPI_THREAD_SINGLE
-    
     CALL mpi_init_thread(required, provided, ierr)
 #ifdef PUHTI_BUG
    !restore

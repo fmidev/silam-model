@@ -49,7 +49,6 @@ MODULE derived_field_quantities_2
   PUBLIC dq_scavenging_coef
   public dq_scavenging_coef_ls
   PUBLIC dq_pasquill
-  public dq_turbulence_profile
   public dq_aerodynamic_resistance
   public dq_hybrid_vertical_wind
   public dq_stomatal_conductance  !!
@@ -74,7 +73,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_eq_potential_temperature(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_eq_potential_temperature(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates equivalent potential temperature
@@ -90,6 +89,7 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
 
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     ! Local declarations:
@@ -101,12 +101,13 @@ CONTAINS
     REAL, DIMENSION(:), POINTER :: q ! specific humidity, shold be
     !                                  humidity mixing ratio
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, fs
+    INTEGER :: number_of_levels, fs, iS
     REAL, DIMENSION(:), POINTER :: p, theta
 
     p => fu_work_array()
 !    theta => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -117,7 +118,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
       IF (error) CYCLE loop_over_times
@@ -169,7 +171,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_potential_temperature(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_potential_temperature(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Calculates potential temperature for both 3D and 2m temperature fields
     !
@@ -178,21 +180,23 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
 
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: lev, i, tloop, number_of_levels
+    INTEGER :: lev, i, tloop, number_of_levels, iS
     TYPE(silja_3d_field), POINTER :: t3d
     TYPE(silja_field), POINTER :: fldTmp
     TYPE(silja_field_id) :: id
     TYPE(silja_level), DIMENSION(max_levels) :: levels
     REAL, DIMENSION(:), POINTER :: p, psrf, theta, t
 
-    p => fu_work_array()
+    p => fu_work_array(fs_meteo)
 !    theta => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT ! loop_over_times
@@ -203,7 +207,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE !loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE !loop_over_times
       !
       ! Prepare the fields
       !
@@ -279,7 +284,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE dq_temperature_from_perturb(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_temperature_from_perturb(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Calculates temperature for potential perturbational temperature
     !
@@ -288,12 +293,13 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
 
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: lev, i, tloop, number_of_levels
+    INTEGER :: lev, i, tloop, number_of_levels, iS
     TYPE(silja_3d_field), POINTER :: pert_t3d
     TYPE(silja_field_id) :: id
     TYPE(silja_level), DIMENSION(max_levels) :: levels
@@ -302,6 +308,7 @@ CONTAINS
     p => fu_work_array()
 !    t => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT ! loop_over_times
@@ -312,7 +319,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE !loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE !loop_over_times
       !
       ! Prepare the fields
       !
@@ -361,7 +369,7 @@ CONTAINS
 
   !**************************************************************
 
-  SUBROUTINE dq_relative_vorticity(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_relative_vorticity(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates relative vorticity
@@ -377,6 +385,7 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
@@ -385,7 +394,7 @@ CONTAINS
     TYPE(silja_field_id) :: id
     TYPE(silja_grid) :: u_grid, v_grid, scalar_grid
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
+    INTEGER :: number_of_levels, iS
     REAL, DIMENSION(:), POINTER :: u, v, dv_dx, du_dy, vort
 !    REAL, DIMENSION(:), POINTER :: u_up, u_down, v_up, v_down
     REAL, DIMENSION(:), POINTER :: pressure
@@ -401,6 +410,7 @@ CONTAINS
 !    p_down => fu_work_array()
 !    vort => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -411,7 +421,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&
                                   & temperature_flag, &
@@ -533,7 +544,7 @@ CONTAINS
 
   !********************************************************************
 
-  SUBROUTINE dq_abs_vorticity_advection(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_abs_vorticity_advection(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates absolute vorticity advection [m/s2]
@@ -549,6 +560,7 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     ! Local declarations:
     TYPE(silja_time) :: time
@@ -564,7 +576,7 @@ CONTAINS
     REAL, DIMENSION(:), POINTER :: dabsvort_dx_b,dabsvort_dy_b
     REAL, DIMENSION(:), POINTER :: ahx, ahxm
     REAL :: ahy
-    INTEGER :: i, l, fs, tloop, n
+    INTEGER :: i, l, fs, tloop, n, iS
 
     coriolis => fu_work_array()
     absolute_vorticity => fu_work_array()
@@ -581,6 +593,7 @@ CONTAINS
     !    ahxm => fu_work_array()
     
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -591,7 +604,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       first_loop: IF (tloop == 1) THEN
 
@@ -600,7 +614,8 @@ CONTAINS
                                & time,&
                                & level_missing,&
                                & .true.,&
-                               & .false.))) THEN
+                               & .false., &
+                               & idxTimeStack_=idxTimes(iS,tloop)))) THEN
           CALL set_error('abs.vort.adv. required but no rel.vort.',&
                        & 'dq_abs_vorticity_advection')
           RETURN
@@ -780,7 +795,7 @@ CONTAINS
 
   !****************************************************************
 
-  SUBROUTINE dq_isentropic_pot_vorticity(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_isentropic_pot_vorticity(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates isentropic potential vorticity (IPV) 
@@ -797,14 +812,15 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:),INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     ! Local declarations:
     TYPE(silja_time) :: time
-    TYPE(silja_3d_field), POINTER :: u3d, v3d, theta3d, relvort3d  !, t3d
+    TYPE(silja_3d_field), POINTER :: u3d, v3d, t3d, relvort3d  !, t3d
     TYPE(silja_field_id) :: id
     TYPE(silja_grid) :: u_grid, v_grid, scalar_grid
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
+    INTEGER :: number_of_levels, iS
     REAL, DIMENSION(:), POINTER :: u, v, coriolis, relvort
     INTEGER :: lev, fs, tloop, n, nx, ny
 !    REAL, DIMENSION(:), POINTER :: absolute_vorticity 
@@ -825,6 +841,7 @@ CONTAINS
 !    IPV => fu_work_array()
     ifMetaData = .true.
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
     !
     ! Cycle the requested time making the IPV if it is absent
     !
@@ -837,15 +854,16 @@ CONTAINS
                        & time, &
                        & level_missing, &
                        & .true., &
-                       & .false.)) CYCLE
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE
 
-      theta3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, potential_temperature_flag, time, single_time)
+      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
       IF (error) RETURN
 
       IF (ifMetadata) THEN
-        scalar_grid = fu_grid(theta3d)
+        scalar_grid = fu_grid(t3d)
         IF (error) RETURN
-        CALL vertical_levels(theta3d, levels, number_of_levels)
+        CALL vertical_levels(t3d, levels, number_of_levels)
         CALL coriolis_parameters(scalar_grid, coriolis)
         CALL grid_dimensions(scalar_grid, nx, ny)
         fs = nx*ny
@@ -877,23 +895,23 @@ CONTAINS
         CALL ddx_of_field(v, u_grid, scalar_grid, dv_dx)
         IF (error) RETURN
 
-        CALL pressure_on_level(theta3d, min(lev+1,number_of_levels), pressure_up) 
-        CALL pressure_on_level(theta3d, max(lev-1,1), pressure_down)
+        CALL pressure_on_level(t3d, min(lev+1,number_of_levels), pressure_up) 
+        CALL pressure_on_level(t3d, max(lev-1,1), pressure_down)
         IF (error) RETURN
 
         ! potential temperatures
-        theta_up => fu_grid_data_from_3d(theta3d, min(lev+1,number_of_levels))
-        theta_down => fu_grid_data_from_3d(theta3d, max(lev-1,1))
+        theta_up => fu_grid_data_from_3d(t3d, min(lev+1,number_of_levels))
+        theta_down => fu_grid_data_from_3d(t3d, max(lev-1,1))
         IF (error) RETURN
 
         !
         ! Calculate isentropic potential vorticity
         !
-        id = fu_set_field_id(fu_met_src(theta3d),&
+        id = fu_set_field_id(fu_met_src(t3d),&
                            & ipv_flag,&
-                           & fu_analysis_time(theta3d),&
-                           & fu_forecast_length(theta3d), &
-                           & fu_grid(theta3d),&
+                           & fu_analysis_time(t3d),&
+                           & fu_forecast_length(t3d), &
+                           & fu_grid(t3d),&
                            & levels(lev))
         call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, IPV)
         if(fu_fails(.not.error,'Failed IPV field data pointer','dq_isentropic_pot_vorticity'))return
@@ -924,7 +942,7 @@ CONTAINS
   !**********************************************************************
 
 
-  SUBROUTINE dq_thermal_front_parameter(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates thermal front parameter (TFP) [K/m2]
@@ -943,6 +961,7 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     ! Local declarations:
     TYPE(silja_time) :: time
@@ -950,7 +969,7 @@ CONTAINS
     TYPE(silja_field_id) :: id
     TYPE(silja_grid) :: scalar_grid
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
+    INTEGER :: number_of_levels, iS
     INTEGER :: l, fs, tloop, i
     REAL,DIMENSION(:), POINTER :: T
     REAL,DIMENSION(:), POINTER :: abs_nabla_T 
@@ -965,6 +984,7 @@ CONTAINS
     dabsnablaT_dx => fu_work_array()
     dabsnablaT_dy => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -975,7 +995,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
       IF (error) RETURN
@@ -1058,7 +1079,7 @@ CONTAINS
 
   !********************************************************
 
-  SUBROUTINE dq_bulk_thermal_front_parameter(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_bulk_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
 
     ! Description:
     ! Calculates thermal front parameter (TFP) [K/m2] from layer thickness
@@ -1078,6 +1099,7 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
@@ -1087,7 +1109,7 @@ CONTAINS
     TYPE(silja_grid) :: scalar_grid
     TYPE(silja_level), DIMENSION(max_levels) :: levels
     INTEGER :: number_of_levels
-    INTEGER :: l, fs, tloop, i
+    INTEGER :: l, fs, tloop, i, iS
     REAL,DIMENSION(:), POINTER :: thickness
     REAL,DIMENSION(:), POINTER :: abs_nabla_Thick 
     REAL,DIMENSION(:), POINTER :: dThick_dy, dThick_dx
@@ -1104,7 +1126,8 @@ CONTAINS
     pressure_bottom  => fu_work_array()
     pressure_top => fu_work_array()
     IF (error) RETURN
-    
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
+
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
       time = valid_times(tloop)
@@ -1114,7 +1137,8 @@ CONTAINS
                        & time, &
                        & level_missing, &
                        & .true., &
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       thickness3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, &
                                           & temperature_flag, &
@@ -1210,7 +1234,7 @@ CONTAINS
 
   !************************************************************
 
-  SUBROUTINE dq_bulk_richardson_number(meteoMarketPtr, met_src, valid_times, abl_param)
+  SUBROUTINE dq_bulk_richardson_number(meteoMarketPtr, met_src, valid_times, idxTimes, abl_param)
     !
     ! Returns the bulk Richarson number in Hirlam formulation
     ! with potential temperature (humidity dependent),
@@ -1226,6 +1250,7 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     integer, intent(in) :: abl_param
 
@@ -1237,18 +1262,21 @@ CONTAINS
     TYPE(silja_grid) :: scalar_grid
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
-    TYPE(silja_3d_field), POINTER :: theta3d, q3d
+    TYPE(silja_3d_field), POINTER :: t3d, q3d
     TYPE(silja_3d_field), POINTER :: u3d,v3d, height3d
     REAL, DIMENSION(:), POINTER :: bulk_richardson_number
     REAL, DIMENSION(:), POINTER :: height2, height1
-    REAL, DIMENSION(:), POINTER :: theta_1, theta_2, q_1, q_2
+    REAL, DIMENSION(:), POINTER :: t_1, t_2, theta_1, theta_2, q_1, q_2, p
     REAL, DIMENSION(:), POINTER :: u_1,v_1, u_2, v_2, ustar
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, iTmp, ix, iy, ix1, iy1, iTmp1, iCount, nx, ny, nxu, nyv
+    INTEGER :: number_of_levels, iTmp, ix, iy, ix1, iy1, iTmp1, iCount, nx, ny, nxu, nyv, &
+             & iErrorCount, iErrorCountTot, iS
 
-
-!    bulk_richardson_number => fu_work_array() 
-!    IF (error) RETURN
+    theta_1 => fu_work_array(fs_meteo) 
+    theta_2 => fu_work_array(fs_meteo) 
+    p =>  fu_work_array(fs_meteo)
+    IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -1260,12 +1288,13 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
 
       height3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, height_flag, time, single_time)
       IF (error) RETURN
 
-      theta3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, potential_temperature_flag, &
+      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, potential_temperature_flag, &
                                       & time, single_time)
       IF (error) RETURN
       
@@ -1283,7 +1312,7 @@ CONTAINS
 
       IF (error) RETURN
 
-      CALL vertical_levels(theta3d, levels, number_of_levels)
+      CALL vertical_levels(t3d, levels, number_of_levels)
       IF (error) RETURN
 
       ! lowest model level
@@ -1291,9 +1320,14 @@ CONTAINS
       v_1 => fu_grid_data_from_3d(v3d, 1)
 
       if(abl_param == abl_full_param) q_1 => fu_grid_data_from_3d(q3d, 1)
-      theta_1 => fu_grid_data_from_3d(theta3d, 1)
+      t_1 => fu_grid_data_from_3d(t3d, 1)
       height1 => fu_grid_data_from_3d(height3d, 1)
       IF (error) RETURN
+
+      CALL pressure_on_level(t3d, 1, p)  ! It really computes the values
+      do i = 1, fs_meteo
+        theta_1(i) = t_1(i)*((std_pressure_sl/p(i))**R_per_c_dryair)
+      end do
       !
       ! Finally, u*
       !
@@ -1304,13 +1338,14 @@ CONTAINS
       !
       ! Having the initial stuff set, start the layer cycle
       !
+      iErrorCountTot = 0
       DO lev = 1, number_of_levels
 
-        id = fu_set_field_id(fu_met_src(theta3d),&
+        id = fu_set_field_id(fu_met_src(t3d),&
                            & bulk_richardson_nbr_flag,&
-                           & fu_analysis_time(theta3d),&
-                           & fu_forecast_length(theta3d), &
-                           & fu_grid(theta3d),&
+                           & fu_analysis_time(t3d),&
+                           & fu_forecast_length(t3d), &
+                           & fu_grid(t3d),&
                            & levels(lev))
         call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, bulk_richardson_number)
         if(fu_fails(.not.error,'Failed bulk_richardson_number field data pointer','dq_bulk_richardson_number'))return
@@ -1323,14 +1358,18 @@ CONTAINS
         u_2 => fu_grid_data_from_3d(u3d, lev)
         v_2 => fu_grid_data_from_3d(v3d, lev)
         if(abl_param == abl_full_param)q_2 => fu_grid_data_from_3d(q3d, lev)
-        theta_2 => fu_grid_data_from_3d(theta3d, lev)
+        t_2 => fu_grid_data_from_3d(t3d, lev)
         height2 => fu_grid_data_from_3d(height3d, lev)
         IF (error) RETURN
-
+        ! potential temperature is easier to calculate than store
+        CALL pressure_on_level(t3d, lev, p)  ! It really computes the values
+        do i = 1, fs_meteo
+          theta_2(i) = t_2(i)*((std_pressure_sl/p(i))**R_per_c_dryair)
+        end do
 
         call bulk_richardson_nbr_one_level(u_1, u_2, v_1, v_2, q_1, q_2, theta_1, theta_2, &
                                          & height1, height2, uStar, abl_param == abl_full_param, &
-                                         & bulk_richardson_number, nx, ny, nxu, nyv)
+                                         & bulk_richardson_number, nx, ny, nxu, nyv, iErrorCount)
 !        call msg('level',lev)
 !        call msg('Ri min', real_value=MINVAL(bulk_richardson_number(1:fs)))
 !        call msg('Ri max', real_value=MAXVAL(bulk_richardson_number(1:fs)))
@@ -1342,20 +1381,23 @@ CONTAINS
 
 !        CALL dq_store_2d(meteoMarketPtr, id, bulk_richardson_number, multi_time_stack_flag )
         IF (error) RETURN 
-
+        iErrorCountTot = iErrorCountTot + iErrorCount
 
       END DO ! loop_over_levels
 
+      call msg("Patched Richardson grid cells:", iErrorCount)
+
     END DO ! loop_over_times
 
-!    CALL free_all_work_arrays()
-!    call free_work_array(bulk_richardson_number)
+    call free_work_array(theta_1)
+    call free_work_array(theta_2)
+    call free_work_array(p)
 
   END SUBROUTINE dq_bulk_richardson_number
 
   !************************************************************
 
-  SUBROUTINE dq_gradient_richardson_number(meteoMarketPtr, met_src, valid_times, abl_param)
+  SUBROUTINE dq_gradient_richardson_number(meteoMarketPtr, met_src, valid_times, idxTimes, abl_param)
 
     !
     ! Returns the  Richarson number 
@@ -1380,6 +1422,7 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     integer, intent(in) :: abl_param
 
@@ -1387,24 +1430,28 @@ CONTAINS
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: tloop, i, lev
+    INTEGER :: tloop, i, lev, iErrorCount, iErrorCountTot
     TYPE(silja_grid) :: scalar_grid
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
-    TYPE(silja_3d_field), POINTER :: theta3d, q3d
+    TYPE(silja_3d_field), POINTER :: t3d, q3d
     TYPE(silja_3d_field), POINTER :: u3d,v3d, height3d
     REAL, DIMENSION(:), POINTER :: richardson_number
     REAL, DIMENSION(:), POINTER :: height2, height1
-    REAL, DIMENSION(:), POINTER :: theta_1, theta_2, q_1, q_2
+    REAL, DIMENSION(:), POINTER :: q_1, q_2, t_1, t_2, p
     REAL, DIMENSION(:), POINTER :: u_1,v_1, u_2, v_2, zero
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, iTmp, ix, iy, ix1, iy1, iTmp1, iCount, nx, ny, nxu, nyv
+    INTEGER :: number_of_levels, iTmp, ix, iy, ix1, iy1, iTmp1, iCount, nx, ny, nxu, nyv, iS, iFlip
+    type(silja_rp_1d), DIMENSION(:), POINTER :: theta
 
-
-!    richardson_number => fu_work_array(fs_meteo)
+    call get_work_arrays_set(2, fs_meteo, theta)
+    p => fu_work_array(fs_meteo)
     zero => fu_work_array(fs_meteo) 
     zero(1:fs_meteo) = 0.
     IF (error) RETURN
+    iFlip = 1
+
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -1416,13 +1463,13 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
 
       height3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, height_flag, time, single_time)
       IF (error) RETURN
 
-      theta3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, potential_temperature_flag, &
-                                      & time, single_time)
+      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
       IF (error) RETURN
       
       if(abl_param == abl_full_param)then
@@ -1440,35 +1487,42 @@ CONTAINS
       call grid_dimensions(fu_grid(v3d), nx, nyv)
       IF (error) RETURN
 
-      CALL vertical_levels(theta3d, levels, number_of_levels)
+      CALL vertical_levels(t3d, levels, number_of_levels)
       IF (error) RETURN
-
-
       !
       ! Having the initial stuff set, start the layer cycle
       !
+      iErrorCountTot = 0
       DO lev = 1, number_of_levels
         u_2 => fu_grid_data_from_3d(u3d, lev)
         v_2 => fu_grid_data_from_3d(v3d, lev)
         if (abl_param == abl_full_param) q_2 => fu_grid_data_from_3d(q3d, lev)
-        theta_2 => fu_grid_data_from_3d(theta3d, lev)
+        t_2 => fu_grid_data_from_3d(t3d, lev)
         height2 => fu_grid_data_from_3d(height3d, lev)
-        IF (error) RETURN
-        id = fu_set_field_id(fu_met_src(theta3d),&
+        IF (error) return
+        id = fu_set_field_id(fu_met_src(t3d),&
                            & gradient_richardson_nbr_flag,&
-                           & fu_analysis_time(theta3d),&
-                           & fu_forecast_length(theta3d), &
-                           & fu_grid(theta3d),&
+                           & fu_analysis_time(t3d),&
+                           & fu_forecast_length(t3d), &
+                           & fu_grid(t3d),&
                            & levels(lev))
         call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, richardson_number)
         if(fu_fails(.not.error,'Failed richardson_number field data pointer','dq_gradient_richardson_number'))return
 
+        ! potential temperature is easier to calculate than store
+        CALL pressure_on_level(t3d, lev, p)  ! It really computes the values
+        do i = 1, fs_meteo
+          theta(iFlip)%pp(i) = t_2(i)*((std_pressure_sl/p(i))**R_per_c_dryair)
+        end do
+        ! Ri itself
         if (lev > 1) then
-           call bulk_richardson_nbr_one_level(u_1, u_2, v_1, v_2, q_1, q_2, theta_1, theta_2, &
+          call bulk_richardson_nbr_one_level(u_1, u_2, v_1, v_2, q_1, q_2, theta(3-iFlip)%pp, theta(iFlip)%pp, &
                                          & height1, height2, zero, abl_param == abl_full_param, &
-                                         & richardson_number, nx, ny, nxu, nyv)
+                                         & richardson_number, nx, ny, nxu, nyv, iErrorCount)
+          iErrorCountTot = iErrorCountTot + iErrorCount
         else 
-            richardson_number(1:fs_meteo) = 0. ! lowest level uses MoninObukhov anyhow
+          ! lev ==1
+          richardson_number(1:fs_meteo) = 0. ! lowest level uses MoninObukhov anyhow
         endif
 !        call msg('level',lev)
 !        call msg('Ri min', real_value=MINVAL(bulk_richardson_number(1:fs)))
@@ -1484,14 +1538,18 @@ CONTAINS
         u_1 => u_2
         v_1 => v_2
         q_1 => q_2
-        theta_1 => theta_2 
+        t_1 => t_2
+        iFlip = 3 - iFlip
         height1 => height2
 
       END DO ! loop_over_levels
 
+      call msg("Patched Richardson grid cells:", iErrorCount)
+
     END DO ! loop_over_times
 
-!    call free_work_array(richardson_number)
+    call free_work_array(theta)
+    call free_work_array(p)
     call free_work_array(zero)
 
   END SUBROUTINE dq_gradient_richardson_number
@@ -1500,7 +1558,7 @@ CONTAINS
   
   subroutine bulk_richardson_nbr_one_level(u_1, u_2, v_1, v_2, q_1, q_2, theta_1, theta_2, &
                                          & height_1, height_2, uStar, ifFullABLParam, &
-                                         & bulk_richardson_number, nx, ny, nxu, nyv)
+                                         & bulk_richardson_number, nx, ny, nxu, nyv, iErrorCountTot)
     !
     ! Calculates the bulk Richardson number for the given level
     !
@@ -1514,10 +1572,10 @@ CONTAINS
     real, dimension(:), intent(out) :: bulk_richardson_number
     integer, intent(in) :: nx, ny, nxu, nyv
     logical, intent(in) :: ifFullABLParam
-
+    integer, intent(out) :: iErrorCountTot
     !
     ! Local variables
-    integer :: i, ix, iy, iErrorCount, iCount, ix1, iy1, i1, iu, iv
+    integer :: i, ix, iy, iCount, ix1, iy1, i1, iu, iv, iErrorCount
     real :: du, dv, deltaU2, deltaT, fTmp
     real, parameter :: eps = molecular_weight_air/molecular_weight_water - 1.
     
@@ -1563,8 +1621,11 @@ CONTAINS
     ! neighbouring cells.
     !
     if(iErrorCount == 0)return
+    iErrorCountTot = iErrorCount
 
+#ifdef DEBUG
     call msg("Patching Richardson for Level :", height_2(1), iErrorCount)
+#endif
 
     do iy = 1, ny
       do ix = 1, nx
@@ -1603,7 +1664,7 @@ CONTAINS
 
   !************************************************************
 
-  SUBROUTINE dq_brunt_vaisala_freq(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_brunt_vaisala_freq(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Returns Brunt-Vaisala frequency when potential
     ! temperature, air temperature at the two level are
@@ -1621,9 +1682,8 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Imported parameters with intent(out):
 
     ! Local declarations:
     TYPE(silja_time) :: time
@@ -1631,18 +1691,20 @@ CONTAINS
     TYPE(silja_grid) :: scalar_grid
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
-    TYPE(silja_3d_field), POINTER :: theta3d, height3d
-    REAL, DIMENSION(:), POINTER :: BV_fr, &
-                                 & height1, height2, height3, &
-                                 & theta1, theta2, theta3, &
-                                 & dtheta_dz
+    TYPE(silja_3d_field), POINTER :: t3d, height3d
+    REAL, DIMENSION(:), POINTER :: BV_fr, height1, height2, height3, dtheta_dz, t1, t2, t3, &
+                                 & p0, p1, p2, p3
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, iCell
-    real :: fTmp
+    INTEGER :: number_of_levels, iCell, iS
+    real :: fTmp, theta1, theta2, theta3
 
 !    BV_fr => fu_work_array() 
-    dtheta_dz => fu_work_array() 
+    dtheta_dz => fu_work_array(fs_meteo) 
+    p1 => fu_work_array(fs_meteo) 
+    p2 => fu_work_array(fs_meteo) 
+    p3 => fu_work_array(fs_meteo) 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -1654,16 +1716,16 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
 
       height3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, height_flag, time, single_time)
       IF (error) RETURN
 
-      theta3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, potential_temperature_flag, &
-                                      & time, single_time)
+      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
       IF (error) RETURN
 
-      CALL vertical_levels(theta3d, levels, number_of_levels)
+      CALL vertical_levels(t3d, levels, number_of_levels)
       IF (error) RETURN
 
       !
@@ -1687,29 +1749,48 @@ CONTAINS
             ! First model level is dangerously close to 2m, skip the screen-level wind and use 3D only
             ! Accuracy is then 1st order
             !
-            theta2 => fu_grid_data_from_3d(theta3d, 1)
-            theta3 => fu_grid_data_from_3d(theta3d, 2)
+            t2 => fu_grid_data_from_3d(t3d, 1)
+            height2 => fu_grid_data_from_3d(height3d, 1)
+            t3 => fu_grid_data_from_3d(t3d, 2)
+            height3 => fu_grid_data_from_3d(height3d, 2)
+            ! potential temperature is easier to calculate than store
+            CALL pressure_on_level(t3d, 1, p2)  ! It really computes the values
+            CALL pressure_on_level(t3d, 2, p3)  ! It really computes the values
+
             do iCell=1, fs_meteo
-              dtheta_dz(iCell) = (theta3(iCell) - theta2(iCell)) / (height3(iCell) - height2(iCell))
+              theta2 = t2(iCell)*((std_pressure_sl/p2(iCell))**R_per_c_dryair)
+              theta3 = t3(iCell)*((std_pressure_sl/p3(iCell))**R_per_c_dryair)
+              dtheta_dz(iCell) = (theta3 - theta2) / (height3(iCell) - height2(iCell))
             enddo
           else
             !
             ! Can use 2m and first model level to get the second order of accuracy for theta
             !
-            fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, potential_temperature_2m_flag, &
+            fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, temperature_2m_flag, &
                                         & level_missing, time, forwards)
             if(error)return
-            theta1 => fu_grid_data(fldTmp)
+            t1 => fu_grid_data(fldTmp)
 
-            theta2 => fu_grid_data_from_3d(theta3d, 1)
+            fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, surface_pressure_flag, &
+                                        & level_missing, time, forwards)
+            if(error)return
+            p0 => fu_grid_data(fldTmp) !! Sic! Not a work array
+
+            t2 => fu_grid_data_from_3d(t3d, 1)
             height2 => fu_grid_data_from_3d(height3d, 1)
-            theta3 => fu_grid_data_from_3d(theta3d, 2)
+            t3 => fu_grid_data_from_3d(t3d, 2)
             height3 => fu_grid_data_from_3d(height3d, 2)
+            ! potential temperature is easier to calculate than store
+            CALL pressure_on_level(t3d, 1, p2)  ! It really computes the values
+            CALL pressure_on_level(t3d, 1, p3)  ! It really computes the values
             do iCell=1, fs_meteo
+              theta1  = t1(iCell)*((std_pressure_sl/p0(iCell))**R_per_c_dryair) !p0 here
+              theta2 =  t2(iCell)*((std_pressure_sl/p2(iCell))**R_per_c_dryair)
+              theta3 =  t3(iCell)*((std_pressure_sl/p3(iCell))**R_per_c_dryair)
               dtheta_dz(iCell) = 1. / (2. - height3(iCell)) * &
-                               & ((theta2(iCell) - theta3(iCell)) / (height2(iCell) - height3(iCell)) * &
+                               & ((theta2 - theta3) / (height2(iCell) - height3(iCell)) * &
                                 & (2. - height2(iCell)) + &
-                                & (theta1(iCell) - theta2(iCell)) / (2. - height2(iCell)) * &
+                                & (theta1 - theta2) / (2. - height2(iCell)) * &
                                 & (height2(iCell) - height3(iCell)) &
                                 & )
             end do
@@ -1722,10 +1803,14 @@ CONTAINS
           !
           height1 => fu_grid_data_from_3d(height3d, lev-1)
           height2 => fu_grid_data_from_3d(height3d, lev)
-          theta1 => fu_grid_data_from_3d(theta3d, lev-1)
-          theta2 => fu_grid_data_from_3d(theta3d, lev)
+          t1 => fu_grid_data_from_3d(t3d, lev-1)
+          t2 => fu_grid_data_from_3d(t3d, lev)
+          CALL pressure_on_level(t3d, lev-1, p1)  ! It really computes the values
+          CALL pressure_on_level(t3d, lev, p2)  ! It really computes the values
           do iCell=1, fs_meteo
-            dtheta_dz(iCell) = (theta2(iCell) - theta1(iCell)) / (height2(iCell) - height1(iCell))
+            theta1 = t1(iCell)*((std_pressure_sl/p1(iCell))**R_per_c_dryair)
+            theta2 = t2(iCell)*((std_pressure_sl/p2(iCell))**R_per_c_dryair)
+            dtheta_dz(iCell) = (theta2 - theta1) / (height2(iCell) - height1(iCell))
           end do
 
         else
@@ -1736,15 +1821,22 @@ CONTAINS
           height2 => fu_grid_data_from_3d(height3d, lev)
           height3 => fu_grid_data_from_3d(height3d, lev+1)
 
-          theta1 => fu_grid_data_from_3d(theta3d, lev-1)
-          theta2 => fu_grid_data_from_3d(theta3d, lev)
-          theta3 => fu_grid_data_from_3d(theta3d, lev+1)
+          t1 => fu_grid_data_from_3d(t3d, lev-1)
+          t2 => fu_grid_data_from_3d(t3d, lev)
+          t3 => fu_grid_data_from_3d(t3d, lev+1)
+
+          CALL pressure_on_level(t3d, lev-1, p1)  ! It really computes the values
+          CALL pressure_on_level(t3d, lev, p2)  ! It really computes the values
+          CALL pressure_on_level(t3d, lev+1, p3)  ! It really computes the values
 
           do iCell=1, fs_meteo
+            theta1 = t1(iCell)*((std_pressure_sl/p1(iCell))**R_per_c_dryair)
+            theta2 = t2(iCell)*((std_pressure_sl/p2(iCell))**R_per_c_dryair)
+            theta3 = t3(iCell)*((std_pressure_sl/p3(iCell))**R_per_c_dryair)
             dtheta_dz(iCell) = 1. / (height1(iCell) - height3(iCell)) * &
-                             & ((theta2(iCell) - theta3(iCell)) / (height2(iCell) - height3(iCell)) * &
+                             & ((theta2 - theta3) / (height2(iCell) - height3(iCell)) * &
                               & (height1(iCell) - height2(iCell)) + &
-                              & (theta1(iCell) - theta2(iCell)) / (height1(iCell) - height2(iCell)) * &
+                              & (theta1 - theta2) / (height1(iCell) - height2(iCell)) * &
                               & (height2(iCell) - height3(iCell)) &
                              & )
           end do
@@ -1752,17 +1844,18 @@ CONTAINS
         endif  ! Level-dependent wind and temperature gradients computation
         IF (error) RETURN
 
-        id = fu_set_field_id(fu_met_src(theta3d),&
+        id = fu_set_field_id(fu_met_src(t3d),&
                            & brunt_vaisala_freq_flag,&
-                           & fu_analysis_time(theta3d),&
-                           & fu_forecast_length(theta3d), &
-                           & fu_grid(theta3d),&
+                           & fu_analysis_time(t3d),&
+                           & fu_forecast_length(t3d), &
+                           & fu_grid(t3d),&
                            & levels(lev))
         call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, BV_fr)
         if(fu_fails(.not.error,'Failed BV_fr field data pointer','dq_brunt_vaisala_freq'))return
 
         do iCell=1, fs_meteo
-          BV_fr(iCell) = g * dtheta_dz(iCell) / theta2(iCell)
+          theta2 = t2(iCell)*((std_pressure_sl/p2(iCell))**R_per_c_dryair)
+          BV_fr(iCell) = g * dtheta_dz(iCell) / theta2
         end do  ! cycle over the grid
 
 !        call msg('level',lev)
@@ -1781,8 +1874,9 @@ CONTAINS
 
     END DO ! loop_over_times
 
-!    CALL free_all_work_arrays()
-!    call free_work_array(BV_fr) 
+    call free_work_array(p1) 
+    call free_work_array(p2) 
+    call free_work_array(p3) 
     call free_work_array(dtheta_dz) 
 
   END SUBROUTINE dq_brunt_vaisala_freq
@@ -1790,7 +1884,7 @@ CONTAINS
 
   !************************************************************
 
-  SUBROUTINE dq_ABL_params(meteoMarketPtr, met_src, valid_times, abl_param, ABL_height_method_switch)
+  SUBROUTINE dq_ABL_params(meteoMarketPtr, met_src, valid_times, idxTimes, abl_param, ABL_height_method_switch)
     
     ! This routine for computing of most important ABL and similarity theory parameters :
     ! - Monin Obukhov length (L) [m]
@@ -1820,6 +1914,7 @@ CONTAINS
 
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     integer, intent(in) :: abl_param, ABL_height_method_switch
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
@@ -1830,13 +1925,13 @@ CONTAINS
     INTEGER :: tloop, i, j, iu,it, i_tot, i_err, i_err_pos
     TYPE(silja_grid) :: scalar_grid
     TYPE(silja_field_id) :: id
-    TYPE(silja_3d_field), POINTER :: height3d,u3d,v3d,t3d, q3d,  theta3d
+    TYPE(silja_3d_field), POINTER :: height3d,u3d,v3d,t3d, q3d
     TYPE(silja_field), POINTER :: windspeed_10m, field_temp_2m, field_q_2m, ps_2d, &
                                 & fraction_of_land_field,  field_abl_height_nwp
     TYPE(silja_level), DIMENSION(max_levels) :: levels
     REAL, DIMENSION(:), POINTER :: monin_obukhov_inv, friction_velocity, & 
      & temperature_scale, sens_heat_flux, height_lev1, height_lev2, &
-     & ps, temp2m, q2m, q_1, density, abl_height, abl_height_nwp, wind10m,&
+     & ps, temp2m, q2m, q_1,  abl_height, abl_height_nwp, wind10m,&
      & temp_1, x1, Kz, u_1, v_1, u_10m, v_10m, land_mask, alpha_Pr, conv_vel_scale, &
      & latent_heat_flux, humid_scale
     REAL :: windspeed_1, fMinAlert, fMinForce, fMaxForce, fMaxAlert
@@ -1860,28 +1955,13 @@ CONTAINS
     real :: lnzT, lnzu, Cp_ro, vap_heat, height_1u, height_1T, du, dT, HHH_K, gamma, &
           & fric_vel_cube, arg, Ri, Kz_scaling, y_solver, fTmp, dzu, dzT
           
-    integer :: iTmp
+    integer :: iTmp, iS
 
-!    INTEGER, DIMENSION(100,100)::prob, prob_err, prob_err_pos!
-!    REAL, PARAMETER:: du_min=0., du_max=7, dt_min=-3, dt_max=4
-
-!    monin_obukhov_inv => fu_work_array() 
-!    friction_velocity => fu_work_array() 
-!    temperature_scale => fu_work_array() 
-!    sens_heat_flux => fu_work_array() 
-    density => fu_work_array()
     x1 =>fu_work_array()
-!    Kz =>fu_work_array()
-!    alpha_Pr =>fu_work_array()
-!    abl_height => fu_work_array()
-!    conv_vel_scale => fu_work_array()
     
     if (abl_param == abl_dry_param) then
       q2m => fu_work_array()
       q_1 => fu_work_array()
-!    else
-!      latent_heat_flux => fu_work_array()
-!      humid_scale => fu_work_array()
     end if
     if(error)return
 
@@ -1898,6 +1978,7 @@ CONTAINS
 
 !    open(90,file ='probability.bin',access='direct',form='unformatted',recl=10000)
 !    open(91,file ='probability.txt',access='append',form='formatted')
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     !------------------------------------------------------------------------------------
     !
@@ -1920,7 +2001,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&    ! search for 3D field
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
       
       ps_2d => fu_sm_obstime_field(meteoMarketPtr, met_src,&
                                  & ground_pressure_flag,&
@@ -2030,13 +2112,6 @@ CONTAINS
         u_1 => fu_grid_data_from_3d(u3d, 2)
         v_1 => fu_grid_data_from_3d(v3d, 2)
       endif
-      
-      theta3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&
-                                      & potential_temperature_flag, &
-                                      & time,&
-                                      & single_time)
-      IF (error) RETURN
-
       !
       ! Find/make places for all fields
       !
@@ -2427,8 +2502,7 @@ CONTAINS
             call apply_richardson(x1, abl_param == abl_full_param)  ! temporary use of the variable
             if(error)return
             DO i = 1, fs_meteo
-              IF (x1(i) > abl_height(i)) abl_height(i) = x1(i)
-              if(abl_height(i) > 7500.) abl_height(i) = 7500.
+              abl_height(i) = min(7500., max(abl_height(i), x1(i)))  ! Max of two, but less than 7500
             END DO
           endif
 
@@ -2515,7 +2589,6 @@ CONTAINS
 
     END DO loop_over_times
 
-    call free_work_array(density)
     call free_work_array(x1)
     if(abl_param == abl_dry_param)then
       call free_work_array(q2m)
@@ -2624,16 +2697,18 @@ CONTAINS
       real, dimension(:), pointer :: abl_height
 
       ! Local variables
-      real, dimension(:), pointer :: ground_virt_pot_temperature, theta_up, theta_down, h2d_up, h2d_down, &
-           & q3d_up, q3d_down, theta_virt_up, theta_virt_down
-      real :: slope_vpt
+      real, dimension(:), pointer :: ground_virt_pot_temperature, t_up, t_down, h2d_up, h2d_down, &
+                                   & p_up, p_down, q_up, q_down
       integer :: i, iCount, iLev
+      real :: theta_up, theta_down, theta_virt_up, theta_virt_down, slope_vpt
       
-      real, parameter :: a = 0.5, b = 5.0, slope_limit = 0.005
+!      real, parameter :: a = 0.5, b=1.2
+      !real, parameter :: a = 0.5, b = 5.0, slope_limit = 0.005 ! repo
+      real, parameter :: a = 0.5, b = 1.2, slope_limit = 0.005
 
-      ground_virt_pot_temperature => fu_work_array()
-      theta_virt_up => fu_work_array()
-      theta_virt_down => fu_work_array()
+      ground_virt_pot_temperature => fu_work_array(fs_meteo)
+      p_up => fu_work_array(fs_meteo)
+      p_down => fu_work_array(fs_meteo)
 
       ground_virt_pot_temperature(1:fs_meteo) = (1.0 + 0.62*q2m(1:fs_meteo)) * &
            & temp2m(1:fs_meteo)*((std_pressure_sl/ps(1:fs_meteo))**R_per_c_dryair)
@@ -2643,52 +2718,155 @@ CONTAINS
       end where
 
       iCount = 0
+
       DO iLev = 1, (nz_meteo-1)
-         
-        theta_up  => fu_grid_data_from_3d(theta3d, iLev+1)
-        theta_down => fu_grid_data_from_3d(theta3d, iLev)
+
+        t_up  => fu_grid_data_from_3d(t3d, iLev+1)
+        t_down => fu_grid_data_from_3d(t3d, iLev)
         h2d_up => fu_grid_data_from_3d(height3d, iLev+1)
         h2d_down => fu_grid_data_from_3d(height3d, iLev)
-        q3d_up  => fu_grid_data_from_3d(q3d, iLev+1)
-        q3d_down  => fu_grid_data_from_3d(q3d, iLev)
+        q_up  => fu_grid_data_from_3d(q3d, iLev+1)
+        q_down  => fu_grid_data_from_3d(q3d, iLev)
         IF (error) EXIT
 
-        theta_virt_up(1:fs_meteo) = theta_up(1:fs_meteo) * (1.0 + 0.62 * q3d_up(1:fs_meteo))
-        theta_virt_down(1:fs_meteo) = theta_down(1:fs_meteo) * (1.0 + 0.62 * q3d_down(1:fs_meteo))
+        ! potential temperature is easier to calculate than store
+        CALL pressure_on_level(t3d, iLev, p_down)  ! It really computes the values
+        CALL pressure_on_level(t3d, iLev+1, p_up)  ! It really computes the values
 
         DO i = 1, fs_meteo
+          theta_up = t_up(i)*((std_pressure_sl/p_up(i))**R_per_c_dryair)
+          theta_virt_up = theta_up * (1.0 + 0.62 * q_up(i))
+          theta_down = t_down(i)*((std_pressure_sl/p_down(i))**R_per_c_dryair)
+          theta_virt_down = theta_down * (1.0 + 0.62 * q_down(i))
           IF (abl_height(i)<= 0. .and. abs(abl_height(i)-anint(abl_height(i))) < 0.001) THEN
-            IF (theta_virt_up(i) > ground_virt_pot_temperature(i)) THEN 
-              if(theta_virt_down(i) > ground_virt_pot_temperature(i))then
+            IF (theta_virt_up > ground_virt_pot_temperature(i)) THEN
+              if(theta_virt_down > ground_virt_pot_temperature(i))then
                 abl_height(i) = h2d_down(i)
               else
-                abl_height(i) = h2d_down(i) * (theta_virt_up(i) - ground_virt_pot_temperature(i)) &
-                            & + h2d_up(i) * (ground_virt_pot_temperature(i) - theta_virt_down(i))
-                abl_height(i) = abl_height(i) / (theta_virt_up(i) - theta_virt_down(i))
+                abl_height(i) = h2d_down(i) * (theta_virt_up - ground_virt_pot_temperature(i)) &
+                            & + h2d_up(i) * (ground_virt_pot_temperature(i) - theta_virt_down)
+                abl_height(i) = abl_height(i) / (theta_virt_up - theta_virt_down)
               endif
               abl_height(i) = anint(abl_height(i)) + 0.1 !! So it can be distinguished
-            END IF
+            END IF  ! theta_virt_up > ground_pot_temperature(i)
           ELSE IF (abs(abl_height(i)-anint(abl_height(i))-0.1) < 0.001) THEN
-            slope_vpt = (theta_virt_up(i)-theta_virt_down(i))/(h2d_up(i)-h2d_down(i))
+            slope_vpt = (theta_virt_up-theta_virt_down)/(h2d_up(i)-h2d_down(i))
             IF (slope_vpt > slope_limit .or. &
-                 & theta_virt_down(i) > ground_virt_pot_temperature(i) + b) THEN
+                 & theta_virt_down > ground_virt_pot_temperature(i) + b) THEN
               abl_height(i) = anint(h2d_down(i)) + 0.2 !! So it can be distinguished
               iCount = iCount + 1
             END IF
-          END IF 
+          END IF  ! abl_height undefined
         END DO  !loop 1:fs
+
         IF(iCount >= fs_meteo) EXIT
 
       END DO ! loop_over_levels
 
       call free_work_array(ground_virt_pot_temperature)
-      call free_work_array(theta_virt_up)
-      call free_work_array(theta_virt_down)
+      call free_work_array(p_up)
+      call free_work_array(p_down)
 
     end subroutine apply_parcel
 
     !============================================================================================
-    
+
+    subroutine apply_parcel_1b(abl_height)
+      !
+      ! Sets the ABL height to the height where the integrated virtual potential temperature equals zero.
+      !
+      implicit none
+
+      ! Imported parameters
+      real, dimension(:), pointer :: abl_height
+
+      ! Local variables
+      real, dimension(:), pointer :: ground_virt_pot_temperature, temp_down, &
+           & h2d_down, q3d_down, theta_virt_down, add_pot_t, h_old, p_old, pressure_down, &
+           & pressure_up, p_surf
+      integer :: i, iCount, iLev
+
+      real, parameter :: a = 0.5
+
+      ground_virt_pot_temperature => fu_work_array()
+      theta_virt_down => fu_work_array()
+      add_pot_t => fu_work_array()
+      add_pot_t(1:fs_meteo) = 0.0
+      h_old => fu_work_array()
+      h_old(1:fs_meteo) = 0.0
+      pressure_down => fu_work_array()
+      pressure_up => fu_work_array()
+
+      p_surf => fu_grid_data(ps_2d)
+      p_old => fu_work_array()
+      p_old(1:fs_meteo) = p_surf
+
+      ground_virt_pot_temperature(1:fs_meteo) = (1.0 + 0.62*q2m(1:fs_meteo)) * &
+           & temp2m(1:fs_meteo)*((std_pressure_sl/ps(1:fs_meteo))**R_per_c_dryair)
+
+      where (sens_heat_flux(1:fs_meteo) <= 0.0)
+         ground_virt_pot_temperature(1:fs_meteo) = ground_virt_pot_temperature(1:fs_meteo) + a
+      end where
+
+      iCount = 0
+
+      DO iLev = 1, (nz_meteo-1)
+
+        temp_down => fu_grid_data_from_3d(t3d, iLev)
+        q3d_down => fu_grid_data_from_3d(q3d, iLev)
+        h2d_down => fu_grid_data_from_3d(height3d, iLev)
+
+        call pressure_on_level(height3d, iLev, pressure_down)
+        call pressure_on_level(height3d, iLev+1, pressure_up)
+
+        IF (error) EXIT
+
+        theta_virt_down(1:fs_meteo) = temp_down(1:fs_meteo) * &
+             (std_pressure_sl/pressure_down(1:fs_meteo))**R_per_c_dryair * &
+             (1.0 + 0.62 * q3d_down(1:fs_meteo)) 
+        
+        add_pot_t(1:fs_meteo) = add_pot_t(1:fs_meteo) + &
+             & (ground_virt_pot_temperature(1:fs_meteo)-theta_virt_down(1:fs_meteo)) * &
+             & (p_old(1:fs_meteo) - pressure_down(1:fs_meteo))
+
+        DO i = 1, fs_meteo
+
+          IF (abl_height(i)<= 0.) THEN
+            IF (add_pot_t(i) < 0.) THEN
+              abl_height(i) = h2d_down(i)
+              iCount = iCount + 1
+            END IF
+          END IF
+        END DO  !loop 1:fs
+
+        add_pot_t(1:fs_meteo) = add_pot_t(1:fs_meteo) + &
+             & (ground_virt_pot_temperature(1:fs_meteo)-theta_virt_down(1:fs_meteo)) * &
+             & (p_old(1:fs_meteo) - pressure_down(1:fs_meteo))
+
+        abl_height(1:fs_meteo) = anint(abl_height(1:fs_meteo)) + 0.2 !! So it can be distinguished
+        IF(iCount >= fs_meteo) EXIT
+
+        p_old(1:fs_meteo) = 0.5*(pressure_down(1:fs_meteo) + pressure_up(1:fs_meteo))
+
+      END DO ! loop_over_levels
+
+      !DO i = 1, fs_meteo
+      !  call msg('abl_height(i)', abl_height(i))
+      !END DO
+
+      call free_work_array(ground_virt_pot_temperature)
+      call free_work_array(theta_virt_down)
+      call free_work_array(add_pot_t)
+      call free_work_array(h_old)
+      call free_work_array(p_old)
+      call free_work_array(pressure_down)
+      call free_work_array(pressure_up)
+
+    end subroutine apply_parcel_1b
+
+    !============================================================================================
+
+
     subroutine apply_richardson(Habl, ifFullABLParam)
       !
       ! Calculates the ABL height using critical Ri approach
@@ -2699,8 +2877,9 @@ CONTAINS
       real, dimension(:), pointer :: Habl
 
       ! Local declarations:
-      INTEGER :: iLev, i, iCount, iFlip, nx, ny, nxu, nyv
-      REAL, DIMENSION(:), POINTER :: u_1, u_2, v_1, v_2, q_1, q_2, theta_1, theta_2, h2d_1, h2d_2, h2d_2prev
+      INTEGER :: iLev, i, iCount, iFlip, nx, ny, nxu, nyv, iErrorCount,iErrorCountTot
+      REAL, DIMENSION(:), POINTER :: u_1, u_2, v_1, v_2, q_1, q_2, t, theta_1, theta_2, &
+                                   & h2d_1, h2d_2, h2d_2prev, p
       type(silja_rp_1d), DIMENSION(:), POINTER :: richardson
       logicaL, intent(in) :: ifFullABLParam
 
@@ -2711,6 +2890,9 @@ CONTAINS
       !
       call get_work_arrays_set(2, fs_meteo, richardson)
       iFlip = 1
+      theta_1 => fu_work_array(fs_meteo)
+      theta_2 => fu_work_array(fs_meteo)
+      p => fu_work_array(fs_meteo)
 
       richardson(1)%pp(1:fs_meteo) = 0.0            ! The first-level Ri is always zero
       Habl(1:fs_meteo) = -9.
@@ -2722,25 +2904,36 @@ CONTAINS
 
       u_1 => fu_grid_data_from_3d(u3d, 1)
       v_1 => fu_grid_data_from_3d(v3d, 1)
-      theta_1 => fu_grid_data_from_3d(theta3d, 1)
+      t => fu_grid_data_from_3d(t3d, 1)
       h2d_1 => fu_grid_data_from_3d(height3d, 1)
       h2d_2prev => h2d_1
       if(ifFullABLParam) q_1 => fu_grid_data_from_3d(q3d, 1)
+      CALL pressure_on_level(t3d, 1, p)  ! It really computes the values
+      do i = 1, fs_meteo
+        theta_1(i) = t(i)*((std_pressure_sl/p(i))**R_per_c_dryair)
+      end do
       iCount = 0
+      iErrorCountTot = 0
       DO iLev = 2, nz_meteo
         u_2 => fu_grid_data_from_3d(u3d, iLev)
         v_2 => fu_grid_data_from_3d(v3d, iLev)
-        theta_2 => fu_grid_data_from_3d(theta3d, iLev)
+        t => fu_grid_data_from_3d(t3d, iLev)
         h2d_2 => fu_grid_data_from_3d(height3d, iLev)
         if(ifFullABLParam) q_2 => fu_grid_data_from_3d(q3d, iLev)
         IF (error) EXIT
         !
         !  Get bulk_richardson_number for the second flipping array
         !
+        ! potential temperature is easier to calculate than store
+        CALL pressure_on_level(t3d, iLev, p)  ! It really computes the values
+        do i = 1, fs_meteo
+          theta_2(i) = t(i)*((std_pressure_sl/p(i))**R_per_c_dryair)
+        end do
         call bulk_richardson_nbr_one_level(u_1, u_2, v_1, v_2, q_1, q_2, theta_1, theta_2, &
                                          & h2d_1, h2d_2, friction_velocity, ifFullABLParam, &
-                                         & richardson(3-iFlip)%pp, nx, ny, nxu, nyv)
+                                         & richardson(3-iFlip)%pp, nx, ny, nxu, nyv, iErrorCount)
         IF (error) EXIT
+        iErrorCountTot = iErrorCountTot + iErrorCount
         !
         !  Critical value reached?
         !
@@ -2768,8 +2961,12 @@ CONTAINS
       END DO ! loop_over_levels
       abl_height(1:fs_meteo) = anint(abl_height(1:fs_meteo))+0.5 !! So it can be
                                                      !! distinguished
+      call msg("Patched Richardson grid cells:", iErrorCount)
 
       call free_work_array(richardson)
+      call free_work_array(theta_1)
+      call free_work_array(theta_2)
+      call free_work_array(p)
 
     end subroutine apply_richardson
 
@@ -2778,7 +2975,7 @@ CONTAINS
 
   !***************************************************************
 
-  SUBROUTINE dq_omega(meteoMarketPtr, met_src, valid_times, ifUpdate)
+  SUBROUTINE dq_omega(meteoMarketPtr, met_src, valid_times, idxTimes, ifUpdate)
     !
     ! Calculates vertical velocity omega [Pa/s] using HIRLAM's post prosessing
     ! scheme. 
@@ -2793,6 +2990,7 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:),INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     logical, intent(in) :: ifUpdate
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     
@@ -2808,7 +3006,7 @@ CONTAINS
     REAL :: a_down, b_down, a_up, b_up, ab, db
     INTEGER :: number_of_levels
     REAL, DIMENSION(:), POINTER :: u, v, w  
-    INTEGER :: i, lev, tloop
+    INTEGER :: i, lev, tloop, iS
     REAL, DIMENSION(:), POINTER :: pressure, p_up, p_down, dp
     REAL, DIMENSION(:), POINTER :: du_dx, dv_dy
     REAL, DIMENSION(:), POINTER :: ps 
@@ -2835,8 +3033,8 @@ CONTAINS
     dv_dy => fu_work_array()
     du_dx => fu_work_array()
 
-
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -2847,7 +3045,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.))then
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop)))then
         call msg('... already in SM')
         if(ifUpdate)then
 !          omega3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, omega_flag, time, single_time)
@@ -3097,7 +3296,7 @@ CONTAINS
 
   !****************************************************************
 
-  SUBROUTINE dq_vertical_velocity_msl(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_vertical_velocity_msl(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Calculates vertical velocity w (m/s) from omega (Pa/s) 
     ! using adiabatic approximation w = -omega/(g* density)
@@ -3110,11 +3309,12 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: lev, tloop, i, number_of_levels
+    INTEGER :: lev, tloop, i, number_of_levels, iS
     TYPE(silja_3d_field), POINTER :: t3d, tPast3d, tFuture3d, omega3d
     TYPE(silja_field_id) :: id
     TYPE(silja_level), DIMENSION(max_levels) :: levels
@@ -3127,6 +3327,7 @@ CONTAINS
     pFuture => fu_work_array()
 !    vertical_velocity => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -3137,7 +3338,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) cycle loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) cycle loop_over_times
       !
       ! Get the basic fields
       !
@@ -3217,7 +3419,7 @@ CONTAINS
 
   !****************************************************************
 
-  SUBROUTINE dq_vertical_velocity_srf(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_vertical_velocity_srf(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Calculates vertical velocity w (m/s) from omega (Pa/s) 
     ! using adiabatic approximation w = -omega/(g* density)
@@ -3233,11 +3435,12 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: lev, tloop, i, number_of_levels
+    INTEGER :: lev, tloop, i, number_of_levels, iS
     TYPE(silja_3d_field), POINTER :: t3d, omega3d, u3d, v3d, tPast3d, tFuture3d
     TYPE(silja_field_id) :: id
     TYPE(silja_field), pointer :: ps_2d
@@ -3253,6 +3456,7 @@ CONTAINS
     pPast => fu_work_array()
     pFuture => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     !
     ! Grand loop over time
@@ -3266,7 +3470,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) cycle  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) cycle  ! loop_over_times
       t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
       omega3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, omega_flag, time, single_time)
       if(error)return
@@ -3384,7 +3589,7 @@ CONTAINS
 
   !****************************************************************
 
-  subroutine dq_wind_divergence(meteoMarketPtr, met_src, valid_times)
+  subroutine dq_wind_divergence(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Computes the divergence of the wind field. Idea: the transport equation
     ! is solved under the conditions of non-compressible air, which leads to 
@@ -3398,10 +3603,11 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local variables
-    integer :: tloop, iLev, i
+    integer :: tloop, iLev, i, iS
     real, dimension(:), pointer :: du_dx, dv_dy, dw_dz, div, u, v, w, h
     TYPE(silja_3d_field), POINTER :: u3d, v3d, w3d, height3d
     type(silja_time) :: time
@@ -3416,6 +3622,7 @@ CONTAINS
     dv_dy => fu_work_array()
     dw_dz => fu_work_array()
     if(error)return
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     !
     ! Grand loop over time
@@ -3429,7 +3636,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) cycle  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) cycle  ! loop_over_times
       !
       ! Preparations:
       !
@@ -3503,7 +3711,7 @@ CONTAINS
 
   !****************************************************************
 
-  SUBROUTINE dq_abl_top_pressure(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_abl_top_pressure(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! This function estimates the abl height in Pa having it in m. A simple gas state equation
     ! is used to compute density
@@ -3513,11 +3721,12 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations
     REAL, DIMENSION(:), POINTER :: abl_pr, tempr, ps, ABLH
-    INTEGER :: tloop, i
+    INTEGER :: tloop, i, iS
     TYPE(silja_3d_field), POINTER :: t3d
     type(silja_field), pointer :: ps_2d, ABL_m_2d
     TYPE(silja_time) :: time
@@ -3528,6 +3737,7 @@ CONTAINS
 !    call msg('ABL-Pa 1')
 
     if(error)return
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     !
     ! Loop over times
@@ -3541,7 +3751,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&  ! 3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&         
                                   & temperature_flag, &  
@@ -3603,7 +3814,7 @@ CONTAINS
 
   !******************************************************
   
-  SUBROUTINE dq_albedo(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_albedo(meteoMarketPtr, met_src, valid_times, idxTimes)
     ! 
     ! Calculates albedo from instantaneous downward and net sw radiation fluxes
     !
@@ -3618,17 +3829,19 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_field), POINTER :: sw_r_down, sw_r_net
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: srd, srn, alb
     INTEGER :: fs
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -3639,7 +3852,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&   !3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       sw_r_down => fu_sm_obstime_field(meteoMarketPtr, met_src, &
                                      & surf_sw_down_radiation_flag, &  
@@ -3679,7 +3893,7 @@ CONTAINS
   !****************************************************
 
     
-  SUBROUTINE dq_rad_sw_down_sfc(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_rad_sw_down_sfc(meteoMarketPtr, met_src, valid_times, idxTimes)
     ! 
     ! Used if net radiation given, but we need downwards component (e.g. some HIRLAM data)
     ! Climatological albedo flag here can mean actually the dynamic meteo albedo 
@@ -3695,15 +3909,18 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_field), POINTER :: sw_r_net, albedo
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: srd, srn, alb
     INTEGER :: fs
+
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -3714,7 +3931,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&   !3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       albedo => fu_sm_obstime_field(meteoMarketPtr, met_src, &
                                      & climatological_albedo_flag, &  
@@ -3768,12 +3986,12 @@ CONTAINS
   !****************************************************
   
   
-  SUBROUTINE dq_cwcabove_3D(meteoMarketPtr, met_src, valid_times, ifMakeCWC, ifMakePWC, ifMakeLCWC)
+  SUBROUTINE dq_cwcabove_3D(meteoMarketPtr, met_src, valid_times, idxTimes, ifMakeCWC, ifMakePWC, ifMakeLCWC)
     !
     ! Cloud water column above bottom of meteo layers.
     ! Used for wet deposition calculation
     !
-    ! Code owner: Rostislav Kouznetsov, FMI
+    ! Author: Rostislav Kouznetsov, FMI
     !
     ! All units: SI
     
@@ -3782,12 +4000,13 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     logical, intent(in) :: ifMakeCWC, ifMakePWC, ifMakeLCWC
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_3d_field), POINTER :: cwc3d, cic3d
     type(silja_field), pointer :: fldTmp
     TYPE(silja_field_id) :: id
@@ -3804,7 +4023,7 @@ CONTAINS
 
     IF (error) RETURN
 
-
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -3815,21 +4034,24 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&   ! 3D
-                       & .false.)
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))
 
       ifLCWCinSM = fu_field_in_sm(meteoMarketPtr, met_src, &       ! Already done before?                                                                               
                        & lcwcabove_3D_flag,&
                        & time,&
                        & level_missing,&
                        & .true.,&   ! 3D                                                                                                                              
-                       & .false.)
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))
 
       ifPWCinSM = fu_field_in_sm(meteoMarketPtr, met_src, &                       ! Already done before?
                        & pwcabove_3D_flag,&
                        & time,&
                        & level_missing,&
                        & .true.,&   ! 3D
-                       & .false.)
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))
 
       if ( ( (.not. ifMakeCWC) .or. ifCWCinSM) .and. ((.not. ifMakeCWC) .or. ifCWCinSM) & 
            & .and. ((.not. ifMakeLCWC) .or. ifLCWCinSM))  CYCLE loop_over_times
@@ -3849,7 +4071,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&   ! 3D
-                       & .false.))  then
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop)))  then
         cwc3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&         
                                     & cloud_cond_water_flag, &  
                                     & time,&
@@ -3883,8 +4106,6 @@ CONTAINS
        !Indeed, a_half, b_half) should be used here
         
       fs = fu_number_of_gridpoints(grid)
-      
-    
       
       !-----------------------------------------------------
       !
@@ -3996,8 +4217,6 @@ CONTAINS
           pPWC_prev => pwc_above
         endif
 
-
-
       END DO !!levels
 
       !!!Total column -- just copy the lowest level
@@ -4039,9 +4258,7 @@ CONTAINS
           pwc_above(1:fs) = pPWC_prev(1:fs)
       endif
 
-
     END DO loop_over_times
-
 
 !    CALL free_work_array(cwc_above)
 
@@ -4050,7 +4267,7 @@ CONTAINS
 
   !****************************************************
 
-  SUBROUTINE dq_scavenging_coef(meteoMarketPtr, met_src, valid_times, ifRandomise)
+  SUBROUTINE dq_scavenging_coef(meteoMarketPtr, met_src, valid_times, idxTimes, ifRandomise)
 ! Deprecated!
 
           !
@@ -4068,7 +4285,7 @@ CONTAINS
     ! The water/snow phase are split regarding the temperature at the particle height
     ! The scavenging coefficients are computed from the NAME-II type methods
     !
-    ! Code owner Mikhail Sofiev
+    ! Author Mikhail Sofiev
     ! Implemented algorithm is taken from diy_weather_tools of I.Valkama
     !
     ! All units: SI
@@ -4078,12 +4295,13 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     logical, intent(in) :: ifRandomise
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_3d_field), POINTER :: t3d, p3d
     TYPE(silja_field), POINTER :: prec_ls, prec_conv
     TYPE(silja_field_id) :: id
@@ -4101,6 +4319,7 @@ CONTAINS
 
     scav => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -4111,7 +4330,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&   ! 3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       !------------------------------------------------------
       !
@@ -4232,7 +4452,7 @@ CONTAINS
 
     !****************************************************
 
-  SUBROUTINE dq_scavenging_coef_ls(meteoMarketPtr, met_src, valid_times, ifRandomise)
+  SUBROUTINE dq_scavenging_coef_ls(meteoMarketPtr, met_src, valid_times, idxTimes, ifRandomise)
  !Deprecated
     !
     ! First-guess rough estimate of the scavenging coefficient regardless the
@@ -4261,12 +4481,13 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     logical, intent(in) :: ifRandomise
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_3d_field), POINTER :: t3d, p3d
     TYPE(silja_field), POINTER :: prec_ls, prec_conv
     TYPE(silja_field_id) :: id
@@ -4285,6 +4506,7 @@ CONTAINS
 
     scav => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -4295,7 +4517,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&   ! 3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       !------------------------------------------------------
       !
@@ -4404,7 +4627,7 @@ CONTAINS
   ! ***************************************************************
 
 
-  SUBROUTINE dq_pasquill(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_pasquill(meteoMarketPtr, met_src, valid_times, idxTimes)
     ! 
     ! Makes Pasquill stability class field. Requires:
     ! Monin-Obukhov length and surface roughness for wind
@@ -4423,11 +4646,12 @@ CONTAINS
     ! Imported parameters with intent IN:
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: i, tloop
+    INTEGER :: i, tloop, iS
     TYPE(silja_field), POINTER :: MO_l_inv_f, sr_f
     TYPE(silja_field_id) :: id
     REAL, DIMENSION(:), POINTER :: MO_l_inv, sr, stab_data
@@ -4436,6 +4660,7 @@ CONTAINS
 
 !    stab_data => fu_work_array()
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -4446,7 +4671,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&   ! 3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       !------------------------------------------------------
       !
@@ -4468,7 +4694,8 @@ CONTAINS
       !
       IF(fu_field_in_sm(meteoMarketPtr, met_src, surface_roughness_meteo_flag,& !dynamical roughness ?
                       & time, level_missing,&
-                      & .false.,.false.)) THEN    ! look for 3d; if_permanent
+                      & .false.,.false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) THEN    ! look for 3d; if_permanent
 
         sr_f => fu_sm_obstime_field(meteoMarketPtr, &  ! Surface roughness for wind
                                   & met_src,&         
@@ -4480,7 +4707,8 @@ CONTAINS
 
       ELSEIF(fu_field_in_sm(meteoMarketPtr, met_src, surface_roughness_meteo_flag,& ! permanent ?
                           & time, level_missing,&
-                          & .false.,.true.)) THEN     ! look for 3d; if_permanent
+                          & .false.,.true., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) THEN     ! look for 3d; if_permanent
 
         sr_f => fu_sm_simple_field(meteoMarketPtr, met_src,&
                                  & surface_roughness_meteo_flag,&
@@ -4552,196 +4780,7 @@ CONTAINS
 
   !*****************************************************************************
   
-  SUBROUTINE dq_lscale_profile(meteoMarketPtr, met_src, valid_times, Kz_method, ABLh_min)
-    ! Lscale for mixing
-    ! Follows ECMWF procedure. Intent to be used for output only
-    ! Repeats  dq_Rdown_profile
-    !
-    IMPLICIT NONE
-    !
-    ! Imported parameters with intent(in):
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    INTEGER, INTENT(in) :: Kz_method
-    real, INTENT(in) :: ABLh_min
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Imported parameters with intent(out):
-
-    ! Local declarations:
-    TYPE(silja_time) :: time
-    INTEGER :: tloop, lev, i, iFlip
-    TYPE(silja_field_id) :: id
-    type(silja_field), pointer :: fldTmp
-    TYPE(silja_3d_field), POINTER ::  height3d,  u3d, v3d, t3d, q3d !3D input
-    REAL, DIMENSION(:), POINTER :: ptrHabl, ptrKz_1m                       !2D input
-    REAL, DIMENSION(:), POINTER :: height1, height2, u_1, u_2, v_1, v_2, theta_1, theta_2
-    REAL, DIMENSION(:), POINTER :: t2, q2, psrf, pml, R_tmp
-    type(silja_rp_1d), DIMENSION(:), POINTER :: fliparr
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
-    real ::  fTmp, Habl_01, Habl, Ri, du, dv, dz, deltaU2, deltaT, l, PhiMPhiH, z, zprev 
-    real:: extrashear,  Rscale
-    real, parameter :: eps = molecular_weight_air/molecular_weight_water - 1.
-
-!    call set_error("Not implemented yet","dq_R1m_profile")
-!    return
-      !
-      ! Get the space and define the flipping pointers
-      !
-    call get_work_arrays_set(2, fs_meteo, fliparr)
-    iFlip = 1
-!    R_tmp => fu_work_array(fs_meteo)
-    pml => fu_work_array(fs_meteo)
-
-    nullify(height2)
-    nullify(u_2)
-    nullify(v_2)
-    nullify(theta_1)
-
-    IF (error) RETURN
-
-    DO tloop = 1, SIZE(valid_times)
-
-      IF (.NOT.defined(valid_times(tloop))) EXIT   !loop_over_times
-      time = valid_times(tloop)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src,&   ! Already done before?
-                       & turb_length_scale_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .true.,&
-                       & .false.)) CYCLE  ! loop_over_times
-
-      ! 2D fields
-
-      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, surface_pressure_flag, level_missing, &
-                                  & time, single_time)
-      if(error)return
-      psrf => fu_grid_data(fldTmp)
-
-
-      ! 3D fields
-      height3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, height_flag, time, single_time)
-      IF (error) RETURN
-
-      CALL vertical_levels(height3d, levels, number_of_levels)
-      IF (error) RETURN
-      
-
-      u3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, u_flag, time, single_time)
-      IF (error) RETURN
-
-      v3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, v_flag, time, single_time)
-      IF (error) RETURN
-
-      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
-      IF (error) RETURN
-
-      
-      q3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, specific_humidity_flag, &
-                                      & time, single_time)
-      IF (error .or. .not. associated(q3d))then
-        call msg_warning("Can't get humidity, using dry atmosphere","dq_lscale_profile")
-
-        call unset_error('dq_lscale_profile')
-        nullify(q3d)
-      endif
-     
-       
-      call msg("Making dq_lscale_profile. ECMWF method")
-      DO lev = 1, number_of_levels
-        height1 => height2
-        u_1 => u_2
-        v_1 => v_2
-        theta_1 => theta_2
-        
-        height2 => fu_grid_data_from_3d(height3d, lev)
-        u_2 => fu_grid_data_from_3d(u3d, lev)
-        v_2 => fu_grid_data_from_3d(v3d, lev)
-        if (associated(q3d)) q2 => fu_grid_data_from_3d(q3d, lev)
-        t2 => fu_grid_data_from_3d(t3d, lev)
-        CALL pressure_on_level(t3d, lev, pml)  ! It really computes the values
-
-        theta_2 => fliparr(iFlip)%pp
-        if (associated(q3d)) then
-              theta_2(1:fs_meteo) = t2(1:fs_meteo) * &
-                   & ((std_pressure_sl/pml(1:fs_meteo))**R_per_c_dryair) &
-                   & * (1.+eps*q2(1:fs_meteo))
-        else
-              theta_2(1:fs_meteo) = t2(1:fs_meteo) * &
-                   & ((std_pressure_sl/pml(1:fs_meteo))**R_per_c_dryair)
-        endif
-        
-        id = fu_set_field_id(fu_met_src(height3d),&
-                           & turb_length_scale_flag,&
-                           & fu_analysis_time(height3d),&
-                           & fu_forecast_length(height3d), &
-                           & fu_grid(height3d),&
-                           & levels(lev))
-        call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, R_tmp)
-        if(fu_fails(.not.error,'Failed R_tmp field data pointer','dq_lscale_profile'))return
-
-        if (lev == 1) then ! Just some scale
-            R_tmp(1:fs_meteo) = height2(1:fs_meteo)
-        else
-
-           do i=1,fs_meteo
-                   
-               z = height2(i)
-
-               du = u_2(i) - u_1(i)
-               dv = v_2(i) - v_1(i)
-               dz = height2(i) - height1(i)
-               deltaT = theta_2(i) - theta_1(i)
-
-               l = 1./(1./150. + 1./height2(i)) ! Magic ECMWF scale
-
-               ! Unresolved shear as in ECMWF IFS Cy38r1, part 4, eq. 3.57.
-               ! there extrashear is added to sqrt(deltaU2),
-               ! we add its square to squared shear 
-               fTmp = (1. - pml(i)/psrf(i))
-               extrashear = 5e-3 * 27.2 * fTmp * exp(-10*fTmp) * dz
-
-               deltaU2 = du*du + dv*dv + extrashear*extrashear +  0.01  
-                                 !ensure deltaU2 > 0.01  in any case
-
-               Ri = 2. * g * dz * deltaT / ( (theta_1(i)+theta_2(i))* deltaU2)
-               if (Ri > 0.) then
-                       ! Approximation of ECMWF gradient stability functions
-                       ! PhiMPhiH(Ri=0) = 1
-                       ! PhiMPhiH(Ri -> \infty) ~ Ri^3 
-                       ! Kz = l^2 |dU/dz| / (PhiMPhiH) 
-                       ! p. 47
-                  PhiMPhiH = ( (305.*Ri + 78.)*Ri + 13.)*Ri + 1.
-               else ! Neutral/unstable...
-                   PhiMPhiH = 1./sqrt(sqrt(1 - 16.* Ri)) !PhiMPhiH = (1 - 16. Ri)^-0.75
-                   PhiMPhiH = PhiMPhiH * PhiMPhiH * PhiMPhiH
-               endif
-
-               R_tmp(i) = l / sqrt(PhiMPhiH)  ! ECMWF length scaled with stratification
-           end do ! loop meteo
-        endif !(lev == 1)
-        IF (error) RETURN 
-
-!        CALL dq_store_2d(meteoMarketPtr, id, R_tmp, multi_time_stack_flag )
-
-        iFlip = 3 - iFlip
-        IF (error) RETURN 
-      END DO ! loop_over_levels
-
-    END DO ! loop_over_times
-
-!    call free_work_array(R_tmp)
-    call free_work_array(pml)
-    call free_work_array(fliparr)
-
-  END SUBROUTINE dq_lscale_profile
-
-  !*****************************************************************************
-  !*****************************************************************************
-  
-  SUBROUTINE dq_Rdown_profile(meteoMarketPtr, met_src, valid_times, Kz_method, ABLh_min)
+  SUBROUTINE dq_Rdown_profile(meteoMarketPtr, met_src, valid_times, idxTimes, Kz_method, ABLh_min)
     ! Aerodynamic resistane between this and previous level
     ! flux between levels -- (C1 - C2) / (R2)
     ! Resisratnce to 1 m according to SILAM standard Kz for the lowest level
@@ -4753,6 +4792,7 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     INTEGER, INTENT(in) :: Kz_method
     real, INTENT(in) :: ABLh_min
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
@@ -4771,7 +4811,7 @@ CONTAINS
     REAL, DIMENSION(:), POINTER :: a_full, b_full, fWork
     type(silja_rp_1d), DIMENSION(max_levels) :: Rptr
     TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, ithread, nthreads,  iTmp
+    INTEGER :: number_of_levels, ithread, nthreads,  iTmp, iS
     real ::  fTmp, Habl_01, Habl, Ri, du, dv, dz, pml, deltaU2, deltaT, l, PhiMPhiH, z, zprev, theta 
     real:: extrashear,  Rscale, kZ_tab
     real, parameter :: eps = molecular_weight_air/molecular_weight_water - 1.
@@ -4793,6 +4833,7 @@ CONTAINS
     nullify(theta_prev)
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -4804,7 +4845,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .true.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
 
       if (Kz_method /= zero_kz) then ! some meteo needed
 
@@ -5160,312 +5202,8 @@ CONTAINS
 
   END SUBROUTINE dq_Rdown_profile
 
-  !*****************************************************************************
-  
-  SUBROUTINE dq_turbulence_profile(meteoMarketPtr, met_src, valid_times, list)
-    !
-    IMPLICIT NONE
-    !
-    ! Imported parameters with intent(in):
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-    TYPE(silja_shopping_list), INTENT(IN) :: list
-
-    ! Imported parameters with intent(out):
-
-    ! Local declarations:
-    TYPE(silja_time) :: time
-    INTEGER :: tloop, lev, iCell
-    TYPE(silja_grid) :: scalar_grid
-    TYPE(silja_field_id) :: id
-    type(silja_field), pointer :: fldTmp
-    TYPE(silja_3d_field), POINTER :: windspeed3d, height3d, Ri3d
-    REAL, DIMENSION(:), POINTER :: Ez, Km,Kh, Kd, S, lz
-    REAL, DIMENSION(:), POINTER :: height2, height1, height3, windspeed1, windspeed2, windspeed3, Ri, abl
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
-    real :: Rif, Psi, Psi_tau, fTmp
-    logical :: ifTKE, ifKzMom, ifKzHeat, ifKzScal, ifS, ifTLS
-
-    ifTKE = fu_quantity_in_list(turb_kinetic_energy_SILAM_flag, list)
-    ifKzMom = fu_quantity_in_list(Kz_momentum_3d_flag, list)
-    ifKzHeat = fu_quantity_in_list(Kz_heat_3d_flag, list)
-    ifKzScal = fu_quantity_in_list(Kz_scalar_3d_flag, list)
-    ifS = fu_quantity_in_list(wind_vertical_shear_flag, list)
-    ifTLS = fu_quantity_in_list(turb_length_scale_flag, list)
-    
-    if(.not. ifS) S => fu_work_array() 
-    if(.not. ifTLS) lz => fu_work_array() 
-    if(.not. ifTKE) Ez => fu_work_array() 
-    if(.not. ifKzMom) Km => fu_work_array() 
-    if(.not. ifKzHeat) Kh => fu_work_array() 
-    if(.not. ifKzScal) Kd => fu_work_array() 
-    IF (error) RETURN
-
-    DO tloop = 1, SIZE(valid_times)
-
-      IF (.NOT.defined(valid_times(tloop))) EXIT   !loop_over_times
-      time = valid_times(tloop)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src,&   ! Already done before?
-                       & Kz_momentum_3d_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .false.,&
-                       & .false.)) CYCLE  ! loop_over_times
-
-      height3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, height_flag, time, single_time)
-      IF (error) RETURN
-
-      Ri3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, gradient_richardson_nbr_flag, &
-                                      & time, single_time)
-      IF (error) RETURN
-
-      windspeed3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, windspeed_flag, time, single_time)
-      IF (error) RETURN
-
-      CALL vertical_levels(windspeed3d, levels, number_of_levels)
-      IF (error) RETURN
-
-      !
-      ! Get the screen-level fields for the lowest-level and
-      ! make appropriate attributions to the heights
-      !
-      ! ABL
-      !
-      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, abl_height_m_flag, level_missing, &
-                                  & time, forwards)
-      if(error)return
-      abl => fu_grid_data(fldTmp)
-
-      !
-      ! Having the initial stuff set, start the layer cycle
-      ! For vertical derivative, point 2 is always the height at which the derivative is taken, 
-      ! point 1 is lower, point 3 is upper
-      !
-      DO lev = 1, number_of_levels
-
-        Ri => fu_grid_data_from_3d(Ri3d, lev)
-
-        if(ifS)then
-          id = fu_set_field_id(fu_met_src(windspeed3d),&
-                             & wind_vertical_shear_flag,&
-                             & fu_analysis_time(windspeed3d),&
-                             & fu_forecast_length(windspeed3d), &
-                             & fu_grid(windspeed3d),&
-                             & levels(lev))
-          call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, S)
-          if(fu_fails(.not.error,'Failed S field data pointer','dq_turbulence_profile'))return
-        endif
-
-        if(ifTLS)then
-          id = fu_set_field_id(fu_met_src(windspeed3d),&
-                             & turb_length_scale_flag,&
-                             & fu_analysis_time(windspeed3d),&
-                             & fu_forecast_length(windspeed3d), &
-                             & fu_grid(windspeed3d),&
-                             & levels(lev))
-          call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, lz)
-          if(fu_fails(.not.error,'Failed lz field data pointer','dq_turbulence_profile'))return
-        endif
-        if(ifTKE)then
-          id = fu_set_field_id(fu_met_src(windspeed3d),&
-                             & turb_kinetic_energy_SILAM_flag,&
-                             & fu_analysis_time(windspeed3d),&
-                             & fu_forecast_length(windspeed3d), &
-                             & fu_grid(windspeed3d),&
-                             & levels(lev))
-          call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, Ez)
-          if(fu_fails(.not.error,'Failed Ez field data pointer','dq_turbulence_profile'))return
-        endif
-        if(ifKzMom)then
-          id = fu_set_field_id(fu_met_src(windspeed3d),&
-                             & Kz_momentum_3d_flag,&
-                             & fu_analysis_time(windspeed3d),&
-                             & fu_forecast_length(windspeed3d), &
-                             & fu_grid(windspeed3d),&
-                             & levels(lev))
-          call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, Km)
-          if(fu_fails(.not.error,'Failed Km field data pointer','dq_turbulence_profile'))return
-        endif
-        if(ifKzHeat)then
-          id = fu_set_field_id(fu_met_src(windspeed3d),&
-                             & Kz_heat_3d_flag,&
-                             & fu_analysis_time(windspeed3d),&
-                             & fu_forecast_length(windspeed3d), &
-                             & fu_grid(windspeed3d),&
-                             & levels(lev))
-          call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, Kh)
-          if(fu_fails(.not.error,'Failed Kh field data pointer','dq_turbulence_profile'))return
-        endif
-        if(ifKzScal)then
-          id = fu_set_field_id(fu_met_src(windspeed3d),&
-                             & Kz_scalar_3d_flag,&
-                             & fu_analysis_time(windspeed3d),&
-                             & fu_forecast_length(windspeed3d), &
-                             & fu_grid(windspeed3d),&
-                             & levels(lev))
-          call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, Kd)
-          if(fu_fails(.not.error,'Failed Kd field data pointer','dq_turbulence_profile'))return
-        endif
-        
-        if(lev == 1)then
-          !
-          ! Having height, select the data for determining the profiles: 10m wind 
-          ! and 1st model level or just 1st and 2d model levels for everything.
-          !
-          height2 => fu_grid_data_from_3d(height3d, 1)
-
-          if(sum(height2(1:fs_meteo))/fs_meteo <= 11.)then
-            !
-            ! First model level is dangerously close to 10m, skip the screen-level wind and use 3D only
-            ! Accuracy is then 1st order
-            !
-            windspeed2 => fu_grid_data_from_3d(windspeed3d, 1)
-            windspeed3 => fu_grid_data_from_3d(windspeed3d, 2)
-            height3 => fu_grid_data_from_3d(height3d, 2)
-            do iCell=1, fs_meteo
-              S(iCell) = (windspeed3(iCell) - windspeed2(iCell)) / (height3(iCell) - height2(iCell))
-            enddo
-          else
-            !
-            ! Can use 10m and first model level to get the second order of accuracy
-            !
-            fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, windspeed_10m_flag, level_missing, time, forwards)
-            if(error)return
-            windspeed1 => fu_grid_data(fldTmp)
-            windspeed2 => fu_grid_data_from_3d(windspeed3d, 1)
-            height2 => fu_grid_data_from_3d(height3d, 1)
-            windspeed3 => fu_grid_data_from_3d(windspeed3d, 2)
-            height3 => fu_grid_data_from_3d(height3d, 2)
-            do iCell=1, fs_meteo
-              S(iCell) = 1. / (10. - height3(iCell)) * &
-                       & ((windspeed2(iCell) - windspeed3(iCell)) / (height2(iCell) - height3(iCell)) * &
-                        & (10. - height2(iCell)) + &
-                        & (windspeed1(iCell) - windspeed2(iCell)) / (10. - height2(iCell)) * &
-                        & (height2(iCell) - height3(iCell)) &
-                       & )
-            end do
-          endif
-
-        elseif(lev == number_of_levels)then
-          !
-          ! Last model level - again 1st order of accuracy
-          !
-          windspeed1 => fu_grid_data_from_3d(windspeed3d, lev-1)
-          height1 => fu_grid_data_from_3d(height3d, lev-1)
-          windspeed2 => fu_grid_data_from_3d(windspeed3d, lev)
-          height2 => fu_grid_data_from_3d(height3d, lev)
-          do iCell=1, fs_meteo
-            S(iCell) = (windspeed2(iCell) - windspeed1(iCell)) / (height2(iCell) - height1(iCell))
-          end do
-
-        else
-          !
-          ! General case: second-order for inhomogenous grid
-          !
-          windspeed1 => fu_grid_data_from_3d(windspeed3d, lev-1)
-          height1 => fu_grid_data_from_3d(height3d, lev-1)
-          windspeed2 => fu_grid_data_from_3d(windspeed3d, lev)
-          height2 => fu_grid_data_from_3d(height3d, lev)
-          windspeed3 => fu_grid_data_from_3d(windspeed3d, lev+1)
-          height3 => fu_grid_data_from_3d(height3d, lev+1)
-          do iCell=1, fs_meteo
-            S(iCell) = 1. / (height1(iCell) - height3(iCell)) * &
-                     & ((windspeed2(iCell) - windspeed3(iCell)) / (height2(iCell) - height3(iCell)) * &
-                      & (height1(iCell) - height2(iCell)) + &
-                      & (windspeed1(iCell) - windspeed2(iCell)) / (height1(iCell) - height2(iCell)) * &
-                      & (height2(iCell) - height3(iCell)) &
-                     & )
-          end do
-
-        endif  ! Level-dependent shear computation
-        IF (error) RETURN
-
-        !
-        ! The rest of algebra for Ri, TKE and Km, Kh, Kd
-        !
-        do iCell=1, fs_meteo
-
-          if(Ri(iCell) > 0)then
-            Rif = Ri(iCell) * 1.25 * (1 + 36 * Ri(iCell))**1.7 / (1 + 19 * Ri(iCell))**2.7
-
-            Psi_tau = 0.228 - 0.208 * Rif
-            fTmp = 1 - 2.25 * Rif  !Psi3
-            Psi =  0.55 * fTmp * Psi_tau * (1 - (1 + 1 / fTmp) * Rif)
-
-            !
-            ! A discussion of lz: therre has to be a large-scale limits for the size of eddies.
-            ! Options are:
-            ! 1) 0.1*Habl - in case of strongly convectional ABL is indeed a sort of measure
-            !    But what impact does it have at e.g. tropopause?
-            ! 2) A sum of squared reciprocals of several limiting factors: distance to the surface z
-            !    rotation of Earth via Coriolis and wind shear
-            !
-            ! Option 1 would look like this:
-            !
-!            lz(iCell) = min(0.1 * abl(iCell), height2(iCell)) * (1 - Rif / 0.195)**(4. / 3.)
-
-            ! Option 2 looks like this
-            lz(iCell) = (1 - Rif / 0.195)**(4. / 3.) / sqrt( &
-                                & 1. / (height2(iCell)*height2(iCell)) + &
-                                & (basic_coriolis * basic_coriolis + S(iCell) * S(iCell)) / &
-                                       & (0.01 * windspeed2(iCell) * windspeed2(iCell))  &
-                                & )
-
-            fTmp = S(iCell) * lz(iCell)
-            Ez(iCell) = Psi * fTmp * fTmp
-
-
-
-            Km(iCell) = 2 * Psi_tau * sqrt(Ez(iCell)) * lz(iCell)
-
-            Kh(iCell) = Km(iCell) * Rif / Ri(iCell)
-
-            fTmp = 1. / Psi
-            Kd(iCell) =  Km(iCell)  * (1 - 0.3 * Rif * Psi_tau * fTmp) / ((1 + 0.3 * Ri(iCell) * fTmp) * Psi_tau)
-
-          else
-            Km(iCell) = 0. !real_missing
-            Kh(iCell) = 0. !real_missing
-            Kd(iCell) = 0. !real_missing
-            Ez(iCell) = 0. !real_missing
-            lz(iCell) = 0. !real_missing
-          endif
-
-        end do  ! cycle over the grid
-
-
-!        call msg('')
-!        call msg('level',lev)
-!        call msg('Ri grad min', MINVAL(ri(1:fs_meteo)))
-!        call msg('Ri grad max', MAXVAL(ri(1:fs_meteo)))
-        do iCell=1, fs_meteo
-          if(ri(iCell) > 1000)then
-            call msg('Problem Ri at i=',iCell,ri(iCell))
-          endif
-        enddo
-
-      
-
-      END DO ! loop_over_levels
-
-    END DO ! loop_over_times
-
-    if(.not. ifS) call free_work_array(S)
-    if(.not. ifTLS)call free_work_array(lz) 
-    if(.not. ifTKE)call free_work_array(Ez) 
-    if(.not. ifKzMom)call free_work_array(Km) 
-    if(.not. ifKzHeat)call free_work_array(Kh) 
-    if(.not. ifKzScal)call free_work_array(Kd) 
-
-  END SUBROUTINE dq_turbulence_profile
-
-
-
   !*******************************************************************************
-  subroutine dq_lai_dyn(meteoMarketPtr, met_src, valid_times, LAIsrc, ifRandomise)
+  subroutine dq_lai_dyn(meteoMarketPtr, met_src, valid_times, idxTimes, LAIsrc, ifRandomise)
      ! Just sums up leaf-area indices
 
     implicit none
@@ -5473,13 +5211,14 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     integer, intent(in) :: LAIsrc
     logical, intent(in) :: ifRandomise
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: tloop, iCell, ix, iy
+    INTEGER :: tloop, iCell, ix, iy, iS
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
     REAL, DIMENSION(:), POINTER :: LAI, LAIhv, LAIlv, hvFrac, lVfrac
@@ -5487,6 +5226,7 @@ CONTAINS
 
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -5498,7 +5238,8 @@ CONTAINS
                        & time,&
                        & surface_level,&
                        & .false.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
       !
       !
       if (LAIsrc == LAI_dynamic_2) then
@@ -5551,7 +5292,7 @@ CONTAINS
   
   !********************************************************************************
   
-  subroutine dq_stomatal_conductance(meteoMarketPtr, met_src, valid_times, LAIsrc, &
+  subroutine dq_stomatal_conductance(meteoMarketPtr, met_src, valid_times, idxTimes, LAIsrc, &
        & if_high_stomatal_conductance)
     !
     ! Computes the aerodynamic resistance Ra for dry deposition - from the given altitude down to 
@@ -5562,13 +5303,14 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     integer, intent(in) :: LAIsrc
     logical, intent(in) :: if_high_stomatal_conductance
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: tloop, iCell, ix, iy, nx_met, ny_met
+    INTEGER :: tloop, iCell, ix, iy, nx_met, ny_met, iS
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
     REAL, DIMENSION(:), POINTER :: h_canopy, LAI,  cloud, pressure, T2m, rh2m, sm
@@ -5579,6 +5321,7 @@ CONTAINS
 !    IF (error) RETURN
 
     call  grid_dimensions(meteo_grid, nx_met, ny_met) 
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -5590,7 +5333,8 @@ CONTAINS
                        & time,&
                        & surface_level,&
                        & .false.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
       !
       !
       select case(LAIsrc)
@@ -5912,7 +5656,7 @@ CONTAINS
   
   !*******************************************************************************
 
-  subroutine dq_aerodynamic_resistance(meteoMarketPtr, met_src, valid_times, zRef)
+  subroutine dq_aerodynamic_resistance(meteoMarketPtr, met_src, valid_times, idxTimes, zRef)
     !
     ! Computes the aerodynamic resistance Ra for dry deposition - from the given altitude down to 
     ! laminar layer
@@ -5922,17 +5666,19 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     real, intent(in) :: zRef
 
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: tloop, iCell
+    INTEGER :: tloop, iCell, iS
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
     REAL, DIMENSION(:), POINTER :: z0, L_inv, u_star, R_a
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -5944,7 +5690,8 @@ CONTAINS
                        & time,&
                        & surface_level,&
                        & .false.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
       !
       ! Get the screen-level fields for the lowest-level and
       ! make appropriate attributions to the heights
@@ -5991,7 +5738,7 @@ CONTAINS
 
   !**************************************************************************************************
 
-  subroutine dq_hybrid_vertical_wind(meteoMarketPtr, met_src, valid_times)
+  subroutine dq_hybrid_vertical_wind(meteoMarketPtr, met_src, valid_times, idxTimes)
     use vertical_motion
     implicit none
 
@@ -6001,13 +5748,14 @@ CONTAINS
     type(meteo_data_source), intent(in) :: met_src
     type(mini_market_of_stacks), intent(inout) :: meteoMarketPtr
     type(silja_time), dimension(:), intent(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
 
     real, dimension(:), pointer :: u, v, massflux_u, massflux_v, dps_dt, dp_dt, &
          & div_x, div_y, div_integral, dp, eta_dot_2d
     
     type(silam_vertical), save :: meteo_layer_vertical
     logical :: first_time = .true.
-    integer :: tloop, nlevs, fs, ilev
+    integer :: tloop, nlevs, fs, ilev, iS
     type(silja_time) :: time
     real(vm_p), dimension(:,:), allocatable :: u3d, v3d, eta_dot_3d
     real(vm_p), dimension(:), allocatable :: ps_vm_p, spt_vm_p
@@ -6020,7 +5768,8 @@ CONTAINS
     fs = fs_meteo
      
     nlevs = fu_nbrOfLevels(meteo_layer_vertical)
-      
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
+
     call init()
 
     do tloop = 1, size(valid_times)
@@ -6029,7 +5778,8 @@ CONTAINS
       if (fu_field_in_sm(meteoMarketPtr, met_src, eta_dot_flag, &
                        & time, level_missing, &
                        & look_for_3d=.true., &
-                       & permanent=.false.)) then
+                       & permanent=.false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) then
         call msg('Done already')
         cycle
       end if
@@ -6168,7 +5918,7 @@ CONTAINS
   
   !**********************************************************************************************
 
-  subroutine dq_ref_evapotranspiration(meteoMarketPtr, met_src, valid_times)
+  subroutine dq_ref_evapotranspiration(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Computes the referece evapotranspiration ET0 following FAO-1998 standard model
     ! Allen,R.G., Pereira,L.S., Raes,D., Smith,M. (1998) Crop evapotranspiration –
@@ -6184,6 +5934,7 @@ CONTAINS
     type(meteo_data_source), intent(in) :: met_src
     type(mini_market_of_stacks), intent(inout) :: meteoMarketPtr
     type(silja_time), dimension(:), intent(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     
     ! Local parameters
     real, parameter :: r_bulk_stom_one_leaf = 100.0         ! sec/m, a typical value
@@ -6191,13 +5942,14 @@ CONTAINS
             
     ! Local declarations:
     TYPE(silja_time) :: time
-    INTEGER :: tloop, iCell
+    INTEGER :: tloop, iCell, iS
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
     REAL, DIMENSION(:), POINTER :: T, net_sw_rad_srf, net_lw_rad_srf,LAI, Psrf, rh, r_a, ET0  !, air_density
     real :: net_radiation, T_C, r_s, dPsw_dT, psychrometric_const, saturWaterVapourPr
 
     IF (error) RETURN
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     DO tloop = 1, SIZE(valid_times)
 
@@ -6209,7 +5961,8 @@ CONTAINS
                        & time,&
                        & surface_level,&
                        & .false.,&
-                       & .false.)) CYCLE  ! loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE  ! loop_over_times
       !
       ! Get the screen-level fields for the lowest-level and
       ! make appropriate attributions to the heights
@@ -6307,7 +6060,7 @@ CONTAINS
 !              accQ =  large_scale_accum_rain_flag
 !      case (convective_rain_int_flag)
 !              accQ = convective_accum_rain_flag
-!      case (total_precipitation_rate_flag)
+!      case (total_precipitation_int_flag)
 !              accQ = total_precipitation_acc_flag
 !      case default
 !              call set_error("Can't make rain out of "+ fu_quantity_string(desiredQ), &
@@ -6410,7 +6163,7 @@ CONTAINS
     
       !****************************************************************
 
-  SUBROUTINE dq_cloudcvr_from_3d(meteoMarketPtr, met_src, valid_times)
+  SUBROUTINE dq_cloudcvr_from_3d(meteoMarketPtr, met_src, valid_times, idxTimes)
     !
     ! Make total cloud cover from 3d
     ! Take max over the levels
@@ -6420,15 +6173,18 @@ CONTAINS
     ! Imported parameters with intent(in):
     type(meteo_data_source), INTENT(in) :: met_src
     TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
+    integer, dimension(:,:), intent(in) :: idxTimes
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations
     REAL, DIMENSION(:), POINTER :: cc_lev, cc_tot 
-    INTEGER :: tloop, i, nLevs, iLev
+    INTEGER :: tloop, i, nLevs, iLev, iS
     TYPE(silja_3d_field), POINTER :: cc3d
     TYPE(silja_level), DIMENSION(max_levels) :: levels
     TYPE(silja_time) :: time
     TYPE(silja_field_id) :: id
+
+    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
 
     loop_over_times: DO tloop = 1, SIZE(valid_times)
       IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
@@ -6439,7 +6195,8 @@ CONTAINS
                        & time,&
                        & level_missing,&
                        & .false.,&  ! 3D
-                       & .false.)) CYCLE loop_over_times
+                       & .false., &
+                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
 
       cc3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&         
                                   & cloud_cover_flag, &  

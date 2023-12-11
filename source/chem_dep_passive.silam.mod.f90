@@ -28,28 +28,8 @@ MODULE chem_dep_passive
   ! public routines for passive chemistry rules
   !
   public set_chem_rules_passive
-  public fu_lifetime
-  public fu_if_specific_deposition
 
-
-  ! Private routines for passive chemistry rules
-  !
-  private fu_lifetime_passive
-  private fu_if_specific_dep_passive
-
-  interface fu_lifetime
-    module procedure fu_lifetime_passive
-  end interface
-
-  interface fu_if_specific_deposition
-    module procedure fu_if_specific_dep_passive
-  end interface
-
-  public fu_if_tla_required
-  private fu_if_tla_required_passive
-  interface fu_if_tla_required
-     module procedure fu_if_tla_required_passive
-  end interface
+  public fu_tla_size_passive
 
   !--------------------------------------------------------------------
   !
@@ -497,51 +477,18 @@ MODULE chem_dep_passive
   end subroutine set_chem_rules_passive
 
 
-  !********************************************************************************
-
-  function fu_lifetime_passive(rules)result(lifetime)
-    !
-    ! A typical life time due to degradation and deposition for radioactive materials
-    ! So far, whatever the species are, we set the "typical" lifetime to be two days
-    !
-    implicit none
-
-    type(silja_interval) :: lifetime
-    type(Tchem_rules_passive), intent(in) :: rules
-
-    if(rules%defined == silja_true)then
-      if(rules%basicLifeTime > 0 .and. rules%basicLifeTime < 3.2e8)then
-        lifetime = fu_set_interval_sec(rules%basicLifeTime)
-      else
-        lifetime = one_day * 365.0
-      endif
-    else
-      lifetime = interval_missing
-    endif
-
-  end function fu_lifetime_passive
-
-
-  !**********************************************************************************
-
-  logical function fu_if_specific_dep_passive(rulesPassive)
-    implicit none
-    type(Tchem_rules_passive), intent(in) :: rulesPassive
-    fu_if_specific_dep_passive = .false.     ! no specific deposition whatsoever
-  end function fu_if_specific_dep_passive
-
   !************************************************************************************
   
 
-  logical function fu_if_tla_required_passive(rules) result(required)
+  integer function fu_tla_size_passive(rules) result(required)
     ! Collect transformations' requests for tangent linearization. If tangent linear
     ! is not allowed, corresponding subroutine sets error. 
     implicit none
     type(Tchem_rules_passive), intent(in) :: rules
     
-    required = .false.
+    required = 0
 
-  end function fu_if_tla_required_passive
+  end function fu_tla_size_passive
 
   
 END MODULE chem_dep_passive

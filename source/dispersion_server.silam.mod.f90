@@ -1510,11 +1510,11 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
                 pMassMap%ifColumnValid(iSOurceId,ixTo,iyTo) = .true.
 
                 if(ifMoments)then
-                    fPtr => pMomentumMapZ%arM(indSpeciesOut(iSpecies),iSourceId,iLevTo,ixTo,iyTo)
-                    fPtr = fPtr + fTmp2* fMassFractionDescr(iSpecies) * fRateScaling
+                  fPtr => pMomentumMapZ%arM(indSpeciesOut(iSpecies),iSourceId,iLevTo,ixTo,iyTo)
+                  fPtr = fPtr + fTmp2* fMassFractionDescr(iSpecies) * fRateScaling
 
-                    pMomentumMapZ%ifGridValid(ilevTo,iSourceId) = .true.
-                    pMomentumMapZ%ifColumnValid(iSourceId,ixTo,iyTo) = .true.
+                  pMomentumMapZ%ifGridValid(ilevTo,iSourceId) = .true.
+                  pMomentumMapZ%ifColumnValid(iSourceId,ixTo,iyTo) = .true.
 call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iLevTo, ixTo,iyTo), &
                       & pMomentumMapZ%arM(indSpeciesOut(iSpecies), iSourceId, iLevTo, ixTo,iyTo) , &
                       & 'Z-monent wrong after vertical-only reprojection','add_field_to_mass_map_interp')
@@ -1529,7 +1529,6 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
         ! No interpolation is needed at all - just copy the requested field. Moments are intact.
         ! Note that From can still be a subset of To, they just both have to start from 1
         !
-        call start_count('cocktail_map_to_fld_no_interp')
         do iyFrom = 1, nyFrom
           do ixFrom = 1, nxFrom
             do iLevFrom = 1, nLevsFrom
@@ -1553,15 +1552,14 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
 
   end subroutine add_field_to_mass_map_interp
 
-!
-!**************************************************************************
-! More fancy check for wrong moments.....
-!
-!
 
-
+  !**************************************************************************
 
   subroutine check_mass_moment_point(mass, moment, chmsg, chplace)
+    !
+    ! More fancy check for wrong moments.....
+    !
+    implicit none
     real, intent(in) :: mass
     real, intent(inout) :: moment
     character(len=*) :: chmsg, chplace
@@ -1579,6 +1577,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
 
   end subroutine check_mass_moment_point
 
+
   !*************************************************************************************************
   !*************************************************************************************************
   !
@@ -1586,7 +1585,6 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
   !
   !*************************************************************************************************
   !*************************************************************************************************
-
 
   subroutine update_mass_map_from_namelist(nlIn, chItemTitle, & ! namelist and item name
                                          & ptrMap, nMaps, &  ! array of mass maps and their number
@@ -2490,7 +2488,8 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
 
     iMapTmp = 1
     do while (iMapTmp <= nMaps)
-      if(fu_ifDiagnosticQuantity(fu_quantity(id),ptrMap(iMapTmp)%ptrMassMap%quantity))exit
+      ! can the mass map quantity be directly diagnosed from the given one?
+      if(fu_ifDiagnosticQuantity(fu_quantity(id), ptrMap(iMapTmp)%ptrMassMap%quantity))exit
       iMapTmp  = iMapTmp  +1
     end do
     if(error)return
@@ -4109,7 +4108,7 @@ call report (idin)
                                    & xSize_, ySize_, dz_past_, dz_future_, rho_past_, rho_future_, &
                                    & weight_past, iSrc, iSpecies, iz, dataOut, 1.0, 0.0)  ! replace
               idOut = idIn
-            elseif(fu_accumulated(idIn))then
+            elseif(fu_accumulated_id(idIn))then
               if(fu_between_times(fu_valid_time(targetId), &  ! time
                                 & fu_valid_time(idIn), &      ! limit 1
                                 & fu_valid_time(idIn) + fu_accumulation_length(idIn), &  ! limit 2
@@ -4903,7 +4902,7 @@ call report (idin)
     if(fu_valid_time(idIn) == fu_valid_time(targetId)) then ! Last time ?
       dataOut(1:fs) = dataIn(1:fs)
       idOut = idIn
-    elseif(fu_accumulated(idIn))then
+    elseif(fu_accumulated_id(idIn))then
       if(fu_between_times(fu_valid_time(targetId), &  ! time
                           & fu_valid_time(idIn), &      ! limit 1
                           & fu_valid_time(idIn) + fu_accumulation_length(idIn), &  ! limit 2

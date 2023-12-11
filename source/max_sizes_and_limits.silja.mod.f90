@@ -47,9 +47,9 @@ MODULE max_sizes_and_limits
   ! so max_2d_fields < max_levels * max_quantities - not all
   ! quantities are alowed to be 3-dimensional.
 
-  integer, PARAMETER, PUBLIC :: max_divisions = 1025 
+  integer, PARAMETER, PUBLIC :: max_divisions = 130
   
-  INTEGER, PARAMETER, PUBLIC :: max_times = 1500 
+  INTEGER, PARAMETER, PUBLIC :: max_times = 3000 
 
   INTEGER, PARAMETER, PUBLIC :: worksize = 10000000 ! size of some work
   ! -vectors used when the actual sizes are yet unknown. Should be bigger 
@@ -70,7 +70,7 @@ MODULE max_sizes_and_limits
   ! sizes also given here.
   ! in project_a_src_second_grd max_work_arrays needed is Maximum of
   ! species per source times nThreads
-  integer, parameter, public :: max_threads = 60
+  integer, parameter, public :: max_threads = 1024
 
 
   ! ----------------------------------------------------
@@ -111,15 +111,6 @@ MODULE max_sizes_and_limits
   INTEGER, PARAMETER, PUBLIC :: max_daughters = 3
 
   ! ----------------------------------------------------
-
-  ! Some general maximum value parameters:
-
-  ! Strange characters may appear at the end of a character variable, if the
-  ! actual argument is shorter than the dummy one. This may, for example, make
-  ! the opening of a file unsuccesful. The following parameter quarantees that
-  ! character variables containing path/filenames are equally long everywhere.
-
-  INTEGER, PARAMETER, PUBLIC :: max_path_length = 200
 
   ! Same thing for nuclide names (e.g. 'TE-131M')
 

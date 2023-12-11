@@ -71,7 +71,7 @@ MODULE natural_constants
   REAL, PARAMETER, PUBLIC :: fusion_latentheat = 3.34E5 ! J/kg
   REAL, PARAMETER, PUBLIC :: condensation_latentheat = 2.5E6 ! J/kg
   REAL, PARAMETER, PUBLIC :: sublimation_latentheat = 2.83E6 ! J/kg
-  REAL, PARAMETER, PUBLIC :: vaporization_latentheat = 2.50E6 ! at 0C in J/kg
+  REAL, PARAMETER, PUBLIC :: vaporization_latentheat = 2.256E6 ! at 0C in J/kg
 
   REAL, PARAMETER, PUBLIC :: dry_adiabatic = -0.0098 ! dry adiabatic lapse rate, K/m
   REAL, PARAMETER, PUBLIC :: pseudo_adiabatic = -0.0065 ! pseudo adiabatic lapse rate, K/m

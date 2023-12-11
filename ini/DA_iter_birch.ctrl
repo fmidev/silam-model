@@ -1,0 +1,264 @@
+# Control file for SILAM v4.0 operational run
+
+CONTROL_v5_3
+LIST = general_parameters  
+   case_name = polera_4dvar_DA_birch_ems_std_1e_2_tst_pollen_src   # _hbr_10_001
+   direction_in_time = FORWARD 
+   simulation_type = EULERIAN
+   start_time = 2001 4 1 0 0 0.
+   end_time = 2001 4 10 0 0 0.
+#   computed_period = 5 day
+   time_step = 15 min
+   computation_accuracy = 5   # [0..10]
+ END_LIST = general_parameters 
+
+LIST = MPI_PARALLEL_PARAMETERS
+  x_divisions = 4
+  y_divisions = 4
+  use_mpiio = YES
+  use_mpiio_netcdf = YES
+END_LIST = MPI_PARALLEL_PARAMETERS 
+
+ LIST = dispersion_parameters
+   grid_method = OUTPUT_GRID  #CUSTOM_GRID
+   vertical_method = OUTPUT_LEVELS    # METEO_LEVELS / OUTPUT_LEVELS / CUSTOM_LEVELS
+ END_LIST = dispersion_parameters
+
+ LIST = DATA_ASSIMILATION
+   method = 4D_SEQ     # 3D, 4D, 4D_SEQ, MATRIX, ENKF, ENKS
+   control_variable = emission_correction  # initial_state, emission_correction, emission_and_initial, emission_time_height
+   analysis_substance = POLLEN_BIRCH
+#   cov_setup_emission = /projappl/project_2004363/pollen/ini/cov_nondiag.ini
+   cov_setup_emission = d:\project\pollen\reanal_2018\ini\cov_nondiag_std_div_100.ini
+
+   assimilation_window = 1 day   # named interval
+   interval_between_assimilations = 2 day # named interval
+   first_analysis_time = 2001 4 4 0 0 0.
+   last_analysis_time = 2001 4 10 0 0 0.
+#   time_height_mode =   # scale, force_weighted  # for emission time_height
+
+    station_list = d:\data\measurements\pollen\EAN\stations\EAN_Stations_all_2023_4SILAM.prn
+
+###   station_list = /projappl/project_2004363/pollen/ean/Stations_SILAM_20161212_Perm_nograv_noRhod_AIA_4_SILAM.txt
+   
+####   obs_data = cnc number /projappl/project_2004363/pollen/ean/ready/POLLEN_BIRCH_Daily_hybr_10_001_${yr}_assim.ts
+   obs_data_assim = cnc number g:\project\pollen\reanal_2018\ean\ready\POLLEN_BIRCH_Daily_const_stdev_2001_assim.ts
+   obs_data_eval = cnc number g:\project\pollen\reanal_2018\ean\ready\POLLEN_BIRCH_Daily_const_stdev_2001_eval.ts
+   obs_data_extra_list =    # may be empty
+
+   output_directory = %main_output_dir/iteration
+   da_output = full_dump   #none / first_last / da_trajectory / full_dump
+   
+   # Numerics. There are defaults given in comments
+   max_iterations = 25         # 40
+   minimum_step  = 1.0e-7      # 1e-9, steepest_descent only
+   grad_rel_tol = 1e-2         # 1e-2
+   quasi_newton_df1 = 1.0      # 1.0 
+   cost_rel_tol =  1e-4        ! 1e-6  total change of cost function
+   cost_incr_rel_tol = 1e-4    # 1e-6  per-iteration increment
+   search_method = l_bfgs_b    # steepest_descent(def), m1qn3, l_bfgs_b
+
+   # Background: files or fields
+   # If no files given, defaults are 0.0 for conc and 1.0 for emission scaling
+   # If disable_background_deviation, cost function excludes its term
+   ignore_deviation_from_background = no   # no
+
+   # format: <file_type> <file_name_with_path>
+   # file_path can include magic character ^, envir.vars, etc. It will be processed
+   initial_state_background_file = 
+   emission_background_file = 
+   
+   # Pieces for ENK* (not exhaustive)
+#   smoother_step = 
+#   smoother_output_step = 
+   
+ END_LIST = DATA_ASSIMILATION
+
+ LIST = meteo_parameters
+
+   dynamic_meteo_file = GRIB g:\data\ERA5_EUa_ml_and_sfc\%ay4\era5_EU_%ay4%am2%ad2%ah2+%f3
+
+   static_meteo_file = GRIB g:\data\era5_EU_physiography20180101.sfc
+   static_meteo_file = TEST_FIELD c4_frac SURFACE_LEVEL 0.1
+   static_meteo_file = TEST_FIELD irrigated_area SURFACE_LEVEL 0.0
+
+#   static_meteo_file = GRADS d:\model\silam_v5_7\ini\tz_index_02deg.grads.super_ctl
+#   static_meteo_file = GRIB d:\meteo\EC_vegfrac_glob_2012.sfc    #/lustre/tmp/silamdata/tmp/ecglob100_VEG__latest.sfc
+#   static_meteo_file = GRIB d:\meteo\EC_orography_2012.fixed 
+#   static_meteo_file = GRADS d:\data\emis\sea_salt\salinity_map_global_1deg.fld_water_salinity.grads.super_ctl
+   static_meteo_file = GRADS g:\data\lai_monthly\laixx04.super_ctl
+#   static_meteo_file = TEST_FIELD  mean_ann_precip  SURFACE_LEVEL  700.0
+
+   meteo_time_step = 6 hr 
+   if_wait_for_data = NO
+   abl_parameterization_method = FULL_PARAM    # DRY_ABL, FULL_PARAM 
+   number_of_precipitation_fields = 2
+   max_hole_in_meteo_data = 1 hr
+END_LIST = meteo_parameters
+
+ LIST = emission_parameters    ######################################################################
+
+   emission_source = EULERIAN  d:\model\silam_dev\ini\src_pollen_birch_tst.ini
+#   emission_source = EULERIAN  d:\project\pollen\reanal_2018\ini\src_birch_as_a_src.hdr
+   
+   cut_area_source_if_outside_meteo_grid = YES
+   
+#   biogenic_voc_emission_method = GUENTHER_METHOD_UPDATED
+
+#   pollen_emission_index = CALENDAR_DAYS
+#   etc
+
+   if_technical_source_dump = ORIGINAL_GRID   # NONE / ORIGINAL_GRID / DISPERSION_GRID
+
+ END_LIST = emission_parameters  ######################################################################
+ 
+ LIST = transformation_parameters
+!   transformation = PASSIVE EULERIAN
+!   transformation = PM_GENERAL EULERIAN
+!   transformation = DMAT_SULPHUR EULERIAN
+!   transformation = CB4 EULERIAN
+!   transformation = POP_GENERAL EULERIAN
+!   transformation = ACID_BASIC EULERIAN
+!   transformation = RADIOACTIVE EULERIAN
+
+!   aerosol_dynamics = SIMPLE EULERIAN
+   
+   dry_deposition_scheme = KS2011_TF
+   surface_resistance_method = WES2013
+   wet_deposition_scheme = 2018_SCAVENGING
+   max_scav_rate_depends_on = HORIZONTAL_WIND
+   cloud_model_for_photolysis = DETAILED_CLOUD
+
+   if_actual_humidity_for_particle_size = NO
+   default_relative_humidity = 0.8
+   compute_thermodiffusion = NO
+   if_full_acid_chemistry = YES
+   
+   passive_subst_ref_lifetime = 1 day
+   passive_subst_ref_tempr = 288
+   passive_subst_dLifeTime_dT = -1 min/K
+   
+   ADB_if_compute_nucleation = YES
+   ADB_nucleation_scheme = KINETIC    !BINARY, TERNARY, KINETIC, ACTIVATION
+   ADB_if_compute_coagulation = YES
+   ADB_if_compute_condensation = YES
+   ADB_if_compute_cloud_activation = NO
+   ADB_if_recalc_wet_d = YES
+
+ END_LIST = transformation_parameters
+
+ LIST = initial_and_boundary_conditions
+#   initialize_quantity = temperature_2m_acc          ! if no such line, initial conditions are void
+#   initialize_quantity = daily_mean_temperature_2m   ! if no such line, initial conditions are void
+#   initialize_quantity = concentration               ! if no such line, initial conditions are void
+#   initialize_quantity = degree_day
+#   initialize_quantity = pollen_amt_m2
+#   initialization_file = NETCDF g:\project\pollen\trees_ref_3_polera\trees_ref_3_polera_%y4%m2%d2.nc4
+
+   boundary_type =  ZERO             ! ZERO / DIRICHLET   
+   if_lateral_boundary = YES         ! YES/NO 
+   if_top_boundary =  NO             ! YES/NO 
+   if_bottom_boundary =  NO          ! YES/NO 
+   boundary_time_step =  1 hr        ! timestep unit 
+   boundary_header_filename = d:\!model\2009\silam_v4_5_4\ini\boundary.ini
+ END_LIST = initial_and_boundary_conditions
+ 
+ LIST = optical_density_parameters ##########################################################################
+   optical_coefficients_depend_on_relative_humidity = YES
+   optical_coefficients_depend_on_temperature = YES
+   if_split_aerosol_modes = YES            ! doesn't work yet
+   if_narrow_wave_bands = YES              ! doesn't work yet
+ END_LIST = optical_density_parameters
+ 
+# LIST = IS4FIRES
+#   ## Format: <index_name  <index_ini_file or 'default'>
+#   fire_danger_index = soil_moist_deficit_KBDI  default
+#   fire_danger_index = soil_moist_deficit_SDI  default
+#   fire_danger_index = grass_fire_danger_mean  default
+#   fire_danger_index = grass_fire_danger_max   default
+#   fire_danger_index = fire_weather       default
+###   fire_danger_index = fuel_moisture    default
+# END_LIST = IS4FIRES
+ 
+ LIST = output_parameters
+   source_id = NO_SOURCE_SPLIT  # NO_SOURCE_SPLIT  SOURCE_NAME  SOURCE_SECTOR  SOURCE_NAME_AND_SECTOR 
+   time_zone_group = GMT GMT1 GMT_1 GMT2 GMT_2
+   time_zone_group = BALT LAT LIT EST
+   vertical_method = CUSTOM_LAYERS
+   level_type = HEIGHT_FROM_SURFACE 
+   layer_thickness = 50. 100. 400. 1000. 2000. 3000.   # output levels [m]/[pa]/[hybrid_nbr], reals
+   output_time_step = 1 hr #day
+   output_times = REGULAR 
+#   dump_time_step = 2 hr
+   output_format = GRADS   #NETCDF3
+#####     file_types = GRIB_NO TRAJECTORY_NO GRADS_YES ENSEMBLE_NO NETCDF_NO 
+   time_split = DAILY_NEW_FILE 
+   template = g:\project\pollen\reanal_2018\output\%case\%y4\%case_%y4%m2%d2
+   variable_list = d:\project\pollen\reanal_2018\ini\output_config_pollen_4dvar_iter.ini
+   
+   grid_method = CUSTOM_GRID
+
+   # If AREA_BASED grid then:
+   area_borders =  54. 57. 33.5 41.5 # south, north, west, east; North positive, east positive
+   area_title = out_area
+   resolution = 5. km    # horizontal gridsize of output grid, [km]/[m]/[deg], real
+
+   # This is for CUSTOM_GRID
+   grid_type = lon_lat
+   grid_title = Olive output grid
+   resol_flag = 128
+   ifReduced = 0 
+   earth_flag = 0
+   wind_component = 0 
+   reduced_nbr_str = 0 
+   nx = 200 
+   ny = 168
+   lon_start = -10.
+   lat_start = 30.
+   dx = 0.25
+   dy = 0.25
+   lat_s_pole = -90.
+   lon_s_pole = 0.
+   lat_pole_stretch = 0.
+   lon_pole_stretch = 0.
+ END_LIST = output_parameters
+
+LIST = STANDARD_SETUP
+advection_method_eulerian = EULERIAN_V5
+mass_distributor = TRIANGLE_SLAB
+diffuse_vert_cm = YES
+grav_separation = NO
+reference_4_low_mass_threshold = DEFAULT
+kz_profile_method = SIMPLE_KZ
+advection_method_lagrangian = LAGRANGIAN_WIND_ENDPOINT_3D
+random_walk_method = FULLY_MIXED
+advection_method_default = EULERIAN
+abl_height_method = COMBINATION
+continuity_equation = anelastic_v2
+wind_diagnostics = opentop
+horizontal_interpolation = LINEAR
+vertical_interpolation = LINEAR
+time_interpolation = LINEAR
+standard_setup_directory = d:\model\silam_dev
+nuclide_database_fnm = ^ini\silam_nuclides.dat
+chemical_database_fnm = ^ini\silam_chemicals_95_OC.dat
+standard_cocktail_fnm = ^ini\standard_aerosols_cocktails.ini
+standard_cocktail_fnm = ^ini\standard_chemistry_cocktails.ini
+standard_cocktail_fnm = ^ini\standard_auxillary_cocktails.ini
+standard_cocktail_fnm = ^ini\standard_fires_cocktails.ini
+standard_cocktail_fnm = ^ini\standard_SOA_cocktails.ini
+grib_name_table_fnm = ^ini\grib_name_table.silam
+netcdf_name_table_fnm = ^ini\netcdf_name_table.silam
+timezone_list_fnm = ^ini\tzindex_added_country_codes.dat
+photolysis_data_file = ^ini\photolysis_finrose.dat
+land_use_data_meta_file = ^ini\land_use_features_USGS_Eurasia.dat
+optical_properties_meta_data_file = ^ini\optical_properties.dat
+allow_zero_forecast_length = NO
+precipitation_low_limit = 0.1 mm/hr
+print_debug_info = DEBUG_INFO_YES
+cloud_report_interval = 1
+disregard_meteo_data_sources = YES
+randomise_reprojection = NO
+allow_coldstart_day_temperature = yes
+END_LIST = STANDARD_SETUP  
+END_CONTROL_v5_3

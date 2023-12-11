@@ -38,7 +38,7 @@ source_longitude = 24.9384                   # start geograph. lon., degrees and
 # Used only if plume rise routine is activated and ignored otherwise.
 # Above source height boundaries are also involved in the plume rise computation
 
-release_rate_unit = g/sec  # Unit of the release rate: <mass>/<time> 
+release_rate_unit = kg/sec  # Unit of the release rate: <mass>/<time> 
                            # [kg][g][t][bq][mole] - mass(radioactivity);
                            # [yr][mon][day][hr][min][sec] - time units
 vertical_unit = m  #hpa   # unit of the vertical release boundaries [hpa] or [m]
@@ -54,8 +54,8 @@ stack_height = 80. m
 
 #1900 1 2 12 0 0
 #2100 1 2 12 5 0
-par_str_point = 1980 1 1 0 0 0.    1.    800. 1010.   0.   273. PASSIVE_COCKTAIL 2.  AEROSOL_2_5_COCKTAIL  1.      #TEST_COCKTAIL 1.  AEROSOL_2_5_COCKTAIL  1. 
-par_str_point = 2017 6 25 1 0 0.    1.    800. 1010.   0.   273.  PASSIVE_COCKTAIL 2.  AEROSOL_2_5_COCKTAIL  1.  # TEST_COCKTAIL 5.  AEROSOL_2_5_COCKTAIL  1.  
+par_str_point = 1900 1 1 0 0 0.    1.    800. 1010.   0.   273. ALD2  2.  #PASSIVE_COCKTAIL 2.  AEROSOL_2_5_COCKTAIL  1.      #TEST_COCKTAIL 1.  AEROSOL_2_5_COCKTAIL  1. 
+par_str_point = 2100 6 25 1 0 0.    1.    800. 1010.   0.   273.  ALD2  2.  #PASSIVE_COCKTAIL 2.  AEROSOL_2_5_COCKTAIL  1.  # TEST_COCKTAIL 5.  AEROSOL_2_5_COCKTAIL  1.  
 
 #
 # ETEX source timing:

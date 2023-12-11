@@ -30,9 +30,16 @@ module perturbations
   public perturb_mass_map
   public perturb_emis_proc_volc
   public perturb_emission_xy
+  public set_boundary_perturbation
   public store_perturbation_val
   public retrieve_perturbation_val
   public fu_eruption_height
+
+  public fu_perturb_type
+  public get_storage_perturbation
+
+  private sqrt_cov
+  private sqrt_cov_mpi
 
   integer, parameter, private :: distr_normal = 451700, &
                                & distr_normal_squared = 451701, &
@@ -52,10 +59,15 @@ module perturbations
      real :: correlation_time = real_missing
      integer, dimension(:), pointer :: address
      integer :: pert_size ! of scale and offset
-     integer :: n_gridpoints
+     integer :: n_gridpoints, nx, ny, nspecies
      logical :: have_cov = .false.
      logical :: first_time = .true.
      logical :: defined = .false.
+     real :: aerosol_emis_fact = 1
+     real :: O3_boundary_pert_fact = 1
+     real :: dust_boundary_pert_fact = 1
+     real :: collective_wgt = 0
+     
   end type t_perturbation
   public t_perturbation
   !
@@ -65,7 +77,8 @@ module perturbations
 !                              & perturb_emis = 441701, &
                               & perturb_emis_volc = 441702, &
                               & perturb_emis_zt = 441703, &
-                              & perturb_emis_xy = 441704
+                              & perturb_emis_xy = 441704, &
+                              & perturb_boundary = 441705
 
 CONTAINS
 
@@ -92,7 +105,7 @@ CONTAINS
     type(da_control) :: backgr_invalid
     type(silam_species), dimension(:), pointer :: p_species_emission, p_species_transport
     character(len=*), parameter :: sub_name = 'set_perturbations'
-    integer :: ind_pert, num_contr_species, pert_size, stat, num_pert, n
+    integer :: ind_pert, num_contr_species, pert_size, stat, num_pert, nspecies, n
     logical :: need_cov
 
     call msg('Setting perturbations')
@@ -117,6 +130,10 @@ CONTAINS
     if (fu_have_emission_volc(rules%perturbVariable)) then
       num_pert = num_pert + 1
       perturbations(num_pert)%perturb_type = perturb_emis_volc
+    end if
+    if (fu_have_boundaries(rules%perturbVariable)) then
+      num_pert = num_pert + 1
+      perturbations(num_pert)%perturb_type = perturb_boundary
     end if
     
     if (num_pert == 0) then
@@ -182,17 +199,56 @@ CONTAINS
 
           allocate(perturbations(ind_pert)%address(num_contr_species), stat=stat)
           if (fu_fails(stat == 0, 'Allocate failed 1', sub_name)) return
-          perturbations(ind_pert)%distribution = distr_lognormal
+          perturbations(ind_pert)%distribution = distr_normal
 
           if (rules%emis_corr_dist > 0) then
             perturbations(ind_pert)%have_cov = .true.
             allocate(perturbations(ind_pert)%L(n, n), stat=stat)
             if (fu_fails(stat == 0, 'Allocate failed 2', sub_name)) return
-            call sqrt_cov(perturbations(ind_pert), rules%emission_stdev, rules%emis_corr_dist, analysis_grid, rules%emis_max_corr)
+            call sqrt_cov_mpi(perturbations(ind_pert), rules%emission_stdev, rules%emis_corr_dist, analysis_grid, rules%emis_max_corr)
           end if
           perturbations(ind_pert)%defined = .true.
 
+       case (perturb_boundary)
+          call msg('Setting perturbations: boundary')
+          nullify(perturbations(ind_pert)%address)
+          perturbations(ind_pert)%nspecies = size(species_transport)
+          n = fu_number_of_gridpoints(analysis_grid)
+          pert_size = n*size(species_transport)
+          perturbations(ind_pert)%pert_size = pert_size
+          perturbations(ind_pert)%n_gridpoints = n
+          call grid_dimensions(analysis_grid, perturbations(ind_pert)%nx, perturbations(ind_pert)%ny)
 
+          allocate(perturbations(ind_pert)%scale(pert_size), perturbations(ind_pert)%offset(pert_size), &
+               & perturbations(ind_pert)%storage(pert_size), stat=stat)
+          if (fu_fails(stat == 0, 'Allocate failed 0', sub_name)) return
+          perturbations(ind_pert)%offset(1:pert_size) = 0.0
+          perturbations(ind_pert)%scale(1:pert_size) = rules%boundary_stdev
+
+          allocate(perturbations(ind_pert)%address(perturbations(ind_pert)%nspecies), stat=stat)
+          if (fu_fails(stat == 0, 'Allocate failed 1', sub_name)) return
+          if (rules%pert_boundary_lognormal) then
+             call msg('Lognormally distributed perturbation of boundaries')
+             perturbations(ind_pert)%distribution = distr_lognormal
+          else
+             call msg('Normally distributed perturbation of boundaries')
+             perturbations(ind_pert)%distribution = distr_normal
+          end if
+          if (rules%boundary_corr_dist > 0) then
+            perturbations(ind_pert)%have_cov = .true.
+            allocate(perturbations(ind_pert)%L(n, n), stat=stat)
+            if (fu_fails(stat == 0, 'Allocate failed 2', sub_name)) return
+            call start_count('sqrt cov mpi boundary')
+            call sqrt_cov_mpi(perturbations(ind_pert), rules%boundary_stdev, rules%boundary_corr_dist, &
+                 & analysis_grid, rules%boundary_max_corr)
+            call stop_count('sqrt cov mpi boundary')
+          end if
+          perturbations(ind_pert)%collective_wgt = rules%boundary_collective_pert_wgt
+          perturbations(ind_pert)%O3_boundary_pert_fact = rules%O3_boundary_pert_fact
+          perturbations(ind_pert)%dust_boundary_pert_fact = rules%dust_boundary_pert_fact
+          perturbations(ind_pert)%defined = .true.
+
+          
 !!$      case (perturb_emis)
 !!$        call msg('Setting perturbations: emission')
 !!$        perturbations(ind_pert)%scale => bgr_cov%stdev_emission
@@ -331,6 +387,10 @@ CONTAINS
           end if
           call perturb_emission_xy(fu_emission_processor_ptr(cloud), perturbations(ind_pert), timestep)
 
+        case (perturb_boundary)
+          call msg('...boundaries')
+          call set_boundary_perturbation(perturbations(ind_pert), cloud)
+
         case (perturb_emis_zt)
           call msg('...z-t emission')
           if (.not. associated(fu_emission_processor_ptr(cloud))) then
@@ -463,9 +523,117 @@ CONTAINS
     pert%first_time = .false.
 
   end subroutine perturb_emis_proc_zt
- 
-  
-  !************************************************************************************                                                                                                                                                                                                                                    
+
+  !************************************************************************************
+
+  subroutine set_boundary_perturbation(pert, cloud)
+    implicit none
+    type(t_perturbation), intent(inout) :: pert
+    type(silam_pollution_cloud), intent(in) :: cloud
+
+    real, dimension(:), pointer :: values_pert_sp, rand_vect
+    character(len=*), parameter :: sub_name = 'set_boundary_perturbation'
+    type(silam_species), dimension(:), pointer :: species_list
+
+    integer :: nn, stat, n_gridpoints
+    integer :: ix, iy, nx, ny, ind_species, nspecies
+    real, parameter :: fact = 0.5*log(10.)**2
+    integer :: ind_O3 = int_missing, ind_dust = int_missing, ind_sslt = int_missing, &
+         & ind_ones = int_missing
+    character(len=substNmLen) :: material_name
+    !real, parameter :: individual_weight = 0.4
+    !real, parameter :: collective_weight = 1.0-individual_weight
+
+    if (pert%first_time) then
+
+      species_list => fu_species_transport(cloud)
+
+      nn = pert%pert_size
+      nx = pert%nx
+      ny = pert%ny
+      nspecies = pert%nspecies
+
+      do ind_species = 1, nspecies
+        material_name = fu_substance_name(species_list(ind_species))
+        call msg('material name: ' // trim(material_name))
+        if (material_name == 'dust') then
+          ind_dust = ind_species
+          call msg('ind_dust for boundary', ind_dust)
+        else if (material_name == 'sslt') then
+          ind_sslt = ind_species
+          call msg('ind_sslt for boundary', ind_sslt)
+        end if
+      end do
+
+      call msg('nn, nx, ny, nspecies', (/ nn, nx, ny, nspecies /))
+
+      n_gridpoints = pert%n_gridpoints
+      rand_vect => fu_work_array(nn + 3*n_gridpoints)
+
+      if (pert%have_cov) then
+         call random_normal(rand_vect)
+         !$OMP PARALLEL default(none) private(ind_species, values_pert_sp, ix, iy, material_name) &
+         !$OMP & shared(pert, nspecies, n_gridpoints, nx, ny, rand_vect, species_list, ind_dust, ind_sslt)
+         values_pert_sp => fu_work_array(n_gridpoints)
+         !OMP DO
+         do ind_species = 1, nspecies
+            material_name = fu_substance_name(species_list(ind_species))
+            if (material_name == 'O3') then
+               call msg('found O3 for boundary pert')
+               values_pert_sp(1:n_gridpoints) =  pert%O3_boundary_pert_fact * &
+                    & rand_vect((ind_species-1)*n_gridpoints+1:ind_species*n_gridpoints)
+            else if (material_name == 'dust') then
+               call msg('found dust for boundary pert')
+               values_pert_sp(1:n_gridpoints) =  pert%dust_boundary_pert_fact * (1-pert%collective_wgt)**0.5 *&
+                    & rand_vect((ind_dust-1)*n_gridpoints+1:ind_dust*n_gridpoints) + &
+                    & pert%collective_wgt**0.5 * rand_vect((nspecies+1)*n_gridpoints+1:(nspecies+2)*n_gridpoints)
+            else if (material_name == 'sslt') then
+               call msg('found sslt for boundary pert')
+               values_pert_sp(1:n_gridpoints) =  pert%dust_boundary_pert_fact * (1-pert%collective_wgt)**0.5 *&
+                    & rand_vect((ind_sslt-1)*n_gridpoints+1:ind_sslt*n_gridpoints) + &
+                    & pert%collective_wgt**0.5 * rand_vect((nspecies+2)*n_gridpoints+1:(nspecies+3)*n_gridpoints)
+            else if (material_name == 'ones') then
+               values_pert_sp(1:n_gridpoints) = 0.0
+            else
+               values_pert_sp(1:n_gridpoints) = (1-pert%collective_wgt)**0.5 * &
+                    & rand_vect((ind_species-1)*n_gridpoints+1:ind_species*n_gridpoints) + &
+                    & pert%collective_wgt**0.5 * rand_vect(nspecies*n_gridpoints+1:(nspecies+1)*n_gridpoints)
+            end if
+
+            !old simple method
+            !values_pert_sp(1:n_gridpoints) =  rand_vect((ind_species-1)*n_gridpoints+1:ind_species*n_gridpoints)
+            call strmv('L','N', 'N', n_gridpoints, pert%L, n_gridpoints, values_pert_sp(1:n_gridpoints), 1)
+            do ix = 1, nx
+               do iy = 1, ny
+                  pert%storage((iy-1)*nspecies*nx + (ix-1)*nspecies + ind_species) = values_pert_sp((iy-1)*nx+ix)
+               end do
+            end do
+         end do
+         !OMP END DO
+         call free_work_array(values_pert_sp)
+         !$OMP END PARALLEL
+      else
+        call random_normal(pert%storage(1:nn))
+        pert%storage(1:nn) = pert%storage(1:nn) * pert%scale(1:nn)
+      end if
+      pert%first_time = .false.
+
+      if (pert%distribution == distr_lognormal) then
+         pert%storage(1:nn) = 10**(pert%storage(1:nn)) / exp(fact*pert%scale(1:nn)**2)
+      else if (pert%distribution == distr_normal) then
+         where (pert%storage(1:nn) < -1) pert%storage(1:nn) = -1
+         pert%storage(1:nn) = 1. + pert%storage(1:nn)
+         call msg('min, ave, max pert%storage(1:nn)', (/ minval(pert%storage(1:nn)), sum(pert%storage(1:nn))/nn,  maxval(pert%storage(1:nn)) /))
+      end if
+      call free_work_array(rand_vect)
+
+    end if
+
+    pert%first_time = .false.
+
+  end subroutine set_boundary_perturbation
+
+  !************************************************************************************
 
   subroutine perturb_emission_xy(proc, pert, timestep)
     implicit none
@@ -476,7 +644,7 @@ CONTAINS
     real, dimension(:), pointer :: values_pert, proc_data, values_pert_sp, rand_vect
     type(silam_species), dimension(:), pointer :: species_list
 
-    character(len=*), parameter :: sub_name = 'perturb_emis_xy'
+    character(len=*), parameter :: sub_name = 'perturb_emission_xy'
 
     real :: alpha, corr_time
     integer :: nn, stat, n_gridpoints
@@ -486,7 +654,9 @@ CONTAINS
     character(len=substNmLen) :: material_name
     real, parameter :: fact = 0.5*log(10.)**2
 
-    ! The solution for perturbing PAR, OLE, SO2, and SO4 is intended to be temporary only                                                                                                                                                                                                                                  
+    ! The solution for perturbing PAR, OLE, SO2, and SO4 is intended to be temporary only
+
+    if (.not. pert%first_time .and. pert%correlation_time > 1000) return
 
     call msg('perturbing emis xy', pert%pert_size)
     call msg('storage size', size(pert%storage))
@@ -510,10 +680,10 @@ CONTAINS
     call random_normal(rand_vect)
 
     if (pert%have_cov) then
-      !$OMP PARALLEL default(none) private(ind_species, values_pert_sp, ix, iy) &                                                                                                                                                                                                                                          
-      !$OMP & shared(values_pert, pert, nspecies, n_gridpoints, nx, ny, rand_vect)                                                                                                                                                                                                                                         
+      !$OMP PARALLEL default(none) private(ind_species, values_pert_sp, ix, iy) &
+      !$OMP & shared(values_pert, pert, nspecies, n_gridpoints, nx, ny, rand_vect)
       values_pert_sp => fu_work_array(n_gridpoints)
-      !OMP DO                                                                                                                                                                                                                                                                                                              
+      !OMP DO
       do ind_species = 1, nspecies
         values_pert_sp(1:n_gridpoints) =  rand_vect((ind_species-1)*n_gridpoints+1:ind_species*n_gridpoints)
         call strmv('L','N', 'N', n_gridpoints, pert%L, n_gridpoints, values_pert_sp(1:n_gridpoints), 1)
@@ -523,9 +693,9 @@ CONTAINS
           end do
         end do
       end do
-      !OMP END DO                                                                                                                                                                                                                                                                                                          
+      !OMP END DO
       call free_work_array(values_pert_sp)
-      !$OMP END PARALLEL                                                                                                                                                                                                                                                                                                   
+      !$OMP END PARALLEL
     end if
 
     call free_work_array(rand_vect)
@@ -550,13 +720,13 @@ CONTAINS
     if (pert%distribution == distr_lognormal) then
       proc_data(1:nn) = 10**(pert%storage(1:nn)) / exp(fact*pert%scale(1:nn)**2)
     else if (pert%distribution == distr_normal) then
-      !$OMP PARALLEL DO default(none) private(i) shared(pert, nn)                                                                                                                                                                                                                                                          
+      !$OMP PARALLEL DO default(none) private(i) shared(pert, nn)
       do i = 1, nn
         if (pert%storage(i) < -1.) then
           pert%storage(i) = -1.
         end if
       end do
-      !$OMP END PARALLEL DO                                                                                                                                                                                                                                                                                                
+      !$OMP END PARALLEL DO
       proc_data(1:nn) = 1. + pert%storage(1:nn)
     end if
 
@@ -575,10 +745,10 @@ CONTAINS
       end if
     end do
 
-    !$OMP PARALLEL default(none) private(ix, iy, ind_P, ind_O, ind_S2, ind_S4) &                                                                                                                                                                                                                                           
-    !$OMP & shared(proc_data, nx, ny, nspecies, ind_PAR, ind_OLE, ind_SO2, ind_SO4)                                                                                                                                                                                                                                        
+    !$OMP PARALLEL default(none) private(ix, iy, ind_P, ind_O, ind_S2, ind_S4) &
+    !$OMP & shared(proc_data, nx, ny, nspecies, ind_PAR, ind_OLE, ind_SO2, ind_SO4)
     if (ind_PAR > 0 .and. ind_OLE > 0) then
-      !$OMP DO                                                                                                                                                                                                                                                                                                             
+      !$OMP DO
       do ix = 1, nx
         do iy = 1, ny
           ind_P = (iy-1)*nspecies*nx + (ix-1)*nspecies + ind_PAR
@@ -586,10 +756,10 @@ CONTAINS
           proc_data(ind_P) = proc_data(ind_O)
         end do
       end do
-      !$OMP END DO                                                                                                                                                                                                                                                                                                         
+      !$OMP END DO
     end if
     if (ind_SO2 > 0 .and. ind_SO4 > 0) then
-      !$OMP DO                                                                                                                                                                                                                                                                                                              
+      !$OMP DO
       do ix = 1, nx
         do iy = 1, ny
           ind_S2 = (iy-1)*nspecies*nx + (ix-1)*nspecies + ind_SO2
@@ -597,9 +767,9 @@ CONTAINS
           proc_data(ind_S4) = proc_data(ind_S2)
         end do
       end do
-      !$OMP END DO                                                                                                                                                                                                                                                                                                         
+      !$OMP END DO
     end if
-    !$OMP END PARALLEL                                                                                                                                                                                                                                                                                                      
+    !$OMP END PARALLEL
     call free_work_array(values_pert)
 
     call msg('...min, max of perturbed values', minval(proc_data), maxval(proc_data))
@@ -618,12 +788,12 @@ CONTAINS
 
     real :: height, bottom, top, vol_sigma, height_exp, height_scaling, height_sigma, vol_exp
     character(len=*), parameter :: sub_name = 'perturb_emis_proc_volc'
-    real, dimension(pert%pert_size) :: species_flux                                                                                 
-    real, dimension(1) :: sample                                                                                                                                                                             
+    real, dimension(pert%pert_size) :: species_flux
+    real, dimension(1) :: sample
     integer :: num_levs, ind_lev, num_species, ind_species, ind_proc
-    !real, parameter :: fract_height_top = 0.25, fract_height_stem = 1-fract_height_top, &                                                                                                                         
-    !     & fract_mass_top = 0.75, fract_mass_stem = 1-fract_mass_top                                                                                                                                              
-    real :: mass, fract_stem, fract_top, dz_stem, dz_top, vol_flux, top_stem 
+    !real, parameter :: fract_height_top = 0.25, fract_height_stem = 1-fract_height_top, &
+    !     & fract_mass_top = 0.75, fract_mass_stem = 1-fract_mass_top
+    real :: mass, fract_stem, fract_top, dz_stem, dz_top, vol_flux, top_stem
     real, dimension(:), pointer :: proc_data
     type(silam_vertical) :: vert
     real :: alpha, corr_time
@@ -637,7 +807,7 @@ CONTAINS
     top = fu_level_height(fu_lower_boundary_of_layer(fu_level(vert, num_levs)))
 
     vol_sigma = pert%storage(3)
-    height_exp = pert%storage(4) ! 0.241 for Mastin 2009                                                                                                                                                           
+    height_exp = pert%storage(4) ! 0.241 for Mastin 2009
     fract_mass_top = pert%storage(6)
     fract_height_top = pert%storage(7)
 
@@ -645,8 +815,8 @@ CONTAINS
 
     call random_normal(sample)
 
-    ! The model for rate perturbations in in form 10**X, where X ~ N(0,s^2). Convert this                                                                                                                         
-    ! into the form exp(X') so we can use usual log-normal statistics with X' ~ N(0, ln10^2*s^2).                                                                                                                  
+    ! The model for rate perturbations in in form 10**X, where X ~ N(0,s^2). Convert this
+    ! into the form exp(X') so we can use usual log-normal statistics with X' ~ N(0, ln10^2*s^2).
     sample(1) = sample(1) * vol_sigma
 
     if (pert%first_time) then
@@ -675,20 +845,20 @@ CONTAINS
     height = height_scaling * vol_flux**height_exp
 
     call msg('Eruption height:', height)
- 
+
     call msg('Volume flux m3/sec', vol_flux)
     call msg('Mass flux kgDRE/sec', vol_flux*2500)
     call msg('Species flux kg|mol / sec ', species_flux*64e-3)
- 
+
     top_stem = fract_height_stem * height
 
-    ! vertical attribution                                                                                                                                                                                         
+    ! vertical attribution
     num_species = size(fu_species_list(proc))
     proc_data => fu_data(proc)
 
     if (fu_fails(size(proc_data) == num_species*num_levs, 'proc is wrong size', sub_name)) return
     do ind_species = 1, num_species
-      !call msg('species:', ind_species)                                                                                                                                                                           
+      !call msg('species:', ind_species)
       do ind_lev = 1, num_levs
         top = fu_level_height(fu_upper_boundary_of_layer(fu_level(vert, ind_lev)))
         bottom = fu_level_height(fu_lower_boundary_of_layer(fu_level(vert, ind_lev)))
@@ -707,7 +877,7 @@ CONTAINS
           dz_top = 0.0
         end if
 
-        ! fractions of stem and top emission that go to this layer                                                                                                                                                 
+        ! fractions of stem and top emission that go to this layer
         dz_top = min(fract_height_top*height, dz_top)
         dz_stem = min(fract_height_stem*height, dz_stem)
 
@@ -731,16 +901,16 @@ CONTAINS
             fract_top = 0.0
           end if
         end if
-                                                                                                                                                                          
+
         mass = (fract_stem*fract_mass_stem + fract_top*fract_mass_top) * species_flux(ind_species)
-        !call msg('mass to layer', ind_lev, mass)                                                                                                                                                                  
+        !call msg('mass to layer', ind_lev, mass)
         ind_proc = ind_species + (ind_lev-1)*num_species
         proc_data(ind_proc) = mass / tm_hgt_force_scaling
       end do
     end do
 
-  end subroutine perturb_emis_proc_volc    
-  
+  end subroutine perturb_emis_proc_volc
+
   !************************************************************************************
 
   subroutine get_perturbation(rule, values)
@@ -748,12 +918,12 @@ CONTAINS
     implicit none
     type(t_perturbation), intent(in) :: rule
     real, dimension(:), intent(out) :: values
-    
+
     real, dimension(:), pointer :: work
     integer :: ii, size_uncorr, nn
     real, parameter :: std_logn = sqrt((exp(1.0) - 1.0)*exp(1.0)), exp_05 = exp(0.5)
     real :: new_mean
-    
+
     if (fu_fails(defined(rule), 'Perturbation rule not defined', 'get_perturbation')) return
     if (fu_fails(rule%pert_size <= size(values), 'values too small', 'get_perturbation')) return
 
@@ -786,7 +956,7 @@ CONTAINS
         values(ii) = rule%scale(ii)*values(ii) + rule%offset(ii)
       end do
       ! reject negative values
-      do while (any(values(1:rule%pert_size) < 0)) 
+      do while (any(values(1:rule%pert_size) < 0))
         call random_normal(work(1:rule%pert_size))
         do ii = 1, rule%pert_size
           if (values(ii) < 0) values(ii) = work(ii)*rule%scale(ii) + rule%offset(ii)
@@ -815,66 +985,66 @@ CONTAINS
 
   end subroutine get_perturbation
 
-  
+
   !*****************************************************************************************
-  
+
   subroutine store_perturbation_val(perturbations, pert_type, inData, nData, nSpecies)
     !
     ! Stores the perturbation values as a result of control-2-cloud conversion
     !
     implicit none
-    
+
     ! imported parameters
     type(t_perturbation), dimension(:), intent(inout) :: perturbations
     integer, intent(in) :: pert_type, nData, nSpecies
     real, dimension(:), intent(in) :: inData
-    
+
     ! local variables
     integer :: indPert
 
     indPert = fu_index(pert_type, perturbations(:)%perturb_type)
     if(fu_fails(indPert /= int_missing, 'Failed to find perturbation index:' + fu_str(pert_type), 'store_perturbation_val'))return
 
-    select case(pert_type) 
+    select case(pert_type)
       case(perturb_emis_xy)
         perturbations(indPert)%storage = inData(1:nData)
-        
+
       case(perturb_emis_volc)  ! some unpacking is needed
         if (fu_fails(nData == nSpecies*2 + fu_num_params_volc(), 'bad nData', 'store_perturbation_val')) return
-        perturbations(indPert)%scale(1:nSpecies)  = inData(1:nSpecies) 
+        perturbations(indPert)%scale(1:nSpecies)  = inData(1:nSpecies)
         perturbations(indPert)%offset(1:nSpecies)  = inData(nSpecies+1:2*nSpecies)
         perturbations(indPert)%storage(1:fu_num_params_volc()) = inData(2*nSpecies+1:nData)
       case default
         call set_error('Unknown perturbation type:' + fu_str(pert_type),'store_perturbation_val')
         return
     end select
-    
+
   end subroutine store_perturbation_val
 
-  
+
   !*****************************************************************************************
-  
+
   subroutine retrieve_perturbation_val(perturbations, pert_type, outData, nData, nSpecies)
     !
     ! Retrieves the perturbation values as a result of control-2-cloud conversion
     !
     implicit none
-    
+
     ! imported parameters
     type(t_perturbation), dimension(:), intent(in) :: perturbations
     integer, intent(in) :: pert_type, nData, nSpecies
     real, dimension(:), intent(out) :: outData
-    
+
     ! local variables
     integer :: indPert
 
     indPert = fu_index(pert_type, perturbations(:)%perturb_type)
     if(fu_fails(indPert /= int_missing, 'Failed to find perturbation index:' + fu_str(pert_type), 'retrieve_perturbation_val'))return
 
-    select case(pert_type) 
+    select case(pert_type)
       case(perturb_emis_xy)
         outData(1:nData) = perturbations(indPert)%storage(1:nData)
-        
+
       case(perturb_emis_volc)  ! some unpacking is needed
         if (fu_fails(nData == nSpecies*2 + fu_num_params_volc(), 'bad nData', 'retrieve_perturbation_val')) return
         outData(1:nSpecies)  = perturbations(indPert)%scale(1:nSpecies)
@@ -884,7 +1054,7 @@ CONTAINS
         call set_error('Unknown perturbation type:' + fu_str(pert_type),'retrieve_perturbation_val')
         return
     end select
-    
+
   end subroutine retrieve_perturbation_val
 
   !*******************************************************************************************
@@ -893,7 +1063,7 @@ CONTAINS
     implicit none
     type(t_perturbation), intent(inout) :: pert
     type(silja_grid), intent(in) :: grid
-    real, intent(in) :: stdev, dist_0, max_corr                                                                                                                                                                                                                                                                          
+    real, intent(in) :: stdev, dist_0, max_corr
 
     real, dimension(:,:), allocatable :: cov
     real, dimension(:,:), pointer :: L
@@ -902,8 +1072,8 @@ CONTAINS
     real :: d
     real, dimension(:), pointer :: lats, lons
 
-    ! Creates a distance-based covariance matrix cov and                                                                                                                                                                                                                                
-    ! computes the lower triangular matrix L that satisfies cov = LL^T                                                                                                     
+    ! Creates a distance-based covariance matrix cov and
+    ! computes the lower triangular matrix L that satisfies cov = LL^T
 
     n = fu_number_of_gridpoints(grid)
     lats => fu_geolats_fld(grid)
@@ -911,8 +1081,8 @@ CONTAINS
 
     allocate(cov(n, n), stat=stat)
     if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
-    !$OMP PARALLEL DO default(none) private(i, j) &                                                                                                                                                                                                                                                                        
-    !$OMP & shared(cov, n, stdev, dist_0, lats, lons, max_corr, L)                                                                                                                                                                                                                                                         
+    !$OMP PARALLEL DO default(none) private(i, j) &
+    !$OMP & shared(cov, n, stdev, dist_0, lats, lons, max_corr, L)
     do i=1, n
       do j=i, n
         if (i /= j) then
@@ -922,7 +1092,7 @@ CONTAINS
         end if
       end do
     end do
-    !$OMP END PARALLEL DO                                                                                                                                                                                                                                                                                                 
+    !$OMP END PARALLEL DO
     cov = cov + transpose(cov)
     call msg('Covariance matrix ready')
 
@@ -937,36 +1107,145 @@ CONTAINS
       end if
       L(k,k) = sqrt(d)
 
-      !$OMP PARALLEL DO default(none) private(i) &                                                                                                                                                                                                                                                                         
-      !$OMP & shared(cov, n, L, k)                                                                                                                                                                                                                                                                                         
+      !$OMP PARALLEL DO default(none) private(i) &
+      !$OMP & shared(cov, n, L, k)
       do i = k+1, n
         L(i,k)  = (cov(i,k) - dot_product(L(i,1:k-1),L(k,1:k-1)) ) / L(k,k)
       end do
-      !$OMP END PARALLEL DO                                                                                                                                                                                                                                                                                                
+      !$OMP END PARALLEL DO
     end do
-    call msg('Square root of the covariance matrix computed')                                                                                                                                                                                           
+    call msg('Square root of the covariance matrix computed')
 
     deallocate(cov, stat=stat)
     if (fu_fails(stat == 0, 'Deallocate failed', sub_name)) return
   end subroutine sqrt_cov
-  
+
   !*******************************************************************************************
-  
+
+  subroutine sqrt_cov_mpi(pert, stdev, dist_0, grid, max_corr)
+    implicit none
+    type(t_perturbation), intent(inout) :: pert
+    type(silja_grid), intent(in) :: grid
+    real, intent(in) :: stdev, dist_0, max_corr
+
+    !real, dimension(:,:), allocatable, target :: cov
+    !real, dimension(:,:), pointer :: L
+    integer :: i, j, k, n, stat, ii
+    character(len=*), parameter :: sub_name = 'sqrt_cov_mpi'
+    real :: d
+    real, dimension(:,:), pointer :: L
+    real, dimension(:,:), allocatable :: cov
+    real, dimension(:), pointer :: lats, lons
+    real, dimension(:), allocatable :: L_row
+    integer :: ens_size, stride, extra
+    integer, dimension(:), allocatable :: sendcounts, displs
+    integer :: start, end
+
+#ifdef SILAM_MPI
+    call msg('Starting to compute the square root of the covariance matrix')
+
+    call mpi_comm_size(smpi_enkf_comm, ens_size, stat)
+
+    L => pert%L
+    L(:,:) = 0.0
+
+    n = pert%n_gridpoints
+
+    ! Creates a distance-based covariance matrix cov and
+    ! computes the lower triangular matrix L that satisfies cov = LL^T
+
+    lats => fu_geolats_fld(grid)
+    lons => fu_geolons_fld(grid)
+
+    allocate(cov(n,n), sendcounts(0:ens_size-1), displs(0:ens_size-1), L_row(n), stat=stat)
+    if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
+
+    !$OMP PARALLEL DO default(none) private(i, j) &
+    !$OMP & shared(cov, n, stdev, dist_0, lats, lons, max_corr, L)
+    do i=1, n
+       do j=i, n
+          if (i /= j) then
+             cov(i, j) = stdev**2 * max_corr * exp(-0.5*(fu_gc_distance(lons(i), lons(j), lats(i), lats(j))/dist_0)**2)
+          else
+             cov(i, j) = 0.5*stdev**2
+          end if
+       end do
+    end do
+    !$OMP END PARALLEL DO
+    cov = cov + transpose(cov)
+
+    call msg('Covariance matrix ready')
+
+    do k = 1, n
+       if (mod(k, 5000) == 0) then
+          call msg('k ', k)
+       end if
+
+       d = cov(k,k) - dot_product(L(k,1:k-1),L(k,1:k-1))
+       if (d <= 0) then
+          call msg('Error with Cholesky')
+          call set_error('Unable to perform Cholesky decomposition', sub_name)
+          return
+       end if
+       L(k,k) = sqrt(d)
+
+       stride = (n-k)/ens_size
+       extra = mod((n-k),ens_size)
+
+       sendcounts(:) = stride
+       displs(:) = k
+
+       do i= 0,extra-1
+          sendcounts(i) = sendcounts(i) + 1
+       end do
+
+       do i= 1, ens_size-1
+          displs(i) = displs(i-1) + sendcounts(i-1)
+       end do
+
+       start = displs(smpi_ens_rank) + 1
+       end = start + sendcounts(smpi_ens_rank) - 1
+
+       L_row(:) = L(:,k)
+
+       !$OMP PARALLEL DO default(none) private(i) &
+       !$OMP & shared(cov, n, L, L_row, k)
+       do i = start, end
+          L_row(i)  = (cov(i,k) - dot_product(L(i,1:k-1),L(k,1:k-1)) ) / L(k,k)
+       end do
+       !$OMP END PARALLEL DO
+
+       call smpi_global_barrier()
+
+       call mpi_allgatherv(L_row(start:end), sendcounts(smpi_ens_rank), smpi_real_type, &
+            & L(:,k), sendcounts, displs, smpi_real_type, smpi_enkf_comm, stat)
+    end do
+
+    deallocate(cov, sendcounts, displs, stat=stat)
+    if (fu_fails(stat == 0, 'Deallocate failed', sub_name)) return
+
+    call msg('Square root of the covariance matrix computed')
+#else
+    call set_error("called in non_mpi silam", sub_name)
+#endif 
+  end subroutine sqrt_cov_mpi
+
+
   real function fu_eruption_height(perturbations)
     !
     ! Returns the height of eruption if the perturbations invclude volcanic source
     !
     implicit none
-    
+
     ! imported parameters
     type(t_perturbation), dimension(:), pointer :: perturbations
-    
+
     ! Local variables
     integer :: ind_pert_volc
-    
+
     fu_eruption_height = real_missing
     if(.not. associated(perturbations))return
-    
+
     ind_pert_volc = fu_index(perturb_emis_volc, perturbations(:)%perturb_type)
     if (ind_pert_volc /= int_missing) then
       fu_eruption_height = perturbations(ind_pert_volc)%storage(5) * &
@@ -975,5 +1254,23 @@ CONTAINS
                          & perturbations(ind_pert_volc)%storage(4)
     end if
   end function fu_eruption_height
+
+  integer function fu_perturb_type(perturbation)
+    implicit none
+    type(t_perturbation) :: perturbation
+
+    fu_perturb_type = perturbation%perturb_type
+
+  end function fu_perturb_type
+
+  subroutine get_storage_perturbation(perturbation, storage)
+    implicit none
+    type(t_perturbation), intent(in) :: perturbation
+    real, dimension(:), pointer, intent(out) :: storage
+
+    storage => perturbation%storage
+
+  end subroutine get_storage_perturbation
+
 
 end module perturbations

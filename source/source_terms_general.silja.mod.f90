@@ -56,6 +56,8 @@ MODULE source_terms_general
   use source_terms_dms
   use source_terms_soil_NO
 
+  use ieee_arithmetic
+
   IMPLICIT NONE
   
   private
@@ -101,8 +103,9 @@ MODULE source_terms_general
   
   ! Parameter assimilation routines
   public assimilation_request_emis
-  public observe_params_emis
-  public inject_params_emis
+  public observe_params_emission
+  public inject_params_emission
+  public add_tla_emission
 
 
   ! The private functions and subroutines for general source
@@ -212,6 +215,7 @@ MODULE source_terms_general
           & int_missing, int_missing, int_missing, int_missing, &
           & .False.)
 
+  !-----------------------------------------------------------------------
   integer, parameter :: maxMeteoDepndencies = 5
   TYPE silam_source
     INTEGER :: n_area=0, n_bio_voc=0, n_bomb=0, n_fire=0, n_point=0, &
@@ -238,7 +242,7 @@ MODULE source_terms_general
     integer, dimension(:,:), allocatable :: arSourceIdMapping
     character(len=10), dimension(:), allocatable :: chSplitNames
     logical :: ifNeedsTZindexMap, ifUseSourceIdMapping
-    integer, dimension(maxMeteoDepndencies) :: arMeteoDepndencies
+    integer, dimension(maxMeteoDepndencies) :: arMeteoDependencies
   END TYPE silam_source
   
   public silam_source
@@ -250,17 +254,17 @@ MODULE source_terms_general
   end type Tsource_summary
     
   type(Tsource_summary), dimension(11), parameter :: known_src_types = (/ &
-              & Tsource_summary('AREA_SOURCE_', area_source), &
-              & Tsource_summary('BOMB_SOURCE_', bomb_source), &
-              & Tsource_summary('DMS_SOURCE_', dms_source), &
-              & Tsource_summary('FIRE_SOURCE_', fire_source), &
-              & Tsource_summary('POINT_SOURCE_', point_source), &
-              & Tsource_summary('POLLEN_SOURCE_', pollen_source), &
-              & Tsource_summary('BIOGENIC_VOC_SOURCE_', bio_voc_source), &
-              & Tsource_summary('SEA_SALT_SOURCE_', sea_salt_source), &
-              & Tsource_summary('VOLCANO_SOURCE_', volcano_source), &
-              & Tsource_summary('WIND_BLOWN_DUST_SOURCE_', wind_blown_dust_source), &
-              & Tsource_summary('SOIL_NO_SOURCE_', soil_NO_source)/)
+              & Tsource_summary('AREA_SOURCE_', area_source_flag), &
+              & Tsource_summary('BOMB_SOURCE_', bomb_source_flag), &
+              & Tsource_summary('DMS_SOURCE_', dms_source_flag), &
+              & Tsource_summary('FIRE_SOURCE_', fire_source_flag), &
+              & Tsource_summary('POINT_SOURCE_', point_source_flag), &
+              & Tsource_summary('POLLEN_SOURCE_', pollen_source_flag), &
+              & Tsource_summary('BIOGENIC_VOC_SOURCE_', bio_voc_source_flag), &
+              & Tsource_summary('SEA_SALT_SOURCE_', sea_salt_source_flag), &
+              & Tsource_summary('VOLCANO_SOURCE_', volcano_source_flag), &
+              & Tsource_summary('WIND_BLOWN_DUST_SOURCE_', wind_blown_dust_source_flag), &
+              & Tsource_summary('SOIL_NO_SOURCE_', soil_NO_source_flag)/)
   
   !
   ! A source info - name, sector, number, type, etc. So, some information that is not 
@@ -348,6 +352,7 @@ MODULE source_terms_general
 
     em_source%ifNeedsTZindexMap = .False.
     em_source%ifUseSourceIdMapping = .false.
+    em_source%iSrcIdType = iSrcIdType
 
     nullify(pSourceTerms)
     call get_items(nlEmission, 'emission_source', pSourceTerms, nSourceTerms)
@@ -521,19 +526,19 @@ MODULE source_terms_general
     ! Area and point are the ones to check
     !
     iTmp = 1
-    em_source%arMeteoDepndencies = int_missing
+    em_source%arMeteoDependencies = int_missing
     do iSrc = 1, em_source%n_area
       jTmp  = fu_meteodep_model(em_source%a_ptr(iSrc)%a_src)
-      if (any(em_source%arMeteoDepndencies == jTmp)) cycle !already there
+      if (any(em_source%arMeteoDependencies == jTmp)) cycle !already there
       call msg("adding meteodependence for a_src", jTmp, maxMeteoDepndencies)
-      em_source%arMeteoDepndencies(min(iTmp,maxMeteoDepndencies)) = jTmp
+      em_source%arMeteoDependencies(min(iTmp,maxMeteoDepndencies)) = jTmp
       iTmp = iTmp + 1 
     end do
     do iSrc = 1, em_source%n_point
        jTmp  =   fu_meteodep_model(em_source%p_ptr(iSrc)%p_src) 
-       if (any(em_source%arMeteoDepndencies == jTmp)) cycle
+       if (any(em_source%arMeteoDependencies == jTmp)) cycle
        call msg("adding meteodependence for p_src", jTmp, maxMeteoDepndencies)
-       em_source%arMeteoDepndencies(min(iTmp,maxMeteoDepndencies)) = jTmp
+       em_source%arMeteoDependencies(min(iTmp,maxMeteoDepndencies)) = jTmp
        iTmp = iTmp + 1
     end do
     if (iTmp > maxMeteoDepndencies) then
@@ -605,7 +610,7 @@ MODULE source_terms_general
     iDataFileGlobal = 1
     iDynamicsType => fu_work_int_array()
 
-    nlInventoryDataFilesGlobal => fu_make_missing_namelist()
+    nlInventoryDataFilesGlobal => fu_make_empty_namelist()
     if(error)return
 
     allocate(fnames(nSourceTerms),stat=status)
@@ -906,7 +911,7 @@ MODULE source_terms_general
       ifStartLine = .false.
       do iSrc = 1, size(known_src_types)
         if(index(line, trim(known_src_types(iSrc)%label)) == 1)then
-          ifArea = known_src_types(iSrc)%source_type == area_source
+          ifArea = known_src_types(iSrc)%source_type == area_source_flag
           if(iStarted /= int_missing)then
             call set_error('Start new source without ending previous:'+line, &
                          & sub_name)
@@ -1037,8 +1042,8 @@ MODULE source_terms_general
         endif
         
         ! The size_from_nl is only used to check for consistency:
-        if (fu_fails(size_from_nc == size_from_nl, 'Netcdf/namelist sizes don''t match', &
-                   & sub_name)) return
+        if (fu_fails(size_from_nc == size_from_nl, 'Netcdf/namelist sizes do not match:' + &
+                   & fu_str(size_from_nc) + ',' + fu_str(size_from_nl), sub_name)) return
         
         nValLinesTmp = nValLinesTmp + size_from_nc
         if(nValLines(iFile) < nValLinesTmp) nValLines(iFile) = nValLinesTmp
@@ -1125,37 +1130,37 @@ MODULE source_terms_general
         type(Tsource_summary), intent(in) :: src_summary
         
         select case(src_summary%source_type)
-          case(area_source)
+          case(area_source_flag)
             em_source%n_area = em_source%n_area + 1
             cnt = em_source%n_area
-          case(bomb_source)
+          case(bomb_source_flag)
             em_source%n_bomb = em_source%n_bomb + 1
             cnt = em_source%n_bomb
-          case(dms_source)
+          case(dms_source_flag)
             em_source%n_dms = em_source%n_dms + 1
             cnt = em_source%n_dms
-          case(fire_source)
+          case(fire_source_flag)
             em_source%n_fire = em_source%n_fire + 1
             cnt = em_source%n_fire
-          case(point_source)
+          case(point_source_flag)
             em_source%n_point = em_source%n_point + 1
             cnt = em_source%n_point
-          case(pollen_source)
+          case(pollen_source_flag)
             em_source%n_pollen = em_source%n_pollen + 1
             cnt = em_source%n_pollen
-          case(bio_voc_source)
+          case(bio_voc_source_flag)
             em_source%n_bio_voc = em_source%n_bio_voc + 1
             cnt = em_source%n_bio_voc
-          case(sea_salt_source)
+          case(sea_salt_source_flag)
             em_source%n_sea_salt = em_source%n_sea_salt + 1
             cnt = em_source%n_sea_salt
-          case(volcano_source)
+          case(volcano_source_flag)
             em_source%n_volc = em_source%n_volc + 1
             cnt = em_source%n_volc
-          case(wind_blown_dust_source)
+          case(wind_blown_dust_source_flag)
             em_source%n_wb_dust = em_source%n_wb_dust + 1
             cnt = em_source%n_wb_dust
-          case(soil_no_source)
+          case(soil_no_source_flag)
             em_source%n_soil_no = em_source%n_soil_no + 1
             cnt = em_source%n_soil_no
           case default
@@ -1338,65 +1343,66 @@ MODULE source_terms_general
     i_dms = 0
     i_volc = 0
     i_soil_no = 0
-    do iTmp = 1, size(source%src_info_lst)  !source%n_point + source%n_area + source%n_bomb
+    do iTmp = 1, size(source%src_info_lst)
       select case(source%src_info_lst(iTmp)%iSrcType)
-        case(area_source)
+        case(area_source_flag)
           i_area = i_area + 1
           call reserve_area_source(source%a_ptr(i_area)%a_src, &     ! Src to initialise
                                  & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                  & source%src_info_lst(iTmp)%iIdNbr, &  ! SrcID number
                                  & source%src_info_lst(iTmp)%nChemDescr, & ! Nbr of chemical descr to reserve
                                  & source%src_info_lst(iTmp)%nCells)    ! max number of cells found so far
-        case(bio_voc_source)
+        case(bio_voc_source_flag)
           i_bio_voc = i_bio_voc + 1
           call reserve_bio_voc_source(source%bvoc_ptr(i_bio_voc)%bvoc_src, &     ! Src to initialise
                                     & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                     & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(bomb_source)
+        case(bomb_source_flag)
           i_bomb = i_bomb + 1
           call reserve_bomb_source(source%b_ptr(i_bomb)%b_src, &     ! Src to initialise
                                  & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                  & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(fire_source)
+        case(fire_source_flag)
           i_fire = i_fire + 1
           call reserve_fire_source(source%fire_ptr(i_fire)%fire_src, &     ! Src to initialise
                                  & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                  & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(point_source)
+        case(point_source_flag)
           i_point = i_point + 1
           call reserve_point_source(source%p_ptr(i_point)%p_src, &     ! Src to initialise
                                   & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                   & source%src_info_lst(iTmp)%iIdNbr, &  ! SrcID number
                                   & source%src_info_lst(iTmp)%nChemDescr, & ! Nbr of chemical descr to reserve
                                   & source%src_info_lst(iTmp)%iDynamicEnvironment) ! Euleriean or Lagrangian
-        case(pollen_source)
+        case(pollen_source_flag)
           i_pollen = i_pollen + 1
           call reserve_pollen_source(source%pollen_ptr(i_pollen)%pollen_src, &     ! Src to initialise
                                    & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
-                                   & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(sea_salt_source)
+                                   & source%src_info_lst(iTmp)%iIdNbr, &  ! SrcID number
+                                   & i_pollen)
+        case(sea_salt_source_flag)
           i_sea_salt = i_sea_salt + 1
           call reserve_sea_salt_source(source%sslt_ptr(i_sea_salt)%sslt_src, &     ! Src to initialise
                                      & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                      & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(wind_blown_dust_source)
+        case(wind_blown_dust_source_flag)
           i_wb_dust = i_wb_dust + 1
           call reserve_wb_dust_source(source%wbdust_ptr(i_wb_dust)%wbdust_src, &     ! Src to initialise
                                      & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                      & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(dms_source)
+        case(dms_source_flag)
           i_dms = i_dms + 1
           call reserve_dms_source(source%dms_ptr(i_dms)%dms_src, &     ! Src to initialise
                                 & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                 & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
-        case(volcano_source)
+        case(volcano_source_flag)
           i_volc = i_volc + 1
           call reserve_volcano_source(source%volc_ptr(i_volc)%volc_src, &     ! Src to initialise
                                     & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                     & source%src_info_lst(iTmp)%iIdNbr, &  ! SrcID number
                                     & source%src_info_lst(iTmp)%nChemDescr, & ! Nbr of chemical descr to reserve
                                     & source%src_info_lst(iTmp)%iDynamicEnvironment) ! Euleriean or Lagrangian
-        case(soil_NO_source)
+        case(soil_NO_source_flag)
           i_soil_no = i_soil_no + 1
           call reserve_soil_NO_source(source%soilno_ptr(i_soil_no)%soilno_src, &     ! Src to initialise
                                      & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
@@ -1663,7 +1669,7 @@ MODULE source_terms_general
     ! Actually, it points to the index in the src_info_lst, which iSrcNbr points to
     ! the source index in the p_src array:
     !
-    if(source%src_info_lst(iSrcIndex)%iSrcType == area_source)then
+    if(source%src_info_lst(iSrcIndex)%iSrcType == area_source_flag)then
       !
       ! Area source
       !
@@ -1672,7 +1678,7 @@ MODULE source_terms_general
                                   & chSourceVersion, &
                                   & chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == bio_voc_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == bio_voc_source_flag)then
       !
       ! Bio VOC source. Note somewhat different initialisation procedure
       !
@@ -1681,7 +1687,7 @@ MODULE source_terms_general
                            & source%bvoc_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%bvoc_src, &
                            & chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == bomb_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == bomb_source_flag)then
       !
       ! Bomb source
       !
@@ -1690,16 +1696,17 @@ MODULE source_terms_general
                            & source%b_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%b_src, &
                            & chSourceVersion )
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == fire_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == fire_source_flag)then
       !
       ! Fire source
       !
       call fill_fire_src_from_namelist( &
                            & nlSrc, &
                            & source%fire_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%fire_src, &
+                           & chSourceVersion, &
                            & expected_species, chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == point_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == point_source_flag)then
       !
       ! Point source
       !
@@ -1708,7 +1715,7 @@ MODULE source_terms_general
                            & source%p_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%p_src, &
                            & chSourceVersion)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == pollen_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == pollen_source_flag)then
       !
       ! Pollen source. Note somewhat different initialisation procedure
       !
@@ -1717,7 +1724,7 @@ MODULE source_terms_general
                            & source%pollen_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%pollen_src, &
                            & chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == sea_salt_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == sea_salt_source_flag)then
       !
       ! Sea salt source. Note somewhat different initialisation procedure
       !
@@ -1727,7 +1734,7 @@ MODULE source_terms_general
                            & expected_species, &
                            & chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == wind_blown_dust_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == wind_blown_dust_source_flag)then
       !
       ! Wind-blown dust source. Note somewhat different initialisation procedure
       !
@@ -1737,20 +1744,20 @@ MODULE source_terms_general
                            & expected_species, &
                            & chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == dms_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == dms_source_flag)then
       !
       ! DMS source.
       !
       call fill_dms_src_from_namelist(nlSrc, source%dms_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%dms_src, chDataDir)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == volcano_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == volcano_source_flag)then
       !
       ! Volcano source
       !
       call fill_volc_src_from_namelist(nlSrc, &
            & source%volc_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%volc_src)
 
-    elseif(source%src_info_lst(iSrcIndex)%iSrcType == soil_NO_source)then
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == soil_NO_source_flag)then
       !
       ! Soil NO source.
       !
@@ -1804,8 +1811,8 @@ MODULE source_terms_general
     ! Bio VOC sources depend on actual meteodata
     !
     do iSrc = 1, src%n_bio_voc
-      call add_input_needs(src%bvoc_ptr(iSrc)%bvoc_src, q_met_dynamic, q_met_static, &
-                                                      & q_disp_dynamic, q_disp_static)
+      call add_input_needs_bio_voc_src(src%bvoc_ptr(iSrc)%bvoc_src, q_met_dynamic, q_met_static, &
+                                     & q_disp_dynamic, q_disp_static)
       if(error)return
     end do
     !
@@ -2948,27 +2955,27 @@ call msg('Dumping Px')
 
     if(present(iType))then  ! Compute concrete type
       select case(iType)
-        case(area_source)
+        case(area_source_flag)
           Nbr = source%n_area
-        case(bio_voc_source)
+        case(bio_voc_source_flag)
           Nbr = source%n_bio_voc
-        case(bomb_source)
+        case(bomb_source_flag)
           Nbr = source%n_bomb
-        case(fire_source)
+        case(fire_source_flag)
           Nbr = source%n_fire
-        case(point_source)
+        case(point_source_flag)
           Nbr = source%n_point
-        case(pollen_source)
+        case(pollen_source_flag)
           Nbr = source%n_pollen
-        case(sea_salt_source)
+        case(sea_salt_source_flag)
           Nbr = source%n_sea_salt
-        case(wind_blown_dust_source)
+        case(wind_blown_dust_source_flag)
           Nbr = source%n_wb_dust
-        case(dms_source)
+        case(dms_source_flag)
           nbr = source%n_dms
-        case(volcano_source)
+        case(volcano_source_flag)
           nbr = source%n_volc
-        case(soil_NO_source)
+        case(soil_NO_source_flag)
           Nbr = source%n_soil_NO   
         case default 
           call msg('Strange source type:',iType)
@@ -3296,18 +3303,18 @@ call msg('Dumping Px')
     END IF
 
     SELECT CASE (iType)
-      CASE(area_source)
+      CASE(area_source_flag)
         fu_source_start_time = fu_start_time(src%a_ptr(index)%a_src)
-      CASE(bomb_source)
+      CASE(bomb_source_flag)
         fu_source_start_time = fu_time(fu_start_position(src%b_ptr(index)%b_src))
-      CASE(fire_source)
+      CASE(fire_source_flag)
         fu_source_start_time = fu_start_time(src%fire_ptr(index)%fire_src)
-      CASE(point_source)
+      CASE(point_source_flag)
         fu_source_start_time = fu_start_time(src%p_ptr(index)%p_src)
-      CASE(volcano_source)
+      CASE(volcano_source_flag)
         fu_source_start_time = fu_start_time(src%volc_ptr(index)%volc_src)
-      CASE(bio_voc_source, pollen_source, sea_salt_source, wind_blown_dust_source, &
-          soil_NO_source, dms_source)
+      CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, wind_blown_dust_source_flag, &
+          soil_NO_source_flag, dms_source_flag)
         fu_source_start_time = really_far_in_past
       CASE DEFAULT
         CALL set_error('Unknown source type','fu_source_end_time')
@@ -3339,18 +3346,18 @@ call msg('Dumping Px')
     END IF
 
     SELECT CASE (iType)
-      CASE(area_source)
+      CASE(area_source_flag)
         fu_source_end_time = fu_end_time(src%a_ptr(index)%a_src)
-      CASE(bomb_source)
+      CASE(bomb_source_flag)
         fu_source_end_time = fu_time(fu_start_position(src%b_ptr(index)%b_src))
-      CASE(fire_source)
+      CASE(fire_source_flag)
         fu_source_end_time = fu_end_time(src%fire_ptr(index)%fire_src)
-      CASE(point_source)
+      CASE(point_source_flag)
         fu_source_end_time = fu_end_time(src%p_ptr(index)%p_src)
-      CASE(volcano_source)
+      CASE(volcano_source_flag)
         fu_source_end_time = fu_end_time(src%volc_ptr(index)%volc_src)
-      CASE(bio_voc_source, pollen_source, sea_salt_source, wind_blown_dust_source, &
-          & soil_NO_source, dms_source)
+      CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, wind_blown_dust_source_flag, &
+          & soil_NO_source_flag, dms_source_flag)
         fu_source_end_time = really_far_in_future
       CASE DEFAULT
         CALL set_error('Unknown source type','fu_source_end_time')
@@ -3383,17 +3390,17 @@ call msg('Dumping Px')
     END IF
 
     SELECT CASE (iType)
-    CASE(point_source)
+    CASE(point_source_flag)
       fu_source_duration = fu_duration(src%p_ptr(srcIndex)%p_src)
-    CASE(area_source)
+    CASE(area_source_flag)
       fu_source_duration = fu_duration(src%a_ptr(srcIndex)%a_src)
-    CASE(fire_source)
+    CASE(fire_source_flag)
       fu_source_duration = fu_duration(src%fire_ptr(srcIndex)%fire_src)
-    CASE(bomb_source)
+    CASE(bomb_source_flag)
       fu_source_duration = interval_missing
-    CASE(volcano_source)
+    CASE(volcano_source_flag)
       fu_source_duration = fu_duration(src%volc_ptr(srcIndex)%volc_src)
-    CASE(bio_voc_source, pollen_source, sea_salt_source, dms_source)
+    CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, dms_source_flag)
       fu_source_duration = very_long_interval
     CASE DEFAULT
       CALL set_error('Unknown source type','fu_source_duration')
@@ -4141,6 +4148,9 @@ call msg('Dumping Px')
     ! Since there can be many sources emitting essentially to the same grid cells
     ! we have to take care of the problem by limiting the number with the total grid 
     ! size
+
+    ! FIXME:  This number has very weak relation to the actual number of emitting cells.
+    ! The number is fed then to a black-magick routine that calculates low-mass thresholds from emissions
     !
     implicit none
 
@@ -4155,7 +4165,7 @@ call msg('Dumping Px')
     ! assume full overlap of fires from different sources
     !
     if(src%n_fire + src%n_area + src%n_point + src%n_bomb + src%n_volc > 0)then
-      do i = 1, src%n_fire
+           do i = 1, src%n_fire
         nbr = max(nbr, fu_n_fires(src%fire_ptr(i)%fire_src))
       end do
       !
@@ -4562,7 +4572,7 @@ call msg('Dumping Px')
   
   !*******************************************************************************
   
-  subroutine observe_params_emis(src, arParams, now)
+  subroutine observe_params_emission(src, arParams, now)
     !
     ! Provides the values of the current assimilated parameters for the interface array
     ! Obeys their place in the interface array. Mapping already exists and serves as the source of data
@@ -4577,7 +4587,7 @@ call msg('Dumping Px')
     ! Local variables
     integer :: iSrc
     !
-    ! Scan the sources one0by-one
+    ! Scan the sources one-by-one
     !
     !do iSrc=1,src%n_area
     !  call observe_params_ (src%a_ptr(iSrc)%a_src, arParams, now)
@@ -4610,12 +4620,12 @@ call msg('Dumping Px')
     !  call observe_params_ (src%wbdust_ptr(iSrc)%wbdust_src, arParams, now)
     !end do
     
-  end subroutine observe_params_emis
+  end subroutine observe_params_emission
   
   
   !*******************************************************************************
   
-  subroutine inject_params_emis(src, arParams, now)
+  subroutine inject_params_emission(src, arParams, now)
     !
     ! Stores the new parameter values into the corresponding places of the source.
     ! Note that the actuaql papameters are in the mapping structures, rest is just pointers
@@ -4630,7 +4640,7 @@ call msg('Dumping Px')
     ! Local variables
     integer :: iSrc
     !
-    ! Scan the sources one0by-one
+    ! Scan the sources one-by-one
     !
     !do iSrc=1,src%n_area
     !  call inject_params_inject_params_ (src%a_ptr(iSrc)%a_src, arParams, now)
@@ -4663,9 +4673,90 @@ call msg('Dumping Px')
     !  call inject_params_(src%wbdust_ptr(iSrc)%wbdust_src, arParams, now)
     !end do
 
-  end subroutine inject_params_emis
+  end subroutine inject_params_emission
   
   
+  !************************************************************************************
+  
+  subroutine add_tla_emission(src, traj, nsp_emis)
+    !
+    ! Store emission massmap if source is incapable of running in reverse time
+    !! Essentially now it means that it uses single-time prognostic fields
+    ! In ideal world, sources should not need any "TLA", and get all the info from multitime stacks
+    ! that are available at backwards and forward
+
+    ! Currently, the pollen source should break on second pass over the same time interval
+    ! 
+    !
+    implicit none
+
+    ! Imported parameters
+    type(silam_source), intent(in) :: src
+    integer, intent(in)  :: nsp_emis
+    type(t_tla_trajectory), intent(inout) :: traj
+    logical :: ifStoreEmission
+
+    integer :: iTmp
+
+    ifStoreEmission = .FALSE.
+    do iTmp = 1, size(src%src_info_lst)
+      select case(src%src_info_lst(iTmp)%iSrcType)
+        case(pollen_source_flag)
+          ifStoreEmission = .True.
+        case default
+          ! do nothing
+      end select
+      if(error)return
+    enddo
+
+    if (ifStoreEmission) then
+          call msg("Pollen source presence detected by  add_tla_emission")
+          call msg("add_tla_emission requests storage for emission massmap")
+          call msg("All emission will be bypassed on adjoint")
+          call add_tla_traj(pollen_source_flag, traj, nsp_emis)  ! one value per emission species per cel
+          call set_store_forward(traj, .TRUE.)  !! Emission has to be stored and re-stored also in forward run
+    endif
+
+  end subroutine add_tla_emission
+
+!!! Original code from MAS. 
+!!!  !************************************************************************************
+!!!  
+!!!  subroutine get_tla_emission(src, traj)
+!!!    !
+!!!    ! Collect emission's requests for tangent linearization. If tangent linear
+!!!    ! is not allowed, corresponding subroutine sets error. 
+!!!    !
+!!!    implicit none
+!!!
+!!!    ! Imported parameters
+!!!    type(silam_source), intent(in) :: src
+!!!    type(t_tla_trajectory), intent(inout) :: traj
+!!!
+!!!    integer :: iTmp
+!!!
+!!!    !
+!!!    ! So far, only pollen source requires the TL trajectory to be stored
+!!!    ! This is not the classical TL trajectory, not the concentration mass map, rather 
+!!!    ! meteorology-driven parameters with memory - heatsum, pollen left in catkins or 
+!!!    ! in the release buffer. They must be stored as the TL "trajectory" of the source.
+!!!    ! Each pollen source has own TL trajectory, so the tags must be unique. Since source types 
+!!!    ! are ~2100 (pollen_source_flag is 2107), and there may be not too many tricky sources, 
+!!!    ! type * 100 + internal src number within its type should be fine
+!!!    !
+!!!    do iTmp = 1, size(src%src_info_lst)
+!!!      select case(src%src_info_lst(iTmp)%iSrcType)
+!!!        case(pollen_source_flag)
+!!!          call add_tla_traj(src%src_info_lst(iTmp)%iSrcType * 100 + src%src_info_lst(iTmp)%iSrcNbr, &
+!!!                          & traj, 4)  ! 3 dimension only: for a few 2D fields n3d is enough
+!!!        case default
+!!!          ! do nothing
+!!!      end select
+!!!      if(error)return
+!!!    enddo
+!!!
+!!!  end subroutine get_tla_emission
+
   
   !*****************************************************************
   
@@ -4768,25 +4859,25 @@ call msg('Dumping Px')
         ifFound = .true.
 !        call msg('Source:' + em_src%src_info_lst(iSrc)%chId + ',' + &
 !               & fu_str(fu_species(id)), em_src%src_info_lst(iSrc)%iIdNbr)
-        if(em_src%src_info_lst(iSrc)%iSrcType == area_source)then
+        if(em_src%src_info_lst(iSrc)%iSrcType == area_source_flag)then
           call source_2_map_area_source(em_src%a_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%a_src, &
                           & emsMap, id, iAccuracy, ifRandomise)
-        elseif(em_src%src_info_lst(iSrc)%iSrcType == bomb_source)then
+        elseif(em_src%src_info_lst(iSrc)%iSrcType == bomb_source_flag)then
           call source_2_map_bomb_source(em_src%b_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%b_src, &
                           & emsMap, id)
-        elseif(em_src%src_info_lst(iSrc)%iSrcType == point_source)then
+        elseif(em_src%src_info_lst(iSrc)%iSrcType == point_source_flag)then
           call source_2_map_point_source(em_src%p_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%p_src, &
                           & emsMap, id)
-        elseif(em_src%src_info_lst(iSrc)%iSrcType == volcano_source)then
+        elseif(em_src%src_info_lst(iSrc)%iSrcType == volcano_source_flag)then
           call source_2_map_volc_src(em_src%volc_ptr(em_src%src_info_lst(iSrc)%iSrcNbr)%volc_src, &
                                    & emsMap, id)
-        elseif(em_src%src_info_lst(iSrc)%iSrcType == fire_source .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == sea_salt_source .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == pollen_source .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == bio_voc_source .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == wind_blown_dust_source .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == dms_source .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == soil_NO_source)then
+        elseif(em_src%src_info_lst(iSrc)%iSrcType == fire_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == sea_salt_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == pollen_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == bio_voc_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == wind_blown_dust_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == dms_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == soil_NO_source_flag)then
           call msg_warning('The type of the source is not supported:' + em_src%src_info_lst(iSrc)%chId)
         else
           call msg('Strange source type:',em_src%src_info_lst(iSrc)%iSrcType)
@@ -5049,7 +5140,7 @@ call msg('Dumping Px')
     do i=1, em_src%n_area
       if (error) cycle
       call rng_init(rng, i)
-      call project_a_src_second_grd(em_src%a_ptr(i)%a_src, gridDisp, verticalDispersion, vertical_metric, &
+      call project_a_src_second_grd(em_src%a_ptr(i)%a_src, gridDisp, verticalDispersion, & !!!vertical_metric, &
                               & iAccuracy, tmpArraySet, ifRandomise, rng)
       if(error)call set_error('Source reprojection failed:' + fu_name(em_src%a_ptr(i)%a_src),&
                             & 'link_emission_2_dispersion')
@@ -5272,7 +5363,8 @@ call msg('Dumping Px')
                                     & interpCoefMeteo2DispHoriz, &
                                     & ifMetHorizInterp, &
                                     & interpCoefMeteo2DispVert, &
-                                    & ifMetVertInterp)
+                                    & ifMetVertInterp, &
+                                    & tla_traj)
     !
     ! Part of Eulerian environment.
     ! Computes and injects emission fluxes to the concentration and subgrid-info
@@ -5296,13 +5388,18 @@ call msg('Dumping Px')
     logical, intent(in) :: ifMetHorizInterp
     logical, intent(in) :: ifMetVertInterp
     logical, intent(in) :: ifSpeciesMoment
+    type(t_tla_trajectory), intent(in) :: tla_traj
 
     ! Local variables
-    integer :: iSrc, iThread, nThreads, iTmp
+    integer :: iSrc, iThread, nThreads, iTmp, iSp
     real, dimension(:), pointer :: fWork
     real, dimension(:,:), pointer :: fMassTimeCommon
+    real, dimension(:,:,:,:), pointer :: emsTLA !! Actually just an image of the emission massmap
+                                                !!(nSpEmis,nz,nx,ny)
     integer, dimension(:), pointer :: iSlotStart, iSlotEnd
+    real :: fTmp
     real(r8k), dimension(:), pointer :: fMassInjectedThread
+    character(len=*), parameter :: sub_name = 'inject_emission_eulerian'
 
     !$ if (.not. allocated(dInjectedMassThread)) then
          nThreads = 1
@@ -5315,15 +5412,45 @@ call msg('Dumping Px')
             call msg("Allocating multithread stuff for OMP emission")
             allocate(dInjectedMassThread(1:mapEmis%nSpecies,1:nThreads-1), stat=iTmp)
             if (iTmp /= 0) then 
-               call set_error("Allocation failed!", "inject_emission_eulerian")
+               call set_error("Allocation failed!", sub_name)
             endif
          endif
     !$ endif
 
-
-
-
 !call msg('Grand total of emission map before emission:',sum(mapEmis%arM(:,:,:,:,:)))
+!! FIXME HACK
+!! The pollen source is incapable of emitting same amount twice: each emission cycle 
+!! makes irreversible changes to the emission fields (they are single-time)
+!! The hackish solution is to use TLA also in forward emission to emit the first-pass
+!! values forever. 
+!! For that we store "42" to (1,1,1,1) and use it as an indicator that the emission is 
+!! right. This will break subsequent DA, which did not work with pollen source anyway...
+!!The "forecast" will be also broken , but, at least the assimilation will be self-consistent. 
+
+    if (defined(tla_traj)) then 
+      emsTLA => fu_get_tla_map(tla_traj, pollen_source_flag)
+      if (associated(emsTLA)) then
+        fTmp = emsTLA(1,1,1,1)
+        if (ieee_class(fTmp) == IEEE_POSITIVE_NORMAL) then !! check for not NaN without triggering an FPE error
+          if (fTmp == 42.)  then !!HACK
+            call msg("Restoring emission massmap from TLA fTmp = ", fTmp)
+            mapEmis%arM(:,1,:,:,:) = emsTLA(:,:,:,:)
+            mapEmis%arM(1,1,1,1,1) = 0. !!!! FIXME HACK
+            mapEmis%ifGridValid = .true.
+            mapEmis%ifColumnValid = .true.
+            do iSp = 1,SIZE(mapEmis%arM,1)
+              fMassInjected(:) = sum(emsTLA(iSp,:,:,:))
+            enddo
+            return
+          else
+            call msg("NOT Restoring emission massmap1 from TLA fTmp = ", fTmp)
+         endif
+        else
+          call msg("NOT Restoring emission massmap2 from TLA fTmp = ", fTmp)
+        endif
+      endif
+    endif
+
 
     !
     ! Emission is inserted into the emission mass map and then sent to dispersion mass map
@@ -5337,10 +5464,10 @@ call msg('Dumping Px')
     ! Should any is found, add to the concentration map together with the source position
     ! 
     ! Area source can pick stuff only from dispersion buffers
-    if(em_src%arMeteoDepndencies(1) /= int_missing) &
-                              & call prepare_injection_meteodep(disp_buf, em_src%arMeteoDepndencies)
+    if(em_src%arMeteoDependencies(1) /= int_missing) &
+                              & call prepare_injection_meteodep(disp_buf, em_src%arMeteoDependencies)
     
-    islotStart => fu_work_int_array()
+    islotStart => fu_work_int_array(2*em_src%n_area)
     islotEnd   => islotStart(em_src%n_area+1:2*em_src%n_area)
     fWork => fu_work_array(em_src%n_area*max_descriptors_in_source)
     fMassTimeCommon(1:max_descriptors_in_source, 1:em_src%n_area) => &
@@ -5493,7 +5620,8 @@ call msg('Dumping Px')
                                      & ifSpeciesMoment, &
                                      & mapEmis, mapCoordX_emis, mapCoordY_emis, mapCoordZ_emis, &
                                      & fMassInjected, & ! Output
-                                     & em_src%arSourceIdMapping, em_src%ifUseSourceIdMapping)
+                                     & em_src%arSourceIdMapping, em_src%ifUseSourceIdMapping, &
+                                     & null()) !! Now one for all TLA emission if any source requests any tla
       if(error)return
     end do
 
@@ -5557,6 +5685,18 @@ call msg('Dumping Px')
                                       & fMassInjected)           ! output
       if(error)return
     end do
+
+    !!! Save emission massmap if needed
+    if (fu_sec(timestep) > 0) then
+      if (defined(tla_traj)) then 
+        emsTLA => fu_get_tla_map(tla_traj, pollen_source_flag)
+        if (associated(emsTLA)) then 
+           call msg("Storing emission massmap to TLA")
+           emsTLA(:,:,:,:) = mapEmis%arM(:,1,:,:,:)
+           emsTLA(1,1,1,1) = 42. !!HACK
+         endif
+      endif
+    endif
 
 !call msg('Grand total of emission map after emission:',sum(mapEmis%arM(:,:,:,:,:)))
 

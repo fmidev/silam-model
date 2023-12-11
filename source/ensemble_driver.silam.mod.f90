@@ -263,7 +263,7 @@ module ensemble_driver
     ! call control2perturb(control, model%perturbation)
     
     call msg('ENKF: run model')
-    call run_forecast(ens%state, model)
+    call run_forecast_from_control(ens%state, model)
     
     call vector_from_model(ens%state, model, handle_negatives=.false.)
     call msg('ENKF: run model done')
@@ -327,14 +327,11 @@ module ensemble_driver
 
     ! Take period to compute from assimilation interval, start time updated after each
     ! analysis.
-    model_integr%rules%periodToCompute = model%rules%darules%assim_interval
+    model_integr%rules%periodToCompute = model%rules%darules%interval_btwn_assim
     model_3dvar = model
     simrules_3d = model%rules
     model_3dvar%rules => simrules_3d
     
-    if (error) return
-    
-    !call set_background(background, cloud, darules)
     if (error) return
     
     now = model%rules%startTime
@@ -436,7 +433,8 @@ module ensemble_driver
 
       real, dimension(:), pointer :: mdl_obs_val, obs_data, obs_var
       real, dimension(:,:), allocatable :: obs_loc
-      integer :: obs_size
+      integer :: iPurpose
+      integer, dimension(2) :: obs_size
       character(len=*), parameter :: sub_name = 'assimilate_master_only'
       real, dimension(:,:), allocatable, save :: model_localisation
       real, dimension(:,:), allocatable :: obs_localisation, mdl_obs_ens
@@ -452,9 +450,9 @@ module ensemble_driver
       model_3dvar%rules%darules%da_begin = now
       
       pDA_rules => model_3dvar%rules%darules
-      call set_observations(pDA_rules%station_path, pDA_rules%obs_list_path, &
-                          & pDA_rules%DA_begin, pDA_rules%da_window, &
-                          & pDA_rules%obs_items, pDA_rules%num_obs_items, &
+      call set_observations(pDA_rules%station_path, &
+                          & pDA_rules%DA_begin, pDA_rules%assim_window, pDA_rules%obs_files, &
+                          & pDA_rules%num_obs_files_assim, pDA_rules%num_obs_files_eval, &
                           & fu_species_transport(cloud), &
                           & fu_species_optical(cloud), model_3dvar%obs_ptr)
       fatal_error = .not. sync_errors()
@@ -466,18 +464,18 @@ module ensemble_driver
       !call destroy_observations(model_3dvar%obs_ptr)
       !return
             
-      if (model_3dvar%obs_ptr%obs_size == 0) then
-        call set_error('ENKF: no observations', sub_name)
-      end if
+      !if (sum(model_3dvar%obs_ptr%obs_size) == 0) then
+      !  call set_error('ENKF: no observations', sub_name)
+      !end if
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
 
       obs_size = model_3dvar%obs_ptr%obs_size
-      mdl_obs_val => fu_work_array(obs_size)
-      obs_var => fu_work_array(obs_size)
+      mdl_obs_val => fu_work_array(sum(obs_size))
+      obs_var => fu_work_array(sum(obs_size))
       
       if (smpi_ens_rank == 0) then
-        allocate(mdl_obs_ens(obs_size, ens%ens_size), obs_localisation(2, obs_size), stat=stat)
+        allocate(mdl_obs_ens(sum(obs_size), ens%ens_size), obs_localisation(2, sum(obs_size)), stat=stat)
         if (fu_fails(stat == 0, 'Allocate master obs arrays failed', sub_name)) continue
       else
         ! dummy allocation for mpi_gather
@@ -491,7 +489,7 @@ module ensemble_driver
       call forward_3d(model_3dvar)
       if (error) return
 
-      call collect_model_data(model_3dvar%obs_ptr, mdl_obs_val, obs_size)
+      call collect_model_data(model_3dvar%obs_ptr, mdl_obs_val) !, obs_size)
       call msg('ENKF: gather ensemble')
       call start_count('ensemble_scatter_gather')
       call gather_ensemble(ens, ens_full, mdl_obs_val, mdl_obs_ens, obs_size)
@@ -499,14 +497,16 @@ module ensemble_driver
       if (error) return
       
       call get_obs_data(model_3dvar%obs_ptr, obs_data, obs_size)
-      call collect_variance(model_3dvar%obs_ptr, obs_var, obs_size)
+      call collect_variance(model_3dvar%obs_ptr, obs_var) !, obs_size)
       if (simrules_3d%darules%output_level > da_out_none_flag) then
         call msg('Dumping FC observations...')
         write(time_str, fmt='(I4,I2.2,I2.2,I2.2,I2.2)') fu_year(now), fu_mon(now), fu_day(now), &
              & fu_hour(now), fu_min(now)
-        call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
-                             & trim(simrules_3d%darules%outputdir) // dir_slash // 'obs_fc_' &
-                             & // trim(time_str))
+        do iPurpose = 1, 2
+          call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
+                               & simrules_3d%darules%outputdir + dir_slash + 'obs_fc_' &
+                               & + time_str + chObsPurpose(iPurpose), iPurpose)
+        end do
         call msg('Done')
       end if
       fatal_error = .not. sync_errors()
@@ -526,7 +526,7 @@ module ensemble_driver
       !end if
       if (smpi_ens_rank == 0 .and. .not. error) then
         call msg('ENKF: update')
-        call enkf_update(ens_full, mdl_obs_ens, obs_data(1:obs_size), obs_var(1:obs_size), &
+        call enkf_update(ens_full, mdl_obs_ens, obs_data(1:obs_size(1)), obs_var(1:obs_size(1)), &
                        & obs_localisation, model_localisation, &
                        & model%rules%darules%loc_dist_m, &
                        & model%rules%darules%loc_type, &
@@ -541,9 +541,11 @@ module ensemble_driver
       if (.not. error) then
         if (simrules_3d%darules%output_level > da_out_first_last_flag) then
           call forward_3d(model_3dvar)
-          call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
-                               & trim(simrules_3d%darules%outputdir) // dir_slash // 'obs_an_' &
-                               & // trim(fu_str(smpi_ens_rank)))
+          do iPurpose = 1, 2
+            call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
+                                 & simrules_3d%darules%outputdir + dir_slash + 'obs_an_' &
+                                     & + fu_str(smpi_ens_rank) + chObsPurpose(iPurpose), iPurpose)
+          end do
           !call get_ens_mean_and_stdev(ens, model_3dvar%rules, &
           !                          & trim(model_3dvar%rules%darules%outputdir) // dir_slash // 'an')
         end if
@@ -574,7 +576,7 @@ module ensemble_driver
 
       real, dimension(:), pointer :: mdl_obs_val_single, obs_data, obs_var, ptr_val
       real, dimension(:,:), allocatable :: obs_loc, mdl_obs_val_all
-      integer :: obs_size, my_size, my_offset
+      integer :: my_size, my_offset, iPurpose
       character(len=*), parameter :: sub_name = 'assimilate_master_only'
       real, dimension(:,:), allocatable, save :: model_localisation_full, model_localisation_chunk
       real, dimension(:,:), allocatable :: obs_localisation, mdl_obs_ens
@@ -583,6 +585,7 @@ module ensemble_driver
       logical :: scatter_ok
       integer, dimension(:), pointer :: offsets, sizes
       type(DA_rules), pointer :: pDA_rules
+      integer, dimension(2) :: obs_size
 
       call msg('ENKF: mpi analysis')
 
@@ -594,9 +597,9 @@ module ensemble_driver
       
       call start_count('EnKF load observations')
       pDA_rules => model_3dvar%rules%darules
-      call set_observations(pDA_rules%station_path, pDA_rules%obs_list_path, &
-                          & pDA_rules%DA_begin, pDA_rules%da_window, &
-                          & pDA_rules%obs_items, pDA_rules%num_obs_items, &
+      call set_observations(pDA_rules%station_path, &
+                          & pDA_rules%DA_begin, pDA_rules%assim_window, pDA_rules%obs_files, &
+                          & pDA_rules%num_obs_files_assim, pDA_rules%num_obs_files_eval, &
                           & fu_species_transport(cloud), &
                           & fu_species_optical(cloud), model_3dvar%obs_ptr)
       fatal_error = .not. sync_errors()
@@ -606,17 +609,17 @@ module ensemble_driver
       end if
       call stop_count('EnKF load observations')
             
-      if (model_3dvar%obs_ptr%obs_size == 0) then
-        call set_error('ENKF: no observations', sub_name)
-      end if
+      !if (sum(model_3dvar%obs_ptr%obs_size) == 0) then
+      !  call set_error('ENKF: no observations', sub_name)
+      !end if
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
 
       obs_size = model_3dvar%obs_ptr%obs_size
-      mdl_obs_val_single => fu_work_array(obs_size)
-      obs_var => fu_work_array(obs_size)
+      mdl_obs_val_single => fu_work_array(sum(obs_size))
+      obs_var => fu_work_array(sum(obs_size))
       
-      allocate(mdl_obs_ens(obs_size, ens%ens_size), obs_localisation(2, obs_size), stat=stat)
+      allocate(mdl_obs_ens(sum(obs_size), ens%ens_size), obs_localisation(2, sum(obs_size)), stat=stat)
       if (fu_fails(stat == 0, 'Allocate master obs arrays failed', sub_name)) continue
       
       fatal_error = .not. sync_errors()
@@ -627,7 +630,7 @@ module ensemble_driver
       if (error) return
 
       call start_count('EnKF evaluate observations')
-      call collect_model_data(model_3dvar%obs_ptr, mdl_obs_val_single, obs_size)
+      call collect_model_data(model_3dvar%obs_ptr, mdl_obs_val_single) !, obs_size)
 
       call get_localisation(model_3dvar%obs_ptr, obs_localisation)
       call stop_count('EnKF evaluate observations')
@@ -635,19 +638,21 @@ module ensemble_driver
       call msg('ENKF: gather ensemble')
       call start_count('ensemble_transpose')
       call transpose_ensemble_in(fu_values_ptr(ens%state), ens_full, ens%ens_size, ens%state_size, &
-                               & mdl_obs_val_single(1:obs_size), mdl_obs_ens, obs_size)
+                               & mdl_obs_val_single(1:sum(obs_size)), mdl_obs_ens, sum(obs_size))
       call stop_count('ensemble_transpose')
       if (error) return
       
       call get_obs_data(model_3dvar%obs_ptr, obs_data, obs_size)
-      call collect_variance(model_3dvar%obs_ptr, obs_var, obs_size)
+      call collect_variance(model_3dvar%obs_ptr, obs_var) !, obs_size)
       if (simrules_3d%darules%output_level > da_out_none_flag) then
         call msg('Dumping FC observations...')
         write(time_str, fmt='(I4,I2.2,I2.2,I2.2,I2.2)') fu_year(now), fu_mon(now), fu_day(now), &
              & fu_hour(now), fu_min(now)
-        call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
-                             & trim(simrules_3d%darules%outputdir) // dir_slash // 'obs_fc_' &
-                             & // trim(time_str))
+        do iPurpose = 1, 2
+          call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
+                               & simrules_3d%darules%outputdir + dir_slash + 'obs_fc_' &
+                               & + trim(time_str) + chObsPurpose(iPurpose), iPurpose)
+        end do
         call msg('Done')
       end if
       fatal_error = .not. sync_errors()
@@ -679,8 +684,10 @@ module ensemble_driver
       !end if
       if (.not. error) then
         call msg('ENKF: update')
-
-        call enkf_update(ens_full, mdl_obs_ens, obs_data(1:obs_size), obs_var(1:obs_size), &
+        !
+        ! Guess, for the ensemble update one needs only assimilated observations
+        !
+        call enkf_update(ens_full, mdl_obs_ens, obs_data(1:obs_size(1)), obs_var(1:obs_size(1)), &
                        & obs_localisation, model_localisation_chunk, &
                        & model%rules%darules%loc_dist_m, &
                        & model%rules%darules%loc_type, &
@@ -705,9 +712,11 @@ module ensemble_driver
         fatal_error = .not.scatter_ok
         if (simrules_3d%darules%output_level > da_out_first_last_flag) then
           call forward_3d(model_3dvar)
-          call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
-                               & trim(simrules_3d%darules%outputdir) // dir_slash // 'obs_an_' &
-                               & // trim(fu_str(smpi_ens_rank)))
+          do iPurpose = 1, 2
+            call dump_observations(model_3dvar%obs_ptr, fu_species_transport(model%cloud), &
+                                 & simrules_3d%darules%outputdir + dir_slash + 'obs_an_' &
+                                 & + fu_str(smpi_ens_rank) + chObsPurpose(iPurpose), iPurpose)
+          enddo
           call get_ens_mean_and_stdev(ens, model_3dvar%rules, &
                                     & trim(model_3dvar%rules%darules%outputdir) // dir_slash // 'an')
         end if
@@ -876,7 +885,7 @@ module ensemble_driver
     real, dimension(:,:), intent(out) :: ens_full ! task 0
     real, dimension(:), intent(in) :: mdl_obs_single ! all tasks
     real, dimension(:,:), intent(out) :: mdl_obs_all ! task 0
-    integer, intent(in) :: obs_size
+    integer, dimension(:), intent(in) :: obs_size
 
     character(len=*), parameter :: sub_name = 'gather_ensemble'
     logical :: is_master
@@ -888,7 +897,7 @@ module ensemble_driver
     if (is_master) then
       if (fu_fails(size(ens_full, 2) == member%ens_size, 'Ensemble sizes don''t match', sub_name)) return
       if (fu_fails(size(ens_full, 1) == member%state_size, 'State sizes don''t match', sub_name)) return
-      if (fu_fails(size(mdl_obs_all,1) >= obs_size, 'mdl_obs_all too small', sub_name)) return
+      if (fu_fails(size(mdl_obs_all,1) >= sum(obs_size), 'mdl_obs_all too small', sub_name)) return
       if (fu_fails(size(mdl_obs_all,2) == member%ens_size, 'Ens-obs sizes don''t match', sub_name)) return
     end if
 
@@ -900,8 +909,8 @@ module ensemble_driver
                   & 0, smpi_enkf_comm, stat)
     if (fu_fails(stat == MPI_SUCCESS, 'Failed smpi_gather state', sub_name)) return
 
-    call mpi_gather(mdl_obs_single(1), obs_size, &
-                  & smpi_real_type, mdl_obs_all(1,1), obs_size, smpi_real_type, &
+    call mpi_gather(mdl_obs_single(1), obs_size(1), &
+                  & smpi_real_type, mdl_obs_all(1,1), obs_size(1), smpi_real_type, &
                   & 0, smpi_enkf_comm, stat)
     if (fu_fails(stat == MPI_SUCCESS, 'Failed smpi_gather state', sub_name)) return
 #endif    
@@ -953,7 +962,7 @@ module ensemble_driver
     integer :: ind_ens
     integer :: stat
 
-    call init_control(ens%state, cloud, rules, physical_space, initial_value=0.0)
+    call init_control_from_cloud(ens%state, cloud, rules, physical_space, initial_value=0.0)
     if (error) return
 
 !    call report(ens%state)
@@ -982,7 +991,7 @@ module ensemble_driver
     allocate(ens%states(num_steps), stat=stat)
     if (fu_fails(stat == 0, 'Allocate failed', subname)) return
 
-    call init_control_array(ens%states, cloud, rules, physical_space, num_steps, ens%full_state, &
+    call init_control_array_from_cloud(ens%states, cloud, rules, physical_space, num_steps, ens%full_state, &
                           & initial_value=0.0)
     if (error) return
 
@@ -1122,14 +1131,14 @@ module ensemble_driver
       call msg('EnKS: smoother window required:' // fu_str(smoother_window))
       ! outputsteps + 1 for the analysis time
       num_smtr_steps = smoother_window / darules%smoother_step + 1
-    else if (defined(model%rules%darules%assim_interval)) then
+    else if (defined(model%rules%darules%interval_btwn_assim)) then
       smoother_window = interval_missing
       num_smtr_steps = 1
     else
       call set_error('Neither smoother or analysis step is defined', sub_name)
       return
     end if
-    step_integr = model%rules%darules%assim_interval
+    step_integr = model%rules%darules%interval_btwn_assim
 
     allocate(smtr_step_ptrs(num_smtr_steps), smtr_times(num_smtr_steps), stat=stat)
     if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
@@ -1177,8 +1186,8 @@ module ensemble_driver
     call init_random_seed(smpi_global_rank*values(8)*values(7))
     simrules_integr%if_finalize = .false.
     
-    call msg('EnKS: da_window:' // fu_str(model%rules%darules%da_window))
-    call msg('EnKS: assimilation_interval:' // fu_str(model%rules%darules%assim_interval))
+    call msg('EnKS: da_window:' // fu_str(model%rules%darules%assim_window))
+    call msg('EnKS: assimilation_interval:' // fu_str(model%rules%darules%interval_btwn_assim))
     call msg('EnKS: smoother_step:' // fu_str(model%rules%darules%smoother_step))
     call msg('EnKS: last analysis time:' // fu_str(darules%last_analysis_time))
     if (num_smtr_steps > 0) then
@@ -1192,7 +1201,7 @@ module ensemble_driver
       nullify(smtr_fieldstorage, smtr_file_units)
     end if
     
-    time_analysis_next = now + model%rules%darules%assim_interval
+    time_analysis_next = now + model%rules%darules%interval_btwn_assim
     time_get_control_next = now
     call start_cycle(now, time_analysis_next)
 
@@ -1228,7 +1237,7 @@ module ensemble_driver
         if (fu_fails(.not. fatal, 'Fatal error in assimilate', sub_name)) return
         if (error) call unset_error(sub_name)
         call finish_cycle(now)
-        time_analysis_next = now + model%rules%darules%assim_interval
+        time_analysis_next = now + model%rules%darules%interval_btwn_assim
         call start_cycle(now, time_analysis_next)
       end if
       
@@ -1237,12 +1246,12 @@ module ensemble_driver
       if (time_analysis_next > darules%last_analysis_time) then
         call msg('Assimilation done, run forecast until end')
         model_integr%rules%periodToCompute = end_time - now
-        call run_forecast(smtr_step_ptrs(ensemble_multitime%num_steps)%ptr, model_integr)
+        call run_forecast_from_control(smtr_step_ptrs(ensemble_multitime%num_steps)%ptr, model_integr)
         exit
       else
         call msg('Run forecast until next assimilation')
         !call run_forecast_dummy(smtr_step_ptrs(ensemble_multitime%num_steps)%ptr, model_integr)
-        call run_forecast(smtr_step_ptrs(ensemble_multitime%num_steps)%ptr, model_integr)
+        call run_forecast_from_control(smtr_step_ptrs(ensemble_multitime%num_steps)%ptr, model_integr)
         now = now + step_integr
       end if
     end do
@@ -1265,12 +1274,12 @@ module ensemble_driver
 
       call msg('Start cycle')
       model_integr%rules%darules%da_begin = time_start
-      model_integr%rules%darules%da_window = time_end - time_start
+      model_integr%rules%darules%assim_window = time_end - time_start
       
       pDA_rules => model_integr%rules%darules
-      call set_observations(pDA_rules%station_path, pDA_rules%obs_list_path, &
-                          & pDA_rules%DA_begin, pDA_rules%da_window, &
-                          & pDA_rules%obs_items, pDA_rules%num_obs_items, &
+      call set_observations(pDA_rules%station_path, &
+                          & pDA_rules%DA_begin, pDA_rules%assim_window, pDA_rules%obs_files, &
+                          & pDA_rules%num_obs_files_assim, pDA_rules%num_obs_files_eval, &
                           & fu_species_transport(cloud), &
                           & fu_species_optical(cloud), model_integr%obs_ptr)
       if (error) then
@@ -1429,7 +1438,7 @@ module ensemble_driver
 
       real, dimension(:), pointer :: mdl_obs_val_single, obs_data, obs_var, ptr_val
       real, dimension(:,:), allocatable :: obs_loc, mdl_obs_val_all
-      integer :: obs_size, my_size, my_offset
+      integer :: my_size, my_offset
       character(len=*), parameter :: sub_name = 'assimilate'
       real, dimension(:,:), allocatable, save :: model_localisation_full, model_localisation_chunk
       real, dimension(:,:), allocatable :: obs_localisation, mdl_obs_ens
@@ -1437,7 +1446,7 @@ module ensemble_driver
       type(observationPointers), save :: obs_ptr
       logical :: scatter_ok
       integer, dimension(:), pointer :: offsets, sizes
-
+      integer, dimension(2) :: obs_size
 
       call msg('EnKS: mpi analysis')
       ! Normal errors can be unset and the integration proceeds with the ensemble
@@ -1446,22 +1455,22 @@ module ensemble_driver
 
       model_integr%rules%darules%da_begin = now
 
-      if (model_integr%obs_ptr%obs_size == 0) then
-        call set_error('ENKF: no observations', sub_name)
-      end if
+      !if (sum(model_integr%obs_ptr%obs_size) == 0) then
+      !  call set_error('ENKF: no observations', sub_name)
+      !end if
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
       
       obs_size = model_integr%obs_ptr%obs_size
-      mdl_obs_val_single => fu_work_array(obs_size)
-      obs_var => fu_work_array(obs_size)
+      mdl_obs_val_single => fu_work_array(sum(obs_size))
+      obs_var => fu_work_array(sum(obs_size))
 
-      allocate(mdl_obs_ens(obs_size, ens%ens_size), obs_localisation(2, obs_size), stat=stat)
+      allocate(mdl_obs_ens(sum(obs_size), ens%ens_size), obs_localisation(2, sum(obs_size)), stat=stat)
       if (fu_fails(stat == 0, 'Allocate master obs arrays failed', sub_name)) continue
       fatal_error = .not. sync_errors()
       if (error .or. fatal_error) return
 
-      call collect_model_data(model_integr%obs_ptr, mdl_obs_val_single, obs_size)
+      call collect_model_data(model_integr%obs_ptr, mdl_obs_val_single) !, obs_size)
       
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       if (darules%use_log_obs) then
@@ -1475,7 +1484,7 @@ module ensemble_driver
       call msg('ENKS: gather ensemble')
       call start_count('ensemble_transpose')
       call transpose_ensemble_in(ens%full_state, ens_full, ens%ens_size, ens%state_size, &
-                               & mdl_obs_val_single, mdl_obs_ens, obs_size)
+                               & mdl_obs_val_single, mdl_obs_ens, sum(obs_size))
       call stop_count('ensemble_transpose')
       if (error) return
 
@@ -1486,7 +1495,7 @@ module ensemble_driver
         obs_data = log(obs_data+0.02)
       end if
 
-      call collect_variance(model_integr%obs_ptr, obs_var, obs_size)
+      call collect_variance(model_integr%obs_ptr, obs_var) !, obs_size)
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
 
@@ -1527,7 +1536,10 @@ module ensemble_driver
       !call msg('mean of my chunk before:', sum(ens_full) / size(ens_full))
       if (.not. error) then
         call msg('ENKF: update openmp')
-        call enkf_update_openmp(ens_full, mdl_obs_ens, obs_data(1:obs_size), obs_var(1:obs_size), &
+        !
+        ! Guess, only assimilated observations are needed for the ensemble update
+        !
+        call enkf_update_openmp(ens_full, mdl_obs_ens, obs_data(1:obs_size(1)), obs_var(1:obs_size(1)), &
                               & obs_localisation, model_localisation_chunk, &
                               & model%rules%darules%loc_dist_m, &
                               & model%rules%darules%loc_type, &

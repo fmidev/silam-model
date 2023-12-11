@@ -79,6 +79,7 @@ module observations_vertical
      real, dimension(:), pointer :: chem_kernel
      real, dimension(:), pointer :: lon, lat ! (ind_col)
      real, dimension(:,:), pointer :: values, values_mdl, variance
+     real, dimension(:,:), pointer :: airmass_correction
      real, dimension(:,:), pointer :: weight, disp_area! ind_coef, ind_col
      integer, dimension(:,:), pointer :: ind_x, ind_y ! ind_coef, ind_col
      ! indices in dispersion grid for taking met data
@@ -93,6 +94,7 @@ module observations_vertical
      
      ! if the averaging kernel is OK or it has to be refined using the current meteo
      logical :: vert_kernel_valid
+     logical :: compensate_apriori = .false.
 
      integer :: num_columns = int_missing
      integer :: num_levels = int_missing ! in observation space
@@ -120,7 +122,7 @@ contains
   
   subroutine create_vert_obs(val_3d, std_3d, lon_2d, lat_2d, nx, ny, &
                            & chem_kernel, vert_kernel, &
-                           & have_projected_vert_kern, &
+                           & compensate_apriori, have_projected_vert_kern, &
                            & kern_lev_bnds_orig, &
                            & valid_time, label, vert_kern_unit, is_aod, &
                            & is_lidar, disp_grid, interp_method, obs)
@@ -132,7 +134,7 @@ contains
     real, dimension(:), intent(in) :: chem_kernel 
     ! in model or orginal vertical, (ilev_kern, ilev_obs, ix, iy)
     real, dimension(:,:,:,:), intent(in) :: vert_kernel 
-    logical, intent(in) :: have_projected_vert_kern
+    logical, intent(in) :: have_projected_vert_kern, compensate_apriori
     real, dimension(:,:,:), intent(in) :: kern_lev_bnds_orig ! not used if have_projected_vert_kern
     character(len=*) :: label
     type(silja_grid), intent(in) :: disp_grid
@@ -195,7 +197,7 @@ contains
     
     num_contrib = fu_nCoefs(interp)
 
-    allocate(obs%values(num_levs_obs, num_valid), &
+    allocate(obs%values(num_levs_obs, num_valid), obs%airmass_correction(num_levs_obs, num_valid), &
            & obs%values_mdl(num_levs_obs, num_valid), obs%variance(num_levs_obs, num_valid), &
            & obs%weight(num_contrib, num_valid), &
            & obs%ind_x(num_contrib, num_valid), obs%ind_y(num_contrib, num_valid), &
@@ -285,7 +287,6 @@ contains
         !call msg('coefs: ix_disp, iy_disp', ix_disp, iy_disp)
         !call msg('ind_1d', ind_disp_1d)
         
-
       end do
     end do
     if (fu_fails(ind_out == num_valid, 'Counts don''t match', 'create_vert_obs')) return
@@ -343,7 +344,7 @@ contains
     indices => fu_work_int_array()
     do isp_transp = 1, size(species_transp)
       call report(species_transp(isp_transp))
-      call msg('wave:', wavelength)
+      call msg('wavelength:', wavelength)
       call select_species(species_opt, size(species_opt), &
                         & fu_substance_name(species_transp(isp_transp)), &
                         & fu_mode(species_transp(isp_transp)), wavelength, indices, n_selected)
@@ -786,13 +787,15 @@ contains
     
     integer :: ind_val, ind_lev
     character(len=*), parameter :: fmt = '(A, " ", A, " ", F7.2, F7.2, I5, G12.3, G12.3, G12.3)'
+
+    if (smpi_global_tasks /= 1) call set_error("Not implemented in MPI", 'obs_to_file_vertical')
     
     do ind_val = 1, obs%num_columns
       do ind_lev = 1, obs%num_levels
         write(file_unit, fmt=fmt) trim(obs%label), trim(fu_str(obs%valid_time)), &
              & obs%lon(ind_val), obs%lat(ind_val), ind_lev, &
              & obs%values(ind_lev, ind_val), obs%values_mdl(ind_lev, ind_val), &
-             & obs%variance(ind_lev, ind_val)
+             & obs%variance(ind_lev, ind_val), obs%airmass_correction(ind_lev, ind_val)
       end do
     end do
   end subroutine obs_to_file_vertical
@@ -821,7 +824,7 @@ contains
     integer, intent(in) :: n_opt_species
     !type(TspeciesReference), dimension(:), intent(in) :: transp_to_opt_refs
 
-    real :: mass_transp
+    real :: mass_transp, sum_mass_transp, sum_mass_transp_kern, apriori_correction, check_mass
     integer, target :: isp_tr, ind_col
     integer :: ilev_obs, ilev_disp
     integer :: num_species_transp
@@ -835,6 +838,8 @@ contains
     ! counting. Since observe is called at the end of step, it seems reasonable to include that.
 
     if (obs%valid_time == now) return
+
+    obs%airmass_correction = -1
 
     if (obs%is_aod) then
       ! vertical kernel updated for each point, second dimension is transport
@@ -863,6 +868,8 @@ contains
                                                 & weight_past, rules_opt_dens, n_opt_species)
       do ilev_obs = 1, obs%num_levels
         obs%values_mdl(ilev_obs,ind_col) = 0.0
+        sum_mass_transp = 0.0
+        sum_mass_transp_kern = 0.0
         do isp_tr = 1, num_species_transp
           do ilev_disp = 1, map_c%n3d
             mass_transp = fu_get_mass(ind_col, ilev_disp, isp_tr)
@@ -870,10 +877,20 @@ contains
             ! chem_kernel includes conversion to observed unit
 !!$            call msg('mass_transp, chem_kern', mass_transp, obs%chem_kernel(isp_tr))
 !!$            call msg('isp_tr, vert_kernel', isp_tr, obs%vert_kernel(ilev_disp, ilev_obs, ind_vert_kern))
-            obs%values_mdl(ilev_obs,ind_col) = obs%values_mdl(ilev_obs,ind_col) &
-                 & + obs%vert_kernel(ilev_disp, ilev_obs, ind_vert_kern)*obs%chem_kernel(isp_tr) &
-                 &   * mass_transp
-            if (ind_vert_kern == 1) then
+            if (obs%compensate_apriori) then
+              sum_mass_transp = sum_mass_transp + obs%chem_kernel(isp_tr) * mass_transp
+              sum_mass_transp_kern = sum_mass_transp_kern &
+                   & + obs%vert_kernel(ilev_disp, ilev_obs, ind_vert_kern) * obs%chem_kernel(isp_tr) &
+                   &   * mass_transp
+              if (sum_mass_transp_kern .ne. 0) then
+                 obs%airmass_correction(ilev_obs, ind_col) = (sum_mass_transp / sum_mass_transp_kern)
+              else
+                 obs%airmass_correction(ilev_obs, ind_col) = -1
+              end if
+            else
+              obs%values_mdl(ilev_obs, ind_col) = obs%values_mdl(ilev_obs, ind_col) &
+                    & + obs%vert_kernel(ilev_disp, ilev_obs, ind_vert_kern)*obs%chem_kernel(isp_tr) &
+                    & * mass_transp
             end if
           end do ! dispersion level
         end do ! transport species
@@ -1167,9 +1184,14 @@ contains
         do isp_tr = 1, num_species_transp
           if (obs%chem_kernel(isp_tr) == 0.0) cycle
           do ilev_disp = 1, map_c%n3d
-            inject_val_chem_vert = inject_val &
-                 & * obs%vert_kernel(ilev_disp,ilev_obs,ind_vert_kern) &
-                 & * obs%chem_kernel(isp_tr) * thickness(ilev_disp)
+            if (obs%compensate_apriori) then
+              inject_val_chem_vert = inject_val &
+                  & * obs%chem_kernel(isp_tr) * thickness(ilev_disp)
+            else
+              inject_val_chem_vert = inject_val &
+                  & * obs%vert_kernel(ilev_disp,ilev_obs,ind_vert_kern) &
+                  & * obs%chem_kernel(isp_tr) * thickness(ilev_disp)
+            end if
             call inject_horiz(inject_val_chem_vert, ind_src, ind_col, ilev_disp, isp_tr)
           end do ! dispersion level
         end do ! transport species
@@ -1316,7 +1338,7 @@ contains
     character(len=*), intent(in) :: filename, var_name
     ! contributing observed species + transport species
     type(silam_species), dimension(:), intent(in) :: transp_species
-    type(silam_species), dimension(:), pointer :: obs_species, opt_species ! can be null()
+    type(silam_species), dimension(:), intent(in) :: obs_species, opt_species
     type(silja_time), intent(in) :: time_start, time_end
     type(t_vertical_observation), dimension(:), intent(out) :: obs_list
     integer, intent(out) :: num_obs
@@ -1327,13 +1349,14 @@ contains
     real, dimension(:,:,:,:), pointer :: vert_kernel
     integer :: ncid, stat, dim_id_time, dim_id_x, dim_id_y, nx, ny, dim_id_z, nz, var_id_kern_levs
     integer :: var_id_val, var_id_var, var_id_time, unit_len, ind_time, var_id_lat, var_id_lon, &
-         & label_len, var_id_vert_kern, dim_id_kern_layer
+         & label_len, var_id_vert_kern, dim_id_kern_layer, nz_kern
     character(len=*), parameter :: sub_name = 'set_vert_obs_from_nc'
-    character(len=clen) :: label,  unit, timestr, kern_unit
+    character(len=clen) :: label,  unit, timestr, kern_unit, compensate_apriori_str
     integer, dimension(:), pointer :: seconds_arr
     type(silja_time) :: ref_time, valid_time
     real :: fillValue, wavelength
-    logical :: is_aod, have_kern_layers, can_project_kernel, need_vert_kern, is_lidar
+    logical :: is_aod, have_kern_layers, can_project_kernel, need_vert_kern, &
+         & is_lidar, compensate_apriori
 
     nullify(vert_kernel, kern_lev_bnds, seconds_arr, chem_kernel)
 
@@ -1397,16 +1420,22 @@ contains
     seconds_arr => fu_work_int_array()
     stat = nf90_get_var(ncid, var_id_time, seconds_arr, count=(/num_obs/))
     if (fu_fails(stat == NF90_NOERR, 'Failed to get seconds', sub_name)) return
-
+    
     ! Is there an averaging kernel available?
     !
     !need_vert_kern = nz > 1
+
+    call msg('var_name:' // var_name)
+    is_aod = var_name == var_name_aod
+    is_lidar = var_name == var_name_lidar
  
     stat = nf90_inq_varid(ncid, 'kernel_layer_interfaces', var_id_kern_levs)
     have_kern_layers = stat == NF90_NOERR
     if (.not. have_kern_layers) then
-      if (nz > 1) then
-        need_vert_kern = .true.
+      if (nz <= 1 .or. compensate_apriori) then
+        need_vert_kern = .false.
+      else if (nz > 1) then
+        need_vert_kern = .true.  
       else 
         need_vert_kern = .false.
       end if
@@ -1418,6 +1447,22 @@ contains
       need_vert_kern = .true.
       stat = nf90_get_att(ncid, var_id_kern_levs, 'units', kern_unit)
       if (fu_fails(stat == NF90_NOERR, 'Failed to get kern_unit', sub_name)) return
+
+      stat = nf90_inquire_attribute(ncid, nf90_global, 'compensate_apriori', len=label_len)
+      if (fu_fails(stat == NF90_NOERR, 'Failed to inquire compensate apriori', sub_name)) return
+      if (fu_fails(label_len <= clen, 'Compensate apriori attribute too long', sub_name)) return
+      stat = nf90_get_att(ncid, nf90_global, 'compensate_apriori', compensate_apriori_str)
+      if (fu_fails(stat == NF90_NOERR, 'Failed to get compensate apriori', sub_name)) return
+
+      if (trim(compensate_apriori_str) == 'YES') then
+        compensate_apriori = .true.
+      else if (trim(compensate_apriori_str) == 'NO') then
+        compensate_apriori = .false.
+      else
+        call set_error('Strange compensate apriori string: ' // trim(compensate_apriori_str), sub_name)
+        return
+      end if
+
       can_project_kernel = kern_unit == 'm' &
            & .and. fu_leveltype(dispersion_vertical) == layer_btw_2_height
       if (can_project_kernel) then
@@ -1445,11 +1490,8 @@ contains
     stat = nf90_get_att(ncid, var_id_val, '_FillValue', fillValue)
     if (fu_fails(stat == NF90_NOERR, 'Failed to get _FillValue', sub_name)) return
 
-    call msg('var_name:' // var_name)
-    is_aod = var_name == var_name_aod
-    is_lidar = var_name == var_name_lidar
-
     if (is_aod) then
+      call msg('dbg observation is aod')
       stat = nf90_get_att(ncid, nf90_global, 'wavelength', wavelength)
       if (fu_fails(stat == NF90_NOERR, 'Failed to get wavelength', sub_name)) return
       allocate(chem_kernel(size(transp_species)), stat=stat)
@@ -1511,15 +1553,15 @@ contains
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       !std_3d = 0.1
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+      call msg('dbg calling create_vert_obs')
       call create_vert_obs(val_3d, std_3d, lon_2d, lat_2d, nx, ny, chem_kernel, vert_kernel, &
-                         & can_project_kernel .or. .not. need_vert_kern, kern_lev_bnds, &
-                         & valid_time, label, kern_unit, is_aod, is_lidar, &
+                         & compensate_apriori, &
+                         & can_project_kernel .or. .not. need_vert_kern,  &
+                         & kern_lev_bnds, valid_time, label, kern_unit, is_aod, is_lidar, &
                          & dispersion_grid, linear, obs_list(ind_time))
       if (error) return
       if (obs_list(ind_time)%is_aod) then
         call msg('Creating aod observation, ind_time', ind_time)
-        if (fu_fails(associated(opt_species), 'Optical species not associated', sub_name)) return
         call set_aod_obs(obs_list(ind_time), wavelength, transp_species, opt_species)
       else if (.not. defined(obs_list(ind_time))) then
         continue
@@ -1963,7 +2005,7 @@ contains
       lat_2d = (/40.0, 40.0, 40.5, 40.5/)
       
       call create_vert_obs(val_3d, std_3d, lon_2d, lat_2d, nx, ny, chem_kern, vert_kern, .false., &
-                         & kern_lev_bnds, &
+                         & .false., kern_lev_bnds, &
                          & valid_time, which, '', .false., .false., dispersion_grid, linear, obs)
 
     case ('column_so2_kern')
@@ -2018,7 +2060,7 @@ contains
       kern2d(:,:,1,2) = transpose(kern)
       kern2d(:,:,2,2) = transpose(kern)
 
-      call create_vert_obs(val_3d, std_3d, lon_2d, lat_2d, nx, ny, chem_kern, kern2d, .false., &
+      call create_vert_obs(val_3d, std_3d, lon_2d, lat_2d, nx, ny, chem_kern, kern2d, .false., .false., &
                          & kern_lev_bnds, valid_time, which, '', .false., .false., dispersion_grid, linear, obs)
       
 

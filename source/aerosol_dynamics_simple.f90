@@ -9,21 +9,11 @@ MODULE aer_dyn_simple
   !
   public init_AerDynSimple
   public transform_AerDynSimple
-  public transform_AerDynSimple_v2
   public set_rules_AerDynSimple
   public full_spec_lst_4_AerDynSimple
   public registerSpecies_4_AerDynSimple
   public AerDynSimple_input_needs
-  public fu_if_tla_required
-
-!  public make_cld_droplet_nbr_cnc
-
-  private fu_if_tla_required_ADS
-
-  interface fu_if_tla_required
-     module procedure fu_if_tla_required_ADS
-  end interface
-
+  public fu_tla_size_ADS
 
   !--------------------------------------------------------------------
   !
@@ -31,7 +21,6 @@ MODULE aer_dyn_simple
   !
   type Tchem_rules_AerDynSimple
     private
-    real, dimension(:,:), pointer :: NH3_HNO3_vs_NH4NO3_eq
     type(Taerosol_mode) :: modeCondensation, modeDroplet, modeCoarse
     character(len=substNmLen) :: ssltName4NO3c, ssltName4SO4c
     integer :: nOHaging, maxAgingModes
@@ -50,11 +39,11 @@ MODULE aer_dyn_simple
   ! Used for addressing the species
   !
   integer, private, save :: iSO4f_aer, iSO4c_aer, iSO4w_aer_sl, iH2SO4_gas_sl, iNH415SO4f_aer, iNH415SO4c_aer, &
-                          & iNH3, iHNO3, iNH4NO3_aer, iNO3c_aer, iHCl, iH2SO4
-  integer, dimension(:), pointer, private, save :: iSslt_aer => null(), iSsltNO3  => null(), &
-                                                 & iSsltSO4  => null(), iSsltCl  => null()
+                          & iNH3, iHNO3, iNH4NO3_aer, iNO3c_aer
+  integer, dimension(:), pointer, private, save :: iSslt_aer => null(), iSsltNO3  => null()
   integer, dimension(:,:), pointer, private, save :: iFresh  => null(), iAged  => null()
   real, dimension(:), pointer, private, save :: sslt_D => null()
+
   !
   ! Label of this module
   !
@@ -65,6 +54,12 @@ MODULE aer_dyn_simple
                                & NH3_HNO3_vs_NH4NO3_eq_nRH = 22, &
                                & NH3_HNO3_vs_NH4NO3_eq_Tmin = 149.0
 
+  real, dimension(NH3_HNO3_vs_NH4NO3_eq_nRH), parameter :: RH = (/0., 0.50, 0.54, 0.58, 0.62, 0.66, 0.70, &
+       & 0.73, 0.76, 0.79, 0.82,  0.85, 0.87, 0.89, 0.91, 0.93, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0/)
+
+  !!!  Lookup table
+  real, dimension(NH3_HNO3_vs_NH4NO3_eq_nRH,NH3_HNO3_vs_NH4NO3_eq_nT), &
+                                 & private :: NH3_HNO3_vs_NH4NO3_eq = F_NAN
 
   CONTAINS
 
@@ -74,11 +69,65 @@ MODULE aer_dyn_simple
   subroutine init_AerDynSimple(species_lst_initial)
 
     ! Set modes, transport- and short-living species arrays 
+    ! Create  NH3_HNO3_vs_NH4NO3 LUT
 
     implicit none
 
     ! Imported parameter
     type(silam_species), dimension(:), allocatable, intent(out) :: species_lst_initial
+
+    real, dimension(7) :: a, b, c
+    integer :: nT, iRh, nRh, iT, i
+    real:: dryVFract, m, T
+    type(TwetParticle) :: wetParticle
+
+    nT = NH3_HNO3_vs_NH4NO3_eq_nT
+    nRH = NH3_HNO3_vs_NH4NO3_eq_nRH
+    
+    ! RH dependent equilibrium from Mozurkewich 1993 
+    a(1:7) = (/ -9.293,   33.983,  45.4557, -28.5816,  5.9599, -0.44257, 0.003962 /) 
+    b(1:7) = (/  15876.0, 1259.4,  2867.7,  -1704.56,  378.94, -36.144,  1.2071   /)
+    c(1:7) = (/  11.208, -5.223,  -6.318,    4.013,   -0.822,   0.0564,  0.0      /)
+    
+    do iRH = 1, nRh
+      if (RH(iRH) > fu_deliquescence_humidity(fu_get_material_ptr('NH4NO3')))then
+        wetParticle = fu_wet_particle_features(fu_get_material_ptr('NH4NO3'), RH(iRH))
+        dryVFract = 1./(wetParticle%fGrowthFactor * wetParticle%fGrowthFactor * wetParticle%fGrowthFactor)
+        m = fu_dry_part_density(fu_get_material_ptr('NH4NO3')) * dryVFract / &
+             & (fu_mole_mass(fu_get_material_ptr('NH4NO3')) * 1000.0 * (1. - dryVFract)) ! molality [mol/kgH2O]
+        
+        do iT = 1, nT
+          T = NH3_HNO3_vs_NH4NO3_eq_Tmin + real(iT)
+          NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = 2*log(m) - 2.3523 * m**0.5 / (1.+ 0.925 * m**0.5)
+          do i = 0, 6
+            NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = &
+                          & NH3_HNO3_vs_NH4NO3_eq(iRH, iT) + &
+                          & (a(i+1) - b(i+1) / T + c(i+1) * log(T)) * m**(i/2.)
+          enddo
+          NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = &
+                     & exp(NH3_HNO3_vs_NH4NO3_eq(iRH, iT)) * &
+                     & 1.0e-8 / (gas_constant_uni*gas_constant_uni*T*T)   ! unit conversion from nb**2 partial pressure
+        enddo
+      else
+        do iT = 1, nT
+          T = NH3_HNO3_vs_NH4NO3_eq_Tmin + real(iT) 
+          NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = exp(118.87-24084/T-6.025*log(T)) * &
+                     & 1.0e-8 / (gas_constant_uni*gas_constant_uni*T*T)   ! unit conversion from nb**2 partial pressure
+        enddo
+      endif
+    enddo
+
+!!!Old!!!
+!    allocate(NH3_HNO3_vs_NH4NO3_eq(nIndT))
+!    do iTmp = 1, nIndT
+!      fTempr = real(iTmp) + 72.15
+! Wrong way (loss of accuracy, zero for already -10C):
+!      NH3_HNO3_vs_NH4NO3_eq(iTmp) = 1.12e22*(298./fTempr)**6.1 * exp(-24220./fTempr)
+!
+! Right way: all goes OK down to -100C
+!      NH3_HNO3_vs_NH4NO3_eq(iTmp) = exp(50.7702 + 6.1*log(298./fTempr) - (24220./fTempr))
+!    enddo    
+!!!Old!!!
 
     
   end subroutine init_AerDynSimple
@@ -282,22 +331,31 @@ MODULE aer_dyn_simple
             call msg('Simple aerosol dynamics owns:' + fu_substance_name(speciesEmis(indices(iTmp))))
           endif
         enddo
-        if(error)return
-        ! NaNO3  
-        if(rulesAerDynSimple%SSLTmodes4NO3c)then
-          !do iTmp = 1, nSelected
-          !  call set_species(speciesTmp, fu_get_material_ptr('NO3_c'), fu_mode(speciesEmis(indices(iTmp))))
-          !  call addSpecies(speciesTransp, nSpeciesTransp, (/speciesTmp/), 1)
-          !enddo
-          call set_error('Seasalt modes for coarse NO3 do not work yet', 'full_spec_lst_4_AerDynSimple')
-        else     
-          call set_species(speciesTmp, fu_get_material_ptr('NO3_c'), rulesAerDynSimple%modeCoarse)
-          call addSpecies(speciesTransp, nSpeciesTransp, (/speciesTmp/), 1)
-        endif
-      else
-        call set_error(fu_connect_strings('Cannot find my seasalt', rulesAerDynSimple%ssltName4NO3c), &
-                     & 'full_spec_lst_4_AerDynSimple')
+      if(error)return
+      ! NaNO3  
+      if(rulesAerDynSimple%SSLTmodes4NO3c)then
+        !do iTmp = 1, nSelected
+        !  call set_species(speciesTmp, fu_get_material_ptr('NO3_c'), fu_mode(speciesEmis(indices(iTmp))))
+        !  call addSpecies(speciesTransp, nSpeciesTransp, (/speciesTmp/), 1)
+        !enddo
+        call set_error('Seasalt modes for coarse NO3 do not work yet', 'full_spec_lst_4_AerDynSimple')
+      else     
+        call set_species(speciesTmp, fu_get_material_ptr('NO3_c'), rulesAerDynSimple%modeCoarse)
+        call addSpecies(speciesTransp, nSpeciesTransp, (/speciesTmp/), 1)
       endif
+      else
+        !
+        ! If sea salt has not been found in emission species, check the transport - may be,
+        ! they are already there, owing to boundaries or alike
+        !
+        call select_species(speciesTransp, nSpeciesTransp, rulesAerDynSimple%ssltName4NO3c, &
+                          & aerosol_mode_missing, real_missing, indices, nSelected)
+        if(nSelected == 0)then
+          call set_error('Cannot find my seasalt:' + rulesAerDynSimple%ssltName4NO3c, &
+                       & 'full_spec_lst_4_AerDynSimple')
+          return
+        endif
+      endif  ! nSelected
     endif   ! NO3 sticking coef is > 0
         
     ! Aging reactions with OH (black carbon or anything else - materials of fresh and aged species 
@@ -472,8 +530,8 @@ MODULE aer_dyn_simple
 
   !*******************************************************************
 
-  subroutine transform_AerDynSimple(vMassTrn, vMassSL, garbage, rulesAerDynSimple, fLowCncThresh, &
-                                  & metdat, seconds, zenith_cos, print_it)
+  subroutine transform_AerDynSimple(vMassTrn, vMassSL, TL, rulesAerDynSimple, &
+                                  & metdat, seconds, zenith_cos)
     !
     ! Closes-up the loop for the gas-phase chemistry that stops at creating the aerosols
     !
@@ -481,764 +539,66 @@ MODULE aer_dyn_simple
 
     ! Imported parameters
     real, dimension(:), intent(inout) :: vMassTrn, vMassSL
+    real, dimension(:), pointer :: TL ! Save/restore 
     type(Tchem_rules_AerDynSimple), intent(in) :: rulesAerDynSimple
-    real, dimension(:), intent(inout) :: garbage
-    real, dimension(:), intent(in) :: metdat, fLowCncThresh
+    real, dimension(:), intent(in) :: metdat
+    real, dimension(:), pointer :: TLams, TLamn, TLcn ! Save/restore 
     real, intent(in) :: seconds, zenith_cos
-    logical, intent(out) :: print_it
+    character(len = *), parameter :: sub_name = 'transform_AerDynSimple'
 
-    ! Local variables
-    integer :: iMod, indT, indRH, iTmp
-    real :: NHx_avail, NO3_tot, CEQUIL, sqrtmp, differ, fSrfRatio, dSO4, D_HNO3, mfp, sink, Kn, na, sun, cOH_forced, aging
-    type(TwetParticle) :: wetParticle
-    
-    print_it = .false.  ! set to true and chemistry manager will give complete dump for this cell
+    if (associated(TL)) then
+       if (fu_fails(size(TL) == 6, "Wrong size TLA", sub_name)) return
+       TLams => TL(1:3) !!size 3
+       TLamn => TL(4:5) !! size 2
+       TLcn  => TL(6:6)  !! size 1
+    else
+      TLams => null()
+      TLamn => null()
+      TLcn  => null()
+    endif
  
-    ! Aging reactions with OH (black carbon or anything else - materials of fresh and aged species 
-    ! and rate with OH taken from control file). Can be several.
-    !
-    if(rulesAerDynSimple%nOHaging > 0)then
-      sun = max(zenith_cos, 0.0) * (1. - metdat(ind_cloud_cvr)*0.5)
-      cOH_forced = fu_OH_cnc_forced(sun, metdat(ind_hgt))
-      do iTmp = 1, rulesAerDynSimple%nOHaging
-        aging = seconds * rulesAerDynSimple%OHaging_rates(iTmp) * cOH_forced 
-        do iMod = 1, rulesAerDynSimple%maxAgingModes
-          if(iFresh(iTmp, iMod) < 1)cycle
-          differ = vMassTrn(iFresh(iTmp, iMod))*aging
-          if(differ >= vMassTrn(iFresh(iTmp, iMod)))then
-             vMassTrn(iAged(iTmp, iMod)) = vMassTrn(iAged(iTmp, iMod)) + vMassTrn(iFresh(iTmp, iMod))
-             vMassTrn(iFresh(iTmp, iMod)) = 0.0
-          else
-            vMassTrn(iFresh(iTmp, iMod)) = vMassTrn(iFresh(iTmp, iMod)) - differ
-            vMassTrn(iAged(iTmp, iMod)) = vMassTrn(iAged(iTmp, iMod)) + differ
-          endif
-        enddo
-      enddo 
-    endif
-
-
-    ! Two short-living species are sent in: H2SO4 and SO4 - from gas-phase and heterogeneous
-    ! oxidations, respectively.
-    ! First move sulphates created this timestep to sulphuric acid aerosol
-    !
+    !! Aging not related to others. Can be done at any time
+    call ocAging(vMassTrn, rulesAerDynSimple, metdat, zenith_cos, seconds)
+    
+    !! These should be ordered
     if (seconds > 0) then
-      if(iH2SO4_gas_sl /= int_missing)then                                 ! fine mode
-        vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) + vMassSL(iH2SO4_gas_sl)
-        vMassSL(iH2SO4_gas_sl) = 0.0 
-      endif
-      if(iSO4w_aer_sl /= int_missing)then                                   ! coarse mode
-        vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) + vMassSL(iSO4w_aer_sl)
-        vMassSL(iSO4w_aer_sl) = 0.0 
-      endif
+        ! Move h2so4 from sort-lived
+
+!        if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("1")
+        call so4_h2so4(vMassTrn, vMassSL, seconds)
+!        if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("2")
+
+
+        ! Break ammonium nitrate, so sulphates can consume NH3
+        call break_nh4no3(vMassTrn,  seconds)
+
+        !SO4 consumes free ammonia (3 TL vlues)
+        call so4_nh3(vMassTrn, TLams,rulesAerDynSimple, metdat, seconds)
+!        if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("3")
+        
+        !restore nh4no3 to equilibrium (2 TL values)
+        call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
+
+        !create coarse nitrates (1 TL value)
+        call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
     else
-      ! Adjoint
-      if(iH2SO4_gas_sl /= int_missing)then                                 ! fine mode
-        vMassSL(iH2SO4_gas_sl) = vMassTrn(iSO4f_aer)
-      endif
-      if(iSO4w_aer_sl /= int_missing)then                                   ! coarse mode
-        vMassSL(iSO4w_aer_sl) = vMassTrn(iSO4c_aer)
-      endif
-      return
-    end if
+        call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
+        !create coarse nitrates (1 TL value)
 
-    if(iNH3 == int_missing)then
-      return                      ! If no NH3 in the run we're done
-    else
-      if((vMassTrn(iNH3)  < fLowCncThresh(iNH3)))then
-        garbage(iNH3) = garbage(iNH3) + vMassTrn(iNH3)
-        vMassTrn(iNH3) = 0.
-        return
-      endif
-    
-      if(iNH4NO3_aer /= int_missing)then
-        if(vMassTrn(iNH4NO3_aer) < fLowCncThresh(iNH4NO3_aer))then
-          garbage(iNH4NO3_aer) = garbage(iNH4NO3_aer) + vMassTrn(iNH4NO3_aer)
-          vMassTrn(iNH4NO3_aer) = 0.
-        endif
-        if(vMassTrn(iHNO3)  < fLowCncThresh(iHNO3))then
-          garbage(iHNO3) = garbage(iHNO3) + vMassTrn(iHNO3)
-          vMassTrn(iHNO3) = 0.
-        endif
-      endif
-    endif ! NH3 exists
-    !
-    ! Ammonium exists, has to be something to catch it: sulphates and/or nitrates
-    !
-    if(iNH415SO4f_aer /= int_missing)then
-      if(vMassTrn(iSO4c_aer)  < fLowCncThresh(iSO4c_aer))then
-        garbage(iSO4c_aer) = garbage(iSO4c_aer) + vMassTrn(iSO4c_aer)
-        vMassTrn(iSO4c_aer) = 0.0
-      endif
-            
-      if(vMassTrn(iSO4f_aer) < fLowCncThresh(iSO4f_aer))then
-        garbage(iSO4f_aer) = garbage(iSO4f_aer) + vMassTrn(iSO4f_aer)
-        vMassTrn(iSO4f_aer) = 0.0
-      endif
-    
-      
-      ! Valent sulphates take all what they need out of NH3. Ammonium sulphate receives the product
-      
-      if((vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer))*1.5 >= vMassTrn(iNH3))then ! 1 mole of NH4_1.5_SO4 takes 1.5 moles of NH3
-          !
-          ! Too little NH3, sulpathes take it all
-          !
-          ! ATTENTION.
-          !
-          ! Here we can break the ammonium nitrate and give all what sulphates need. In principle,
-          ! this can be real if desintegration of the NH4NO3 and uptake to sulphates are fast.
-          ! So far, this is rather modelled step-wise. Indeed, if we take all NH3, it is all but
-          ! certain that NH4NO3 will partly break - then at the next step we shall pick up more
-          ! to sulphates. This is a delay. However, in cold temperatures nitrates will not break, 
-          ! which justifies the step-wise approach.
-          !
-!call msg('1,vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )',vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer))
-!call msg('1,vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)',vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer))
-!call msg('1,vMassTrn(iNH3), vMassTrn(iNH3)/1.5...............',vMassTrn(iNH3), vMassTrn(iNH3)/1.5)
-          !
-          ! Here we distribute the NH3 mass in accordance with the available surface.
-          ! In case of strong difference between the masses in coarse and fine fractions,
-          ! the small mass of sulphates goes below zero due to non-linearity of the 
-          ! NH3 fractionation. Have to look after that
-          !
-          
-          if(vMassTrn(iSO4c_aer)  < fLowCncThresh(iSO4c_aer))then  ! all to fine
-            dSO4 = min(vMassTrn(iNH3) / 1.5, vMassTrn(iSO4f_aer))
-            vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + dSO4
-            vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) - dSO4
-            vMassTrn(iNH3) = vMassTrn(iNH3) - dSO4 * 1.5
-            
-            if(vMassTrn(iNH3) < 0.)then
-              if(abs(vMassTrn(iNH3)) < dSO4 * 1.5e-6 )then
-                garbage(iNH3) = garbage(iNH3) + vMassTrn(iNH3)
-                vMassTrn(iNH3) = 0.0
-              else
-                call msg('NH3, dSO4', vMassTrn(iNH3), dSO4)
-                call set_error('NH3 negative 1', 'SAD')
-                call msg('vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )',vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer))
-                call msg('vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)',vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer))
-                return
-              endif   
-            endif
-            
-          elseif(vMassTrn(iSO4f_aer) < fLowCncThresh(iSO4f_aer))then ! all to coarse
-            dSO4 = min(vMassTrn(iNH3) / 1.5, vMassTrn(iSO4c_aer))
-            vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + dSO4
-            vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) - dSO4
-            vMassTrn(iNH3) = vMassTrn(iNH3) - dSO4 * 1.5
-            
-            if(vMassTrn(iNH3)  < 0.)then
-              if(abs(vMassTrn(iNH3)) < dSO4 * 1.5e-6 )then
-                garbage(iNH3) = garbage(iNH3) + vMassTrn(iNH3)
-                vMassTrn(iNH3) = 0.0
-              else
-                call msg('NH3, dSO4', vMassTrn(iNH3), dSO4)
-                call set_error('NH3 negative 2', 'SAD')
-                call msg('vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )',vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer))
-                call msg('vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)',vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer))
-                return
-              endif   
-            endif
-          else
-            fSrfRatio = rulesAerDynSimple%fParticleSrfRatio * (vMassTrn(iSO4c_aer))**0.6666666666666667
-            fSrfRatio = fSrfRatio / (fSrfRatio + (vMassTrn(iSO4f_aer))**0.6666666666666667)
-          
-            dSO4 = min(vMassTrn(iNH3) / 1.5 * fSrfRatio, vMassTrn(iSO4c_aer)) ! not more than available!
+        call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
+        !restore nh4no3 to equilibrium (2 TL values)
+        
+        call so4_nh3(vMassTrn, TLams, rulesAerDynSimple, metdat, seconds)
+        !SO4 consumes free ammonia (3 TL vlues)
 
-!call msg('2,fSrfRatio,dSO4                                  .',fSrfRatio,dSO4)
+        call break_nh4no3(vMassTrn,  seconds)
+        ! Break ammonium nitrate, so sulphates can consume NH3
 
-            vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + dSO4
-            vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) - dSO4
-            dSO4 = vMassTrn(iNH3) / 1.5 - dSO4
-
-!call msg('3,vMassTrn(iSO4c_aer),dSO4                        .',vMassTrn(iSO4c_aer),dSO4)
-
-            vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + dSO4
-            vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) - dSO4
-            
-            if(vMassTrn(iSO4f_aer) < 0.)then  ! return back to the coarse fraction
-              vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iSO4f_aer)
-              vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) - vMassTrn(iSO4f_aer)
-              vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer)
-              vMassTrn(iSO4f_aer) = 0.
-            endif
-            vMassTrn(iNH3) = 0.
-          endif
-         
-          
-if (vMassTrn(iNH415SO4f_aer) < 0.0 .or. vMassTrn(iNH415SO4c_aer) < 0.0)then
-call msg('1,vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )',vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer))
-call msg('1,vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)',vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer))
-call msg('1,vMassTrn(iNH3), vMassTrn(iNH3)/1.5...............',vMassTrn(iNH3), vMassTrn(iNH3)/1.5)
-call msg('1,fSrfRatio,dSO4                                  .',fSrfRatio,dSO4)                 
-endif
-if (vMassTrn(iSO4f_aer) < 0.0 .or. vMassTrn(iSO4c_aer) < 0.0)then
-call msg('2,vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )',vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer))
-call msg('2,vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)',vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer))
-call msg('2,vMassTrn(iNH3), vMassTrn(iNH3)/1.5...............',vMassTrn(iNH3), vMassTrn(iNH3)/1.5)
-call msg('2,fSrfRatio,dSO4                                  .',fSrfRatio,dSO4)                
-
-        vMassTrn(iSO4f_aer)=max(0., vMassTrn(iSO4f_aer))
-        vMassTrn(iSO4c_aer)=max(0., vMassTrn(iSO4c_aer))
-
-!FIXME:  above two lines are Workaround. Cold be treted in more reasonable way, probably
-! Got this message 
-!Transformation
-!2,vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )  -0.2168404E-17   0.0000000E+00
-!2,vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)   0.5709966E-11   0.2430813E-10
-!2,vMassTrn(iNH3), vMassTrn(iNH3)/1.5...............   0.0000000E+00   0.0000000E+00
-!2,fSrfRatio,dSO4                                  .   0.0000000E+00   0.2818207E-10
-
-
-endif
-          
-!call msg('4,vMassTrn(iSO4f_aer),vMassTrn(iNH415SO4f_aer)    .',vMassTrn(iSO4f_aer),vMassTrn(iNH415SO4f_aer))
-!call msg('')
-          
-          !
-          ! If there is no ammonium nitrate, return
-          !
-          if(iNH4NO3_aer == int_missing)return
-          !
-          ! We assume that the break-up of ammonium nitrate can take place if the humidity is above 
-          ! the deliquecence point and temperature is above zero - i.e., inside droplets of the 
-          ! small fraction.
-          !
-          
-          if(metdat(ind_tempr) > 273.15 .and. metdat(ind_rh) > 0.5 .and. &
-           & vMassTrn(iNH4NO3_aer) > fLowCncThresh(iNH4NO3_aer))then
-            !
-            ! extract needed amount of NH3 from the ammonum nitrate
-            !
-!call msg('NH4NO3 break')
-            if(vMassTrn(iSO4f_aer) >= vMassTrn(iNH4NO3_aer) / 1.5)then 
-              !
-              ! Too little NH4NO3: full breakup
-              !
-              vMassTrn(iHNO3) = vMassTrn(iHNO3) + vMassTrn(iNH4NO3_aer)
-              vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iNH4NO3_aer) / 1.5
-              vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) - vMassTrn(iNH4NO3_aer) / 1.5
-              vMassTrn(iNH4NO3_aer) = 0.
-              return                                         ! no ammonia left anywhere. We are done.
-            else
-              !
-              ! Enough NH4NO3, use-up all H2SO4 and SO4
-              !
-              vMassTrn(iHNO3) = vMassTrn(iHNO3) + vMassTrn(iSO4f_aer) * 1.5
-              vMassTrn(iNH4NO3_aer) = vMassTrn(iNH4NO3_aer) - vMassTrn(iSO4f_aer) * 1.5
-              vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iSO4f_aer)
-              vMassTrn(iSO4f_aer) = 0.
-            endif
-          endif
-
-      else 
-          !
-          ! abundance of ammonia, not enough H2SO4+SO4, free ammonia left
-          !
-          vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iSO4f_aer)
-          vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + vMassTrn(iSO4c_aer)
-          vMassTrn(iNH3) = vMassTrn(iNH3) - (vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer)) * 1.5
-          vMassTrn(iSO4c_aer) = 0.0
-          vMassTrn(iSO4f_aer) = 0.0
-      endif  ! NH3-SO4 ratio
-    endif  ! iNH415SO4f_aer exists
-
-    if(iHNO3 == int_missing .or. iNH4NO3_aer == int_missing)return ! no nitrates
-
-    ! NH3-HNO3-NH4NO3 equilibrium
-    indT = nint(metdat(ind_tempr)-NH3_HNO3_vs_NH4NO3_eq_Tmin)
-    if (indT < 1) then
-      call msg("Temperature below NH4NO3eq lookup table range", metdat(ind_tempr))
-      indT = 1
-    elseif (indT > NH3_HNO3_vs_NH4NO3_eq_nT) then
-      call msg("Temperature above NH4NO3eq lookup table range", metdat(ind_tempr))
-      indT = NH3_HNO3_vs_NH4NO3_eq_nT
-    endif
-
-    if (metdat(ind_rh) >= 1.0) then
-        indRH = 22
-    elseif (metdat(ind_rh) >= 0.95) then
-        indRH = int((metdat(ind_rh) - 0.775)*100) 
-    elseif (metdat(ind_rh) >= 0.85) then
-        indRH = int((metdat(ind_rh) - 0.60)*50) 
-    elseif (metdat(ind_rh) >= 0.70) then
-        indRH = int((metdat(ind_rh) - 0.475)*33.333) 
-    elseif (metdat(ind_rh) >= 0.50) then
-        indRH = int((metdat(ind_rh) - 0.40)*25)
-    else
-        indRH = 1
-    endif
-    
-    !Species here in concentrations; CEQUIL given for nb**2 partial pressures
-    CEQUIL = rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(indRH, indT)
-    
-    NHx_avail = vMassTrn(iNH3) + vMassTrn(iNH4NO3_aer)
-    NO3_tot = vMassTrn(iHNO3) + vMassTrn(iNH4NO3_aer)
-
-    if(vMassTrn(iHNO3) < 0.0)then
-      call msg('Negative HNO3 before HNO3-NH3-NO3 eq')
-    endif
-
-    if(CEQUIL < 1.0e-23)then
-      !
-      ! Too cold, all goes to aerosol. One component is fully consumed
-      !
-!call msg('Freesing out: T, cequil =',indT+71.65, CEQUIL)
-      if(NO3_tot >= NHx_avail)then
-        ! NHx fully consumed
-        vMassTrn(iHNO3)= NO3_tot - NHx_avail
-        vMassTrn(iNH3) = 0.0
-        vMassTrn(iNH4NO3_aer) = NHx_avail
-      else
-        ! NO3 fully consumed
-        vMassTrn(iHNO3)= 0.0
-        vMassTrn(iNH3) = NHx_avail - NO3_tot
-        vMassTrn(iNH4NO3_aer) = NO3_tot
-      endif
-
-    elseIF(NHx_avail * NO3_tot <= CEQUIL)THEN
-      !
-      ! Desintegration of ammonium nitrate, i.e. NO3 and NH4_N go to zero
-      ! Do not touch NH4_aer - it stores NH4_S.
-      !
-      vMassTrn(iNH3) = NHx_avail
-      vMassTrn(iHNO3) = NO3_tot
-      vMassTrn(iNH4NO3_aer) = 0.
-
-    ELSE
-      !
-      ! Equilibrium. Note possible full consumption of NH3 or HNO3
-      !
-      differ = (NO3_tot - NHx_avail)*0.5
-      sqrtmp = sqrt(differ * differ + CEQUIL)
-      vMassTrn(iHNO3)= sqrtmp + differ
-      vMassTrn(iNH3) = sqrtmp - differ
-      vMassTrn(iNH4NO3_aer) = NHx_avail - vMassTrn(iNH3)
-
-      if(vMassTrn(iHNO3) < 0.0)then ! Check for full consumption
-        call msg('vMassTrn(iHNO3) < 0.0',vMassTrn(iHNO3))
-        if(-1.* vMassTrn(iHNO3) < 1.e-5 * NO3_tot .or. (sqrtmp .eps. -1*differ))then
-          vMassTrn(iHNO3) = 0.
-        else
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, sqrtmp=',   sqrtmp)
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, differ=',   differ)
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, fNH3',   NHx_avail)
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, HNO3:',  vMassTrn(iHNO3))
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, NH4NO3:',   vMassTrn(iNH4NO3_aer))
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, NH3:',   vMassTrn(iNH3))
-        endif
-      endif
-
-      if(vMassTrn(iNH3) < 0.0)then ! Check for full consumption
-        call msg('vMassTrn(iNH3) < 0.0',vMassTrn(iNH3))
-        if(-1.* vMassTrn(iNH3) < 1.e-5 * NHx_avail .or. (sqrtmp .eps. differ))then
-          vMassTrn(iNH3) = 0.
-        else
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, sqrtmp=',   sqrtmp)
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, differ=',   differ)
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, tNH3',   NHx_avail)
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, HNO3:',   vMassTrn(iHNO3))
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, NH4NO3:', vMassTrn(iNH4NO3_aer))
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, NH3:',   vMassTrn(iNH3))
-        endif
-      endif
-
-      if(vMassTrn(iNH4NO3_aer) < 0.0)then ! Check for full consumption
-        call msg('2vMassTrn(iNH4_aer) < 0.0',vMassTrn(iNH4NO3_aer))
-        if(-1.* vMassTrn(iNH4NO3_aer) < 1.e-6 * NHx_avail+NO3_tot .or. (NHx_avail .eps. vMassTrn(iNH3)))then
-          vMassTrn(iNH4NO3_aer) = 0.
-        else
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, sqrtmp=',   sqrtmp)
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, differ=',   differ)
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, HNO3:',   vMassTrn(iHNO3))
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, NH4NO3:', vMassTrn(iNH4NO3_aer))
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, NH3:',   vMassTrn(iNH3))
-        endif
-      endif
-
-    endif 
-    
-    ! And finaly try to make some more NO3 in seasalt particles (NaNO3) 
-    ! Rather retarded parmeterization assuming diffusion of gas to particle srf as main limit, 
-    ! amount of sodium as sharp limit and a tunable sticking coefficient to be interpreted however we wish.
-    !
-    if(rulesAerDynSimple%no3_StickingCoeff > 0.0)then
-        if(vMassTrn(iHNO3) > 0.0)then
-            na = 0
-            do iMod = 1, size(iSslt_aer)
-                na = na + vMassTrn(iSslt_aer(iMod)) * 0.4 / 23.0e-3 ! moles of sodium (0.3 ->0.4 includes other cations)
-            enddo
-            if(na > 0)then
-                wetParticle = fu_wet_particle_features(fu_get_material_ptr('sslt'), metdat(ind_rh))
-
-                D_HNO3 = 13.13e-6 * (metdat(ind_tempr)/273.15)**1.75 * std_pressure_sl/metdat(ind_pres)  ! diffusion coefficient [m2/s]
-                mfp = 2. * D_HNO3 * sqrt(pi * fu_mole_mass(fu_get_material_ptr('HNO3')) / &
-                                              & (8. * gas_constant_uni * metdat(ind_tempr)))! mean free path [m]
-                sink = 0.0
-                do iMod = 1, size(iSslt_aer)
-                    Kn = 2. * mfp / wetParticle%fGrowthFactor / sslt_D(iMod)
-                    sink = sink + 12. * wetParticle%fGrowthFactor * D_HNO3 *  vMassTrn(iSslt_aer(iMod)) *  &
-                        & (1. + Kn) / (1. + (2. * Kn * (1. + Kn)) / rulesAerDynSimple%no3_StickingCoeff) / &  
-                        & (fu_dry_part_density(fu_get_material_ptr('sslt')) * &
-                        & sslt_D(iMod) * sslt_D(iMod))
-                enddo
-                if(sink > 0)then
-                    differ = vMassTrn(iHNO3) * (1. - 1. / (1. + seconds * sink))  ! change in gas concentration 
-                    if(vMassTrn(iNO3c_aer) + differ > na)then
-                        differ = max(0., na - vMassTrn(iNO3c_aer))
-                    endif
-                    if(differ > vMassTrn(iHNO3))differ = vMassTrn(iHNO3)
-                    vMassTrn(iNO3c_aer) = vMassTrn(iNO3c_aer) + differ
-                    vMassTrn(iHNO3) = vMassTrn(iHNO3) - differ
-                endif
-            endif
-        endif
+        call so4_h2so4(vMassTrn, vMassSL, seconds)
+        ! Move h2so4 from sort-lived
     endif
 
   end subroutine transform_AerDynSimple
-                                  
-  !*******************************************************************
-
-  subroutine transform_AerDynSimple_v2(vMassTrn, vMassSL, garbage, rulesAerDynSimple, fLowCncThresh, &
-                                  & metdat, seconds, print_it)
-    !
-    ! Closes-up the loop for the gas-phase chemistry that stops at creating the aerosols
-    !
-    implicit none
-
-    ! Imported parameters
-    real, dimension(:), intent(inout) :: vMassTrn, vMassSL
-    type(Tchem_rules_AerDynSimple), intent(in) :: rulesAerDynSimple
-    real, dimension(:), intent(inout) :: garbage
-    real, dimension(:), intent(in) :: metdat, fLowCncThresh
-    real, intent(in) :: seconds
-    logical, intent(out) :: print_it
-
-    ! Local variables
-    integer :: iMod, indT, indRH
-    real :: NHx_avail, NO3_tot, CEQUIL, sqrtmp, differ, fSrfRatio, dSO4, D_HNO3, mfp, Kn, na, sink
-    real, dimension(:), pointer :: sinks
-    type(TwetParticle) :: wetParticle
-    
-    print_it = .false.  ! set to true and chemistry manager will give complete dump for this cell
-
-    ! Two short-living species are sent in: H2SO4 and SO4 - from gas-phase and heterogeneous
-    ! oxidations, respectively.
-    ! First move sulphates created this timestep to sulphuric acid aerosol
-    !
-    if (seconds > 0) then
-      if(iH2SO4_gas_sl /= int_missing)then                                 ! fine mode
-        vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) + vMassSL(iH2SO4_gas_sl)
-        vMassSL(iH2SO4_gas_sl) = 0.0 
-      endif
-      if(iSO4w_aer_sl /= int_missing)then                                   ! coarse mode
-        vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) + vMassSL(iSO4w_aer_sl)
-        vMassSL(iSO4w_aer_sl) = 0.0 
-      endif
-    else
-      ! Adjoint
-      if(iH2SO4_gas_sl /= int_missing)then                                 ! fine mode
-        vMassSL(iH2SO4_gas_sl) = vMassTrn(iSO4f_aer)
-      endif
-      if(iSO4w_aer_sl /= int_missing)then                                   ! coarse mode
-        vMassSL(iSO4w_aer_sl) = vMassTrn(iSO4c_aer)
-      endif
-      return
-    end if
-
-    if(iNH3 == int_missing)then
-      return                      ! If no NH3 in the run we're done
-    else
-      if(iNH4NO3_aer /= int_missing)then
-        if(vMassTrn(iNH4NO3_aer) < fLowCncThresh(iNH4NO3_aer))then
-          !
-          ! Complicated: if ammonium nitrate is not existent AND either NH3 or HNO3 absent too,
-          ! we are done. Store appropriate values into garbage array and exit
-          !
-          garbage(iNH4NO3_aer) = garbage(iNH4NO3_aer) + vMassTrn(iNH4NO3_aer)
-          vMassTrn(iNH4NO3_aer) = 0.
-          if((vMassTrn(iNH3)  < fLowCncThresh(iNH3)))then
-            garbage(iNH3) = garbage(iNH3) + vMassTrn(iNH3)
-            vMassTrn(iNH3) = 0.
-            return
-          endif
-          if(vMassTrn(iHNO3)  < fLowCncThresh(iHNO3))then
-            garbage(iHNO3) = garbage(iHNO3) + vMassTrn(iHNO3)
-            vMassTrn(iHNO3) = 0.
-          endif
-        endif
-      endif
-    endif ! NH3 exists
-    !
-    ! Ammonium exists, has to be something to catch it: sulphates and/or nitrates
-    !
-    if(iNH415SO4f_aer /= int_missing)then
-      if(vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer) < fLowCncThresh(iSO4c_aer) + fLowCncThresh(iSO4c_aer))then
-        garbage(iSO4c_aer) = garbage(iSO4c_aer) + vMassTrn(iSO4c_aer)
-        garbage(iSO4f_aer) = garbage(iSO4f_aer) + vMassTrn(iSO4f_aer)
-        vMassTrn(iSO4c_aer) = 0.
-        vMassTrn(iSO4f_aer) = 0.
-      else
-        !
-        ! Valent sulphates take all what they need out of NH3. Ammonium sulphate receives the product
-        !
-        if(vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer) >= vMassTrn(iNH3) / 1.5)then ! 1 mole of NH4_1.5_SO4 takes 1.5 moles of NH3
-          !
-          ! Too little NH3, sulpathes take it all
-          !
-          ! ATTENTION.
-          !
-          ! Here we can break the ammonium nitrate and give all what sulphates need. In principle,
-          ! this can be real if desintegration of the NH4NO3 and uptake to sulphates are fast.
-          ! So far, this is rather modelled step-wise. Indeed, if we take all NH3, it is all but
-          ! certain that NH4NO3 will partly break - then at the next step we shall pick up more
-          ! to sulphates. This is a delay. However, in cold temperatures nitrates will not break, 
-          ! which justifies the step-wise approach.
-          !
-!call msg('1,vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer          )',vMassTrn(iSO4c_aer),vMassTrn(iSO4f_aer))
-!call msg('1,vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer)',vMassTrn(iNH415SO4c_aer),vMassTrn(iNH415SO4f_aer))
-!call msg('1,vMassTrn(iNH3), vMassTrn(iNH3)/1.5...............',vMassTrn(iNH3), vMassTrn(iNH3)/1.5)
-          !
-          ! Here we distribute the NH3 mass in accordance with the available surface.
-          ! In case of strong difference between the masses in coarse and fine fractions,
-          ! the small mass of sulphates goes below zero due to non-linearity of the 
-          ! NH3 fractionation. Have to look after that
-          !
-          fSrfRatio = rulesAerDynSimple%fParticleSrfRatio * (vMassTrn(iSO4c_aer))**0.6666666666666667
-          fSrfRatio = fSrfRatio / (fSrfRatio + (vMassTrn(iSO4f_aer))**0.6666666666666667)
-
-          dSO4 = min(vMassTrn(iNH3) / 1.5 * fSrfRatio, vMassTrn(iSO4c_aer)) ! not more than available!
-
-!call msg('2,fSrfRatio,dSO4                                  .',fSrfRatio,dSO4)
-
-          vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + dSO4
-          vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) - dSO4
-          dSO4 = vMassTrn(iNH3) / 1.5 - dSO4
-
-!call msg('3,vMassTrn(iSO4c_aer),dSO4                        .',vMassTrn(iSO4c_aer),dSO4)
-
-          vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + dSO4
-          vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) - dSO4
-          vMassTrn(iNH3) = 0.
-          if(vMassTrn(iSO4f_aer) < 0.)then  ! return back to the coarse fraction
-            vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iSO4f_aer)
-            vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) - vMassTrn(iSO4f_aer)
-            vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer)
-            vMassTrn(iSO4f_aer) = 0.
-          endif
-
-!call msg('4,vMassTrn(iSO4f_aer),vMassTrn(iNH415SO4f_aer)    .',vMassTrn(iSO4f_aer),vMassTrn(iNH415SO4f_aer))
-!call msg('')
-          
-          !
-          ! If there is no ammonium nitrate, return
-          !
-          if(iNH4NO3_aer == int_missing)return
-          !
-          ! We assume that the break-up of ammonium nitrate can take place if the humidity is above 
-          ! the deliquecence point and temperature is above zero - i.e., inside droplets of the 
-          ! small fraction.
-          !
-          
-          if(metdat(ind_tempr) > 273.15 .and. metdat(ind_rh) > 0.5 .and. &
-           & vMassTrn(iNH4NO3_aer) > fLowCncThresh(iNH4NO3_aer))then
-            !
-            ! extract needed amount of NH3 from the ammonum nitrate
-            !
-!call msg('NH4NO3 break')
-            if(vMassTrn(iSO4f_aer) >= vMassTrn(iNH4NO3_aer) / 1.5)then 
-              !
-              ! Too little NH4NO3: full breakup
-              !
-              vMassTrn(iHNO3) = vMassTrn(iHNO3) + vMassTrn(iNH4NO3_aer)
-              vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iNH4NO3_aer) / 1.5
-              vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) - vMassTrn(iNH4NO3_aer) / 1.5
-              vMassTrn(iNH4NO3_aer) = 0.
-              return                                         ! no ammonia left anywhere. We are done.
-            else
-              !
-              ! Enough NH4NO3, use-up all H2SO4 and SO4
-              !
-              vMassTrn(iHNO3) = vMassTrn(iHNO3) + vMassTrn(iSO4f_aer) * 1.5
-              vMassTrn(iNH4NO3_aer) = vMassTrn(iNH4NO3_aer) - vMassTrn(iSO4f_aer) * 1.5
-              vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iSO4f_aer)
-              vMassTrn(iSO4f_aer) = 0.
-            endif
-          endif
-     
-        else 
-          !
-          ! abundance of ammonia, not enough H2SO4+SO4, free ammonia left
-          !
-          vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iSO4f_aer)
-          vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + vMassTrn(iSO4c_aer)
-          vMassTrn(iNH3) = vMassTrn(iNH3) - (vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer)) * 1.5
-          vMassTrn(iSO4c_aer) = 0.0
-          vMassTrn(iSO4f_aer) = 0.0
-          if(iHNO3 == int_missing)return ! no nitrates
-        endif  ! breakup of HNO3 conditions
-      endif  ! NH415SO4f_aer mass small
-    endif  ! iNH415SO4f_aer exists
-
-
-    ! NH3-HNO3-NH4NO3 equilibrium
-    indT = nint(metdat(ind_tempr)-NH3_HNO3_vs_NH4NO3_eq_Tmin)         
-    if (metdat(ind_rh) >= 1.0) then
-        indRH = 22
-    elseif (metdat(ind_rh) >= 0.95) then
-        indRH = int((metdat(ind_rh) - 0.775)*100) 
-    elseif (metdat(ind_rh) >= 0.85) then
-        indRH = int((metdat(ind_rh) - 0.60)*50) 
-    elseif (metdat(ind_rh) >= 0.70) then
-        indRH = int((metdat(ind_rh) - 0.475)*33.333) 
-    elseif (metdat(ind_rh) >= 0.50) then
-        indRH = int((metdat(ind_rh) - 0.40)*25)
-    else
-        indRH = 1
-    endif
-    
-    !Species here in concentrations; CEQUIL given for nb**2 partial pressures
-    CEQUIL = rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(indRH, indT)
-    
-    NHx_avail = vMassTrn(iNH3) + vMassTrn(iNH4NO3_aer)
-    NO3_tot = vMassTrn(iHNO3) + vMassTrn(iNH4NO3_aer)
-
-    if(vMassTrn(iHNO3) < 0.0)then
-      call msg('Negative HNO3 before HNO3-NH3-NO3 eq')
-    endif
-
-    if(CEQUIL < 1.0e-23)then
-      !
-      ! Too cold, all goes to aerosol. One component is fully consumed
-      !
-!call msg('Freesing out: T, cequil =',indT+71.65, CEQUIL)
-      if(NO3_tot >= NHx_avail)then
-        ! NHx fully consumed
-        vMassTrn(iHNO3)= NO3_tot - NHx_avail
-        vMassTrn(iNH3) = 0.0
-        vMassTrn(iNH4NO3_aer) = NHx_avail
-      else
-        ! NO3 fully consumed
-        vMassTrn(iHNO3)= 0.0
-        vMassTrn(iNH3) = NHx_avail - NO3_tot
-        vMassTrn(iNH4NO3_aer) = NO3_tot
-      endif
-
-    elseIF(NHx_avail * NO3_tot <= CEQUIL)THEN
-      !
-      ! Desintegration of ammonium nitrate, i.e. NO3 and NH4_N go to zero
-      ! Do not touch NH4_aer - it stores NH4_S.
-      !
-      vMassTrn(iNH3) = NHx_avail
-      vMassTrn(iHNO3) = NO3_tot
-      vMassTrn(iNH4NO3_aer) = 0.
-
-    ELSE
-    
-      !
-      ! Equilibrium. Note possible full consumption of NH3 or HNO3
-      !
-      differ = (NO3_tot - NHx_avail)*0.5
-      sqrtmp = sqrt(differ * differ + CEQUIL)
-      vMassTrn(iHNO3)= max(0.,min(NO3_tot, sqrtmp + differ))
-      vMassTrn(iNH3) = max(0.,min(NHx_avail, sqrtmp - differ))
-      vMassTrn(iNH4NO3_aer) = NHx_avail - vMassTrn(iNH3)
-
-      if(vMassTrn(iHNO3) < 0.0)then ! Check for full consumption
-        call msg('vMassTrn(iHNO3) < 0.0',vMassTrn(iHNO3))
-        if(-1.* vMassTrn(iHNO3) < 1.e-5 * NO3_tot .or. (sqrtmp .eps. -1*differ))then
-          vMassTrn(iHNO3) = 0.
-        else
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, sqrtmp=',   sqrtmp)
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, differ=',   differ)
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, fNH3',   NHx_avail)
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, HNO3:',  vMassTrn(iHNO3))
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, NH4NO3:',   vMassTrn(iNH4NO3_aer))
-          call msg('Negative HNO3 after HNO3-NH3-NO3 eq branch 2, NH3:',   vMassTrn(iNH3))
-        endif
-      endif
-
-      if(vMassTrn(iNH3) < 0.0)then ! Check for full consumption
-        call msg('vMassTrn(iNH3) < 0.0',vMassTrn(iNH3))
-        if(-1.* vMassTrn(iNH3) < 1.e-5 * NHx_avail .or. (sqrtmp .eps. differ))then
-          vMassTrn(iNH3) = 0.
-        else
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, sqrtmp=',   sqrtmp)
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, differ=',   differ)
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, tNH3',   NHx_avail)
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, HNO3:',   vMassTrn(iHNO3))
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, NH4NO3:', vMassTrn(iNH4NO3_aer))
-          call msg('Negative NH3 after HNO3-NH3-NO3 eq branch 2, NH3:',   vMassTrn(iNH3))
-        endif
-      endif
-
-      if(vMassTrn(iNH4NO3_aer) < 0.0)then ! Check for full consumption
-        call msg('1vMassTrn(iNH4_aer) < 0.0',vMassTrn(iNH4NO3_aer))
-        if(-1.* vMassTrn(iNH4NO3_aer) < 1.e-6 * NHx_avail+NO3_tot .or. (NHx_avail .eps. vMassTrn(iNH3)))then
-          vMassTrn(iNH4NO3_aer) = 0.
-        else
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, sqrtmp=',   sqrtmp)
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, differ=',   differ)
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, HNO3:',   vMassTrn(iHNO3))
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, NH4NO3:', vMassTrn(iNH4NO3_aer))
-          call msg('Negative NH4 after HNO3-NH3-NO3 eq branch 2, NH3:',   vMassTrn(iNH3))
-        endif
-      endif
-
-    endif 
-    
-    ! And finaly try to make some more NO3 in seasalt particles (NaNO3) 
-    ! Rather retarded parmeterization assuming diffusion of gas to particle srf as main limit, 
-    ! amount of sodium as sharp limit and a tunable sticking coefficient to be interpreted however we wish.
-!    if(rulesAerDynSimple%no3_StickingCoeff > 0.0)then
-!      if(vMassTrn(iHNO3) > 0.0)then
-!        sink => fu_work_array()
-!        na => fu_work_array()
-!        diff => fu_work_array()
-!        if(rulesAerDynSimple%useSSLTmodes)then
-!        
-!        else    
-!            do iMod = 1, size(iSslt_aer)
-!            
-!                !na = na + vMassTrn(iSslt_aer(iMod)) * 0.3 / 23.0e-3 ! moles of sodium
-!                na(iMod) = vMassTrn(iSslt_aer(iMod)) * 0.4 / 23.0e-3 ! moles of sodium corrected for other cations (mg2+, ca2+, k+)
-!            enddo
-!            if(sum(na(1:size(iSslt_aer)) > 0)then
-!                wetParticle = fu_wet_particle_features(fu_get_material_ptr(rulesAerDynSimple%seasaltName), metdat(ind_rh))
-!                D_HNO3 = 13.13e-6 * (metdat(ind_tempr)/273.15)**1.75 * std_pressure_sl/metdat(ind_pres)  ! diffusion coefficient [m2/s]
-!                mfp = 2. * D_HNO3 * sqrt(pi * fu_mole_mass(fu_get_material_ptr('HNO3')) / &
-!                                              & (8. * gas_constant_uni * metdat(ind_tempr)))! mean free path [m]
-!                do iMod = 1, size(iSslt_aer)
-!                    Kn = 2. * mfp / wetParticle%fGrowthFactor / sslt_D(iMod)
-!                    sink(iMod) = 12. * wetParticle%fGrowthFactor * D_HNO3 *  vMassTrn(iSslt_aer(iMod)) *  &
-!                        & (1. + Kn) / (1. + (2. * Kn * (1. + Kn)) / rulesAerDynSimple%no3_StickingCoeff) / &  
-!                        & (fu_dry_part_density(fu_get_material_ptr(rulesAerDynSimple%seasaltName)) * &
-!                        & sslt_D(iMod) * sslt_D(iMod))
-!                enddo
-!                if(sum(sink(1:size(iSslt_aer)) > 0)then
-!                    diffHNO3 = vMassTrn(iHNO3) * (1. - 1. / (1. + seconds * sum(sink(1:size(iSslt_aer))))  ! change in gas concentration 
-!                    if(diffHNO3 > vMassTrn(iHNO3))diffHNO3 = vMassTrn(iHNO3)
-!                    
-!                    
-!                    
-!                    
-!                    
-!                    if(vMassTrn(iNO3c_aer) + differ > na)then
-!                        differ = max(0., na - vMassTrn(iNO3c_aer))
-!                    endif
-!                    
-!                    vMassTrn(iNO3c_aer) = vMassTrn(iNO3c_aer) + differ
-!                    vMassTrn(iHNO3) = vMassTrn(iHNO3) - differ
-!                endif
-!            endif
-!        endif
-!        call free_work_array(sink)
-!        call free_work_array(na)
-!        call free_work_array(diff)
-!      endif
-!    endif
-
-  end subroutine transform_AerDynSimple_v2
-
 
   !***********************************************************************
 
@@ -1254,12 +614,10 @@ endif
     type(Tchem_rules_AerDynSimple), intent(out) :: rulesAerDynSimple
 
     ! local variables
-    real :: T, m, dryVFract
-    integer :: iT, nT, nRH, iRH, i
-    real, dimension(:), pointer :: warr, RH, a, b, c
-    type(TwetParticle) :: wetParticle
+    integer :: iT, nT, iStat
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
-    type(silam_sp) :: spContent
+    character(len=fnlen) :: spContent
+    character(len = *), parameter :: sub_name = 'nh3_hno3_nh4no3'
 
 
     ! 3 modes for secondary stuff (roughly from Seinfeld & Pandis 1997, page 441)
@@ -1294,13 +652,12 @@ endif
     
 
     ! Coarse NO3 & SO4
-    spContent%sp => fu_work_string()
     nullify(ptrItems)
     call get_items(nlSetup, 'make_coarse_no3', ptrItems, nT)
     if (nT == 1)then
-      spContent%sp = fu_content(ptrItems(1))
-      read(unit=spContent%sp, iostat=i, fmt=*) rulesAerDynSimple%ssltName4NO3c, rulesAerDynSimple%no3_StickingCoeff
-      if(i /= 0)then
+      spContent = fu_content(ptrItems(1))
+      read(unit=spContent, iostat=iStat, fmt=*) rulesAerDynSimple%ssltName4NO3c, rulesAerDynSimple%no3_StickingCoeff
+      if(iStat /= 0)then
         call set_error('Invalid make_coarse_no3 line in transformation rules','set_rules_AerDynSimple')
         call msg('Required format:   make_coarse_no3 = ssltName alpha')
         return
@@ -1308,7 +665,7 @@ endif
         call msg(fu_connect_strings('Making coarse NO3 on seasalt: ', rulesAerDynSimple%ssltName4NO3c), &
                                    & rulesAerDynSimple%no3_StickingCoeff)
       endif
-      if(index(spContent%sp,'SSLTmodes') > 0)then
+      if(index(spContent,'SSLTmodes') > 0)then
         rulesAerDynSimple%SSLTmodes4NO3c = .true.
         call msg('Using seasalt modes for coarse NO3')
       else
@@ -1326,9 +683,9 @@ endif
     
     call get_items(nlSetup, 'make_coarse_so4', ptrItems, nT)
     if (nT == 1)then
-      spContent%sp = fu_content(ptrItems(1))
-      read(unit=spContent%sp, iostat=i, fmt=*) rulesAerDynSimple%ssltName4SO4c, rulesAerDynSimple%so4_StickingCoeff
-      if(i /= 0)then
+      spContent = fu_content(ptrItems(1))
+      read(unit=spContent, iostat=iStat, fmt=*) rulesAerDynSimple%ssltName4SO4c, rulesAerDynSimple%so4_StickingCoeff
+      if(iStat /= 0)then
         call set_error('Invalid make_coarse_so4 line in transformation rules','set_rules_AerDynSimple')
         call msg('Required format:   make_coarse_so4 = ssltName alpha')
         return
@@ -1336,7 +693,7 @@ endif
         call msg(fu_connect_strings('Making coarse SO4 on seasalt: ', rulesAerDynSimple%ssltName4SO4c), &
                                    & rulesAerDynSimple%so4_StickingCoeff)
       endif
-      if(index(spContent%sp,'SSLTmodes') > 0)then
+      if(index(spContent,'SSLTmodes') > 0)then
         rulesAerDynSimple%SSLTmodes4SO4c = .true.
         call msg('Using seasalt modes for coarse SO4')
       else
@@ -1369,86 +726,20 @@ endif
       allocate(rulesAerDynSimple%OHaging_agedSps(nT))
       allocate(rulesAerDynSimple%OHaging_rates(nT))
       do iT = 1, nT
-        spContent%sp = fu_content(ptrItems(iT))
-        read(unit=spContent%sp, iostat=i, fmt=*) rulesAerDynSimple%OHaging_freshSps(iT), &
+        spContent = fu_content(ptrItems(iT))
+        read(unit=spContent, iostat=iStat, fmt=*) rulesAerDynSimple%OHaging_freshSps(iT), &
                & rulesAerDynSimple%OHaging_agedSps(iT), rulesAerDynSimple%OHaging_rates(iT)
+        if (iStat /= 0) then
+          call msg("parsing failed '"//trim(spContent)//"'")
+          call set_error("Failed to parse OH_aging", sub_name)
+        endif
         call msg(rulesAerDynSimple%OHaging_freshSps(iT) + ' -> ' + rulesAerDynSimple%OHaging_agedSps(iT), rulesAerDynSimple%OHaging_rates(iT))
       enddo
     endif
 
     
-    nT = NH3_HNO3_vs_NH4NO3_eq_nT
-    nRH = NH3_HNO3_vs_NH4NO3_eq_nRH
-    
-    allocate(rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(nRH, nT))
-   
-    warr => fu_work_array(nRH + 21) 
-    RH => warr(1:nRH)
-    a(1:7) => warr(nRH + 1: nRH+7)
-    b(1:7) => warr(nRH + 8: nRH+14)
-    c(1:7) => warr(nRH + 15: nRH+21)
-    
-    RH(1:nRh) = (/0., 0.50, 0.54, 0.58, 0.62, 0.66, 0.70, 0.73, 0.76, 0.79, 0.82, &
-                & 0.85, 0.87, 0.89, 0.91, 0.93, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0/)
-    
-    ! RH dependent equilibrium from Mozurkewich 1993 
-    a(1:7) = (/ -9.293,   33.983,  45.4557, -28.5816,  5.9599, -0.44257, 0.003962 /) 
-    b(1:7) = (/  15876.0, 1259.4,  2867.7,  -1704.56,  378.94, -36.144,  1.2071   /)
-    c(1:7) = (/  11.208, -5.223,  -6.318,    4.013,   -0.822,   0.0564,  0.0      /)
-    
-    do iRH = 1, nRh
-      if (RH(iRH) > fu_deliquescence_humidity(fu_get_material_ptr('NH4NO3')))then
-        wetParticle = fu_wet_particle_features(fu_get_material_ptr('NH4NO3'), RH(iRH))
-        dryVFract = 1./(wetParticle%fGrowthFactor * wetParticle%fGrowthFactor * wetParticle%fGrowthFactor)
-        m = fu_dry_part_density(fu_get_material_ptr('NH4NO3')) * dryVFract / &
-             & (fu_mole_mass(fu_get_material_ptr('NH4NO3')) * 1000.0 * (1. - dryVFract)) ! molality [mol/kgH2O]
-        
-        do iT = 1, nT
-          T = NH3_HNO3_vs_NH4NO3_eq_Tmin + real(iT)
-          rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = 2*log(m) - 2.3523 * m**0.5 / (1.+ 0.925 * m**0.5)
-          do i = 0, 6
-            rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = &
-                          & rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT) + &
-                          & (a(i+1) - b(i+1) / T + c(i+1) * log(T)) * m**(i/2.)
-          enddo
-          rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = &
-                     & exp(rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT)) * &
-                     & 1.0e-8 / (gas_constant_uni*gas_constant_uni*T*T)   ! unit conversion from nb**2 partial pressure
-!                if((T .eps. 258.) .or. (T .eps. 268.).or. (T .eps. 278.).or. (T .eps. 288.).or. (T .eps. 298.))then
-!                    call msg('T', T)
-!                    call msg('K* T298 RH',  RH(iRH), rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT))
-!                endif           
-        enddo
-      else
-        do iT = 1, nT
-          T = NH3_HNO3_vs_NH4NO3_eq_Tmin + real(iT) 
-          rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT) = exp(118.87-24084/T-6.025*log(T)) * &
-                     & 1.0e-8 / (gas_constant_uni*gas_constant_uni*T*T)   ! unit conversion from nb**2 partial pressure
-!                if((T .eps. 258.) .or. (T .eps. 268.).or. (T .eps. 278.).or. (T .eps. 288.).or. (T .eps. 298.))then
-!                    call msg('T', T)
-!                    call msg('K* T298 RH',  RH(iRH), rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iRH, iT))
-!                endif
-        enddo
-      endif
-    enddo
-
-!!!Old!!!
-!    allocate(rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(nIndT))
-!    do iTmp = 1, nIndT
-!      fTempr = real(iTmp) + 72.15
-! Wrong way (loss of accuracy, zero for already -10C):
-!      rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iTmp) = 1.12e22*(298./fTempr)**6.1 * exp(-24220./fTempr)
-!
-! Right way: all goes OK down to -100C
-!      rulesAerDynSimple%NH3_HNO3_vs_NH4NO3_eq(iTmp) = exp(50.7702 + 6.1*log(298./fTempr) - (24220./fTempr))
-!    enddo    
-!!!Old!!!
 
     rulesAerDynSimple%defined = silja_true
-    
-    call free_work_array(warr)
-    call free_work_array(spContent%sp)
-    
   end subroutine set_rules_AerDynSimple
 
   
@@ -1525,16 +816,418 @@ endif
   
   !************************************************************************************
 
-  logical function fu_if_tla_required_ADS(rules) result(required)
+  integer function fu_tla_size_ADS(rules) result(n)
     ! Collect transformations' requests for tangent linearization. If tangent linear
     ! is not allowed, corresponding subroutine sets error. 
     implicit none
     type(Tchem_rules_AerDynSimple), intent(in) :: rules
     
-    ! call set_error('TLA not available for cbm4', 'fu_if_tla_required_cbm4')
-     required = .true.
+    n = 6
     
-  end function fu_if_tla_required_ADS
+  end function fu_tla_size_ADS
 
+   !*******************************************************
   
+  subroutine ocAging(vMassTrn, rulesAerDynSimple, metdat, zenith_cos, seconds)
+    ! Aging reactions with OH (black carbon or anything else - materials of fresh and aged species 
+    ! and rate with OH taken from control file). Can be several.
+    !
+      implicit none
+      ! Imported parameters
+      real, dimension(:), intent(inout) :: vMassTrn
+      type(Tchem_rules_AerDynSimple), intent(in) :: rulesAerDynSimple
+      real, dimension(:), intent(in) :: metdat
+      real, intent(in) :: zenith_cos, seconds
+
+      ! Local variables
+      integer :: iMod, iTmp
+      real :: differ, sun, cOH_forced, aging
+      character(len = *), parameter :: sub_name = 'ocAging'
+
+      if(rulesAerDynSimple%nOHaging > 0)then
+        sun = max(zenith_cos, 0.0) * (1. - metdat(ind_cloud_cvr)*0.5)
+        cOH_forced = fu_OH_cnc_forced(sun, metdat(ind_hgt))
+        do iTmp = 1, rulesAerDynSimple%nOHaging
+          aging = exp(-abs(seconds) * rulesAerDynSimple%OHaging_rates(iTmp) * cOH_forced)
+          do iMod = 1, rulesAerDynSimple%maxAgingModes
+            if(iFresh(iTmp, iMod) < 1)cycle
+            if (seconds>0) then 
+              differ = vMassTrn(iFresh(iTmp, iMod)) * aging                        ! / 1 - aging     0 \  !
+              vMassTrn(iFresh(iTmp, iMod)) = vMassTrn(iFresh(iTmp, iMod)) - differ !|                   | !
+              vMassTrn(iAged(iTmp, iMod)) = vMassTrn(iAged(iTmp, iMod)) + differ   ! \ aging         1 /  !
+            else
+              differ = vMassTrn(iFresh(iTmp, iMod)) * aging
+              vMassTrn(iFresh(iTmp, iMod)) = vMassTrn(iFresh(iTmp, iMod)) * (1. - aging) + vMassTrn(iAged(iTmp, iMod)) * aging
+              ! vMassTrn(iAged(iTmp, iMod)) stays as is
+              ! / 1 - aging     aging \                     !
+              !|                       |                    !
+              ! \  0                1 /                     !
+            endif
+          enddo
+        enddo 
+      endif
+  end subroutine ocAging
+  
+  !************************************************************************************
+
+  subroutine so4_h2so4(vMassTrn, vMassSL, seconds)
+    ! Two short-living species are sent in: H2SO4 and SO4 - from gas-phase and heterogeneous
+    ! oxidations, respectively.
+    ! First move sulphates created this timestep to sulphuric acid aerosol
+    !
+    implicit none
+
+    ! Imported parameters
+    real, dimension(:), intent(inout) :: vMassTrn, vMassSL
+    real, intent(in) :: seconds
+    character(len = *), parameter :: sub_name = 'so4_h2so4'
+
+
+    if (seconds > 0) then
+      if(iH2SO4_gas_sl /= int_missing)then                                 ! fine mode
+        vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) + vMassSL(iH2SO4_gas_sl)
+        vMassSL(iH2SO4_gas_sl) = 0.0 
+      endif
+      if(iSO4w_aer_sl /= int_missing)then                                   ! coarse mode
+        vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) + vMassSL(iSO4w_aer_sl)
+        vMassSL(iSO4w_aer_sl) = 0.0 
+      endif
+    else
+      ! Adjoint
+      if(iH2SO4_gas_sl /= int_missing)then                                 ! fine mode
+        vMassSL(iH2SO4_gas_sl) = vMassTrn(iSO4f_aer)
+      endif
+      if(iSO4w_aer_sl /= int_missing)then                                   ! coarse mode
+        vMassSL(iSO4w_aer_sl) = vMassTrn(iSO4c_aer)
+      endif
+      return
+    end if
+  end subroutine so4_h2so4
+
+  !************************************************************************************
+
+  subroutine break_nh4no3(vMassTrn,  seconds)
+    ! Break nh4no3: it will simplify uptake of NH3 by sulphates
+     !  needed nh4no3 will be restored later by nh3_hno3_nh4no3
+    !
+    implicit none
+    ! Imported parameters
+    real, dimension(:), intent(inout) :: vMassTrn
+    real, intent(in) :: seconds
+
+    character(len = *), parameter :: sub_name = 'break_nh4no3'
+ 
+    if (seconds >0) then
+        vMassTrn(iNH3) = vMassTrn(iNH3) + vMassTrn(iNH4NO3_aer)      ! /  1  0  1 \ !  
+        vMassTrn(iHNO3) = vMassTrn(iHNO3) + vMassTrn(iNH4NO3_aer)    !|   0  1  1  |!
+        vMassTrn(iNH4NO3_aer) = 0                                    ! \  0  0  0 / !
+     else 
+        !vMassTrn(iNH3)  asis
+        !vMassTrn(iHNO3) asis
+        vMassTrn(iNH4NO3_aer) = vMassTrn(iNH3) + vMassTrn(iHNO3) 
+    endif
+  end subroutine break_nh4no3
+
+  !************************************************************************************
+
+  subroutine so4_nh3(vMassTrn, TL, rulesAerDynSimple, metdat, seconds)
+    ! Uptake of ammonia by sulphates. needs 3 values for TL
+    ! This subroutine not equivalent to v5_8:
+    ! 1) Uptake can't be mass-wise and surface-wise at the same time
+    !    We might end up destroying more SO4 than we have. 
+    !    It was creating negative masses, see workarounds/hacks in v5_8
+    !    Here we do everything mass-wise, since we try to keep mass budget
+    ! 2) in v5_8 sulphates took ammonia only from fine-mode NH4NO3,
+    !    taking it from the coarse-mode was done implicitly via 
+    !    NH4NO3 saturation over several timesteps
+    !    Here sulphates take any ammonia explicitly
+    
+    ! Uptake of amonuim from amonuim sulphate is also handled here 
+    ! due to break_nh4no3 called before
+    implicit none
+    ! Imported parameters
+    real, dimension(:), intent(inout) :: vMassTrn 
+    real, intent(in) :: seconds
+    type(Tchem_rules_AerDynSimple), intent(in) :: rulesAerDynSimple
+    real, dimension(:), intent(in) :: metdat
+    real, dimension(:), pointer :: TL ! Save/restore 
+    character(len = *), parameter :: sub_name = 'so4_nh3'
+
+    ! Local variables
+    real SO4f, SO4c, NH3, SO4tot, excNH3, fracc, fracf, deltaSc
+ 
+    if (seconds >0) then
+      SO4c = vMassTrn(iSO4c_aer)
+      SO4f = vMassTrn(iSO4f_aer)
+      NH3  =  vMassTrn(iNH3) 
+      if (associated(TL)) TL(1:3) = (/SO4c, SO4f, NH3/) !!Store TL
+    else
+      if (fu_fails(associated(TL), "so4_nh3 adjoint without TL point", sub_name )) return
+      SO4c = TL(1)
+      SO4f = TL(2)
+      NH3  = TL(3)
+    endif
+
+    ! Valent sulphates take all what they need out of NH3. Ammonium sulphate receives the product
+
+    SO4tot  = SO4c + SO4f
+    excNH3  = NH3 - SO4tot * 1.5
+
+    if(excNH3 <= 0) then ! 1 mole of NH4_1.5_SO4 takes 1.5 moles of NH3
+        !MAS Too little NH3, sulpathes take it all 
+        fracc = SO4c / SO4tot ! 
+        fracf = SO4f / SO4tot ! !!!NOT (1 - fracc)!!
+
+      if (seconds > 0) then
+        vMassTrn(iSO4c_aer) =  - excNH3 * fracc / 1.5
+        vMassTrn(iSO4f_aer) =  - excNH3 * fracf / 1.5
+
+        vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + vMassTrn(iNH3) * fracc / 1.5
+        vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + vMassTrn(iNH3) * fracf / 1.5
+        vMassTrn(iNH3) = 0.
+      else
+        deltaSc =  - vMassTrn(iSO4c_aer) + vMassTrn(iSO4f_aer) + vMassTrn(iNH415SO4c_aer) - vMassTrn(iNH415SO4f_aer)
+
+        vMassTrn(iSO4c_aer) = vMassTrn(iSO4c_aer) + NH3 * fracf * deltaSc / (1.5 * SO4tot)
+        vMassTrn(iSO4f_aer) = vMassTrn(iSO4f_aer) - NH3 * fracc * deltaSc / (1.5 * SO4tot)
+        !!vMassTrn(iNH415SO4c_aer) AS IS
+        !!vMassTrn(iNH415SO4f_aer) AS IS
+        vMassTrn(iNH3) = 1./1.5 * (fracc*(-vMassTrn(iSO4c_aer) + vMassTrn(iNH415SO4c_aer)) + &
+                            &      fracf*(-vMassTrn(iSO4f_aer) + vMassTrn(iNH415SO4f_aer)) )
+      endif
+    else 
+        ! abundance of ammonia, engage all SO4, free ammonia left
+      if (seconds > 0) then
+        vMassTrn(iSO4c_aer) = 0.0
+        vMassTrn(iSO4f_aer) = 0.0
+        vMassTrn(iNH415SO4c_aer) = vMassTrn(iNH415SO4c_aer) + SO4c
+        vMassTrn(iNH415SO4f_aer) = vMassTrn(iNH415SO4f_aer) + SO4f
+        vMassTrn(iNH3) = excNH3
+      else
+        vMassTrn(iSO4c_aer) = vMassTrn(iNH415SO4c_aer)  - 1.5 * vMassTrn(iNH3)
+        vMassTrn(iSO4f_aer) = vMassTrn(iNH415SO4f_aer)  - 1.5 * vMassTrn(iNH3)
+        ! vMassTrn(iNH415SO4f_aer) ASIS
+        ! vMassTrn(iNH415SO4c_aer) ASIS
+        ! vMassTrn(iNH3) 
+      endif
+    endif  ! NH3-SO4 ratio
+  end subroutine so4_nh3
+
+  !************************************************************************************
+
+  real function fu_cequil(T,rh) result(CEQUIL)
+    implicit none
+    real, intent(in) :: T, rh
+    integer indT, indRH
+
+    ! NH3-HNO3-NH4NO3 equilibrium
+    indT = nint(T-NH3_HNO3_vs_NH4NO3_eq_Tmin)
+    if (indT < 1) then
+      call msg("Temperature below NH4NO3eq lookup table range", T)
+      indT = 1
+    elseif (indT > NH3_HNO3_vs_NH4NO3_eq_nT) then
+      call msg("Temperature above NH4NO3eq lookup table range", T)
+      indT = NH3_HNO3_vs_NH4NO3_eq_nT
+    endif
+
+    if (rh >= 1.0) then
+        indRH = 22
+    elseif (rh >= 0.95) then
+        indRH = int((rh - 0.775)*100) 
+    elseif (rh >= 0.85) then
+        indRH = int((rh - 0.60)*50) 
+    elseif (rh >= 0.70) then
+        indRH = int((rh - 0.475)*33.333) 
+    elseif (rh >= 0.50) then
+        indRH = int((rh - 0.40)*25)
+    else
+        indRH = 1
+    endif
+    
+    !Species here in concentrations; CEQUIL given for nb**2 partial pressures
+    CEQUIL = NH3_HNO3_vs_NH4NO3_eq(indRH, indT)
+      
+  end function fu_cequil
+
+  !************************************************************************************
+
+  subroutine nh3_hno3_to_nh4no3(vMassTrn, TL, metdat, seconds )
+    !
+    ! NH3-HNO3-NH4NO3 equilibrium.
+    ! WARNIG! nh4no3  _Must_ have been set to zero before by brak_nh4o3 in forward run
+    !
+    implicit none
+
+    ! Imported parameters
+    real, dimension(:), intent(inout) :: vMassTrn
+    real, dimension(:), intent(in) :: metdat
+    real, dimension(:), pointer :: TL
+    real, intent(in) :: seconds 
+    character(len = *), parameter :: sub_name = 'nh3_hno3_nh4no3'
+
+    ! Local variables
+    real :: NH3, HNO3, NH4NO3, CEQUIL, CEQUIL2, dNH3, dHNO3, dNH4NO3, fTmp, delta, eps
+    
+    !Product of gas concentrations that equilibrates the aerosol fraction
+    !Species here in concentrations; CEQUIL is geometric mean of concentrations
+    CEQUIL2 = fu_cequil(metdat(ind_tempr), metdat(ind_rh))
+    
+    if (seconds > 0.) then
+      NH3 = vMassTrn(iNH3) 
+      HNO3 = vMassTrn(iHNO3)
+      NH4NO3 = vMassTrn(iNH4NO3_aer)
+      if (associated(TL)) TL(1:2) = (/NH3, HNO3/) !!Store TL
+    else
+      NH3  = TL(1)
+      HNO3 = TL(2)
+      NH4NO3 = 0.
+      dNH3 = vMassTrn(iNH3)
+      dHNO3 = vMassTrn(iHNO3)
+      dNH4NO3 = vMassTrn(iNH4NO3_aer)
+    endif
+    !  vMassTrn(iNH4NO3_aer) _Must_ have been set to zero before by brak_nh4o3
+    if (fu_fails ( NH3 >= 0. .and. HNO3 >=0 .and. NH4NO3 == 0., &
+        & 'Negative HNO3 before HNO3-NH3-NO3 eq', sub_name))  return
+
+    eps = NH3 * HNO3 - CEQUIL2
+    if  (eps <= 0.  ) return !! No aerosol, do nothing. NH4NO3 should be already broken
+                          !! Also handles both-zero case
+
+
+    CEQUIL = sqrt(CEQUIL2)
+    delta = 0.5 * (NH3 - HNO3) / CEQUIL
+
+    if (delta > 1e3) then  !! sqrt(delta*delta) + 1 \simeq delta
+      !NH3 >> iNO3
+      if (seconds > 0) then 
+        vMassTrn(iNH4NO3_aer) = HNO3       ! / 0    1    0 \     /  0  \  !
+        vMassTrn(iHNO3) = 0.               !|  0    0    0  | * | HNO3  | !
+        vMassTrn(iNH3) = -HNO3  + NH3      ! \ 0   -1    1 /     \ NH3 /  !
+      else
+        vMassTrn(iNH4NO3_aer) = 0.         ! / 0    0    0 \      / dNH4NO3 \   !
+        vMassTrn(iHNO3)  =  dNH4NO3 - dNH3 !|  1    0   -1  |  * |  dHNO3    |  !
+        !vMassTrn(iNH3) =  dNH3 !! as is   ! \ 0    0    1 /      \ dNH3    /   !
+      endif
+    elseif (delta < -1e3) then !!! sqrt(delta*delta) + 1 \simeq  (- delta)
+      !NH3 << iNO3
+      if (seconds > 0) then 
+        vMassTrn(iNH4NO3_aer) = NH3        ! / 0    0    1 \     /  0  \  !
+        vMassTrn(iHNO3) = HNO3  - NH3      !|  0    1   -1  | * | HNO3  | !
+        vMassTrn(iNH3) =  0                ! \ 0    0    0 /     \ NH3 /  !
+      else
+        vMassTrn(iNH4NO3_aer) = 0          ! / 0    0    0 \      / dNH4NO3 \   !
+        !!vMassTrn(iHNO3) = dNH3 !as is    !|  0    1    0  |  * |  dHNO3    |  !
+        vMassTrn(iNH3) = dNH4NO3 - dHNO3   ! \ 1   -1    0 /      \ dNH3    /   !
+      endif
+    else
+      eps = eps /  ((NH3 + HNO3)**2) !!eps is strictly positive dimensionless now
+
+      if (eps < 1e-4 ) then  !! Tiny fraction goes to aerosol
+        if (seconds > 0) then
+          fTmp =  (NH3 + HNO3) * eps    !! Final cnc of NH4NO3 
+          vMassTrn(iNH4NO3_aer) = fTmp   ! / 0    bcTmp   acTmp \     /  0  \  !
+          vMassTrn(iHNO3) = HNO3 - fTmp  !|  0  1-bcTmp  -acTmp  | * | HNO3  | !
+          vMassTrn(iNH3) = NH3 - fTmp    ! \ 0   -bcTmp 1-acTmp /     \ NH3 /  !
+        else
+          !!  acTmp =  (HNO3**2 + CEQUIL2) / ((NH3 + HNO3)**2)  !! d NH4NO3 / d NH3
+          !!  bcTmp =  (NH3**2  + CEQUIL2) / ((NH3 + HNO3)**2)  !! d NH4NO3 / d HNO3
+           ! / 0        0         0   \     / dNH4NO3 \  !
+           !|  bcTmp  1-bcTmp  -bcTmp  | * |    dHNO3  | !
+           ! \ acTmp   -acTmp 1-acTmp /     \    dNH3 /  !
+
+          fTmp = dNH4NO3 - dHNO3 - dNH3
+          vMassTrn(iNH4NO3_aer) = 0
+          vMassTrn(iHNO3) = dHNO3 + (NH3**2  + CEQUIL2) / ((NH3 + HNO3)**2) * fTmp
+          vMassTrn(iNH3)  = dNH3  + (HNO3**2 + CEQUIL2) / ((NH3 + HNO3)**2) * fTmp
+        endif
+      else !! substantial fracion to aerosol
+        if (seconds > 0) then
+          fTmp =  CEQUIL * sqrt(1. + delta*delta) !!Dimension of cnc
+          vMassTrn(iNH4NO3_aer) = 0.5 * (NH3 + HNO3) - fTmp
+          vMassTrn(iHNO3) = 0.5 * (HNO3 -  NH3)  + fTmp
+          vMassTrn(iNH3)  = 0.5 * (NH3 -  HNO3)  + fTmp
+        else
+          fTmp =  0.5 * delta / sqrt(1. + delta*delta) ! dimensionless, range (-0.5: +0.5)
+          vMassTrn(iNH4NO3_aer) = 0.
+          vMassTrn(iHNO3) = (0.5 + fTmp) * dNH4NO3 + (0.5 - fTmp) * dHNO3 - (0.5 + fTmp) * dNH3 
+          vMassTrn(iNH3)  = (0.5 - fTmp) * dNH4NO3 - (0.5 - fTmp) * dHNO3 + (0.5 + fTmp) * dNH3
+        endif
+      endif 
+    endif
+
+    if (seconds > 0) then
+      if (.not. all((/vMassTrn(iNH4NO3_aer),vMassTrn(iHNO3),vMassTrn(iNH3)/)>= 0.))then
+          call msg("nh3_hno3_to_nh4no3 failed output (HNO3, NH3, NH4NO3):", &
+                          & (/vMassTrn(iHNO3),vMassTrn(iNH3),vMassTrn(iNH4NO3_aer)/))
+          call msg("nh3_hno3_to_nh4no3 input (HNO3, NH3, CEQUIL2):", (/HNO3, NH3, CEQUIL2/))
+          call set_error("Negative mass on the output", sub_name)
+      endif
+    endif
+  end subroutine nh3_hno3_to_nh4no3
+
+  !*******************************************************************
+
+  subroutine no3_to_no3c(vMassTrn, TL, rulesAerDynSimple, metdat, seconds)
+    !
+    ! And finaly try to make some more NO3 in seasalt particles (NaNO3) 
+    ! MP: Rather retarded parmeterization assuming diffusion of gas to particle srf as main limit, 
+    ! MP: amount of sodium as sharp limit and a tunable sticking coefficient to be interpreted however we wish.
+    !
+    ! RK: Note that the thing does not deplete seasalt at all, so eventually _all_ HNO3 will be converted
+    ! RK: at _any_ presence of sea salt
+    !
+    implicit none
+
+    ! Imported parameters
+    real, dimension(:), intent(inout) :: vMassTrn
+    real, dimension(:), pointer :: TL
+    type(Tchem_rules_AerDynSimple), intent(in) :: rulesAerDynSimple
+    real, dimension(:), intent(in) :: metdat
+    real, intent(in) :: seconds
+
+    ! Local variables
+    integer :: iMod, iTmp
+    real ::  D_HNO3, mfp, sink, Kn, na, fracconv
+    type(TwetParticle) :: wetParticle
+    
+    if (seconds > 0.) then
+      if(rulesAerDynSimple%no3_StickingCoeff > 0.0)then
+        if(vMassTrn(iHNO3) > 0.0)then
+          na = 0.0
+          do iMod = 1, size(iSslt_aer)
+            na = na + vMassTrn(iSslt_aer(iMod)) * 0.4 / 23.0e-3 ! moles of sodium (0.3 ->0.4 includes other cations)
+          enddo
+          sink = 0.0
+          if(na > 0)then
+              wetParticle = fu_wet_particle_features(fu_get_material_ptr('sslt'), metdat(ind_rh))
+
+              D_HNO3 = 13.13e-6 * (metdat(ind_tempr)/273.15)**1.75 * std_pressure_sl/metdat(ind_pres)  ! diffusion coefficient [m2/s]
+              mfp = 2. * D_HNO3 * sqrt(pi * fu_mole_mass(fu_get_material_ptr('HNO3')) / &
+                                            & (8. * gas_constant_uni * metdat(ind_tempr)))! mean free path [m]
+              do iMod = 1, size(iSslt_aer)
+                  Kn = 2. * mfp / wetParticle%fGrowthFactor / sslt_D(iMod)
+                  sink = sink + 12. * wetParticle%fGrowthFactor * D_HNO3 *  vMassTrn(iSslt_aer(iMod)) *  &
+                      & (1. + Kn) / (1. + (2. * Kn * (1. + Kn)) / rulesAerDynSimple%no3_StickingCoeff) / &  
+                      & (fu_dry_part_density(fu_get_material_ptr('sslt')) * &
+                      & sslt_D(iMod) * sslt_D(iMod))
+              enddo
+          endif
+          fracconv = exp(- seconds * sink) !! Not-converted fraction
+        else
+          fracconv = 1.
+        endif
+      else
+        fracconv = 1.
+      endif
+      if (associated(TL)) TL(1) = fracconv !!Store TL
+
+      vMassTrn(iNO3c_aer) = vMassTrn(iNO3c_aer) + (1 - fracconv) * vMassTrn(iHNO3)  !   1          (1 - fracconv)
+      vMassTrn(iHNO3)     = fracconv * vMassTrn(iHNO3)                              !   0          fracconv          
+    else
+      fracconv = TL(1)
+      !vMassTrn(iNO3c_aer) = vMassTrn(iNO3c_aer)   ! ASIS
+      vMassTrn(iHNO3)  = (1. - fracconv) * vMassTrn(iNO3c_aer) + fracconv * vMassTrn(iHNO3)
+    endif
+  end subroutine no3_to_no3c
+
 END MODULE aer_dyn_simple

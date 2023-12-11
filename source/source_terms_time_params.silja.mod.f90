@@ -77,18 +77,18 @@ MODULE source_terms_time_params
   end interface
 
   ! Release cell types:  
-  INTEGER, PARAMETER, PUBLIC :: point_source = 2101
-  INTEGER, PARAMETER, PUBLIC :: line_source = 2102   ! void so far
-  INTEGER, PARAMETER, PUBLIC :: area_source = 2103
-  INTEGER, PARAMETER, PUBLIC :: fire_source = 2104
-  INTEGER, PARAMETER, PUBLIC :: bomb_source = 2105
-  INTEGER, PARAMETER, PUBLIC :: sea_salt_source = 2106
-  INTEGER, PARAMETER, PUBLIC :: pollen_source = 2107
-  INTEGER, PARAMETER, PUBLIC :: bio_voc_source = 2108
-  INTEGER, PARAMETER, PUBLIC :: wind_blown_dust_source = 2109
-  INTEGER, PARAMETER, PUBLIC :: dms_source = 2110
-  INTEGER, PARAMETER, PUBLIC :: volcano_source = 2111
-  INTEGER, PARAMETER, PUBLIC :: soil_NO_source = 2112
+  INTEGER, PARAMETER, PUBLIC :: point_source_flag = 2101
+  INTEGER, PARAMETER, PUBLIC :: line_source_flag = 2102   ! void so far
+  INTEGER, PARAMETER, PUBLIC :: area_source_flag = 2103
+  INTEGER, PARAMETER, PUBLIC :: fire_source_flag = 2104
+  INTEGER, PARAMETER, PUBLIC :: bomb_source_flag = 2105
+  INTEGER, PARAMETER, PUBLIC :: sea_salt_source_flag = 2106
+  INTEGER, PARAMETER, PUBLIC :: pollen_source_flag = 2107
+  INTEGER, PARAMETER, PUBLIC :: bio_voc_source_flag = 2108
+  INTEGER, PARAMETER, PUBLIC :: wind_blown_dust_source_flag = 2109
+  INTEGER, PARAMETER, PUBLIC :: dms_source_flag = 2110
+  INTEGER, PARAMETER, PUBLIC :: volcano_source_flag = 2111
+  INTEGER, PARAMETER, PUBLIC :: soil_NO_source_flag = 2112
 
   ! Vertical distribution:
   INTEGER, PARAMETER, PUBLIC :: vertically_even_distribution = 1
@@ -396,10 +396,10 @@ CONTAINS
     !    The last line determines the end of the release and final parameters
     !
     if(index(chContent,'NOW') > 0 .or. index(chContent,'LAST_METEO_TIME') > 0)then
-      if(iSrcType == point_source)then
+      if(iSrcType == point_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status)chTmp,iDur,fRate, xySize, &
                                                  & height_a,height_b,zVelocity, Tempr, chCocktail%sp
-      elseif(iSrcType == area_source)then
+      elseif(iSrcType == area_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status)chTmp,iDur,fRate,height_a,height_b,chCocktail%sp
         xySize = 0.
         zVelocity = 0.
@@ -410,11 +410,11 @@ CONTAINS
         return
       endif
     else
-      if(iSrcType == point_source)then
+      if(iSrcType == point_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status) iYr4,iMon,iDay,iHr,iMin,fSec,fRate, &
                                                   & xySize,height_a,height_b, zVelocity, Tempr, &
                                                   & chCocktail%sp
-      elseif(iSrcType == area_source)then
+      elseif(iSrcType == area_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status) iYr4,iMon,iDay,iHr,iMin,fSec, fRate, &
                                                   & height_a,height_b, chCocktail%sp
         xySize = 0.
@@ -654,11 +654,11 @@ CONTAINS
     !
     do iTmp = 1, nDescrMax+1
       if(index(chContent,'NOW') > 0 .or. index(chContent,'LAST_METEO_TIME') > 0)then
-        if(iSrcType == point_source)then
+        if(iSrcType == point_source_flag)then
           read(unit=chContent,fmt=*,iostat=io_status)chTime,chDuration,chDurationUnit,xySize, &
                                                    & height_a,height_b,zVelocity, Tempr, &
                                                    & (chTmp, fRates(1), iDescr = 1, iTmp)
-        elseif(iSrcType == area_source)then
+        elseif(iSrcType == area_source_flag)then
           read(unit=chContent,fmt=*,iostat=io_status)chTime,chDuration,chDurationUnit,height_a,height_b, &
                                                    & (chTmp, fRates(1), iDescr = 1, iTmp)
         else
@@ -667,10 +667,10 @@ CONTAINS
         endif
 
       elseif(index(chContent,'VOID_TIME') > 0)then
-        if(iSrcType == point_source)then
+        if(iSrcType == point_source_flag)then
           read(unit=chContent,fmt=*,iostat=io_status)chTmp, xySize, height_a,height_b,zVelocity, Tempr, &
                                                    & (chTmp, fRates(1), iDescr = 1, iTmp)
-        elseif(iSrcType == area_source)then
+        elseif(iSrcType == area_source_flag)then
           read(unit=chContent,fmt=*,iostat=io_status)chTmp, height_a,height_b, &
                                                    & (chTmp, fRates(1), iDescr = 1, iTmp)
         else
@@ -679,11 +679,11 @@ CONTAINS
         endif
 
       else
-        if(iSrcType == point_source)then
+        if(iSrcType == point_source_flag)then
           read(unit=chContent,fmt=*,iostat=io_status) iYr4,iMon,iDay,iHr,iMin,fSec,&
                                                     & xySize,height_a,height_b, zVelocity, Tempr, &
                                                     & (chTmp, fRates(1), iDescr = 1, iTmp)
-        elseif(iSrcType == area_source)then
+        elseif(iSrcType == area_source_flag)then
           read(unit=chContent,fmt=*,iostat=io_status) iYr4,iMon,iDay,iHr,iMin,fSec, height_a,height_b, &
                                                     & (chTmp, fRates(1), iDescr = 1, iTmp)
 
@@ -710,11 +710,11 @@ CONTAINS
     ! And now can read the string
     !
     if(index(chContent,'NOW') == 0 .and. index(chContent,'LAST_METEO_TIME') == 0)then
-      if(iSrcType == point_source)then
+      if(iSrcType == point_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status) iYr4, iMon, iDay, iHr, iMin, fSec, &
                               & xySize,height_a, height_b, zVelocity, Tempr, &
                               & (chCocktail(iDescr), fRates(iDescr), iDescr=1, nDescriptorInParLine)
-      elseif(iSrcType == area_source)then
+      elseif(iSrcType == area_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status) iYr4, iMon, iDay, iHr, iMin, fSec,  &
                               & height_a, height_b, &
                               & (chCocktail(iDescr), fRates(iDescr), iDescr=1, nDescriptorInParLine)
@@ -727,11 +727,11 @@ CONTAINS
         return
       endif
     else
-      if(iSrcType == point_source)then
+      if(iSrcType == point_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status)chTmp, chDuration, chDurationUnit, xySize, &
                            & height_a, height_b, zVelocity, Tempr, &
                            & (chCocktail(iDescr), fRates(iDescr), iDescr=1, nDescriptorInParLine)
-      elseif(iSrcType == area_source)then
+      elseif(iSrcType == area_source_flag)then
         read(unit=chContent,fmt=*,iostat=io_status) chTmp, chDuration, chDurationUnit, &
                            & height_a, height_b, &
                            & (chCocktail(iDescr), fRates(iDescr), iDescr=1, nDescriptorInParLine)
@@ -1124,7 +1124,7 @@ endif
     ! local variables
     integer :: iDescr
 
-    if(iSourceType == point_source)then
+    if(iSourceType == point_source_flag)then
       write(uOut, fmt='(A,1x,i4,4I3,1x,F4.1,1x,5(F15.7,1x),50(A,1x,F15.7,1x))') 'par_str_point = ', &
 !      write(uOut, fmt='(A,i4,1x,4I3,1x,6(F15.7,1x),50(A,1x,F15.7))') 'par_str_point = ', &
                      & fu_year(param%time), &
@@ -1141,7 +1141,7 @@ endif
                      & (trim(fu_name(cocktail_descr_of_src(iDescr))), &
                       & param%rate_descr_unit(iDescr), &
                       & iDescr = 1, param%nDescriptors)
-    elseif(iSourceType == area_source)then
+    elseif(iSourceType == area_source_flag)then
       write(uOut, fmt='(A,1x,i4,4I3,1x,F4.1,1x,2(F15.7,1x),50(A,1x,F15.7,1x))') 'par_str_area = ', &
 !      write(uOut, fmt='(A,i4,1x,4I3,1x,3(F15.7,1x),50(A,1x,F15.7,1x))') 'par_str_area = ', &
                      & fu_year(param%time), &
@@ -1185,11 +1185,11 @@ endif
     sp%sp => fu_work_string()
     if(error)return
 
-    if(iSourceType == point_source)then
+    if(iSourceType == point_source_flag)then
       call set_error('Does not work yet for point sources','store_time_param_as_nl_time')
       call free_work_array(sp%sp)
       return
-    elseif(iSourceType == area_source)then
+    elseif(iSourceType == area_source_flag)then
 !      write(unit=sp%sp, fmt='(A,1x,i4,4I3,1x,F4.1,1x,2(F15.7,1x),50(A,1x,2A,1x,E9.3,1x))') &
       write(unit=sp%sp, fmt='(A,1x,i4,4I3,1x,F4.1,1x,2(E9.3,1x),50(A,1x,E9.3,1x))') &
                                    & 'par_str_area = ', &
@@ -1964,6 +1964,6 @@ endif
     endif
 
   end subroutine fire_plume_rise_v2
-  
+
 END MODULE source_terms_time_params
 

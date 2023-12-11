@@ -1,2 +1,10 @@
 bin 
 obj
+/build/sourcelist
+kpp/cbm[45]*/*.f90
+kpp/cbm[45]*/*.map
+kpp/cbm[45]*/Makefile_cbm*
+kpp/src/*.o
+kpp/src/tags
+kpp/int/tags
+

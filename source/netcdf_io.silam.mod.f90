@@ -60,10 +60,10 @@ MODULE netcdf_io
 
   public fu_netcdf_filename
   public expand_output_list
+  public report
 
   private make_staggered_fld
   private set_missing_netcdf_dim
-  private fu_netcdf_str_to_silam_time
   private put_var_nc
   private put_var_nc_buf
   private def_dim_nc
@@ -71,13 +71,16 @@ MODULE netcdf_io
   private put_chatt_nc
   private put_fatt_nc
   private create_nc
+  private set_missing
+  private report_nc_file_content
   
   interface set_missing
-     module procedure set_missing_netcdf_dim
+    module procedure set_missing_netcdf_dim
   end interface
 
-  private set_missing
-
+  interface report
+    module procedure report_nc_file_content
+  end interface
 
 #ifdef DEBUG_NC   
     logical, private, parameter :: ifMsgs = .True.
@@ -86,10 +89,9 @@ MODULE netcdf_io
 #endif
 
   !----------------------------------------------------------------------------
+  !
   !  netcdf-defining structures. 
   !
-
-
   TYPE netcdf_grid
     PRIVATE
     REAL :: x_start=-1., y_start=-1., x_step=-1., y_step=-1.
@@ -241,7 +243,7 @@ MODULE netcdf_io
   !
   type TOutputLstItem
 !    private
-    integer :: quantity, request, AvType, iSpeciesListType, iVerticalTreatment
+    integer :: quantity, AvType, iSpeciesListType, iVerticalTreatment
     logical :: if3D
     type(silja_interval) :: AvPeriod = interval_missing
     type(silam_species) :: species 
@@ -250,7 +252,7 @@ MODULE netcdf_io
   end type TOutputLstItem
 
   type (TOutputLstItem), parameter, public :: OutputLstItem_missing = &
-        & TOutputLstItem(int_missing, int_missing, int_missing, int_missing, int_missing,&
+        & TOutputLstItem(int_missing, int_missing, int_missing, int_missing,&
         & .False., interval_missing, species_missing, '', field_id_missing)
 
   type TOutputList
@@ -1415,7 +1417,7 @@ CONTAINS
                                        &lstDimVar,  gVarNmNf, gVarNm,  refVarNm
     character (len=clen), dimension(:), allocatable :: lstAxis, lstSilamQ, lstVType,  &
                                                    & lstDimType, lstSubst
-    character, dimension(:), allocatable :: arrChTmp
+    character, dimension(fnlen) :: arrChTmp
     real, dimension(:), pointer :: fAtt, vals
     real, dimension(:), allocatable :: lstlevValue, lstMode, lstWavelen, lstFactor, lstOffset
     real(kind=8), dimension(:), pointer :: f8arrPtr
@@ -1428,14 +1430,17 @@ CONTAINS
     logical :: ifFound, ifDImFound, ifNew          !, tFromFnm
     character (len=nf90_max_name), dimension(4) :: lstChTmp
     real ::  fTmp, x1, y1, x2, y2, dx, dy, wavelength, mean_diameter, bottom, thickness, wrfdxm, wrfdym
-    real(r8k) :: jDate
+    real(r8k) :: rDate8, rDelta8 
     type(silja_level), dimension(:), pointer :: lstLevs
-    type(silja_time) :: ttmp
+    type(silja_time) :: tTmp
+    type(silja_interval) :: deltatTmp
     type(Tsilam_namelist_group), pointer::nlgrpptr
     type(Taerosol_mode) :: aerosol_mode
     type(silam_species) :: species
     type(Tsilam_namelist), pointer :: nl !!!For species handling
     logical :: ifSpeciesFromAtts, if2DLatLon
+    type(netcdf_dim), pointer ::  pDim
+    type(netcdf_variable), pointer ::  pVar
 
    character (len=*), parameter :: sub_name='open_netcdf_file_i'
     
@@ -1539,7 +1544,7 @@ CONTAINS
        case(nf90_char)
          if(attlen > len(chAtt))then
           chAtt = '===>> too long, sorry <<==='
-          call msg('Global attribute ('//trim(fu_str(iTmp))//'): ' // trim(attname) // ' :: too long, sorry')
+          if(ifMsgs) call msg('Global attribute ('//trim(fu_str(iTmp))//'): ' // trim(attname) // ' :: too long, sorry')
          else
            iStat = nf90_get_att(nf%unit_bin, nf90_global, attName, chAtt)
            if (istat /= 0)then 
@@ -2568,122 +2573,86 @@ CONTAINS
 
     ! Read dimension variables. For now all dimensions should be defined and all dim-variables known
 
-    do iTmp = 1, nf%n_Dims
-      if(nf%nDims(iTmp)%defined)then
-        if(ifMsgs) call msg("Processong dimension "//trim(nf%nDims(iTmp)%varName)//". Axis:"//trim(nf%nDims(iTmp)%axis))
+    do iTmp = 1, nf%n_Dims  !!iTmp DimLoop 
+      pDim => nf%nDims(iTmp)
+      if(pDim%defined)then
+
+        pVar => nf%nVars(pDim%varId)
+
+        if(ifMsgs) call msg("Processong dimension "//trim(pDim%varName)//". Axis:"//trim(pDim%axis))
+
         !TIME
         !
-        if(fu_str_l_case(adjustl(nf%nDims(iTmp)%axis)) == 't')then
-          nf%n_times = nf%nDims(iTmp)%dimlen
+        if(fu_str_l_case(adjustl(pDim%axis)) == 't')then
+          nf%n_times = pDim%dimlen
           if(ifMsgs) call msg('Time values:')
+          
           allocate(nf%nTime%times(nf%n_times))
-          if(nf%nVars(nf%nDims(iTmp)%varId)%xType == nf90_char)then 
-            ! assume standard netcdf string (yyyy-mm-dd hh:mm:ss)
-            jTmp = nf%nDims(nf%nVars(nf%nDims(iTmp)%varId)%dimIds(1))%dimLen
-            allocate(arrChTmp(jTmp), stat = istat)
-            if (istat /= 0)then 
-                call msg_warning('Failed to allocate arrChTmp of size: '//fu_str(jTmp), sub_name)
-            endif
 
-            do iT = 1, nf%nDims(iTmp)%dimLen
+          if(pVar%xType == nf90_char)then 
+            ! assume standard netcdf string (yyyy-mm-dd hh:mm:ss)
+            do iT = 1, pDim%dimLen
               iStat = NF90_get_var(nf%unit_bin, &
-                                 & nf%nVars(nf%nDims(iTmp)%varId)%varId, &
+                                 & pVar%varId, &
                                  & arrChTmp, &
                                  & start=(/1, iT/), &
-                                 & count=(/nf%nDims(nf%nVars(nf%nDims(iTmp)%varId)%dimIds(1))%dimLen, 1/)) 
+                                 & count=(/nf%nDims(pVar%dimIds(1))%dimLen, 1/)) 
               write(chTmp, fmt=*)arrChTmp(1:4), '-', arrChTmp(6:7), '-', arrChTmp(9:10), &
                    & '_',arrChTmp(12:13), ':',arrChTmp(15:16), ':', arrChTmp(18:19)  
               nf%nTime%times(iT) =  fu_netcdf_str_to_silam_time(adjustl(chTmp))    
               if(ifMsgs) call report(nf%nTime%times(iT))
               if(error)return          
             enddo
-            deallocate(arrChTmp)
-          else ! not char format
-            
-            nf%nVars(nf%nDims(iTmp)%varId)%unit = fu_str_l_case(adjustl(trim(nf%nVars(nf%nDims(iTmp)%varId)%unit)))
-            iT = index(nf%nVars(nf%nDims(iTmp)%varId)%unit, 'since')
-            if(iT > 0)then
-              chTmp = nf%nVars(nf%nDims(iTmp)%varId)%unit(iT+5:)
-              nf%nTime%tDimStart = fu_netcdf_str_to_silam_time(adjustl(trim(chTmp)))
-            else
-              call set_error('Cannot parse time unit string', sub_name)
-            endif
-            if(ifMsgs)then
-                call msg('Time dimension start: ')
-                call report(nf%nTime%tDimStart)
-            endif
-            
-            read(unit=nf%nVars(nf%nDims(iTmp)%varId)%unit, iostat=iStat, fmt=*) chTmp
-            select case(chTmp)
-              case('day', 'days', 'd')
-                nf%nVars(nf%nDims(iTmp)%varid)%Unit = 'DAY'
-              case('hour', 'hours', 'h')
-                nf%nVars(nf%nDims(iTmp)%varid)%Unit = 'HR'
-              case('minute', 'minutes', 'm')
-                nf%nVars(nf%nDims(iTmp)%varid)%Unit = 'MIN'
-              case('second', 'seconds', 's')
-                nf%nVars(nf%nDims(iTmp)%varid)%Unit = 'SEC'
-              case default
-                call set_error(fu_connect_strings('Unsupported time unit: ', &
-                                                  & nf%nVars(nf%nDims(iTmp)%varId)%Unit) ,sub_name)
-                return
-            end select
-            if(ifMsgs)then
-              call msg('Time unit:' + nf%nVars(nf%nDims(iTmp)%varid)%Unit)
-            endif                                      
-            
-!              nf%nDims(iTmp)%values => fu_work_array()
-              allocate(nf%nDims(iTmp)%values(nf%nDims(iTmp)%dimLen))
-              iStat = NF90_get_var(ncid=nf%unit_bin, &
-                                 & varid=nf%nDims(iTmp)%varId, &
-                                 & values=nf%nDims(iTmp)%values, &
-                                 & start=(/1/), &
-                                 & count=(/nf%nDims(iTmp)%dimLen/)) 
 
-              if(ifMsgs) call msg('Time values are:', nf%nDims(iTmp)%values(1:nf%nDims(iTmp)%dimLen))
-              if (istat /= 0)then 
-                call msg_warning('Failed to get time values',sub_name)
-                call msg_warning(fu_connect_strings('Netcdf error13:', nf90_strerror(iStat)),sub_name)
-                nf%nDims(iTmp)%defined = .false.       ! undefine the dimension
-              endif 
-              if(ifMsgs)then
-                call msg(fu_connect_strings('Calendar:',nf%nVars(nf%nDims(iTmp)%varid)%calendar))
-              endif
-              if(ifMsgs)then
-                do iT = 1, nf%nDims(iTmp)%dimLen
-                  call msg('Index & value:',iT,nf%nDims(iTmp)%values(iT))
-                end do
-              endif
-              !
-              ! Determine the type of calendar
-              !
-              nf%nVars(nf%nDims(iTmp)%varid)%calendar = &
-                   & fu_str_l_case(adjustl(nf%nVars(nf%nDims(iTmp)%varid)%calendar))
-              if(nf%nVars(nf%nDims(iTmp)%varid)%calendar == '' .or. &
-               & nf%nVars(nf%nDims(iTmp)%varid)%calendar == 'none')then
-                call msg_warning('Calendar not known, assuming standard',sub_name)
-                nf%nVars(nf%nDims(iTmp)%varId)%calendar = 'standard'
-              endif
-              if(index(nf%nVars(nf%nDims(iTmp)%varid)%calendar, 'standard') > 0 &
-               & .or.  index('standard', nf%nVars(nf%nDims(iTmp)%varid)%calendar) > 0) then
-                nf%nVars(nf%nDims(iTmp)%varId)%calendar = 'standard'
-              endif
-              
-              call parse_times(nf%nTime%tDimStart, nf%nDims(iTmp)%values, nf%nDims(iTmp)%dimLen, &
-                             & nf%nVars(nf%nDims(iTmp)%varId)%unit, nf%nVars(nf%nDims(iTmp)%varid)%calendar, &
-                             & nf%nTime%times)
-              
-              if(ifMsgs)then
-                call msg('Times found in the NetCDF file:')
-                do iT = 1, nf%nDims(iTmp)%dimLen             
-                  call report(nf%nTime%times(iT))
-                end do
-              endif
+          else ! not char format
+           
+            pVar%unit = fu_str_l_case(adjustl(trim(pVar%unit)))
+
+            pVar%calendar = fu_str_l_case(adjustl(pVar%calendar))
+            if(pVar%calendar == '' .or. &
+             & pVar%calendar == 'none')then
+              call msg_warning('Calendar not known, assuming standard',sub_name)
+              pVar%calendar = 'standard'
+            endif
+
+            allocate(pDim%values(pDim%dimLen))
+            iStat = NF90_get_var(ncid=nf%unit_bin, &
+                               & varid=pDim%varId, &
+                               & values=pDim%values, &
+                               & start=(/1/), &
+                               & count=(/pDim%dimLen/)) 
+
+            if (istat /= 0)then 
+              call msg_warning('Failed to get time values',sub_name)
+              call msg_warning(fu_connect_strings('Netcdf error13:', nf90_strerror(iStat)),sub_name)
+              pDim%defined = .false.       ! undefine the dimension
+            endif 
+            if(ifMsgs)then
+              call msg(fu_connect_strings('Calendar:',pVar%calendar))
+              do iT = 1, pDim%dimLen
+                call msg('Index & value:',iT,pDim%values(iT))
+              end do
+            endif
+            
+            !! Parse and assign times
+            call parse_time_units_and_origin(pVar%unit, pVar%calendar, nf%nTime%tDimStart, deltatTmp )
+            rDate8 = silja_time_to_real8(nf%nTime%tDimStart)
+            rDelta8  = fu_sec8(deltatTmp)
+            do iT = 1, pDim%dimLen             
+                 nf%nTime%times(iT) = real8_to_silja_time(rDate8 + pDim%values(iT) * rDelta8)
+            enddo
+
+            if(ifMsgs)then
+              call msg('Times found in the NetCDF file:')
+              do iT = 1, pDim%dimLen             
+                call report(nf%nTime%times(iT))
+              end do
+            endif
           endif ! char format
 
           nf%nTime%first_valid_time = nf%nTime%times(1)
-          nf%nTime%last_valid_time = nf%nTime%times(nf%nDims(iTmp)%dimLen)
-          if(nf%nDims(iTmp)%dimLen > 1) then
+          nf%nTime%last_valid_time = nf%nTime%times(pDim%dimLen)
+          if(pDim%dimLen > 1) then
             nf%nTime%step = nf%nTime%times(2) - nf%nTime%times(1)
           else
             nf%nTime%step = zero_interval  !Still valid in arithmetics
@@ -2711,94 +2680,94 @@ CONTAINS
         !
         !LEVEL
         !
-        elseif(fu_str_l_case(adjustl(nf%nDims(iTmp)%axis)) == 'z')then
+        elseif(fu_str_l_case(adjustl(pDim%axis)) == 'z')then
 
-!          nf%nDims(iTmp)%values => fu_work_array()
-          allocate(nf%nDims(iTmp)%values(nf%nDims(iTmp)%dimLen))
+!          pDim%values => fu_work_array()
+          allocate(pDim%values(pDim%dimLen))
           iStat = NF90_get_var(ncid=nf%unit_bin, &
-                             & varid=nf%nDims(iTmp)%varId, &
-                             & values=nf%nDims(iTmp)%values, &
+                             & varid=pDim%varId, &
+                             & values=pDim%values, &
                              & start=(/1/), &
-                             & count=(/nf%nDims(iTmp)%dimLen/)) 
+                             & count=(/pDim%dimLen/)) 
           if (istat /= 0)then 
             call msg_warning('Failed to get level values',sub_name)
             call msg_warning(fu_connect_strings('Netcdf error14:', nf90_strerror(iStat)),sub_name)
-            nf%nDims(iTmp)%defined = .false.       ! undefine the dimension
+            pDim%defined = .false.       ! undefine the dimension
           endif
-          if (ifMsgs) call msg("Z-dimension type: "//trim(nf%nDims(iTmp)%chType))
+          if (ifMsgs) call msg("Z-dimension type: "//trim(pDim%chType))
 
-          allocate(lstLevs(nf%nDims(iTmp)%dimlen+1))
-          chTmp = fu_str_u_case(adjustl(nf%nDims(iTmp)%chType)) 
+          allocate(lstLevs(pDim%dimlen+1))
+          chTmp = fu_str_u_case(adjustl(pDim%chType)) 
           if( chTmp == 'PRESSURE')then
-            do iLev = 1, nf%nDims(iTmp)%dimLen
-              lstLevs(ilev) = fu_set_pressure_level(real(nf%nDims(iTmp)%values(iLev)))
+            do iLev = 1, pDim%dimLen
+              lstLevs(ilev) = fu_set_pressure_level(real(pDim%values(iLev)))
             enddo
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'SIGMA_LEVEL')then
-            do iLev = 1, nf%nDims(iTmp)%dimLen
+            do iLev = 1, pDim%dimLen
               lstLevs(ilev) = fu_set_hybrid_level(iLev, 0., real(nf%nDims(iTmp)%values(iLev)))
             enddo
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'HEIGHT_FROM_SURF')then
-            do iLev = 1, nf%nDims(iTmp)%dimLen
-              lstLevs(ilev) = fu_set_constant_height_level(real(nf%nDims(iTmp)%values(iLev)))
+            do iLev = 1, pDim%dimLen
+              lstLevs(ilev) = fu_set_constant_height_level(real(pDim%values(iLev)))
             enddo
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'HEIGHT_LYR_FROM_SURF')then
             bottom = 0
-            do iLev = 1, nf%nDims(iTmp)%dimLen
-              thickness = 2.0 * (real(nf%nDims(iTmp)%values(iLev)) - bottom)
+            do iLev = 1, pDim%dimLen
+              thickness = 2.0 * (real(pDim%values(iLev)) - bottom)
               lstLevs(ilev) = fu_set_layer_between_two(layer_btw_2_height, bottom+thickness, bottom)
               bottom = bottom + thickness
             enddo
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
            elseif( chTmp == 'HEIGHT_LYR_BY_TOP')then
             bottom = 0
-            do iLev = 1, nf%nDims(iTmp)%dimLen
-              thickness = real(nf%nDims(iTmp)%values(iLev)) - bottom
+            do iLev = 1, pDim%dimLen
+              thickness = real(pDim%values(iLev)) - bottom
               lstLevs(ilev) = fu_set_layer_between_two(layer_btw_2_height, bottom+thickness, bottom)
               bottom = bottom + thickness
             enddo
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'ALTITUDE_FROM_SEA_LEVEL')then
-            do iLev = 1, nf%nDims(iTmp)%dimLen
-              lstLevs(ilev) = fu_set_constant_altitude_level(real(nf%nDims(iTmp)%values(iLev)))
+            do iLev = 1, pDim%dimLen
+              lstLevs(ilev) = fu_set_constant_altitude_level(real(pDim%values(iLev)))
             enddo
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'HYBRID')then
-            if (.not. associated(nf%nDims(iTmp)%a)) then
+            if (.not. associated(pDim%a)) then
               ! Get hybrid coefficients
-              allocate(nf%nDims(iTmp)%a(nf%nDims(iTmp)%dimlen))
-              allocate(nf%nDims(iTmp)%b(nf%nDims(iTmp)%dimlen))
-              nf%nDims(iTmp)%a(:) = real_missing
-              nf%nDims(iTmp)%b(:) = real_missing         
+              allocate(pDim%a(pDim%dimlen))
+              allocate(pDim%b(pDim%dimlen))
+              pDim%a(:) = real_missing
+              pDim%b(:) = real_missing         
               do iVar = 1, nf%n_Vars 
-                if(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == nf%nDims(iTmp)%a_Var)then
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, nf%nDims(iTmp)%a)
-                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == nf%nDims(iTmp)%b_Var)then
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, nf%nDims(iTmp)%b)
-                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == nf%nDims(iTmp)%P0_Var)then
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, nf%nDims(iTmp)%P0)
+                if(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == pDim%a_Var)then
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%a)
+                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == pDim%b_Var)then
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%b)
+                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == pDim%P0_Var)then
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%P0)
                 endif
                 if(iStat /= 0)then
                   if(ifMsgs)then
                     call msg_warning(fu_connect_strings('Failed to read the dimension variable:', &
-                                                    & nf%nDims(iTmp)%varName), &
+                                                    & pDim%varName), &
                                                     & sub_name)
                   endif
-                  nf%nDims(iTmp)%defined = .false.       ! undefine the dimension
+                  pDim%defined = .false.       ! undefine the dimension
                   cycle
                 endif
               enddo
             end if
-            if(nf%nDims(iTmp)%a(1)==real_missing)then 
-              if(nf%nDims(iTmp)%b(1)==real_missing)then
+            if(pDim%a(1)==real_missing)then 
+              if(pDim%b(1)==real_missing)then
                 call set_error('Hybrid coefficients missing', sub_name)
                 return
               else
@@ -2808,105 +2777,105 @@ CONTAINS
                 ! pressure = coef/1000*surface_pressure
                 ! a = 0; b = coef/1000
                 !
-                nf%nDims(iTmp)%a(:) = 0. 
-                do iStat = 1, size(nf%nDims(iTmp)%a)
-                  nf%nDims(iTmp)%b(iStat) = nf%nDims(iTmp)%b(iStat)/1000
+                pDim%a(:) = 0. 
+                do iStat = 1, size(pDim%a)
+                  pDim%b(iStat) = pDim%b(iStat)/1000
                 enddo
-                nf%nDims(iTmp)%P0(1) = 0.
+                pDim%P0(1) = 0.
               endif
             endif
-            do iLev = 1, nf%nDims(iTmp)%dimLen
-              lstLevs(ilev) = fu_set_hybrid_level(iLev, nf%nDims(iTmp)%a(iLev)*nf%nDims(iTmp)%P0(1), &
-                                                & nf%nDims(iTmp)%b(iLev))
+            do iLev = 1, pDim%dimLen
+              lstLevs(ilev) = fu_set_hybrid_level(iLev, pDim%a(iLev)*pDim%P0(1), &
+                                                & pDim%b(iLev))
             enddo  
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'HYBRID_LYR')then
-            if (.not. associated(nf%nDims(iTmp)%a_half)) then
+            if (.not. associated(pDim%a_half)) then
               ! Get hybrid coefficients
-              allocate(nf%nDims(iTmp)%a_half(nf%nDims(iTmp)%dimlen+1))
-              allocate(nf%nDims(iTmp)%b_half(nf%nDims(iTmp)%dimlen+1))
-              nf%nDims(iTmp)%a_half(:) = real_missing
-              nf%nDims(iTmp)%b_half(:) = real_missing         
-              call msg("Searching a_half"+nf%nDims(iTmp)%a_half_Var)
-              call msg("Searching b_half"+nf%nDims(iTmp)%b_half_Var)
+              allocate(pDim%a_half(pDim%dimlen+1))
+              allocate(pDim%b_half(pDim%dimlen+1))
+              pDim%a_half(:) = real_missing
+              pDim%b_half(:) = real_missing         
+              if(ifMsgs) call msg("Searching a_half"+pDim%a_half_Var)
+              if(ifMsgs) call msg("Searching b_half"+pDim%b_half_Var)
               do iVar = 1, nf%n_Vars
-                call msg("Trying:"+fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)))
-                if(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == nf%nDims(iTmp)%a_half_Var)then
-                  call msg("Found:"+nf%nDims(iTmp)%a_half_Var)
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, nf%nDims(iTmp)%a_half)
+                if(ifMsgs)  call msg("Trying:"+fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)))
+                if(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == pDim%a_half_Var)then
+                  if(ifMsgs) call msg("Found:"+pDim%a_half_Var)
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%a_half)
                   
-                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == nf%nDims(iTmp)%b_half_Var)then
-                  call msg("Found:"+nf%nDims(iTmp)%b_half_Var)
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, nf%nDims(iTmp)%b_half)
-                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == nf%nDims(iTmp)%P0_Var)then
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, nf%nDims(iTmp)%P0)
+                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == pDim%b_half_Var)then
+                  if(ifMsgs)  call msg("Found:"+pDim%b_half_Var)
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%b_half)
+                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == pDim%P0_Var)then
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%P0)
                 endif
                 if(iStat /= 0)then
                   if(ifMsgs)then
                     call msg_warning(fu_connect_strings('Failed to read the dimension variable:', &
-                                                    & nf%nDims(iTmp)%varName), &
+                                                    & pDim%varName), &
                                                     & sub_name)
                   endif
-                  nf%nDims(iTmp)%defined = .false.       ! undefine the dimension
+                  pDim%defined = .false.       ! undefine the dimension
                   cycle
                 endif
               enddo
             end if
-            if ((nf%nDims(iTmp)%a_half(1)==real_missing) .or. &
-               & (nf%nDims(iTmp)%b_half(1)==real_missing) ) then
+            if ((pDim%a_half(1)==real_missing) .or. &
+               & (pDim%b_half(1)==real_missing) ) then
                 call set_error('Hybrid half coefficients missing', sub_name)
                 return
             endif
 
 
             !!Sometimes a_half comes as a fraction of P0
-            if  (nf%nDims(iTmp)%P0(1) > 0) &
-              & nf%nDims(iTmp)%a_half(:) = nf%nDims(iTmp)%a_half(:) * nf%nDims(iTmp)%P0(1)
+            if  (pDim%P0(1) > 0) &
+              & pDim%a_half(:) = pDim%a_half(:) * pDim%P0(1)
 
             ! Check only first layer pressure drop, so layers are always bottom-top
-            fTmp = (nf%nDims(iTmp)%a_half(2) - nf%nDims(iTmp)%a_half(1) )  &
-                  &  + (nf%nDims(iTmp)%b_half(2) - nf%nDims(iTmp)%b_half(1))*std_pressure_sl
-!            call msg("a_half", nf%nDims(iTmp)%a_half(1:nf%nDims(iTmp)%dimLen+1))
-!            call msg("b_half", nf%nDims(iTmp)%b_half(1:nf%nDims(iTmp)%dimLen+1))
+            fTmp = (pDim%a_half(2) - pDim%a_half(1) )  &
+                  &  + (pDim%b_half(2) - pDim%b_half(1))*std_pressure_sl
+!            call msg("a_half", pDim%a_half(1:pDim%dimLen+1))
+!            call msg("b_half", pDim%b_half(1:pDim%dimLen+1))
 !            call ooops("ooops")
             
-            do iLev = 1, nf%nDims(iTmp)%dimLen
+            do iLev = 1, pDim%dimLen
               if (fTmp < 0) then 
                 ! pressure decreases with lev number: bottopm-up
                 lstLevs(ilev) = fu_set_layer_between_two(layer_btw_2_hybrid, ilev, ilev-1, &
-                        & nf%nDims(iTmp)%a_half(iLev+1), nf%nDims(iTmp)%b_half(iLev+1), &  !top
-                        & nf%nDims(iTmp)%a_half(iLev), nf%nDims(iTmp)%b_half(iLev))        !bottom
+                        & pDim%a_half(iLev+1), pDim%b_half(iLev+1), &  !top
+                        & pDim%a_half(iLev), pDim%b_half(iLev))        !bottom
               else
                 ! top-down
                 lstLevs(ilev) = fu_set_layer_between_two(layer_btw_2_hybrid, ilev-1, ilev, &
-                        & nf%nDims(iTmp)%a_half(iLev), nf%nDims(iTmp)%b_half(iLev), &    !top
-                        & nf%nDims(iTmp)%a_half(iLev+1), nf%nDims(iTmp)%b_half(iLev+1))  !bottom
+                        & pDim%a_half(iLev), pDim%b_half(iLev), &    !top
+                        & pDim%a_half(iLev+1), pDim%b_half(iLev+1))  !bottom
 
               endif
             enddo  
-            lstLevs(nf%nDims(iTmp)%dimlen+1) = level_missing
-            call set_vertical(lstLevs, nf%nDims(iTmp)%sVert)
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
           elseif( chTmp == 'SURFACE_LEVEL')then
-            call set_vertical(surface_level, nf%nDims(iTmp)%sVert)
+            call set_vertical(surface_level, pDim%sVert)
           elseif( chTmp == 'TOP_ATMOSPHERE_LEVEL')then
-            call set_vertical(top_atmosphere_level, nf%nDims(iTmp)%sVert)
+            call set_vertical(top_atmosphere_level, pDim%sVert)
           elseif( chTmp == 'MEAN_SEA_LEVEL')then
-            call set_vertical(mean_sea_level, nf%nDims(iTmp)%sVert)
+            call set_vertical(mean_sea_level, pDim%sVert)
           elseif( chTmp == 'ENTIRE_ATMOSPHERE_MEAN_LAYER')then
-            call set_vertical(entire_atmosphere_mean_level, nf%nDims(iTmp)%sVert)
+            call set_vertical(entire_atmosphere_mean_level, pDim%sVert)
           elseif( chTmp == 'ENTIRE_ATMOSPHERE_INTEGR_LAYER')then
-            call set_vertical(entire_atmosphere_integr_level, nf%nDims(iTmp)%sVert)
+            call set_vertical(entire_atmosphere_integr_level, pDim%sVert)
           else
-            call set_error(fu_connect_strings('Strange type of level:',nf%nDims(iTmp)%chType), &
+            call set_error(fu_connect_strings('Strange type of level:',pDim%chType), &
                                             & sub_name)
             return
           endif
           deallocate(lstLevs)
 
           !FIXME Levels here are as they are in file. No reshuffling!!!!!
-!          call arrange_levels_in_vertical(nf%nDims(iTmp)%sVert, ifChanged)
-          nf%nDims(iTmp)%ifReverse = .False.
+!          call arrange_levels_in_vertical(pDim%sVert, ifChanged)
+          pDim%ifReverse = .False.
            
           ! assuming, that it was upside down, not a random mess ...
 
@@ -2914,89 +2883,89 @@ CONTAINS
         ! LAT and LON coordinates can have either 1d or 2d values. If also has time or z dimension, the last dimensions will be ignored. 
         ! Here just check the units and read the values.
         !
-        elseif(fu_str_l_case(adjustl(nf%nDims(iTmp)%axis)) == 'x')then
-          if(nf%nVars(nf%nDims(iTmp)%varid)%n_dims == 1)then ! easy case - 1d
-            allocate(nf%nDims(iTmp)%values(nf%nDims(iTmp)%dimLen))            
+        elseif(fu_str_l_case(adjustl(pDim%axis)) == 'x')then
+          if(pVar%n_dims == 1)then ! easy case - 1d
+            allocate(pDim%values(pDim%dimLen))            
             iStat = NF90_get_var(ncid=nf%unit_bin, &
-                               & varid=nf%nDims(iTmp)%varId, &
-                               & values=nf%nDims(iTmp)%values, &
+                               & varid=pDim%varId, &
+                               & values=pDim%values, &
                                & start=(/1/), &
-                               & count=(/nf%nDims(iTmp)%dimLen/)) 
+                               & count=(/pDim%dimLen/)) 
             if (istat /= 0)then 
               call msg_warning('Failed to get lon values',sub_name)
               call msg_warning(fu_connect_strings('Netcdf error15:', nf90_strerror(iStat)),sub_name)
-              nf%nDims(iTmp)%defined = .false.       ! undefine the dimension
+              pDim%defined = .false.       ! undefine the dimension
             endif
-            if(nf%nDims(iTmp)%values(2) < nf%nDims(iTmp)%values(1))then
-              nf%nDims(iTmp)%ifReverse = .true.
+            if(pDim%values(2) < pDim%values(1))then
+              pDim%ifReverse = .true.
               call msg('Reversed x dimension')
             else
-              nf%nDims(iTmp)%ifReverse = .false.
+              pDim%ifReverse = .false.
             endif
           else ! more than 1d. As here it might yet not be known, which of those are important, leave for later when reading gridvars
 
-!            call msg(fu_connect_strings('Nr of dims for: ', nf%nDims(iTmp)%varName), nf%nVars(nf%nDims(iTmp)%varid)%n_dims)
+!            call msg(fu_connect_strings('Nr of dims for: ', pDim%varName), pVar%n_dims)
 
           endif
         
         !LAT
         !
-        elseif(fu_str_l_case(adjustl(nf%nDims(iTmp)%axis)) == 'y')then
-          if(nf%nVars(nf%nDims(iTmp)%varid)%n_dims == 1)then ! easy case - 1d
+        elseif(fu_str_l_case(adjustl(pDim%axis)) == 'y')then
+          if(pVar%n_dims == 1)then ! easy case - 1d
 
-            allocate(nf%nDims(iTmp)%values(nf%nDims(iTmp)%dimLen))            
+            allocate(pDim%values(pDim%dimLen))            
             iStat = NF90_get_var(ncid=nf%unit_bin, &
-                               & varid=nf%nDims(iTmp)%varId, &
-                               & values=nf%nDims(iTmp)%values, &
+                               & varid=pDim%varId, &
+                               & values=pDim%values, &
                                & start=(/1/), &
-                               & count=(/nf%nDims(iTmp)%dimLen/)) 
+                               & count=(/pDim%dimLen/)) 
             if (istat /= 0)then 
               call msg_warning('Failed to get lat values',sub_name)
               call msg_warning(fu_connect_strings('Netcdf error16:', nf90_strerror(iStat)),sub_name)
-              nf%nDims(iTmp)%defined = .false.       ! undefine the dimension
+              pDim%defined = .false.       ! undefine the dimension
             endif
-            if(nf%nDims(iTmp)%values(2) < nf%nDims(iTmp)%values(1))then
-              nf%nDims(iTmp)%ifReverse = .true.
+            if(pDim%values(2) < pDim%values(1))then
+              pDim%ifReverse = .true.
               call msg('Reversed y dimension')
             else
-              nf%nDims(iTmp)%ifReverse = .false.
+              pDim%ifReverse = .false.
             endif
           else ! more than 1d. As here it might yet not be known, which of those are important, leave for later when reading gridvars
             
-!            call msg(fu_connect_strings('Nr of dims for: ', nf%nDims(iTmp)%varName), nf%nVars(nf%nDims(iTmp)%varid)%n_dims)
+!            call msg(fu_connect_strings('Nr of dims for: ', pDim%varName), pVar%n_dims)
           
           endif
         else
           call msg_warning(fu_connect_strings('Failed to attribute the dimension variable:', &
-                                            & nf%nDims(iTmp)%varName), &
+                                            & pDim%varName), &
                          & sub_name)
         endif !t, z, x, y
       else        
         ! Try to identify undefined z dim vithout dim var
         ! Could also be string length or something else funny
         ! Only thing to check is dim name
-        if(fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'lev' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'ilev' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'level' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'height' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'hybrid' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'bottom_top' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'bottom_top_stag' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'ilevel' .or. &
-         & fu_str_l_case(adjustl(nf%nDims(iTmp)%dimName)) == 'z')then
-          nf%nDims(iTmp)%axis = 'z'
-          nf%nDims(iTmp)%varId = int_missing
-          nf%nDims(iTmp)%varName = ''
-          nf%nDims(iTmp)%defined = .true.
+        if(fu_str_l_case(adjustl(pDim%dimName)) == 'lev' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'ilev' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'level' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'height' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'hybrid' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'bottom_top' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'bottom_top_stag' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'ilevel' .or. &
+         & fu_str_l_case(adjustl(pDim%dimName)) == 'z')then
+          pDim%axis = 'z'
+          pDim%varId = int_missing
+          pDim%varName = ''
+          pDim%defined = .true.
         else
           if(ifMsgs)then
-            call msg_warning(fu_connect_strings('Unidentified dimension: ',nf%nDims(iTmp)%dimName))
+            call msg_warning(fu_connect_strings('Unidentified dimension: ', pDim%dimName))
           endif
         endif 
 
       endif !if defined
       
-    enddo  
+    enddo  !!iTmp DimLoop 
 
 
    ! Check the availibility of vars (availible if silam quantity and dims defined)
@@ -3695,9 +3664,9 @@ CONTAINS
 !!! Dirty hack for concentrations packed as integers
   if (any(iQty == (/concentration_flag, volume_mixing_ratio_flag, emission_intensity_flag, emission_flux_flag/) )) then
     if (any(nf%nVars(iVar)%xtype == (/nf90_int, NF90_SHORT/) )) then
-       ! Need to take care of possible errors due to numerics of integer scaling
-       ! If the result deviates from zero by less than the discrete of the
-       ! variable, set it to zero.
+      ! Need to take care of possible errors due to numerics of integer scaling
+      ! If the result deviates from zero by less than the discrete of the
+      ! variable, set it to zero.
       fTmp = 2*abs(sc1*sc2) !
       if (any(grid_data(1:nx*ny) < -fTmp)) then
         call msg(fu_quantity_string(iQty))
@@ -3708,20 +3677,19 @@ CONTAINS
       endif
       where(grid_data(1:nx*ny) < fTmp) grid_data(1:nx*ny) = 0.
 #ifdef DEBUG_NC
-   call msg("min(field), max(field) after hack1", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
+      call msg("min(field), max(field) after hack1", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
 #endif
-
        
-    elseif ( abs(nf%nVars(iVar)%missing_value + 32767.) < 1e-3) then  
-     !!      nint(nf%nVars(iVar)%missing_value) == -32767) then !!! Triggers FPE
-       ! Too bad... The source was unpacked by someone who was unable to adjust minimal value...
-       ! Just remove negatives and hope for best
-       where(grid_data(1:nx*ny) < 0) grid_data(1:nx*ny) = 0
+!    elseif ( nint(nf%nVars(iVar)%missing_value) == -32767) then  ! BAD! if value is over integger range, arithmetic error comes
+    elseif ( abs(nf%nVars(iVar)%missing_value + 32767) < 1) then
+      ! Too bad... The source was unpacked by someone who was unable to adjust minimal value...
+      ! Just remove negatives and hope for best
+      where(grid_data(1:nx*ny) < 0) grid_data(1:nx*ny) = 0
 #ifdef DEBUG_NC
-   call msg("min(field), max(field) after hack 2", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
+      call msg("min(field), max(field) after hack 2", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
 #endif
-    endif
-  endif
+    endif   ! if integer vars
+  endif  ! conc / vmr / emission quantities
 
  
   end subroutine read_field_from_netcdf_indices
@@ -4290,6 +4258,8 @@ CONTAINS
     enddo  ! iVar
   end subroutine id_list_from_netcdf_file
 
+  
+  !********************************************************************
 
   subroutine id_for_nc_index(iUnit, id_out, iVar, iT, iLev)
 
@@ -4332,17 +4302,27 @@ CONTAINS
          length_of_accumulation = zero_interval
          fc_length = nf%nTime%times(iT) - nf%nTime%analysis_time
       else
-         length_of_accumulation =  nf%nTime%step
          field_kind = averaged_flag
 
          select case (nf%nTime%time_label_position)
             case (end_of_period) 
                fc_length = nf%nTime%times(iT) - nf%nTime%analysis_time
+               if (it == 1) then
+                 length_of_accumulation =  nf%nTime%step
+               else  !! Also support irregular steps
+                 length_of_accumulation =  nf%nTime%times(iT) - nf%nTime%times(iT-1)
+               endif
             case (mid_of_period)
                fc_length = nf%nTime%times(iT) - nf%nTime%analysis_time + nf%nTime%step*0.5 
+               length_of_accumulation =  nf%nTime%step
             case (start_of_period)
-               fc_length = nf%nTime%times(iT) - nf%nTime%analysis_time + nf%nTime%step
-
+               if (it == nf%n_times) then  !! Also support irregular steps
+                 fc_length = nf%nTime%times(iT) - nf%nTime%analysis_time + nf%nTime%step
+                 length_of_accumulation =  nf%nTime%step
+               else
+                 fc_length = nf%nTime%times(iT+1) - nf%nTime%analysis_time
+                 length_of_accumulation =  nf%nTime%times(iT+1) - nf%nTime%times(iT)
+               endif
             case default
                call set_error("nf%nTime%time_label_position="//fu_str(nf%nTime%time_label_position)&
                   &//"  handling not implemented", sub_name)
@@ -4371,8 +4351,6 @@ CONTAINS
                                    & field_kind, &             ! optional
                                    & species = nf%nvars(ivar)%species, &
                                    & chCocktail = nf%nvars(ivar)%chCocktailNm)
-
-
 
   end subroutine id_for_nc_index
 
@@ -4586,16 +4564,19 @@ CONTAINS
             do iTmp = 1, nTimes-1
               timeLst(iTmp) = nfile(input_unit)%ntime%times(iTmp)
             end do
+            timeLst(nTimes) = timeLst(nTimes-1) + nfile(input_unit)%nTime%step
           case(mid_of_period)
             do iTmp = 1, nTimes-1
               timeLst(iTmp) = nfile(input_unit)%ntime%times(iTmp) - &
                             & nfile(input_unit)%nTime%step * 0.5
             end do
-          case(end_of_period)
+            timeLst(nTimes) = timeLst(nTimes-1) + nfile(input_unit)%nTime%step
+          case(end_of_period) !!!! Irregular times  can be  handled here
+                              !! First valid-start time just guessed
             do iTmp = 1, nTimes-1
-              timeLst(iTmp) = nfile(input_unit)%ntime%times(iTmp) - &
-                            & nfile(input_unit)%nTime%step
+              timeLst(iTmp+1) = nfile(input_unit)%ntime%times(iTmp) 
             end do
+            timeLst(1) = timeLst(2) - nfile(input_unit)%nTime%step !! Backfill
           case(instant_fields)
             call set_error('Envelope requested for instant fields', sub_name)
             return
@@ -4605,7 +4586,6 @@ CONTAINS
                          & sub_name)
             return
         end select
-        timeLst(nTimes) = timeLst(nTimes-1) + nfile(input_unit)%nTime%step
       else   ! not envelope times, just copy the array
         nTimes = nfile(input_unit)%n_times
         allocate(timeLst(nTimes), stat = iTmp)
@@ -4715,29 +4695,17 @@ CONTAINS
     label_pos = nf%ntime%time_label_position
     select case(label_pos)
       case(end_of_period, instant_fields)
-         offset = zero_interval
+         timetmp = fu_valid_time(id_req)
        case(mid_of_period)
-         offset = nf%nTime%step * 0.5
+         timetmp = fu_valid_time(id_req) - fu_accumulation_length(id_req)* 0.5
        case(start_of_period)
-         offset = nf%nTime%step
+         timetmp = fu_valid_time(id_req) - fu_accumulation_length(id_req)
        case default
          call set_error('Unknown time label position:' + &
                       & fu_str(nf%ntime%time_label_position), &
                       & sub_name)
          return
     end select
-
-    timetmp = fu_valid_time(id_req)
-    if (fu_field_kind(id_req) == averaged_flag ) then
-       timetmp = timetmp - offset
-       if (.not.  fu_accumulation_length(id_req) == nf%nTime%step ) then
-             call msg("NCfile timestep: "//trim(fu_str(nf%nTime%step)) )
-             call msg("id_requested:")
-             call report(id_req)
-             call set_error("Averaging time missmatch",sub_name)
-             return
-       endif
-    endif
 
     !Just find matching time
     do iT = 1,nTimes
@@ -4749,6 +4717,20 @@ CONTAINS
     endif
 
     call id_for_nc_index(iUnit, id_found, iVar, iT, iLev)
+
+    if (fu_field_kind(id_req) == averaged_flag ) then
+       if (.not.  fu_accumulation_length(id_req) == fu_accumulation_length(id_found) ) then
+             call msg("NCfile timestep: "//trim(fu_str(nf%nTime%step)) )
+             call msg("id_requested:")
+             call report(id_req)
+             call msg("id_found:")
+             call report(id_found)
+             call set_error("Averaging time missmatch",sub_name)
+             return
+       endif
+    endif
+
+
 
   end subroutine field_indices_from_netcdf_file
 
@@ -4849,73 +4831,6 @@ CONTAINS
   end subroutine set_missing_netcdf_dim
 
 
-  !*****************************************************************
-
-  function fu_netcdf_str_to_silam_time(chTime) result(time)
-    !
-    ! Converts the netcdf-type string to the SILAM type structure
-    ! The input template is: yyyy-mm-dd hh:mm:ss
-    ! For example 0000-01-01 00:00:00
-    !
-    implicit none
-
-    ! Return value
-    type(silja_time) :: time
-
-    ! Imported parameter
-    character(len=*), intent(in) :: chTime
-    character :: chtmp
-
-    ! Local variables
-    integer :: year, month, day, hour, minute, iStatus
-    integer :: iywidth,imwidth,idwidth, i, ind
-    real :: second
-    character(len=80) :: chF
-    character(len=1), dimension(2) :: delimiters
-    year=int_missing; month=int_missing; day=int_missing 
-
-    second = 0.
-    minute = 0
-    hour = 0
-    time = time_missing
-
-    delimiters = (/'T', '_' /)
-
-    iywidth=index(chTime,'-')-1
-    imwidth=index(chTime(iywidth+2:),'-') -1
-    idwidth=index(chTime(iywidth+imwidth+3:),' ') -1
-    if (all(idwidth /= (/1,2/)) ) then !Try to look for T -- delimiter in thredds dates
-      do i=1, size(delimiters)
-        ind = index(chTime(iywidth+imwidth+3:), delimiters(i))
-        if (ind > 0) then
-          idwidth = ind - 1
-          exit
-        end if
-      end do
-        
-
-      if (idwidth /= 2) then
-        call set_error('Failed to get time from string1"'//trim(chTime)//'"' , &
-             & 'fu_netcdf_str_to_silam_time')
-        return
-      endif
-    endif
-    chF='(I'+fu_str(iywidth)+', A, I'+fu_str(imwidth)+', A, I'+fu_str(idwidth)+', A, I2, A, I2, A, F2.0)'
-
-
-
-      !
-    read(unit=chTime,fmt=chF, iostat=iStatus) &
-                       & year, chtmp, month, chtmp, day, chtmp, hour, chtmp, minute, chtmp, second
-    if (iStatus /= 0)then
-      call set_error('Failed to get time from netcdf  string "'//trim(chTime)//'"' , &
-                  & 'fu_netcdf_str_to_silam_time')
-      return
-    endif
-
-    time = fu_set_time_utc(year, month, day, hour, minute, second)
-    
-  end function fu_netcdf_str_to_silam_time
 
 
   !***********************************************************************************
@@ -5091,7 +5006,38 @@ CONTAINS
   end subroutine expand_output_list
 
   
+  !******************************************************
+  
+  subroutine report_nc_file_content(iUnit)
+    !
+    ! Lists all IDs in the netcdf file
+    !
+    implicit none
+    
+    ! Imported parameter
+    integer, intent(in) :: iUnit
+    
+    ! Local variables
+    integer :: iCount, iFld
+    type(silja_field_id), dimension(:), pointer :: idList => null()
+    
+    call msg('')
+    call msg('---------- NETCDF file report, unit:', iUnit)
+    !
+    ! First, get the field IDs to report
+    !
+    call id_list_from_netcdf_file(iUnit, idList, iCount)
+    if(error)return
+    ! report
+    do iFld = 1, iCount
+      call report(idList(iFld))
+      call msg('')
+    end do
+    if(iCount > 0) deallocate(idList)
+    call msg('-----------end NETCDF file report, unit:',iUnit)
+    call msg('')
 
+  end subroutine report_nc_file_content
 
 END MODULE netcdf_io
 

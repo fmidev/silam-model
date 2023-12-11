@@ -3,13 +3,15 @@ MODULE diagnostic_variables
   ! This module contains a set of routines for deriving a diagnostic dispersion
   ! variables. 
   ! Do not mix with derived meteorological quantities: those are 
-  ! input fields, while these are the outputs of dispersion simulations. By definition,
-  ! diagnostic variables are those, which are not predicted within the main cycle of
-  ! the simualtions but rather derived from its products. They also do not affect the
-  ! further model simualtions, thus being entirely output-oriented.
-  ! The only reason why these routines are not moved outside the SILAM code is that
-  ! their computation might need internal variables, which are either
-  ! not easily available for output or bulky.
+  ! input fields defined in meteo grid, while these are the outputs of SILAM 
+  ! simulations of all kinds. By definition, diagnostic variables are those, which 
+  ! are not predicted within the main dispersion cycle of the simualtions but 
+  ! - either generated from input data and placed into dispersion environment, 
+  !   including dispersion grid and vertical, 
+  ! - or derived from SILAM products and do not affect the model simualtions, 
+  !   thus being entirely output-oriented. The only reason why these routines are 
+  !   not moved outside the SILAM code is that their computation might need internal 
+  !   variables, which are either not easily available for output or bulky.
   ! There is a possibility for cross-diagnising one variable from another one. E.g., 
   ! mass can be diagnosed from concentration and the other way round.
   !
@@ -26,6 +28,7 @@ MODULE diagnostic_variables
   use cocktail_basic
   use vertical_motion
   use water_in_soil
+  use fire_danger_indices
   use fishpack_silam
   !$use omp_lib
 
@@ -33,24 +36,26 @@ MODULE diagnostic_variables
 
   public make_all_diagnostic_fields
   public fu_ifDiagnosticQuantity
+  public fu_if_full_meteo_vertical_needed
   public init_wind_diag
+  public set_rules_water_in_soil_model
+  public set_rules_fire_danger_indices
   public init_water_in_soil_model
+  public init_fire_danger_indices
   public ifUseMassfluxes
-  public diagnostic_input_needs
+  public add_diagnostic_input_needs
+  public disable_unavail_flds_4adjoint
+  public enable_diag_fields
 
   private make_diagnostic_fields
-  private diagnose_single_dyn_field
-  private diag_vertical_wind_incompr
-  private diagnostic_wind_test
-  private diag_vertical_wind_incompr_v2
-  private diag_vertical_wind_anelastic
-  private diag_vertical_wind_eta
+  private fu_quantity_avail_4adjoint
   private df_DMAT_Vd_correction
   private df_make_cell_size_z_dyn
-  private df_cumul_daily_tempr_2m
+  private df_cumul_daily_variable
 
   private df_update_realtime_met_fields
-  private df_daily_mean_tempr_2m
+  private df_daily_mean_variable
+  private fu_accumulation_type
 
   private diag_cell_fluxes  ! Get massfluxes for past and future  ignores pressure tendency
   private df_update_cellfluxcorr_rt   ! realtime spt correction for meteo interval
@@ -59,9 +64,9 @@ MODULE diagnostic_variables
   private TBLKTRI
   private adjust_2D_fluxes
   
-  
-
-
+  !
+  ! Private interpolation structures and variables needed for flux diagnostics
+  !
   type(THorizInterpStruct), pointer, save, private :: pHorizInterpU => null(), pHorizInterpV => null(), &
        & pHorizInterpRho => null()
   type(TVertInterpStruct), pointer, save, private ::  pVertInterpRho => null()
@@ -69,12 +74,30 @@ MODULE diagnostic_variables
   type(silam_vertical), private, save :: integration_vertical
   type(TVertInterpStruct), pointer, save, private :: wind_interp_struct
   integer, dimension(:), allocatable, private, save :: nsmall_in_layer
+  real(vm_p), dimension(:,:), allocatable, private, save :: u3d, v3d, eta_dot_3d, w3d
 
+  !
+  ! Types of wind diagnostics
+  !
   integer, parameter, private :: test_wind = 50000, incompressible = 50001, incompressible_v2 = 50002, &
                         & anelastic_v2 = 50003, from_nwp_omega = 50004, hybrid_top_down = 50005, & 
                         & hardtop = 50006, opentop = 50007, omegatop = 50008, topdown = 50009, hardtop_weighted = 50010
-
-  real(vm_p), dimension(:,:), allocatable, private, save :: u3d, v3d, eta_dot_3d, w3d
+  !
+  ! Types of averaging
+  !
+  integer, parameter, private :: av4mean = 50020, av4max = 50021, av4min = 50022, av4sum = 50023
+  
+  ! Local parameters: period-integrated quantities we deal with
+  integer, dimension(8) :: day_mean_quantities = &
+      & (/day_mean_temperature_flag, day_mean_temperature_2m_flag, day_max_temperature_2m_flag, &
+        & day_mean_relat_humid_2m_flag, day_min_relat_humid_2m_flag, &
+        & day_mean_windspeed_10m_flag, day_max_windspeed_10m_flag, &
+        & day_sum_precipitation_flag/)
+  integer, dimension(8) :: day_accum_quantities = &
+      & (/day_temperature_acc_flag, day_temperature_2m_acc_flag, day_temperature_2m_acc_max_flag, &
+        & day_relat_humid_2m_acc_flag, day_relat_humid_2m_acc_min_flag, &
+        & day_windspeed_10m_acc_flag, day_windspeed_10m_acc_max_flag, & 
+        & day_precipitation_acc_flag/)
   
   type Tdiagnostic_rules
      private
@@ -83,9 +106,10 @@ MODULE diagnostic_variables
      integer :: iTestWindType = 1
      integer :: a = int_missing, b = int_missing !Test Wind parameters
      logical :: w_on_half_levels, if_DoStatic
-     logical :: ifAllowColdstartDayTemperature=.False.
+     type(silja_logical) :: ifAllowColdstartDailyVars = silja_undefined    ! used to be .false.
      logical :: if_high_stomatal_conductance=.True.
      type(Trules_water_in_soil) :: rulesWIS
+     type(Trules_fire_danger) :: rules_FDI
   end type Tdiagnostic_rules
 
   type TWindMassBehind           
@@ -166,8 +190,6 @@ MODULE diagnostic_variables
     std_pr_top = fu_std_pressure(fu_upper_boundary_of_layer(fu_level(dispersion_vertical,nz_d)))
     call msg("Std pr at domain top (init_wind_diag)", std_pr_top)
 
-
-        
      !
      ! Stuff needed for local domain diagnostics
      if (rules%wind_method == test_wind) then
@@ -217,9 +239,6 @@ MODULE diagnostic_variables
            call msg("Colmass weights", Disp_wind%LevelCorrWeight(1:nz_d) )
 
 
-
-
-      
           if (smpi_adv_rank == 0.) then
             allocate(&
                   & Disp_wind%CosLat(ny+1), &
@@ -303,6 +322,25 @@ MODULE diagnostic_variables
   
   !************************************************************************************
   
+  subroutine set_rules_water_in_soil_model(nlSetup, rules)
+    !
+    ! Checks the necessity and initialises prognostic model for water in soil 
+    !
+    implicit none  
+    
+    ! Imported parameters
+    type(Tsilam_namelist), pointer :: nlSetup
+    type(Tdiagnostic_rules), intent(inout) :: rules
+
+    ! Set the rules
+    !
+    call set_rules_WIS(nlSetup, rules%rulesWIS)
+
+  end subroutine set_rules_water_in_soil_model
+
+  
+  !************************************************************************************
+  
   subroutine init_water_in_soil_model(dispMarketPtr, meteoMarketPtr, rules, start_time)
     !
     ! Checks the necessity and initialises prognostic model for water in soil 
@@ -320,8 +358,44 @@ MODULE diagnostic_variables
               & call init_WIS(dispMarketPtr, meteoMarketPtr, rules%rulesWIS, start_time)
 
   end subroutine init_water_in_soil_model
+
+
+  !************************************************************************************
+
+  subroutine set_rules_fire_danger_indices(nlIS4FIRES, rules, out_quantities_st)
+    !
+    ! sets rules for fire danger indices
+    !
+    implicit none
+    type(Tsilam_namelist), pointer :: nlIS4FIRES
+    type(Tdiagnostic_rules), intent(inout) :: rules
+    integer, dimension(:), intent(in) :: out_quantities_st
+    
+    call set_rules_FDI(nlIS4FIRES, rules%rules_FDI, out_quantities_st)
+
+  end subroutine set_rules_fire_danger_indices
   
   
+  !************************************************************************************
+  
+  subroutine init_fire_danger_indices(rules, dispersionMarketPtr, start_time)
+    !
+    ! Checks the necessity and initialises prognostic model for fire danger indices
+    !
+    implicit none  
+    
+    ! Imported parameters
+    type(mini_market_of_stacks), pointer :: dispersionMarketPtr
+    type(Tdiagnostic_rules), intent(inout) :: rules
+    type(silja_time), intent(in) :: start_time
+
+    ! Send the request to the corresponding module, just open the rules
+    !
+    call init_fire_danger_indices_FDI(rules%rules_FDI, dispersionMarketPtr, start_time)
+
+  end subroutine init_fire_danger_indices
+
+
   !************************************************************************************
 
   subroutine set_diagnostic_rules(nlMeteoSetup, nlStandardSetup, rules)
@@ -333,20 +407,19 @@ MODULE diagnostic_variables
     type(Tdiagnostic_rules), intent(out) :: rules
     integer :: iTmp
 
-    character(len=255) :: method
+    character(len=fnlen) :: strTmp
     character (len=*), parameter :: sub_name = "set_diagnostic_rules"
 
     rules%w_on_half_levels = .true.
     call msg('Vertical velocity computed at half-levels')
     call msg('')
 
-    method = fu_str_l_case(fu_content(nlStandardSetup, 'continuity_equation'))
-    iTmp = INDEX(trim(method),' ')
+    strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'continuity_equation'))
+    iTmp = INDEX(trim(strTmp),' ')
     if (iTmp > 0) then 
-        method = method(1:iTmp-1)
+        strTmp = strTmp(1:iTmp-1)
     endif
-    select case (method)
-
+    select case (strTmp)
       case ('incompressible')
         rules%continuity_equation = incompressible
         call msg('Incompressible continuity eqn. formulation')
@@ -362,17 +435,17 @@ MODULE diagnostic_variables
       case ( 'test_wind')
         rules%continuity_equation = test_wind
         if (iTmp > 0) then ! Requires a type of wind, may be, more parameters
-          method = fu_str_l_case(fu_content(nlStandardSetup, 'continuity_equation'))
-          method = trim(method(iTmp+1:))
-          read(unit=method, fmt=*, iostat=iTmp)  rules%iTestWindType
-          iTmp = INDEX(trim(method),' ')
+          strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'continuity_equation'))
+          strTmp = trim(strTmp(iTmp+1:))
+          read(unit=strTmp, fmt=*, iostat=iTmp)  rules%iTestWindType
+          iTmp = INDEX(trim(strTmp),' ')
           if  (iTmp > 0)then
-            read(unit=method, fmt=*, iostat=iTmp) rules%a
-            method = trim(method(iTmp+1:))
+            read(unit=strTmp, fmt=*, iostat=iTmp) rules%a
+            strTmp = trim(strTmp(iTmp+1:))
           endif
-          iTmp = INDEX(trim(method),' ')
+          iTmp = INDEX(trim(strTmp),' ')
           if  (iTmp > 0)then
-            read(unit=method(iTmp+1:), fmt=*, iostat=iTmp) rules%b
+            read(unit=strTmp(iTmp+1:), fmt=*, iostat=iTmp) rules%b
           endif
         else
           call set_error('test_wind requires at least 1 parameter: wind type index',sub_name)
@@ -384,7 +457,7 @@ MODULE diagnostic_variables
         rules%continuity_equation = hybrid_top_down
         call msg('Top-down eta dot diagnostic')
       case default
-        call msg('continuity_equation = ' // trim(method))
+        call msg('continuity_equation = ' // trim(strTmp))
         call msg_warning('Strange or no continuity_equation defined in standard setup,' + &
                        & 'will use differential form v2',sub_name)
         rules%continuity_equation = incompressible_v2
@@ -392,13 +465,12 @@ MODULE diagnostic_variables
     
 
     ! To replace continuity_equation at some point
-    method = fu_str_l_case(fu_content(nlStandardSetup, 'wind_diagnostics'))
-    iTmp = INDEX(trim(method),' ')
+    strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'wind_diagnostics'))
+    iTmp = INDEX(trim(strTmp),' ')
     if (iTmp > 0) then 
-        method = method(1:iTmp-1)
+        strTmp = strTmp(1:iTmp-1)
     endif
-    select case (method)
-
+    select case (strTmp)
       case ('opentop')
         rules%wind_method = opentop
         call msg('Opentop vertical mass_flux')
@@ -422,17 +494,17 @@ MODULE diagnostic_variables
       case ( 'test_wind')
         rules%wind_method = test_wind
         if (iTmp > 0) then ! Requires a type of wind, may be, more parameters
-          method = fu_str_l_case(fu_content(nlStandardSetup, 'wind_diagnostics'))
-          method = trim(method(iTmp+1:))
-          read(unit=method, fmt=*, iostat=iTmp)  rules%iTestWindType
-          iTmp = INDEX(trim(method),' ')
+          strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'wind_diagnostics'))
+          strTmp = trim(strTmp(iTmp+1:))
+          read(unit=strTmp, fmt=*, iostat=iTmp)  rules%iTestWindType
+          iTmp = INDEX(trim(strTmp),' ')
           if  (iTmp > 0)then
-            read(unit=method, fmt=*, iostat=iTmp) rules%a
-            method = trim(method(iTmp+1:))
+            read(unit=strTmp, fmt=*, iostat=iTmp) rules%a
+            strTmp = trim(strTmp(iTmp+1:))
           endif
-          iTmp = INDEX(trim(method),' ')
+          iTmp = INDEX(trim(strTmp),' ')
           if  (iTmp > 0)then
-            read(unit=method(iTmp+1:), fmt=*, iostat=iTmp) rules%b
+            read(unit=strTmp(iTmp+1:), fmt=*, iostat=iTmp) rules%b
           endif
         else
           call set_error('test_wind requires at least 1 parameter: wind type index',&
@@ -442,15 +514,15 @@ MODULE diagnostic_variables
         call msg("Test wind parameters", rules%a, rules%b)
         call msg_warning('Fake massflux wind:'+fu_str(rules%iTestWindType))
       case default
-        call msg('wind_diagnostics = ' // trim(method))
+        call msg('wind_diagnostics = ' // trim(strTmp))
         call msg("can be wind_diagnostics = opentop / hardtop / none")
         call msg_warning('Strange or no wind_diagnostics defined in standard setup,' + &
                        & 'will use winds opentop',sub_name)
         rules%wind_method = opentop
     end select
 
-    method = fu_str_l_case(fu_content(nlStandardSetup, 'stomatal_conductance'))
-    select case (method)
+    strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'stomatal_conductance'))
+    select case (strTmp)
       case ('high')
         rules%if_high_stomatal_conductance = .true.
       case ('low')
@@ -463,66 +535,244 @@ MODULE diagnostic_variables
 
     rules%if_DoStatic = .true.  ! for the first set of diagnostic calls
 
-    if (fu_str_l_case(fu_content(nlStandardSetup, 'allow_coldstart_day_temperature'))=='yes') &
-      rules%ifAllowColdstartDayTemperature=.True.
+    strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'allow_coldstart_daily_variables'))
+    rules%ifAllowColdstartDailyVars = silja_undefined
+    if (strTmp=='yes')then
+      rules%ifAllowColdstartDailyVars = silja_true
+    elseif( strTmp=='no')then
+      rules%ifAllowColdstartDailyVars = silja_false
+    endif
 
-    !
+    !! Backward compatibility
+    strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'allow_coldstart_day_temperature'))
+    if (strTmp=='yes')then
+      rules%ifAllowColdstartDailyVars = silja_true
+    endif
+
+    ! NO. 
     ! Seemingly a right place to set the soil water diagnostic rules
     ! Since here we have no clue if this is needed at all, just set them - this is always possible
     ! Later it will be decided if we want them
     !
-    call set_rules_WIS(nlMeteoSetup, rules%rulesWIS)
+!    call set_rules_WIS(nlMeteoSetup, rules%rulesWIS)
     
   end subroutine set_diagnostic_rules
 
   
   !****************************************************************************************
   
-  subroutine diagnostic_input_needs(rules, q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
+  subroutine add_diagnostic_input_needs(rules, ifVertical_MeteoDependent, &
+                                      & q_met_dyn, q_met_st, q_disp_dyn, q_disp_st)
     !
     ! Includes the meteorological quantities needed for the diagnostics.
-    ! The arrays already have all requestes from specific modules, so we can check what is
+    ! The arrays must have all requestes from specific modules, so we can check what is
     ! needed to diagnose
     !
     implicit none
     
     ! Imported parameters
     type(Tdiagnostic_rules), intent(inout) :: rules
-    INTEGER, DIMENSION(:), INTENT(inout) :: q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st
+    logical, intent(in) :: ifVertical_MeteoDependent
+    INTEGER, DIMENSION(:), INTENT(inout) :: q_met_dyn, q_met_st, q_disp_dyn, q_disp_st
     
     ! Local variables
-    integer :: iTmp
+    integer :: iTmp, iQ, iQ_rate
 
     ! The basic parameters that will be needed always
     !
-    iTmp = fu_merge_integer_to_array(height_flag, q_met_dynamic)
-    iTmp = fu_merge_integer_to_array(surface_pressure_flag, q_met_dynamic)
+    iTmp = fu_merge_integer_to_array(height_flag, q_met_dyn)
+    iTmp = fu_merge_integer_to_array(surface_pressure_flag, q_met_dyn)
+    !
+    ! High-level diagnostic modules. May require some second-level diagnostics, so need to be first
+    !
+    ! Water in soil. Call it only if the corresponding quantities are needed
+    !
+    if (defined(rules%rulesWIS)) then
+      if(fu_quantity_in_quantities(soil_moisture_vol_frac_nwp_flag, q_met_dyn) .or. &
+       & fu_quantity_in_quantities(water_in_soil_srf_grav_flag, q_met_dyn) .or. &
+       & fu_quantity_in_quantities(water_in_soil_deep_grav_flag, q_met_dyn))then
+        call add_input_needs_WIS(rules%rulesWIS, q_met_dyn, q_met_st, q_disp_dyn, q_disp_st)
+      endif
+    endif
+    !
+    ! Fire danger indices. Should any of them be called, have to add needs
+    !
+    call add_input_needs_FDI(rules%rules_FDI, q_met_dyn, q_met_st, q_disp_dyn, q_disp_st)
+    if(error)return
+    !
+    ! Basic meteorology in application to dispersion
+    !
+    !
+    ! Vd correction
+    !
+    if(fu_quantity_in_quantities(Vd_correction_DMAT_flag, q_disp_dyn))then
+
+      iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
+      iTmp = fu_merge_integer_to_array(temperature_2m_flag, q_met_dyn)
+      iTmp = fu_merge_integer_to_array(friction_velocity_flag, q_met_dyn)
+    endif
 
     !
-    ! Part of the game: water in soil. Not exactly diagnostic but still quite nice here
-    ! Call it only if the corresponding quantities are needed
+    ! z-size of grid cells
     !
-    if(fu_quantity_in_quantities(soil_moisture_vol_frac_nwp_flag, q_met_dynamic) .or. &
-     & fu_quantity_in_quantities(water_in_soil_srf_grav_flag, q_met_dynamic) .or. &
-     & fu_quantity_in_quantities(water_in_soil_deep_grav_flag, q_met_dynamic))then
-      call add_input_needs_WIS(rules%rulesWIS, q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
-    else
-      rules%rulesWIS = rulesWIS_missing  ! a precaution. Actually, should be set elsewhere too
-    endif
+    if(fu_quantity_in_quantities(cell_size_z_flag, q_disp_dyn)) &
+
+      & iTmp = fu_merge_integer_to_array(surface_pressure_flag, q_met_dyn)
     
     !
-    ! For each sub here, there is a requested quantities and input ones. Then:
+    ! Fluxes at the edge of the grid cells
     !
-    if(fu_quantity_in_quantities(day_mean_temperature_flag, q_disp_st)) &
-                              & iTmp = fu_merge_int_to_array(day_temperature_acc_flag, q_disp_dynamic)
-    if(fu_quantity_in_quantities(day_mean_temperature_2m_flag, q_disp_st)) &
-                              & iTmp = fu_merge_int_to_array(day_temperature_2m_acc_flag, q_disp_dynamic)
-    if(fu_quantity_in_quantities(day_temperature_acc_flag, q_disp_dynamic)) &
-                              & iTmp = fu_merge_int_to_array(temperature_flag, q_met_dynamic)
-    if(fu_quantity_in_quantities(day_temperature_2m_acc_flag, q_disp_dynamic)) &
-                              & iTmp = fu_merge_int_to_array(temperature_2m_flag, q_met_dynamic)
+    if(fu_quantity_in_quantities(disp_flux_celleast_flag, q_disp_dyn) .or. &
+         & fu_quantity_in_quantities(disp_flux_cellnorth_flag, q_disp_dyn) .or. &
+         & fu_quantity_in_quantities(disp_flux_celltop_flag, q_disp_dyn) .or. &
+         & fu_quantity_in_quantities(disp_cell_airmass_flag, q_disp_dyn))then
 
-  end subroutine diagnostic_input_needs
+      iTmp = fu_merge_integer_to_array(u_flag, q_met_dyn)
+      iTmp = fu_merge_integer_to_array(v_flag, q_met_dyn)
+      iTmp = fu_merge_integer_to_array(surface_pressure_flag, q_met_dyn)
+      iTmp = fu_merge_integer_to_array(height_flag, q_met_dyn)
+    endif
+
+    !
+    ! Mean quantities require corresponding cumulative ones (those are in dynamic minimarket)
+    !
+    do iQ = 1, size(day_mean_quantities)
+      if(fu_quantity_in_quantities(day_mean_quantities(iQ), q_disp_st)) &
+          & iTmp = fu_merge_integer_to_array(fu_cumul_quantity_for_mean_one(day_mean_quantities(iQ)), &
+                                           & q_disp_dyn)
+    end do
+    !
+    ! Cumulative quantities require corresponding rates (may or may not be in dynamic minimarket)
+    !
+    do iQ = 1, size(day_accum_quantities)
+      if(fu_quantity_in_quantities(day_accum_quantities(iQ), q_disp_dyn))then
+        iQ_rate = fu_rate_quantity_for_acc(day_accum_quantities(iQ))    ! rate quantity
+        if(fu_SILAM_disp_grid_quantity(iQ_rate))then                ! dispersion grid or meteo?
+          if(fu_realtime_quantity(iQ_rate))then                     ! multi-time or single-time?
+            iTmp = fu_merge_integer_to_array(iQ_rate, q_disp_st)
+          else
+            iTmp = fu_merge_integer_to_array(iQ_rate, q_disp_dyn)
+          endif
+        else
+          if(fu_realtime_quantity(iQ_rate))then                  ! multi-time or single-time?
+            iTmp = fu_merge_integer_to_array(iQ_rate, q_met_st)
+          else
+            iTmp = fu_merge_integer_to_array(iQ_rate, q_met_dyn)
+          endif
+        endif
+      endif
+    end do
+
+  end subroutine add_diagnostic_input_needs
+
+  !****************************************************************************************
+
+  subroutine disable_unavail_flds_4adjoint(buf_ptr, timeStart, timeEnd)
+    !
+    ! In case of 4D-VAR, adjoint run may not need the full list of meteo quantities
+    ! For instance, cumulative temeprature, which drives pollen sources, is not needed
+    ! for adjoint.
+    ! Removing these fields from existing meteo buffer and minimarkets is a huge task,
+    ! entirely unnecessary because these fields will be needed back in the forward run
+    ! Therefore, we just declare them always valid, thus turning their update off.
+    !
+    implicit none
+    
+    ! Imported parameters
+    type(Tfield_buffer), pointer :: buf_ptr
+    type(silja_time), intent(in) :: timeStart, timeEnd  ! interval of validity
+    
+    ! Local variables
+    integer :: iQbuf, Qidx
+    type(silja_field_id), pointer :: idPtr
+    
+    ! Stupidity check
+    !
+    if(fu_fails(timeStart < timeEnd,'timeStart is not earlierthan timeEnd','disable_unavail_flds_4adjoint'))return
+    !
+    ! Scan the buffer and reset validity time for each field
+    !
+    do Qidx = 1, size(buf_ptr%buffer_quantities)
+      ! Finished?
+      if(buf_ptr%buffer_quantities(Qidx) == int_missing)return ! all done
+      ! available?
+      if(fu_quantity_avail_4adjoint(buf_ptr%buffer_quantities(Qidx)))cycle
+      ! disable
+      if (fu_dimension(buf_ptr, Qidx) == 4) then 
+        idPtr => buf_ptr%p4d(Qidx)%present%p2d(1)%idPtr
+      else
+        idPtr => buf_ptr%p2d(Qidx)%present%idPtr
+      endif
+      call set_valid_time(idPtr, timeStart)
+      if(error)return
+      call set_validity_length(idPtr, timeEnd - timeStart)
+      if(error)return
+    end do ! Qidx
+  
+  end subroutine disable_unavail_flds_4adjoint
+
+  
+  !****************************************************************************************
+
+  subroutine enable_diag_fields(buf_ptr, now)
+    !
+    ! In case of 4D-VAR, adjoint run may not need the full list of meteo quantities
+    ! For instance, cumulative temeprature, which drives pollen sources, is not needed
+    ! for adjoint.
+    ! Removing these fields from existing meteo buffer and minimarkets is a huge task,
+    ! entirely unnecessary because these fields will be needed back in the forward run
+    ! Therefore, we just declare them always valid, thus turning their update off.
+    !
+    implicit none
+    
+    ! Imported parameters
+    type(Tfield_buffer), pointer :: buf_ptr
+    type(silja_time), intent(in) :: now
+    
+    ! Local variables
+    integer :: Qidx
+    type(silja_field_id), pointer :: idPtr
+    
+    !
+    ! Scan the buffer and reset validity time to zero for each field
+    !
+    do Qidx = 1, size(buf_ptr%buffer_quantities)
+      ! finished?
+      if(buf_ptr%buffer_quantities(Qidx) == int_missing)return ! all done
+      ! Need to reset?
+      if(fu_quantity_avail_4adjoint(buf_ptr%buffer_quantities(Qidx)))cycle
+      ! Enable
+      if (fu_dimension(buf_ptr, Qidx) == 4 ) then 
+        idPtr => buf_ptr%p4d(Qidx)%present%p2d(1)%idPtr
+      else
+        idPtr => buf_ptr%p2d(Qidx)%present%idPtr
+      endif
+      call set_valid_time(idPtr, now)
+      if(error)return
+      call set_validity_length(idPtr, zero_interval)
+      if(error)return
+    end do ! Qidx
+  
+  end subroutine enable_diag_fields
+  
+  
+  !************************************************************************************
+  
+  logical function fu_quantity_avail_4adjoint(quantity)
+    !
+    ! Some quantities cannot be computed in adjoint mode if the are in single-time stack
+    ! They cannot be just skipped - it can be an error in setup - but explicitly
+    ! disable them upon request is OK
+    !
+    implicit none
+    
+    ! Imported parameter
+    integer, intent(in) :: quantity
+    
+    fu_quantity_avail_4adjoint = .not. (any(day_mean_quantities(:) == quantity) &
+                                      & .or. any(day_accum_quantities(:) == quantity))
+    
+  end function fu_quantity_avail_4adjoint
 
 
   !****************************************************************************************
@@ -538,8 +788,7 @@ MODULE diagnostic_variables
                                       & wdr, &
                                       & diagnostic_rules, &
                                       & ifNewMeteoData, &
-                                      & now, timestep, &
-                                      & ifRunDispersion)
+                                      & now, timestep)
     !
     ! This is the main umbrella for deriving the diagnostic variables of all types.
     ! For meteo-only diagnosing it uses the existing derived_field_quantities modules
@@ -562,28 +811,25 @@ MODULE diagnostic_variables
     type(silja_interval), intent(in) :: timestep
     type(silja_wdr), intent(in) :: wdr
     type(Tdiagnostic_rules), intent(inout) :: diagnostic_rules
-    logical, intent(in) :: ifNewMeteoData, ifRunDispersion
-!    !FIXME delete this field
-!    type(silja_field), pointer :: field
-    logical :: iffound
+    logical, intent(in) :: ifNewMeteoData
     
     ! Local variables
     type(silja_time), save :: valid_border_time_1 = really_far_in_past, &
                             & valid_border_time_2 = really_far_in_past
     type(silja_interval) :: meteo_time_shift
-
+    integer :: iTmp, nDiagnosed
+    type(silja_field), pointer :: fieldPtr
+    logical :: ifOK, if_update_realtime_met_fields
     !
     ! If meteo is shifted, take this into account
     !
     meteo_time_shift = fu_meteo_time_shift(wdr)
+
     !
-    ! Should be called before make_derived_meteo_fields to get tz_offset field
-    ! properly
+    ! Should be called before make_derived_meteo_fields to get tz_offset field properly
     !
     call update_timezone_offsets(now)
     call SolarSetup(now)  ! Solar zenith angle, sunset, sunrize etc would be right
-   
-    !-----------------------------------------------------------------------------
     !
     ! Part 1: deal with the meteo data. 
     !
@@ -594,19 +840,17 @@ MODULE diagnostic_variables
     ! Derived meteo quantities
     !
     CALL make_derived_meteo_fields(meteoMarketPtr, meteo_dyn_shopping_list, wdr, &
-         & diagnostic_rules%if_high_stomatal_conductance, ifNewMeteoData)
+                                 & diagnostic_rules%if_high_stomatal_conductance, ifNewMeteoData)
     if(error)return
 
     !
     ! Set meteo buffer pointers
     !
     call msg("make_all_diagnostic_fields sets met_buf pointers")
+
     CALL arrange_buffer(meteoMarketPtr, fu_met_src(wdr,1), now + meteo_time_shift, timestep,&
                       & meteo_buf_ptr, meteo_verticalPtr)
     if(error)return
-
-
-    !------------------------------------------------------------------------------
     !
     ! Preparatory: refine all vertical interpolation coefficients in the whole pool
     ! of the vertical interpolation structures.
@@ -622,73 +866,170 @@ MODULE diagnostic_variables
     call stop_count('Refine vertical coefs v2')
     if(error)return
 
-    ! Probably, here is the right point to take care of water in soil
     !
-    if(defined(diagnostic_rules%rulesWIS))then
-      call update_water_in_soil(meteo_buf_ptr, disp_buf_ptr, now + meteo_time_shift, timestep, diagnostic_rules%rulesWIS)
-      if(error)return
-    endif
-    
-    if(ifRunDispersion)then
-      !
-      ! Finally, derive the dispersion diagnostic fields using their shopping lists
-      !
-      call make_diagnostic_fields(meteo_buf_ptr, & ! meteo buffer
-                                & dispersionMarketPtr, & ! disp market
-                                & disp_dyn_shopping_list, & ! full list of disp dynamic fields
-                                & disp_stat_shopping_list, & ! full list of disp static fields
-           !                     & now, &
-                                & diagnostic_rules)
-      if(error)return
-      call msg_test('Setting dispersion pointers...')
-      call arrange_buffer(dispersionMarketPtr, met_src_missing, now + meteo_time_shift, timestep, & 
-                        & disp_buf_ptr,  dispersion_verticalPtr)
-      if(error)return
-    endif   ! ifRunDispersion
-
-    ! fields must be valid for the middle of step
-    ! The sub prepares the fields with certain validity period. As soon as out target time is outside
-    ! we call it again.
+    ! Need to update real-time meteo fields prior to start making dispersion ones.
+    ! valid_border_time_1, valid_border_time_2 are remembered through the model run
+    ! do not reset them
     !
-    if(.not. fu_between_times(now + meteo_time_shift + timestep * 0.5, &
-                            & valid_border_time_1, valid_border_time_2, .true.))then
+    if(fu_between_times(now + meteo_time_shift + timestep * 0.5, &
+                      & valid_border_time_1, valid_border_time_2, .true.))then
+      !
+      ! There is nothing to do, all is still valid
+      !
+      if_update_realtime_met_fields = .false.
+    else
+      !
+      ! work it out
 !      call msg("Updating realime for time:"+fu_str(now + timestep * 0.5))
 !      call msg("Valid range = "+fu_str(valid_border_time_1)+ ":" +fu_str(valid_border_time_2))
 
+      ! Reset_times is not used since at least v.5.7, so commented it here
+      !
+      if_update_realtime_met_fields = .true.
+
       call df_update_realtime_met_fields(meteoMarketPtr, meteo_buf_ptr, &
                                        & now + meteo_time_shift + timestep * 0.5, wdr, diagnostic_rules,&
-                                       & valid_border_time_1, valid_border_time_2, .true.)   ! interval of validity, output
+                                       & valid_border_time_1, valid_border_time_2) ! , .true.)   ! interval of validity, output
       if(error)return
+    endif
+!    !                        
+!    ! Probably, here is the right point to take care of water in soil
+! Wrong solution: the update must use dispersion market rather than buffer. For now, commented it all out
+!    !
+!    if(defined(diagnostic_rules%rulesWIS))then
+!      call update_water_in_soil(meteo_buf_ptr, disp_buf_ptr, now + meteo_time_shift, timestep, diagnostic_rules%rulesWIS)
+!      if(error)return
+!    endif
+    !
+    ! Finally, derive the dispersion diagnostic fields using their shopping lists
+    !
+    call make_diagnostic_fields(meteo_buf_ptr, & ! meteo buffer
+                              & dispersionMarketPtr, & ! disp market
+                              & disp_dyn_shopping_list, & ! full list of disp dynamic fields
+                              & disp_stat_shopping_list, & ! full list of disp static fields
+                              & diagnostic_rules, wdr, nDiagnosed)
+    if(error)return
+    !
+    ! In case we completely failed the request, something must be wrong
+    !
+    iTmp = fu_nbr_of_quantities(disp_dyn_shopping_list,.false.) &
+       & + fu_nbr_of_quantities(disp_stat_shopping_list,.false.)
+    if(nDiagnosed == 0 .and. iTmp > 0)then
+      call set_error('Diagnostic quantities requested but none diagnosed out of:' + fu_str(iTmp), &
+                   & 'make_all_diagnostic_fields for dispersionMarket')
+      return
+    endif
 
-      if(ifRunDispersion)then 
-        call df_update_realtime_met_fields(dispersionMarketPtr, disp_buf_ptr, &
+    call msg_test('Setting dispersion pointers...')
+    call arrange_buffer(dispersionMarketPtr, met_src_missing, now + meteo_time_shift, timestep, & 
+                      & disp_buf_ptr,  dispersion_verticalPtr)
+    if(error)return
+    call msg_test('Done dispersion pointers...')
+    !
+    ! fields must be valid for the middle of step
+    ! The sub prepares the fields with certain validity period. As soon as out target time is outside
+    ! we call it again. 
+    ! Note that its call must be synchronised with the above update_realtime_met_fields for meteo market
+    ! This sub also handles daily-mean quantities
+    !
+    if(if_update_realtime_met_fields)then
+#ifdef DEBUG
+      call msg("Updating realime for time:" + fu_str(now + timestep * 0.5))
+      call msg("Valid range =" + fu_str(valid_border_time_1) + ":" + fu_str(valid_border_time_2))
+#endif
+      ! Reset_times is not used since at least v.5.7, so commented it here
+      !
+!      call df_update_realtime_met_fields(meteoMarketPtr, meteo_buf_ptr, &
+!                                       & now + meteo_time_shift + timestep * 0.5, wdr, diagnostic_rules,&
+!                                       & valid_border_time_1, valid_border_time_2) ! , .true.)   ! interval of validity, output
+!      if(error)return
+!
+#ifdef DEBUG_DIAG
+      call msg('')
+      call msg('DISPERSION market')
+      call report(dispersionMarketPtr, .false.)
+      call msg('')
+#endif
+      call df_update_realtime_met_fields(dispersionMarketPtr, disp_buf_ptr, &
                                        & now + meteo_time_shift + timestep * 0.5, wdr, diagnostic_rules, &
-                                       & valid_border_time_1, valid_border_time_2, .false.)   
-                                    ! interval of validity, output. Do not reset it
-      endif
-
+                                       & valid_border_time_1, valid_border_time_2)  !, .false.)   ! interval of validity, output. Do not reset it
       if(error)return
+#ifdef DEBUG_DIAG
+      call msg('')
+      call msg('DISPERSION market after update')
+      call report(dispersionMarketPtr, .false.)
+      call msg('')
+#endif
+    endif  ! outside time interval
 
+    !
+    ! The meteorology is over, including dispersion-specific quantities. 
+    ! Something very specific: fire danger indices and water in soil
+    !
+    ! Fire danger indices. Determined not by their quantity but whether rules are defined or not
+    !
+    if(defined(diagnostic_rules%rules_FDI))then
+      call compute_fire_danger_indices(diagnostic_rules%rules_FDI, meteo_buf_ptr, now + meteo_time_shift, &
+!                                     & ifHorizInterp, pHorizInterpStruct, &
+                                     & dispersionMarketPtr)
+      if(error)return
+!      call arrange_supermarket(dispersionMarketPtr, .true.)
+!      if(error)return
+      nDiagnosed = nDiagnosed + 1
+    endif
+
+    !
+    ! Water in soil
+    !
+    if(defined(diagnostic_rules%rulesWIS))then
+      !
+      ! Water in soil appears here but it has to deal with dispersion market, not buffer since
+      ! buffer pointers are not yet set
+      !        call update_water_in_soil(met_buf, dispMarketPtr, obstimes, rules%rulesWIS)
+      call set_error('Water in soil is not implemented to the end','make_all_diagnostic_fields')
+      return
+!      if(error)return
+!      call arrange_supermarket(dispMarketPtr, .true.)
+!      if(error)return
+!      nDiagnosed = nDiagnosed + 1
     endif
     
+
 !      call msg("**********************Diagnozing output market with shopping list:")
 !      call report(output_dyn_shopping_list)
 !      call msg("********************")
-
+    !
+    ! Finally, the output market: make the fields if needed and then updated them if needed
+    !
     call make_diagnostic_fields(meteo_buf_ptr,   &   ! meteo buffer
                               & outputMarketPtr, &   ! output market
                               & output_dyn_shopping_list,  &  ! full list of output dynamic fields
                               & output_stat_shopping_list, & ! full list of output static fields
                             !  & now, &
-                              & diagnostic_rules)
+                              & diagnostic_rules, wdr, nDiagnosed)
+    if(error)return
+    !
+    ! In case we completely failed the request, something must be wrong
+    !
+    iTmp = fu_nbr_of_quantities(output_dyn_shopping_list,.false.) &
+       & + fu_nbr_of_quantities(output_stat_shopping_list,.false.)
+    if(nDiagnosed == 0 .and. iTmp > 0)then
+      call set_error('Diagnostic quantities requested but none diagnosed out of:' + fu_str(iTmp), &
+                   & 'make_all_diagnostic_fields for outputMarket')
+      return
+    endif
+    !
+    ! After all derivations are done, arrange the minimarket
+    !
+    call arrange_supermarket(dispersionMarketPtr, .true., .true.)
     if(error)return
 
-    
+
 !    call msg_test('Setting output pointers...')
 !    call arrange_buffer(outputMarketPtr, met_src_missing, now, & 
 !                      & weight_past, output_buf_ptr, output_gridPtr, output_verticalPtr)
 !    if(error)return
-
+    
     diagnostic_rules%if_DoStatic = .false.  ! no need to repeat it at each time step
 
   end subroutine make_all_diagnostic_fields
@@ -696,48 +1037,50 @@ MODULE diagnostic_variables
 
   !***************************************************************************************************
 
-  subroutine make_diagnostic_fields(meteo_ptr, MarketPtr, &
+  subroutine make_diagnostic_fields(met_buf, dispMarketPtr, &
                                   & dqListDyn, dqListStat,&
 !                                  & ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp, &
 !                                  & pMeteo2DispHorizInterp, pMeteo2DispVertInterp, &
 !                                  & now, &
-                                  & diagnostic_rules)
+                                  & diagnostic_rules, wdr, nDiagnosed)
     !
     ! Creates the quantities in list in every stack in the minimarket, where possible
+    ! Most of arrange_minimarket calls have been commented out. Only possible chains
+    ! are processed at once: if winds or 3d fields are needed for later diagnostics
+    ! A final arranging is done at the end.
     !
     implicit none
 
     ! Imported variables
     type(silja_shopping_list), intent(in) ::  dqListDyn, dqListStat
-    type(mini_market_of_stacks), pointer :: MarketPtr
-    type(Tfield_buffer), pointer :: meteo_ptr
+    type(mini_market_of_stacks), pointer :: dispMarketPtr
+    type(Tfield_buffer), pointer :: met_buf
 !    type(THorizInterpStruct), pointer :: pMeteo2DispHorizInterp
 !    type(TVertInterpStruct), pointer :: pMeteo2DispVertInterp
 !    logical :: ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp
 !    type(silja_time), intent(in) :: now
-    type(Tdiagnostic_rules), intent(in) :: diagnostic_rules
+    type(Tdiagnostic_rules), intent(inout) :: diagnostic_rules
+    type(silja_wdr), intent(in) :: wdr
+    integer, intent(out) :: nDiagnosed
 
     ! Local variables
     type(meteo_data_source), dimension(max_met_srcs) :: metSrcsMultitime, metSrcsSingletime
-    TYPE(silja_time), DIMENSION(2) :: obstimes
     integer :: nMetSrcsMultitime, nMetSrcsSingletime, ntimes, iTmp
-!    type(silam_shopping_variable) :: shopVar, varTmp
+    TYPE(silja_time), DIMENSION(2) :: obstimes
     type(silja_stack), pointer :: stackPtr 
     type(silja_field), pointer :: fieldPtr
     type(silja_field_id), pointer :: idIn
     type(silja_field_id) :: idRequest
-    integer :: iVarLst, iMetSrc, iT, iFldStack, shopQ, iVar, nVars
-    integer, dimension(max_quantities) :: iArr
-    logical :: iffound,  ifvalid
-
+    integer :: iVarLst, iMetSrc, iT, iFldStack, shopQ, iVar, nVars, iQ
+    integer, dimension(max_quantities) :: iArr, lst, lst_st
+    logical :: iffound,  ifvalid, ifHorizInterp, ifVertInterp      ! if interpolation needed
+    type(THorizInterpStruct), pointer :: pHorizInterpStruct ! meteo 2 dispersion horizontal
+    type(TVertInterpStruct), pointer :: pVertInterpStruct   ! meteo 2 dispersion vertical
     !
     ! Static market is set by physiography
     ! no realtime fields here
     !
-
     IF (.NOT.defined(dqListStat)) cALL msg_warning('undefined static list','make_diagnostic_fields')
-
-    
     IF (.NOT.defined(dqListDyn)) THEN
       CALL msg_warning('undefined dynamic list','make_diagnostic_fields')
     END IF
@@ -748,243 +1091,159 @@ MODULE diagnostic_variables
 !    call report(dqListDyn)
 !    call msg("oops.")
 
+    ! Reorder quantities in the dynamic market
+    ! cell_size_z_flag must be the first
     !
-    ! Dynamic market
-    !
-    !cell_size_z_flag must be diagnozed before all others
     nVars = fu_nbr_of_quantities(dqListDyn,.false.)
-    do iVar = 1, nVars
-      iArr(iVar) = fu_quantity(dqListDyn, iVar)
-      if (iArr(iVar) == cell_size_z_flag) then
-              iArr(iVar) = iArr(1) 
-              iArr(1) = cell_size_z_flag
+    nDiagnosed = 0
+    !
+    ! Get interpolation structures
+    !
+    ifHorizInterp = .not. meteo_grid == dispersion_grid
+    ifVertInterp = .not. fu_cmp_verts_eq(meteo_vertical, dispersion_vertical)
+    if(ifHorizInterp) &
+          & pHorizInterpStruct => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
+    if(error)return
+    if(ifVertInterp) &
+          & pVertInterpStruct => fu_vertical_interp_struct(meteo_vertical, dispersion_vertical, &
+                                                         & dispersion_grid, linear, &
+                                                         & one_hour, 'main_meteo_to_disp')
+    !
+    ! Do the main job: call diagnostic routines one by one
+    !
+    ! Cell size-z
+    !
+    if(fu_quantity_in_list(cell_size_z_flag, dqListDyn) .or. &
+     & fu_quantity_in_list(cell_size_z_flag, dqListStat))then
+      call msg("Diagnosing dynamic dispersion vertical cell size..")
+      call check_obstimes(cell_size_z_flag)
+      call df_make_cell_size_z_dyn(met_src_missing, met_buf, obstimes, &
+                                 & pHorizInterpStruct, ifHorizInterp, &
+                                 & pVertInterpStruct, ifVertInterp, &
+                                 & dispMarketPtr, dispersion_grid, dispersion_vertical)
+      if(error)return
+      call arrange_supermarket(dispMarketPtr, .true., .true.)
+      if(error)return
+      nDiagnosed = nDiagnosed + 1
+    endif  ! cell_size_z_flag
+    
+    !
+    ! Vd correction DMAT
+    !
+    if(fu_quantity_in_list(Vd_correction_DMAT_flag, dqListDyn))then
+      call msg('Diagnosing Vd correction')
+      call check_obstimes(Vd_correction_DMAT_flag)
+      call df_DMAT_Vd_correction(met_src_missing, met_buf, obstimes, &
+                               & ifHorizInterp, pHorizInterpStruct, &
+                               & dispMarketPtr)
+      if(error)return
+!      call arrange_supermarket(dispMarketPtr, .false., .true.)
+!      if(error)return
+      nDiagnosed = nDiagnosed + 1
+    endif  ! Vd_correction_DMAT_flag
+    
+    !
+    ! dispersion cell flux. Smart routine, has all interpolations inside, etc
+    ! Diagnoses several quantities but presence of just one is enough for calling
+    !
+    if(fu_quantity_in_list(disp_flux_celleast_flag, dqListDyn))then !, disp_flux_cellnorth_flag, disp_flux_celltop_flag,  &
+                                                                    !       & disp_cell_airmass_flag)
+      call check_obstimes(disp_flux_celleast_flag)
+      call diag_cell_fluxes(met_src_missing, met_buf, obstimes, &
+                          & dispMarketPtr, dispersion_grid, dispersion_vertical, diagnostic_rules)
+      if(error)return
+      call arrange_supermarket(dispMarketPtr, .true., .true.)
+      if(error)return
+      nDiagnosed = nDiagnosed + 4
+    endif   ! cell fluxes
+
+    !
+    ! Make daily cumulative quantities. Each cumulative quantity must have one and only one 
+    ! initial quantity. We know a few, check those. If more is needed, include it in the array
+    !
+    do iQ = 1, size(day_accum_quantities)
+      shopQ = day_accum_quantities(iQ)
+      if(fu_quantity_in_list(shopQ, dqListDyn))then
+        call df_cumul_daily_variable(shopQ, fu_rate_quantity_for_acc(shopQ), fu_accumulation_type(shopQ), &
+                                     & met_buf, dispMarketPtr, &
+                                     & diagnostic_rules%ifAllowColdstartDailyVars)
+        if(error)return
+        call arrange_supermarket(dispMarketPtr, .true., .true.)
+        if(error)return
+        nDiagnosed = nDiagnosed + 1
       endif
-    enddo
-    !
-    ! The main cycle over the diagnostic variables
-    !
-    do iVarLst = 1, nVars
+    end do  ! known cumulative quantities
 
-      obstimes(1:2) = time_missing
-      shopQ = iArr(iVarLst)
-      ! day_temperature_2m_acc_flag has all the intelligence inside:
-      ! future has to be rediagnozed after past initialized
-      ! 
-      if ( shopQ /=  day_temperature_2m_acc_flag) then
+    !    call msg('End of diagnosing:' + fu_name(MarketPtr))
+
+    contains
+
+                                  
+      !======================================================================
+
+      subroutine check_obstimes(quantity)
+        !
+        ! Returns the times to be diagnosed
+        !
+        implicit none
+      
+        ! Imported parameters
+        integer, intent(in), optional :: quantity
+        
+        ! Local variables
+        integer :: iTmp
+      
         iTmp = 0
-        if(.not. fu_field_in_sm(MarketPtr, & ! Past already done before?
+        if(present(quantity))then
+          !
+          ! Quantity is given, can check if it has already been diagnosed
+          !
+          obstimes(1:2) = time_missing
+          !
+          ! day_temperature_2m_acc_flag and other cumulative ones have all the intelligence inside:
+          ! future has to be rediagnozed after past initialized
+          !
+          ! past
+          if(.not. fu_field_in_sm(dispMarketPtr, & ! Past already done before?
                                 & met_src_missing, & ! metSrcsMultitime(iMetSrc), &
-                                & shopQ, & !fu_quantity(shopVar), &
-                                & meteo_ptr%time_past, &
+                                & quantity, & !fu_quantity(shopVar), &
+                                & met_buf%time_past, &
                                 & level_missing, &
-                                & fu_multi_level_quantity(shopQ), & !.true., &
+                                & fu_multi_level_quantity(quantity), & !.true., &
                                 & permanent=.false.))then
             iTmp = iTmp + 1
-            obstimes(iTmp) = meteo_ptr%time_past
-        endif
-
-        if(.not. fu_field_in_sm(MarketPtr, & ! Future already done before?
+            obstimes(iTmp) = met_buf%time_past
+          endif
+          !
+          ! future
+          !
+          if(.not. fu_field_in_sm(dispMarketPtr, & ! Future already done before?
                                 & met_src_missing, & ! metSrcsMultitime(iMetSrc), &
-                                & shopQ, & !fu_quantity(shopVar), &
-                                & meteo_ptr%time_future, &
+                                & quantity, & !fu_quantity(shopVar), &
+                                & met_buf%time_future, &
                                 & level_missing, &
-                                & fu_multi_level_quantity(shopQ), & !.true., &
+                                & fu_multi_level_quantity(quantity), & !.true., &
                                 & permanent=.false.))then
             iTmp = iTmp + 1
-            obstimes(iTmp) = meteo_ptr%time_future
-        endif
-
+            obstimes(iTmp) = met_buf%time_future
+          endif
+        else
+          !
+          ! No quantity - take all times in the meteo_ptr
+          !
+          obstimes(1) = met_buf%time_past
+          obstimes(2) = met_buf%time_future
+        endif  ! if quantity is given
+        
         if(error)then
           call msg_warning('Something went wrong with detection of already-done dynamic fields but continue')
           call unset_error('make_diagnostic_fields')
         endif
-        
-        ! Dirty hack: force diagnostics on a second time (right after initalisation)
-        ! Obs! day_temperature_2m_acc_flag does not care about obstimes
-        if(iTmp==0) cycle ! Nothing to diagnoze
-
-      endif
-      ! Diagnose the quantity
-      !
-      call diagnose_single_dyn_field(meteo_ptr, &
-                                   & MarketPtr, &
-                                   & obstimes, &
-                                   & shopQ, &  ! quantity to be diagnosed
-                                   & diagnostic_rules)
-      if(error)return
-      call arrange_supermarket_multitime(MarketPtr)
-      if(error)return
-    end do  ! varLstDyn
-
-
-!    call msg('End of diagnosing:' + fu_name(MarketPtr))
-
+        if(iTmp==0) nDiagnosed = nDiagnosed + 1  ! even if doing nothing, claim the credits: quantity is diagnosed
+    
+      end subroutine check_obstimes
+    
   end subroutine make_diagnostic_fields
-
-
-  !*********************************************************************
-
-  subroutine diagnose_single_dyn_field(met_buf, &
-                                     & dispMarketPtr, &
-                                     & obstimes, &
-                                     & desiredQ, &
-                                     & rules)
-    !
-    ! An actual dispatcher for diagnosing the fields in the whatever buffer.
-    ! Gets an desired quantity form the shopping list and, if needed, the input
-    ! quantity from where it needs to be diagnosed and calls the corresponding sub
-    !
-    implicit none
-
-    ! Imported parameters
-    type(Tfield_buffer), pointer :: met_buf              ! input meteo data: buffer!
-    type(mini_market_of_stacks), pointer :: dispMarketPtr   ! working mini-market
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    integer, intent(in) :: desiredQ                 ! input and output quantities wanted
-    type(Tdiagnostic_rules), intent(in) :: rules
-
-    ! Local variables
-    type(THorizInterpStruct), pointer :: pHorizInterpStruct ! meteo 2 dispersion horizontal
-    type(TVertInterpStruct), pointer :: pVertInterpStruct   ! meteo 2 dispersion vertical
-    logical :: ifHorizInterp, ifVertInterp      ! if interpolation needed
-
-    select case (desiredQ)
-
-      case(dispersion_u_flag, dispersion_v_flag, dispersion_w_flag)
-        !
-        ! Solenoidal wind field in dispersion grid
-        !
-        call msg('Diagnosing dispersion vertical wind')
-        !
-        ! Get the interpolation structures
-        !
-        if(rules%continuity_equation == test_wind)then
-          
-          call diagnostic_wind_test(met_src_missing, met_buf, obstimes, dispMarketPtr, rules%iTestWindType)
-          
-        else
-          ifHorizInterp = .not. (meteo_grid == dispersion_grid)
-          ifVertInterp = .not. fu_cmp_verts_eq(meteo_vertical, dispersion_vertical)
-          if(ifHorizInterp) &
-             & pHorizInterpStruct => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
-          if(ifVertInterp) &
-             & pVertInterpStruct => fu_vertical_interp_struct(meteo_vertical, dispersion_vertical, &
-                                                            & dispersion_grid, linear, &
-                                                            & one_hour, 'wind_meteo_to_disp')
-          select case(fu_leveltype(dispersion_vertical))
-            case(layer_btw_2_hybrid)                                         ! hybrid levels
-              call diag_vertical_wind_eta(met_src_missing, &
-                                        & met_buf, &
-                                        & obstimes, &
-                                        & ifHorizInterp, pHorizInterpStruct, &
-                                        & ifVertInterp, pVertInterpStruct, &
-                                        & dispMarketPtr,&
-                                        & rules%w_on_half_levels, &
-                                        & rules%continuity_equation == from_nwp_omega, &
-                                        & rules%continuity_equation == hybrid_top_down)
-            case(layer_btw_2_height)                                         ! height levels
-              select case(rules%continuity_equation)
-                case(incompressible_v2)
-                  call diag_vertical_wind_incompr_v2(met_src_missing, &
-                                                   & met_buf, &
-                                                   & obstimes, &
-                                                   & ifHorizInterp, pHorizInterpStruct, &
-                                                   & ifVertInterp, pVertInterpStruct, &
-                                                   & dispMarketPtr,&
-                                                   & rules%w_on_half_levels)
-                case(incompressible)
-                  call diag_vertical_wind_incompr(met_src_missing, &
-                                                & met_buf, &
-                                                & obstimes, &
-                                                & ifHorizInterp, pHorizInterpStruct, &
-                                                & ifVertInterp, pVertInterpStruct, &
-                                                & dispMarketPtr,&
-                                                & rules%w_on_half_levels)
-                case(anelastic_v2)
-                  call diag_vertical_wind_anelastic(met_src_missing, &
-                                                  & met_buf, &
-                                                  & obstimes, &
-                                                  & ifHorizInterp, pHorizInterpStruct, &
-                                                  & ifVertInterp, pVertInterpStruct, &
-                                                  & dispMarketPtr,&
-                                                  & rules%w_on_half_levels)
-                case default
-                  call set_error('Unsupported continuity equation' + fu_str(rules%continuity_equation), &
-                               & 'diagnose_single_dyn_field')
-                  return
-              end select  ! continuity equation
-            case default
-              call set_error('Unsupported dispersion vertical type', 'diagnose_single_dyn_field')
-          end select ! leveltype
-        endif
-
-      case(Vd_correction_DMAT_flag)
-        !
-        ! V_d correction for DMAT/acid chem_dep.
-        !
-        call msg('Diagnosing Vd correction')
-        !
-        ! Get the interpolation structures
-        !
-        ifHorizInterp = .not. meteo_grid == dispersion_grid
-        if(ifHorizInterp) &
-                & pHorizInterpStruct => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
-        if(error)return
-        call df_DMAT_Vd_correction(met_src_missing, &
-                                 & met_buf, &
-                                 & obstimes, &
-                                 & ifHorizInterp, pHorizInterpStruct, &
-                                 & dispMarketPtr)
-
-      case(cell_size_z_flag, surface_pressure_flag)
-        !
-        ! Dynamic thickness of the layers.
-        !
-        call msg("Diagnosing dynamic dispersion vertical cell size..")
-        !
-        ! Get the interpolation structures
-        !
-        ifHorizInterp = .not. meteo_grid == dispersion_grid
-        ifVertInterp = .not. fu_cmp_verts_eq(meteo_vertical, dispersion_vertical)
-        if(ifHorizInterp) &
-          & pHorizInterpStruct => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
-
-        if(ifVertInterp) &
-             & pVertInterpStruct => fu_vertical_interp_struct(meteo_vertical, dispersion_vertical, &
-                                                            & dispersion_grid, linear, &
-                                                            & one_hour, 'main_meteo_to_disp')
-        call df_make_cell_size_z_dyn(met_src_missing, &
-                                   & met_buf, &
-                                   & obstimes, &
-                                   & pHorizInterpStruct, ifHorizInterp, &
-                                   & pVertInterpStruct, ifVertInterp, &
-                                   & dispMarketPtr, dispersion_grid, dispersion_vertical)
-
-        if(error)return
-
-      case(disp_flux_celleast_flag,disp_flux_cellnorth_flag, disp_flux_celltop_flag,  &
-              & disp_cell_airmass_flag, air_density_flag)
-
-        call diag_cell_fluxes(met_src_missing, &
-                                   & met_buf, &
-                                   & obstimes, &
-                                   & dispMarketPtr, dispersion_grid, dispersion_vertical, rules)
-
-      case(day_temperature_2m_acc_flag)
-        !
-        ! Make daily cumulative temperature, 2m
-        !
-        call df_cumul_daily_tempr_2m(  met_buf,  dispMarketPtr, rules%ifAllowColdstartDayTemperature)
-                
-      case default
-        call msg_warning('Cannot diagnose dyn:' + fu_quantity_string(desiredQ) + ', skipping...', &
-                       & 'diagnose_single_dyn_field')
-
-      
-
-    end select
-
-  end subroutine diagnose_single_dyn_field
 
 
   !******************************************************************
@@ -1042,2412 +1301,6 @@ MODULE diagnostic_variables
     end select
   end function fu_if_full_meteo_vertical_needed
 
-  
-  !***************************************************************************************************
-  
-  subroutine diagnostic_wind_test(met_src, metBufPtr, obstimes, dispMarketPtr, iWindType)
-
-    ! Fake diagnostics sets u v and w to zero
-    !
-    ! The fields are stored into dispersion market.
-    !
-    implicit none
-
-    ! Units: SI 
-
-    type(meteo_data_source), intent(in) :: met_src
-    type(Tfield_buffer), pointer :: metBufPtr
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    integer, intent(in) :: iWindType
-    type(mini_market_of_stacks), intent(inout) :: dispMarketPtr
-
-    ! Local variables
-    type(silja_time) :: now
-    type(silja_time) :: time, analysis_time
-    type(silja_time), dimension(max_times) :: dispMarketTimes
-    real, dimension(:), pointer :: zero
-    integer :: iTime, iLev, i,  it, n_dispMarketTimes, ix, iy, i1d
-    real :: weight_past, fTmp
-    type(silja_field_id) :: idTmp !, meteoWindID
-    type(silja_interval) :: forecast_length
-    
-    real :: pi_t_over_T, tfactor, lon, lat, cosTheta, sin2Theta, &
-             & lambda_prime, sinlprime2, sin2lprime, sinTheta, cosLambda, sinLambda
-
-    integer, parameter ::  T =  12*3600 ! seconds -- period 
-    real, dimension(:), pointer :: pXCellSize, pYCellSize, u, v, w
-
-    REAL  :: corner_lat_N,corner_lon_E,southpole_lat_N,southpole_lon_E, dx_deg, dy_deg
-    INTEGER :: number_of_points_x, number_of_points_y
-    LOGICAL :: corner_in_geo_lonlat
-    real ::  lambda0, dlambda, theta0, dtheta, lambda, theta, dx_m, dy_m, x_centre, y_centre, speedScale
-
-    u => fu_work_array()
-    v => fu_work_array()
-    w => fu_work_array()
-    
-    call supermarket_times(dispMarketPtr, met_src_missing, dispMarketTimes, n_dispMarketTimes)
-    
-    forecast_length = zero_interval
-
-    do itime = 1, size(obstimes)
-      now = obstimes(itime)
-      if (.not. defined(now)) exit
-      if (now == metBufPtr%time_past) then
-        weight_past = 1.0
-      else if (now == metBufPtr%time_future) then
-        weight_past = 0.0
-      else
-        call set_error('Strange time:'+fu_str(obstimes(itime)),'diagnostic_wind_test')
-        return
-      end if
-      
-      analysis_time = now 
-
-      if (error) return
-
-      pi_t_over_T =( pi * modulo(nint(fu_sec(now  - ref_time_01012000)), 2*T)) / T
-
-      call msg("Phase (seconds, of total):", (modulo(nint(fu_sec(now - ref_time_01012000)), 2*T)  ), T)
-      tfactor = earth_radius/T*cos(pi_t_over_T)
-
-      pXCellSize => fu_grid_data(dispersion_cell_x_size_fld)
-      pYCellSize => fu_grid_data(dispersion_cell_y_size_fld)
-
-      call msg("Producing fake wind: iWindType, param", iWindType, T/24./3600. )
-      do iLev = 1, nz_dispersion
-         select case(iWindType)
-           case(0)                               ! 0: zero wind
-             w = 0.0
-             u = 0.0
-             v = 0.0
-             call msg('Linear test wind (u,v,w):',(/u(1),v(1),w(1)/))
-
-           case(1)                               ! 1: linear const wind, m/s
-             w = 0.0
-             u = 100.0
-             v = -75.
-             call msg('Linear test wind (u,v,w):',(/u(1),v(1),w(1)/))
-
-           case(2)                               ! 2: linear varying-Courant wind
-             w = 0.
-             do iy = 1, ny_dispersion
-               do ix = 1, nx_dispersion
-                 i1d = ix + (iy-1) * nx_dispersion
-                 u(i1d) = 50. * (1.1 + sin(real(ix) / 15.))
-               end do
-             end do
-             v = 0.
-             call msg('Linear varying-Courant test wind (~u_max,v,w):',(/u(23),v(1),w(1)/))
-             
-           case(31)                                ! 3: circular wind. Unit: m/s
-             w = 0.
-             do iy = 1, ny_dispersion
-               do ix = 1, nx_dispersion
-                 i1d = ix + (iy-1) * nx_dispersion
-                 u(i1d) = real(iy-(ny_dispersion/2)) / (min(nx_dispersion, ny_dispersion) / 4)
-                 v(i1d) = real((nx_dispersion/2)-ix) / (min(nx_dispersion, ny_dispersion) / 4)
-   !              u(i1d) = real(iy-200) / ny_dispersion * pXCellSize(i1d) /100.
-   !              v(i1d) = real(200-ix) / nx_dispersion * pYCellSize(i1d) /100.
-               end do
-             end do
-
-           case(32)                                ! 3: 2-cell divergent circular wind. Unit: m/s
-             w = 0.
-             if(fu_fails(mod(nx_dispersion,2)==0,'2-vortex wind needs even nx','diagnostic_wind_test'))return
-             x_centre = real(nx_dispersion / 4) + 0.5 + mod(nx_dispersion/2, 2) / 2.
-             y_centre = real(ny_dispersion / 2) + 0.5 + mod(ny_dispersion, 2) / 2.
-!             speedScale = 4. / min(nx_dispersion, ny_dispersion)
-             speedScale = pXCellSize(fs_dispersion/2) * 2. * Pi / T * 2.
-             do iy = 1, ny_dispersion
-               do ix = 1, nx_dispersion
-                 i1d = ix + (iy-1) * nx_dispersion
-                 if(ix <= nx_dispersion/2)then
-                   u(i1d) = - real(iy-y_centre) * speedScale
-                   v(i1d) = - real(x_centre+3-ix) * speedScale
-                 else
-                   u(i1d) = real(iy-y_centre) * speedScale
-                   v(i1d) = real(x_centre-3+nx_dispersion/2 - ix) * speedScale
-                 endif
-               end do
-             end do
-
-           case(4)                              ! 5: double-vortex non-divergent rotation
-             w = 0.                        ! Stream function: sin(x*2*Pi/nx)*cos(y*Pi/ny)
-             do iy = 1, ny_dispersion
-               do ix = 1, nx_dispersion
-                 i1d = ix + (iy-1) * nx_dispersion
-   ! 1x2 vortices
-                 u(i1d) = 4.* sin(real(ix)*2.*Pi/nx_dispersion) * cos(real(iy)*Pi/ny_dispersion)
-                 v(i1d) = -8.* cos(real(ix)*2.*Pi/nx_dispersion) * sin(real(iy)*Pi/ny_dispersion)
-               end do
-             end do
-             
-           case(5)                              ! 5: 8-vortex non-divergent rotation
-             w = 0.                        ! Stream function: sin(x*2*Pi/nx)*cos(y*Pi/ny)
-             do iy = 1, ny_dispersion
-               do ix = 1, nx_dispersion
-                 i1d = ix + (iy-1) * nx_dispersion
-   ! 2x4 vortices
-                 u(i1d) = 40.* sin(real(ix)*4.*Pi/nx_dispersion) * cos(real(iy)*2.*Pi/ny_dispersion)
-                 v(i1d) = -80.* cos(real(ix)*4.*Pi/nx_dispersion) * sin(real(iy)*2.*Pi/ny_dispersion)
-               end do
-             end do
-             
-           case(6)                           ! 6: LauritzenGMD 2012 non-divergent Eq 18 and 19
-                                             ! No rotation        
-             w = 0.
-             call  lonlat_grid_parameters(dispersion_grid,&
-                                     & corner_lon_E, corner_lat_N,corner_in_geo_lonlat, &
-                                     & number_of_points_x, number_of_points_y, &
-                                     & southpole_lon_E, southpole_lat_N, &
-                                     & dx_deg, dy_deg)
-             do iy = 1, ny_dispersion
-                lat = corner_lat_N + dy_deg *(iy-1)
-                cosTheta = cos(lat * degrees_to_radians)
-                sin2Theta = sin (2 * lat * degrees_to_radians)
-
-               do ix = 1, nx_dispersion
-                 lon = corner_lon_E + dx_deg *(ix-1)
-                 lambda_prime = lon * degrees_to_radians !- 2 * pi_t_over_T 
-                 sinlprime2 = sin(lambda_prime) ! sin^2
-                 sinlprime2 = sinlprime2 * sinlprime2 
-                 sin2lprime = sin(2*lambda_prime) 
-                   
-                 i1d = ix + (iy-1) * nx_dispersion
-
-                 u(i1d) = 10 * sinlprime2 * sin2Theta * tfactor ! + 2* pi * earth_radius/T * cosTheta
-                 v(i1d) = 10 * sin2lprime * cosTheta  * tfactor 
-               end do
-             end do
-
-         case(7)                                   ! 7: Solid body rotation 
-             w = 0.
-             call  lonlat_grid_parameters(dispersion_grid,&
-                                     & corner_lon_E, corner_lat_N,corner_in_geo_lonlat, &
-                                     & number_of_points_x, number_of_points_y, &
-                                     & southpole_lon_E, southpole_lat_N, &
-                                     & dx_deg, dy_deg)
-             do iy = 1, ny_dispersion
-                lat = corner_lat_N + dy_deg *(iy-1)
-                cosTheta = cos(lat * degrees_to_radians) 
-
-               do ix = 1, nx_dispersion
-                 i1d = ix + (iy-1) * nx_dispersion
-                 u(i1d) = 2* pi * earth_radius/T * cosTheta
-                 v(i1d) = 0.
-               end do
-             end do
-
-           case(8)                           ! 6: LauritzenGMD 2012 non-divergent Eq 18 and 19
-                                             ! With rotation        
-             w = 0.
-             call  lonlat_grid_parameters(dispersion_grid,&
-                                     & corner_lon_E, corner_lat_N,corner_in_geo_lonlat, &
-                                     & number_of_points_x, number_of_points_y, &
-                                     & southpole_lon_E, southpole_lat_N, &
-                                     & dx_deg, dy_deg)
-             do iy = 1, ny_dispersion
-                lat = corner_lat_N + dy_deg *(iy-1)
-                cosTheta = cos(lat * degrees_to_radians)
-                sin2Theta = sin (2 * lat * degrees_to_radians)
-
-               do ix = 1, nx_dispersion
-                 lon = corner_lon_E + dx_deg *(ix-1)
-                 lambda_prime = lon * degrees_to_radians - 2 * pi_t_over_T 
-                 sinlprime2 = sin(lambda_prime) ! sin^2
-                 sinlprime2 = sinlprime2 * sinlprime2 
-                 sin2lprime = sin(2*lambda_prime) 
-                   
-                 i1d = ix + (iy-1) * nx_dispersion
-
-                 u(i1d) = 10 * sinlprime2 * sin2Theta * tfactor  + 2* pi * earth_radius/T * cosTheta
-                 v(i1d) = 10 * sin2lprime * cosTheta  * tfactor 
-               end do
-             end do
-!                                             ! With rotation        
-!             w = 0.
-!             call  lonlat_grid_parameters(dispersion_grid,&
-!                                     & corner_lon_E, corner_lat_N,corner_in_geo_lonlat, &
-!                                     & number_of_points_x, number_of_points_y, &
-!                                     & southpole_lon_E, southpole_lat_N, &
-!                                     & dx_deg, dy_deg)
-!             lambda0 = corner_lon_E * degrees_to_radians
-!             dlambda = dx_deg * degrees_to_radians
-!             theta0 = corner_lat_N * degrees_to_radians
-!             dtheta = dy_deg * degrees_to_radians
-!             tfactor = cos(pi_t_over_T)
-!             fTmp = 1.  / (T * dlambda) !Common factor
-!             dy_m =  pYCellSize(1) ! All y sizes are same on sphere
-!
-!!             call msg("dy, dy", pYCellSize(1), dtheta*earth_radius)
-!
-!             do iy = 1, ny_dispersion
-!               theta = theta0 + dtheta *(iy-1) 
-!               sinTheta = sin(theta) ! divided by cos(theta) to account for
-!               cosTheta = cos(theta)
-!               sin2Theta = 2 * sinTheta * cosTheta
-!               dx_m = pXCellSize(1 + (iy-1) * nx_dispersion) !Same at same latitude
-!
-!               !               call msg("dx, dx", pXCellSize(1 + (iy-1) * nx_dispersion), cos(theta)* dlambda *earth_radius)
-!
-!               do ix = 1, nx_dispersion
-!                  lambda = lambda0 +  dlambda*(ix-1) 
-!                  lambda_prime = lambda  - 2 * pi_t_over_T 
-!                  sinlprime2 = sin(lambda_prime) ! sin^2
-!                  sinlprime2 = sinlprime2 * sinlprime2
-!                  sin2lprime = sin(2*lambda_prime) 
-!                   
-!                  i1d = ix + (iy-1) * nx_dispersion
-!
-!                  u(i1d) = dx_m * fTmp *  (5. * sinlprime2 * 2* sinTheta * tfactor  + 2* pi)
-!                  v(i1d) = dy_m * fTmp *   5. * sin2lprime *    cosTheta * tfactor
-!               end do
-!             end do
-
-           case(9)                           ! 6: solid body rotation around horizontal (0,0) line
-             w = 0.
-             call  lonlat_grid_parameters(dispersion_grid,&
-                                     & corner_lon_E, corner_lat_N,corner_in_geo_lonlat, &
-                                     & number_of_points_x, number_of_points_y, &
-                                     & southpole_lon_E, southpole_lat_N, &
-                                     & dx_deg, dy_deg)
-             do iy = 1, ny_dispersion
-                lat = corner_lat_N + dy_deg *(iy-1)
-                cosTheta = cos(lat * degrees_to_radians)
-                sinTheta = sin (lat * degrees_to_radians)
-
-               do ix = 1, nx_dispersion
-                 lon = corner_lon_E + dx_deg *(ix-1)
-                 cosLambda = cos(lon * degrees_to_radians)
-                 sinLambda = sin (lon * degrees_to_radians)
-
-                 i1d = ix + (iy-1) * nx_dispersion
-
-                 u(i1d) = Pi * earth_radius/T * sinTheta * cosLambda
-                 v(i1d) = -Pi * earth_radius/T * sinLambda
-               end do
-             end do
-         end select
-
-        idTmp = fu_set_field_id(met_src, &
-                              & dispersion_u_flag, &
-                              & analysis_time, &
-                              & forecast_length, &
-                              & dispersion_grid, &
-                              & fu_level(dispersion_vertical, iLev, .false.))
-        call dq_store_2d(dispMarketPtr, idTmp, u, multi_time_stack_flag, .false., &
-                         iUpdateType = overwrite_field, storage_grid=dispersion_grid)
-
-        idTmp = fu_set_field_id(met_src, &
-                              & dispersion_v_flag, &
-                              & analysis_time, &
-                              & forecast_length, &
-                              & dispersion_grid, &
-                              & fu_level(dispersion_vertical, iLev, .false.))
-
-        call dq_store_2d(dispMarketPtr, idTmp, v, multi_time_stack_flag, .false., &
-                         iUpdateType = overwrite_field, storage_grid=dispersion_grid)
-
-        idTmp = fu_set_field_id(met_src, &
-                              & dispersion_w_flag, &
-                              & analysis_time, &
-                              & forecast_length, &
-                              & dispersion_grid, &
-                              & fu_level(dispersion_vertical, iLev, .false.))
-
-        call dq_store_2d(dispMarketPtr, idTmp, w, multi_time_stack_flag, .false., &
-                         iUpdateType = overwrite_field, storage_grid=dispersion_grid)
-
-      end do ! level
-    end do ! time
-
-    call free_work_array(u)
-    call free_work_array(v)
-    call free_work_array(w)
-
-    call arrange_supermarket(dispMarketPtr)
-    
-  end subroutine diagnostic_wind_test
-
-  
-  !***************************************************************************************************
-
-  subroutine diag_vertical_wind_incompr(met_src, metBufPtr, &
-                                    & obstimes, &
-                                    & ifHorizInterp, pHorizInterpStruct, &
-                                    & ifVertInterp, pVertInterpStruct, &
-                                    & dispMarketPtr, &
-                                    & if_half_levels)
-    !
-    ! Determine the vertical wind in the midpoints of each grid cell
-    ! from the incompressible continuity equation du/dx + dv/dy +
-    ! dw/dz = 0, where z is height and w is the height-system vertical
-    ! velocity.
-    ! 
-    ! Method: du/dx + dv/dy is computed in centres of grid cells and
-    ! integrated from the bottom of the layer to the top. The value at
-    ! the vertical midpoint ("full levels", w_full) is interpolated linearly. 
-    ! 
-    ! Vanishing w-wind is assumed on the bottom of first layer, while
-    ! the wind at the top of last leyer can be nonvanishing.
-    ! 
-    ! This subroutine includes the possible interpolation from meteo
-    ! to dispersion grid. The interpolated horizontal and the
-    ! resulting vertical wind are stored into dispersion miniMarket.
-    !
-    ! The fields are stored into dispersion market.
-    !
-    implicit none
-
-
-    ! Units: SI 
-    ! Author: J. Vira
-
-    type(meteo_data_source), intent(in) :: met_src
-    type(Tfield_buffer), pointer :: metBufPtr
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    
-    ! meteo -> dispersion interpolation
-    type(TVertInterpStruct), pointer :: pVertInterpStruct
-    type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    ! See also module variables for interpolating winds.
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
-    type(mini_market_of_stacks), intent(inout) :: dispMarketPtr
-    logical, intent(in) :: if_half_levels
-
-    ! Local variables
-    
-    ! Grids of the horizontal winds as in meteo.
-    type(silja_grid) :: u_grid, v_grid
-    type(silja_time) :: now
-
-    type(silja_time), dimension(max_times) :: dispMarketTimes
-
-    ! fields needed from the meteo stack
-    real, dimension(:), pointer ::  u, v
-   
-    ! fields computed
-    real, dimension(:), pointer :: dudx, dvdy, w, w_full 
-    real :: dz       ! == h_{i+1/2} - h_{i-1/2}
-    real :: rho_adv
-    integer :: iTime, iLev, i, iu, iv, ip, it
-    logical :: ifInterpolateUV
-    ! Temperature and pressure for calculating time derivative of density. 
-    real, dimension(:), pointer :: drho_dt, windfield, rho, drhodx, drhody
-    real :: weight_past
-    ! Check if dispersion stack must be arranged
-    logical :: ifFirst = .true.
-    ! Debug output
-    logical :: ifWrite = .false.
-    integer :: funit, iTmp, ix, iy, n_sm_times, n_dispMarketTimes
-    
-    ! Pressure and temperature fields to calculate d(rho) / dt.
-    type(silja_field) :: p_2d, t_2d
-    type(silja_field_id) :: idTmp !, meteoWindID
-    type(silja_time) :: time, analysis_time
-    type(silja_interval) :: forecast_length, dt
-
-    rho => fu_work_array()
-    drhodx => fu_work_array()
-    drhody => fu_work_array()
-
-    drho_dt => fu_work_array()
-    dudx => fu_work_array()
-    dvdy => fu_work_array()
-    
-    w => fu_work_array()
-
-    iu = fu_index(metBufPtr%buffer_quantities, u_flag)
-    iv = fu_index(metBufPtr%buffer_quantities, v_flag)
-    ip = fu_index(metBufPtr%buffer_quantities, pressure_flag)
-    it = fu_index(metBufPtr%buffer_quantities, temperature_flag)
-
-    !
-    ! Before starting anything, let's check whether wind has already been diagnosed
-    !
-    call supermarket_times(dispMarketPtr, met_src_missing, dispMarketTimes, n_dispMarketTimes)
-
-
-    ! Interpolation of horizontal winds. The possibility of Arakawa
-    ! shifts complicates matters, and currently it is only considered
-    ! if the dispersion and meteo grids are otherwise equal. In this
-    ! case, if ifHorizInterp is false but u_grid /= dispersion_grid,
-    ! and separate interpolation structures are set for u and v.
-
-    ! If horiz. interpolated is needed globally, always interpolate u, v.
-    ifInterpolateUV = ifHorizInterp
-
-    if (dispersion_grid == meteo_grid) then
-      ! The u/v grids might still be shifted by a half cell.
-      u_grid = fu_grid(metBufPtr%p4d(iu)%past%p2d(1)%idPtr)
-      v_grid = fu_grid(metBufPtr%p4d(iv)%past%p2d(1)%idPtr)
-!      u_grid = fu_u_grid(meteoWindID)
-!      v_grid = fu_v_grid(meteoWindID)
-    else
-      !call set_error('Meteo to dispersion interpolation is broken', 'diag_vertical_wind_incompr')
-      !return
-
-      ! We have global interpolation, which have been defined before.
-      u_grid = dispersion_grid
-      v_grid = dispersion_grid
-      pHorizInterpU => pHorizInterpStruct
-      pHorizInterpV => pHorizInterpStruct
-
-    end if
-    
-    if (.not. (u_grid == dispersion_grid) .or. .not. (v_grid == dispersion_grid)) then
-      ! The case of shifted grids.
-
-      ifInterpolateUV = .true.
-      
-      ! Only allocate once:
-      if (.not. associated(pHorizInterpU)) then
-        call msg('Allocating interpolation for shifted horizontal winds')
-        allocate(pHorizInterpU, pHorizInterpV, stat=iTmp)
-
-        if (iTmp /= 0) then
-          call set_error('Cannot allocate', 'diag_vertical_wind_incompr')
-          return
-        end if
-
-        pHorizInterpU => fu_horiz_interp_struct(u_grid, dispersion_grid, linear, .true.)
-        pHorizInterpV => fu_horiz_interp_struct(v_grid, dispersion_grid, linear, .true.)
-        
-      end if
-    end if
-      
-!!$    if (ifWrite) then
-!!$      funit = fu_next_free_unit()
-!!$      open(funit, file='diagn_wind', form='binary', iostat=iTmp)
-!!$      if (iTmp /= 0) then
-!!$        call msg('iostat = ', itmp)
-!!$        call set_error('Failed to write debug output', 'diag_vertical_wind_incompr')
-!!$        return
-!!$      end if
-!!$    end if
-  
-    !call msg('Making dispersion vertical w-wind')
-    
-    forecast_length = zero_interval
-    !
-    ! Start computations: loop over times. In principle, obstimes can
-    ! contain any times, but since values are taken from meteo buffer,
-    ! only times defined in buffer are actually considered. Normally
-    ! these are the same, of course.
-    ! 
-    ! Attention. It is assumed that no other part of the program deals
-    ! with the time-dependent part of dispersion buffer.
-
-    do itime = 1, size(obstimes)
-      now = obstimes(itime)
-      if (.not. defined(now)) exit
-      if (now == metBufPtr%time_past) then
-        weight_past = 1.0
-      else if (now == metBufPtr%time_future) then
-        weight_past = 0.0
-      else
-        call set_error('Strange time:'+fu_str(obstimes(itime)),'diag_vertical_wind_incompr')
-        return
-      end if
-      
-!      if (n_DispMarketTimes > 0) then
-!        !
-!        ! If the market is not empty, check if this time has been processed already.
-!        !
-!        if (fu_closest_time(now, dispMarketTimes(1:n_dispMarketTimes), single_time, .true.) > 0) cycle
-!      end if
-
-      analysis_time = now 
-
-      !
-      ! Prepare all pointers
-      !
-      idTmp = fu_set_field_id(met_src, &
-                            & dispersion_u_flag, &
-                            & analysis_time, &
-                            & forecast_length, &
-                            & dispersion_grid, &
-                            & fu_level(dispersion_vertical, 1, .false.))
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u)       ! wind u
-      if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_incompr'))return
-
-      call set_quantity(idTmp,dispersion_v_flag)
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, v)       ! wind v
-      if(fu_fails(.not.error,'Failed v field data pointer','diag_vertical_wind_incompr'))return
-
-      call set_quantity(idTmp, dispersion_w_flag)
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, w_full)  ! wind w
-      if(fu_fails(.not.error,'Failed w_full field data pointer','diag_vertical_wid_incompr'))return
-
-      call get_drho_dt(1)
-      call get_winds(1, u, v, ifInterpolateUV)
-
-      call ddx_of_field(u, dispersion_grid, dispersion_grid, dudx)
-      call ddy_of_field(v, dispersion_grid, dispersion_grid, dvdy)
-
-      if (ifWrite) write(funit) u(1:fs_dispersion), v(1:fs_dispersion)
-      if (error) return
-      !
-      ! The first level. Assume that at ground level, w == 0.
-      !
-      call get_rho(1)
-      call ddx_of_field(rho, dispersion_grid, dispersion_grid, drhodx)
-      call ddy_of_field(rho, dispersion_grid, dispersion_grid, drhody)
-
-      dz = fu_layer_thickness_m(fu_level(dispersion_vertical, 1))
-!!$      do i = 1, fs_dispersion
-!!$        rho_adv = (u(i)*drhodx(i) + v(i)*drhody(i)) / rho(i)
-!!$        w(i) = -(dudx(i) + dvdy(i) + drho_dt(i)/rho(i) + rho_adv) * dz
-!!$        w_full(i) = w(i) / 2.
-!!$      end do
-
-      if (if_half_levels) then
-          do i = 1, fs_dispersion
-            w_full(i) = -(dudx(i) + dvdy(i)) * dz
-          end do
-        else
-          do i = 1, fs_dispersion
-            rho_adv = (u(i)*drhodx(i) + v(i)*drhody(i)) / rho(i)
-            w_full(i) = w(i) ! temporary
-            !w(i) = w(i) - (dudx(i) + dvdy(i) + drho_dt(i)/rho(i) + rho_adv) * dz
-            w(i) = w(i) - (dudx(i) + dvdy(i)) * dz
-            w_full(i) = w(i) / 2.
-          end do
-        end if
-
-      if (ifWrite) write(funit) w_full(1:fs_dispersion)
-      if (error) return
-      !
-      ! Level 2 and up:
-      !
-      do iLev = 2, nz_dispersion
-
-        call set_level(idTmp, fu_level(dispersion_vertical, iLev, .false.))
-        call set_quantity(idTmp,dispersion_u_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u)       ! wind u
-        if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_incompr'))return
-
-        call set_quantity(idTmp,dispersion_v_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, v)       ! wind v
-        if(fu_fails(.not.error,'Failed v field data pointer','diag_vertical_wind_incompr'))return
-
-        call set_quantity(idTmp, dispersion_w_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, w_full)  ! wind w
-        if(fu_fails(.not.error,'Failed w_full field data pointer','diag_vertical_wid_incompr'))return
-
-        call get_winds(ilev, u, v, ifInterpolateUV)
-        call get_drho_dt(iLev)
-
-        if (ifWrite) write(funit) u(1:fs_dispersion), v(1:fs_dispersion)
-
-        call ddx_of_field(u, dispersion_grid, dispersion_grid, dudx)
-        call ddy_of_field(v, dispersion_grid, dispersion_grid, dvdy)
-
-        call get_rho(iLev)
-        call ddx_of_field(rho, dispersion_grid, dispersion_grid, drhodx)
-        call ddy_of_field(rho, dispersion_grid, dispersion_grid, drhody)
-
-        if (error) return
-
-        dz = fu_layer_thickness_m(fu_level(dispersion_vertical, iLev))
-        if (if_half_levels) then
-          do i = 1, fs_dispersion
-            w_full(i) = w_full(i) - (dudx(i) + dvdy(i)) * dz
-          end do
-        else
-          do i = 1, fs_dispersion
-            rho_adv = (u(i)*drhodx(i) + v(i)*drhody(i)) / rho(i)
-            w_full(i) = w(i) ! temporary
-            !w(i) = w(i) - (dudx(i) + dvdy(i) + drho_dt(i)/rho(i) + rho_adv) * dz
-            w(i) = w(i) - (dudx(i) + dvdy(i)) * dz
-            w_full(i) = (w_full(i) + w(i)) / 2.
-          end do
-        end if
-
-        if (ifWrite) write(funit) w_full(1:fs_dispersion)
-
-      end do ! level
-    end do ! time
-
-    call free_work_array(dudx)
-    call free_work_array(dvdy)
-    call free_work_array(w)
-    call free_work_array(drho_dt)
-    
-    call free_work_array(rho)
-    call free_work_array(drhodx)
-    call free_work_array(drhody)
-
-    
-    call arrange_supermarket(dispMarketPtr)
-   
-
-    if (ifWrite) then
-      close(funit)
-      ifWrite = .false.
-    end if
-    
-    !==========================================================================================
-    
-    contains 
-      
-      subroutine get_rho(ilev)
-        implicit none
-        integer :: ilev
-        ! Local variables
-        integer :: ix, iy
-        real :: pr, t
-
-        
-        do iy = 1, ny_dispersion
-          do ix = 1, nx_dispersion
-            
-            pr = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, weight_past, &
-                 pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-            
-            t = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, weight_past, &
-                 pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-            
-            rho(ix + (iy-1)*nx_dispersion) = pr / (gas_constant_dryair*t)
-            
-          end do
-        end do
-        
-      end subroutine get_rho
-
-      subroutine get_drho_dt(ilev)
-        ! Compute d rho / dt on level iLev
-        implicit none
-        integer :: iLev
-        ! Local declarations
-        integer :: ix, iy
-        real :: p_now, p_next, p_prev, t_now, t_next, t_prev
-        real :: dt_sec
-
-        !dt_sec = fu_sec(fu_valid_time(metBufPtr%p4d(ip)%future%p2d(ilev)%idptr) &
-        !     & - fu_valid_time(metBufPtr%p4d(ip)%past%p2d(ilev)%idptr))
-        dt_sec = fu_sec(metBufPtr%time_future - metBufPtr%time_past)
-        
-        if (dt_sec .eps. 0.0) then
-        !if (.true.) then
-          call msg_warning('dt_sec is zero', 'get_drho_dt @ diag_vertical_wind_incompr')
-          drho_dt(1:fs_dispersion) = 0.
-          return
-        end if
-
-        if (ifHorizInterp .or. ifVertInterp) then
-          do iy = 1, ny_dispersion
-            do ix = 1, nx_dispersion
-
-              p_now = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, weight_past, &
-                   pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-              p_next = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, 0., &
-                   pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-              p_prev = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, 1., &
-                   pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-
-              t_now = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, weight_past, &
-                   pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-              t_next = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, 0., &
-                   pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-              t_prev = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, 1., &
-                   pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-
-              drho_dt(ix + (iy-1)*nx_dispersion) = (t_now * (p_next-p_prev)/dt_sec &
-                   & + p_now * (t_next-t_prev)/dt_sec) / (gas_constant_dryair*t_now**2)
-
-            end do
-          end do
-
-        else
-          do iy = 1, ny_dispersion
-            do ix = 1, nx_dispersion
-
-              p_now = metBufPtr%p4d(ip)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * weight_past &
-                   & + metBufPtr%p4d(ip)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * (1.-weight_past)
-              p_prev = metBufPtr%p4d(ip)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-              p_next = metBufPtr%p4d(ip)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-
-              t_now = metBufPtr%p4d(it)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * weight_past &
-                   & + metBufPtr%p4d(it)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * (1.-weight_past)
-              t_prev = metBufPtr%p4d(it)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-              t_next = metBufPtr%p4d(it)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-
-              drho_dt(ix + (iy-1)*nx_dispersion) = &
-                   (t_now * (p_next-p_prev)/dt_sec &
-                  & + p_now * (t_next-t_prev)/dt_sec) / (gas_constant_dryair*t_now**2)
-
-            end do
-          end do
-
-        end if
-
-      end subroutine get_drho_dt
-
-!    subroutine field_get_value(iFld, iLev, pHorizInterpStructNow, grid_data, ifInterpolate)
-!      ! Interpolate from meteo buffer into vector grid_data (with
-!      ! the size of dispersion grid) using a given interpolation
-!      ! structure and the standard meteo -> dispersion vertical interpolation.
-!
-!      implicit none
-!      integer, intent(in) :: iFld, iLev
-!      type(THorizInterpStruct), pointer :: pHorizInterpStructNow
-!      real, dimension(:), pointer :: grid_data
-!      logical, intent(in) :: ifInterpolate
-!
-!      integer :: ix, iy
-!
-!      do iy = 1, ny_dispersion
-!       do ix = 1, nx_dispersion
-!          grid_data(ix + (iy-1)*nx_dispersion) = &
-!               & fu_get_value(metBufPtr%p4d(iFld), nx_meteo, ix, iy, iLev, weight_past, &
-!               &              pHorizInterpStructNow, pVertInterpStruct, ifInterpolate, ifVertInterp)
-!        end do
-!      end do
-!
-!    end subroutine field_get_value
-
-      subroutine get_winds(iLev, data_u, data_v, ifInterpolate)
-        ! 
-        ! Get fields full of winds using wind_from_buffer.
-        !
-        implicit none
-        integer, intent(in) :: iLev
-        real, dimension(:), pointer :: data_u, data_v
-        logical, intent(in) :: ifInterpolate
-
-        integer :: ix, iy
-        
-        do iy = 1, ny_dispersion
-          do ix = 1, nx_dispersion
-            call wind_from_buffer_4d(metBufPtr%p4d(iu), metBufPtr%p4d(iv), &
-                                   & nx_meteo, ix, iy, ilev, &
-                                   & weight_past, &
-                                   & pHorizInterpU, pVertInterpStruct, &
-                                   & PHorizInterpV, pVertInterpStruct, &
-                                   & ifInterpolate, ifVertInterp, &
-                                   & data_u(ix + (iy-1)*nx_dispersion), &
-                                   & data_v(ix + (iy-1)*nx_dispersion))
-          end do
-        end do
-
-      end subroutine get_winds
-
-      subroutine get_winds_l1(iLev, data_u, data_v, ifInterpolate)
-        ! 
-        ! Get fields full of winds using wind_from_buffer.
-        !
-        implicit none
-        integer, intent(in) :: iLev
-        real, dimension(:), pointer :: data_u, data_v
-        logical, intent(in) :: ifInterpolate
-
-        integer :: ix, iy
-        
-        call msg('Special l1 winds')
-
-        do iy = 1, ny_dispersion
-          do ix = 1, nx_dispersion
-            call wind_from_buffer_4d(metBufPtr%p4d(iu), metBufPtr%p4d(iv), &
-                                   & nx_meteo, ix, iy, 1, &
-                                   & weight_past, &
-                                   & pHorizInterpU, pVertInterpStruct, &
-                                   & PHorizInterpV, pVertInterpStruct, &
-                                   & ifInterpolate, .false., &
-                                   & data_u(ix + (iy-1)*nx_dispersion), &
-                                   & data_v(ix + (iy-1)*nx_dispersion))
-          end do
-        end do
-
-      end subroutine get_winds_l1
-
-  end subroutine diag_vertical_wind_incompr
-
-  !***************************************************************************************************
-
-  subroutine diag_vertical_wind_incompr_v2(met_src, metBufPtr, &
-                                         & obstimes, &
-                                         & ifHorizInterp, pHorizInterpStruct, &
-                                         & ifVertInterp, pVertInterpStruct, &
-                                         & dispMarketPtr, &
-                                         & if_half_levels)
-    !
-    ! Determine the vertical wind in the midpoints of each grid cell
-    ! from the incompressible continuity equation du/dx + dv/dy +
-    ! dw/dz = 0, where z is height and w is the height-system vertical
-    ! velocity.
-    ! 
-    ! Method: du/dx + dv/dy is computed in centres of grid cells and
-    ! integrated from the bottom of the layer to the top. The value at
-    ! the vertical midpoint ("full levels", w_full) is interpolated linearly. 
-    ! 
-    ! Vanishing w-wind is assumed on the bottom of first layer, while
-    ! the wind at the top of last leyer can be nonvanishing.
-    ! 
-    ! This subroutine includes the possible interpolation from meteo
-    ! to dispersion grid. The interpolated horizontal and the
-    ! resulting vertical wind are stored into dispersion miniMarket.
-    !
-    ! The fields are stored into dispersion market.
-    !
-    implicit none
-
-
-    ! Units: SI 
-    ! Author: J. Vira
-
-    type(meteo_data_source), intent(in) :: met_src
-    type(Tfield_buffer), pointer :: metBufPtr
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    
-    ! meteo -> dispersion interpolation
-    type(TVertInterpStruct), pointer :: pVertInterpStruct
-    type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    ! See also module variables for interpolating winds.
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
-    type(mini_market_of_stacks), intent(inout) :: dispMarketPtr
-    logical, intent(in) :: if_half_levels
-
-    ! Local variables
-    
-    ! Grids of the horizontal winds as in meteo.
-    type(silja_grid) :: u_grid, v_grid
-    type(silja_time) :: now
-
-    type(silja_time), dimension(max_times) :: dispMarketTimes
-
-    ! fields needed from the meteo stack
-    real, dimension(:), pointer ::  u, v
-   
-    ! fields computed
-    real, dimension(:), pointer :: dudx, dvdy, w, w_full, u_mean, v_mean 
-    real :: dz       ! == h_{i+1/2} - h_{i-1/2}
-    real :: rho_adv, dz_full
-    integer :: iTime, iLev, i, iu, iv, ip, it, ismall, ismall_prev
-    logical :: ifInterpolateUV
-    ! Temperature and pressure for calculating time derivative of density. 
-    real, dimension(:), pointer :: drho_dt, windfield, rho, drhodx, drhody
-    real :: weight_past
-    ! Check if dispersion stack must be arranged
-    logical :: ifFirst = .true.
-    ! Debug output
-    logical :: ifWrite = .false.
-    integer :: funit, iTmp, ix, iy, n_sm_times, n_dispMarketTimes
-    integer :: ind_disp, ind_u, ind_v, nx_u, ny_v, fs_uv
-
-    ! Pressure and temperature fields to calculate d(rho) / dt.
-    type(silja_field) :: p_2d, t_2d
-    type(silja_field_id) :: idTmp !, meteoWindID
-    type(silja_time) :: time, analysis_time
-    type(silja_interval) :: forecast_length, dt
-
-    !rho => fu_work_array()
-    !drhodx => fu_work_array()
-    !drhody => fu_work_array()
-
-    !drho_dt => fu_work_array()
-    dudx => fu_work_array()
-    dvdy => fu_work_array()
-    
-    w => fu_work_array()
-    u => fu_work_array()
-    v => fu_work_array()
-
-    iu = fu_index(metBufPtr%buffer_quantities, u_flag)
-    iv = fu_index(metBufPtr%buffer_quantities, v_flag)
-    ip = fu_index(metBufPtr%buffer_quantities, pressure_flag)
-    it = fu_index(metBufPtr%buffer_quantities, temperature_flag)
-
-    call msg('Thin-layer vertical wind diagnosis')
-
-    !
-    ! Before starting anything, let's check whether wind has already been diagnosed
-    !
-    call supermarket_times(dispMarketPtr, met_src_missing, dispMarketTimes, n_dispMarketTimes)
-
-
-    ! Interpolation of horizontal winds. The possibility of Arakawa
-    ! shifts complicates matters, and currently it is only considered
-    ! if the dispersion and meteo grids are otherwise equal. In this
-    ! case, if ifHorizInterp is false but u_grid /= dispersion_grid,
-    ! and separate interpolation structures are set for u and v.
-
-
-    ! Interpolating the winds
-    ! The u/v grids might still be shifted by a half cell.
-    u_grid = fu_grid(metBufPtr%p4d(iu)%past%p2d(1)%idPtr)
-    v_grid = fu_grid(metBufPtr%p4d(iv)%past%p2d(1)%idPtr)
-
-    if (.not. (u_grid == meteo_grid) .or. .not. (v_grid == meteo_grid) &
-      & .or. .not. (dispersion_grid == dispersion_grid) &
-      & .or. .not. (dispersion_grid == dispersion_grid)) then
-      ! Need separate u/v interpolation because either dispersion or meteo has different
-      ! grids for the components.  
-      pHorizInterpU => fu_horiz_interp_struct(u_grid, dispersion_grid, linear, .true.)
-      pHorizInterpV => fu_horiz_interp_struct(v_grid, dispersion_grid, linear, .true.)
-      ifInterpolateUV = .true.
-    else
-      ! The winds are not shifted from the main meteo grid, which may or 
-      ! may not be the dispersion grid. If not, use interpolation as usual.
-      pHorizInterpU => pHorizInterpStruct
-      pHorizInterpV => pHorizInterpStruct
-      ifInterpolateUV = ifHorizInterp
-    end if
-
-    if (ifFirst) call get_integration_vertical()
-    
-    forecast_length = zero_interval
-    !
-    ! Start computations: loop over times. In principle, obstimes can
-    ! contain any times, but since values are taken from meteo buffer,
-    ! only times defined in buffer are actually considered. Normally
-    ! these are the same, of course.
-    !
-    do itime = 1, size(obstimes)
-      now = obstimes(itime)
-      if (.not. defined(now)) exit
-      if (now == metBufPtr%time_past) then
-        weight_past = 1.0
-      else if (now == metBufPtr%time_future) then
-        weight_past = 0.0
-      else
-        call set_error('Strange time:'+fu_str(obstimes(itime)),'diag_vertical_wind_incompr_v2')
-        return
-      end if
-      
-!      print *, "wind_interp_struct, Before:"
-!      print *, "Ilev", wind_interp_struct%indLev(1:2,10,10,4)
-!      print *, "Coef", wind_interp_struct%weight(1:2,10,10,4)
-      call refine_interp_vert_coefs_v2(wind_interp_struct, metBufPtr, now)
-!      print *, "wind_interp_struct, After:"
-!      print *, "Ilev", wind_interp_struct%indLev(1:2,10,10,4)
-!      print *, "Coef", wind_interp_struct%weight(1:2,10,10,4)
-     
-            
-!      if (n_DispMarketTimes > 0) then
-!        !
-!        ! If the market is not empty, check if this time has been processed already.
-!        !
-!        if (fu_closest_time(now, dispMarketTimes(1:n_dispMarketTimes), single_time, .true.) > 0) cycle
-!      end if
-
-      analysis_time = now 
-      ismall_prev = 1
-      
-      if (.not. if_half_levels) then
-        call set_error('very unhappy: not if_half_levels', 'diag_vertical_wind_incompr_v2')
-        return
-      end if
-
-      idTmp = fu_set_field_id(met_src, &
-                            & dispersion_u_flag, &
-                            & analysis_time, &
-                            & forecast_length, &
-                            & dispersion_grid, &
-                            & fu_level(dispersion_vertical, 1, .false.))
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u_mean)       ! wind u
-      if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_incompr_v2'))return
-
-      call set_quantity(idTmp,dispersion_v_flag)
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, v_mean)       ! wind v
-      if(fu_fails(.not.error,'Failed v field data pointer','diag_vertical_wind_incompr_v2'))return
-
-      call set_quantity(idTmp, dispersion_w_flag)
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, w_full)  ! wind w
-      if(fu_fails(.not.error,'Failed w_full field data pointer','diag_vertical_wind_incompr_v2'))return
-
-      w_full(1:fs_dispersion) = 0.0
-      
-      fs_uv = nx_dispersion * ny_dispersion
-      u_mean(1:fs_uv) = 0.0
-      v_mean(1:fs_uv) = 0.0
-      dz_full = 0.0
-
-      nx_u = nx_dispersion
-      ny_v = ny_dispersion
-      
-      do ismall = ismall_prev, ismall_prev + nsmall_in_layer(1) - 1
-        dz = fu_layer_thickness_m(fu_level(integration_vertical, ismall))
-        call get_winds(ismall, u, v, ifInterpolateUV)
-        
-        call ddx_of_field(u, dispersion_grid, dispersion_grid, dudx)
-        call ddy_of_field(v, dispersion_grid, dispersion_grid, dvdy)
-        u_mean(1:fs_uv) = u_mean(1:fs_uv) + u(1:fs_uv)*dz
-        v_mean(1:fs_uv) = v_mean(1:fs_uv) + v(1:fs_uv)*dz
-        
-        do iy = 1, ny_dispersion
-          do ix = 1, nx_dispersion
-            ind_disp = ix + (iy-1)*nx_dispersion
-            ind_u = wing_depth_w + ix + (iy-1)*(nx_u)
-            ind_v = wing_depth_s*nx_dispersion + ix + (iy-1)*nx_dispersion
-            w_full(ind_disp) = w_full(ind_disp) - (dudx(ind_u) + dvdy(ind_v))*dz
-          end do
-        end do
-        dz_full = dz_full + dz
-      end do
-
-      u_mean(1:fs_uv) = u_mean(1:fs_uv) / dz_full
-      v_mean(1:fs_uv) = v_mean(1:fs_uv) / dz_full
-      
-      ismall_prev = ismall
-      if (error) return
-
-      !call msg('Means of v_mean inside dispersion area:')
-!!$      call msg('Means of v:')
-!!$      do iy = 1, ny_dispersion_mpi
-!!$        !windfield => v_mean(  1 +(iy-1)*nx_dispersion &
-!!$        !                  & : (iy)*nx_dispersion)
-!!$        !call msg('iy, mean', iy, sum(windfield)/nx_dispersion)
-!!$        call msg('iy, mean', iy, v(1 + (iy-1)*nx_dispersion))
-!!$      end do
-      
-!!$      if (ifFirst) then
-!!$        open(999, access='stream', form='unformatted', file='vfld_' // fu_str(global_rank))
-!!$        write(999) v(1:fs_v)
-!!$        close(999)
-!!$      end if
-      
-
-      if (ifWrite) write(funit) w_full(1:fs_dispersion)
-      if (error) return
-      !
-      ! Level 2 and up:
-      !
-      do iLev = 2, nz_dispersion
-
-        call set_level(idTmp, fu_level(dispersion_vertical, iLev, .false.))
-        call set_quantity(idTmp,dispersion_u_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u_mean)       ! wind u
-        if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_incompr_v2'))return
-
-        call set_quantity(idTmp,dispersion_v_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, v_mean)       ! wind v
-        if(fu_fails(.not.error,'Failed v field data pointer','diag_vertical_wind_incompr_v2'))return
-
-        call set_quantity(idTmp, dispersion_w_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, w_full)  ! wind w
-        if(fu_fails(.not.error,'Failed w_full field data pointer','diag_vertical_wind_incompr_v2'))return
-
-        u_mean(1:fs_uv) = 0.0
-        v_mean(1:fs_uv) = 0.0
-        dz_full = 0.0
-        
-        do ismall = ismall_prev, ismall_prev + nsmall_in_layer(ilev) - 1
-          dz = fu_layer_thickness_m(fu_level(integration_vertical, ismall))
-          call get_winds(ismall, u, v, ifInterpolateUV)
-          call ddx_of_field(u, dispersion_grid, dispersion_grid, dudx)
-          call ddy_of_field(v, dispersion_grid, dispersion_grid, dvdy)
-          u_mean(1:fs_uv) = u_mean(1:fs_uv) + u(1:fs_uv)*dz
-          v_mean(1:fs_uv) = v_mean(1:fs_uv) + v(1:fs_uv)*dz
-          
-          do iy = 1, ny_dispersion
-            do ix = 1, nx_dispersion
-              ind_disp = ix + (iy-1)*nx_dispersion
-              ind_u = wing_depth_w + ix + (iy-1)*(nx_u)
-              ind_v = wing_depth_s*nx_dispersion + ix + (iy-1)*nx_dispersion
-              w_full(ind_disp) = w_full(ind_disp) - (dudx(ind_u) + dvdy(ind_v))*dz
-            end do
-          end do
-          dz_full = dz_full + dz
-        end do
-        
-        u_mean(1:fs_uv) = u_mean(1:fs_uv) / dz_full
-        v_mean(1:fs_uv) = v_mean(1:fs_uv) / dz_full
-
-        ismall_prev = ismall
-        
-      end do ! level
-    end do ! time
-
-    call free_work_array(u)
-    call free_work_array(v)
-    call free_work_array(dudx)
-    call free_work_array(dvdy)
-    call free_work_array(w)
-    
-    call arrange_supermarket(dispMarketPtr)
-   
-    ifFirst = .false.
-
-    if (ifWrite) then
-      close(funit)
-      ifWrite = .false.
-    end if
-    
-    !==========================================================================================
-    
-  contains 
-    
-
-    subroutine get_winds(iLev, data_u, data_v, ifInterpolate)
-      ! 
-      ! Pick winds from buffer.  Will go thru grid_uv but store only grid_u for u and
-      ! grid_v for v. The vertical and horizontal interpolations must be defined with
-      ! grid_uv as target.
-      !
-      implicit none
-      integer, intent(in) :: iLev
-      real, dimension(:), pointer :: data_u, data_v
-      logical, intent(in) :: ifInterpolate
-      
-      integer :: ix, iy, ind_u, ind_v
-      real :: u, v
-      
-      !if (.not. ifInterpolate) then
-      !  if (fu_fails(nx_dispersion_mpi == nx_dispersion, 'Need interpolation for this (x)', 'get_winds')) return
-      !  if (fu_fails(ny_dispersion_mpi == ny_dispersion, 'Need interpolation for this (y)', 'get_winds')) return
-      !end if
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-          call wind_from_buffer_4d(metBufPtr%p4d(iu), metBufPtr%p4d(iv), &
-                                 & nx_meteo, ix, iy, ilev, &
-                                 & weight_past, &
-                                 & pHorizInterpU, wind_interp_struct, &
-                                 & PHorizInterpV, wind_interp_struct, &
-                                 & ifInterpolate, .true., &
-                                 & u, v)
-          
-          ! in u_grid, iy' = iy-wing_depth_s, ix' = ix, i1d = ix' + (iy'-1)*nx_dispersion_mpi
-          ind_u = ix + (iy-wing_depth_s-1)*nx_dispersion
-          ! in v_grid, iy' = iy, ix' = ix-wing_depth_w, i1d = ix' + (iy'-1)*nx_dispersion
-          ind_v = ix-wing_depth_w + (iy-1)*nx_dispersion
-
-          ! fill u for 1 <= ix <= nx_dispersion_mpi, shift_ympi < iy <= ny_dispersion + shift_ympi
-          ! fill v for 1 <= iy <= ny_dispersion_mpi, shift_xmpi < ix <= nx_dispersion + shift_xmpi
-          if (wing_depth_s < iy .and. iy <= ny_dispersion + wing_depth_s) then
-            data_u(ind_u) = u
-          end if
-          if (wing_depth_w < ix .and. ix <= nx_dispersion + wing_depth_w) then
-            data_v(ind_v) = v
-          end if
-
-!!$          call wind_from_buffer_4d(metBufPtr%p4d(iu), metBufPtr%p4d(iv), &
-!!$                                 & nx_meteo, ix, iy, ilev, &
-!!$                                 & weight_past, &
-!!$                                 & pHorizInterpU, wind_interp_struct, &
-!!$                                 & PHorizInterpV, wind_interp_struct, &
-!!$                                 & ifInterpolate, .true., &
-!!$                                 & data_u(ix + (iy-1)*nx_dispersion), &
-!!$                                 & data_v(ix + (iy-1)*nx_dispersion))
-        end do
-      end do
-      
-    end subroutine get_winds
-
-    subroutine get_integration_vertical()
-      implicit none
-      
-      integer :: nsublevs, ilev, lev_ind, nsmall, ilev_new, status
-      type(silja_level) :: metlev, displev, new_level, top_small, bottom_big, bottom_small
-      integer, dimension(:), pointer :: metlev_counter
-      real :: lev_ind_float, thickness, height, bottom_height
-      real, dimension(:), pointer :: met_data_col
-      real :: met_data_srf
-      
-      metlev_counter => fu_work_int_array()
-      metlev_counter(1:nz_dispersion) = 0
-
-      met_data_col => fu_work_array()
-      call vert_interp_data_crude(meteo_vertical, dispersion_vertical, met_data_col, met_data_srf)
-      if (error) return
-
-      do ilev = 1, nz_meteo
-        metlev = fu_level(meteo_vertical, ilev, .true.)
-        lev_ind_float = fu_project_level(metlev, dispersion_vertical, met_data_col, met_data_srf)
-        lev_ind = int(lev_ind_float + 0.5)
-        if (lev_ind > nz_dispersion) cycle
-        metlev_counter(lev_ind) = metlev_counter(lev_ind) + 1
-      end do
-      call free_work_array(met_data_col)
-      
-      allocate(nsmall_in_layer(nz_dispersion), stat=status)
-      if (status /= 0) then
-        call set_error('Allocate failed', 'get_winds')
-        return
-      end if
-      
-      height = 0.0
-      
-      do ilev = 1, nz_dispersion
-        nsmall = max(2, metlev_counter(ilev))
-        nsmall_in_layer(ilev) = nsmall
-        thickness = fu_layer_thickness_m(fu_level(dispersion_vertical, ilev))
-        bottom_big = fu_lower_boundary_of_layer(fu_level(dispersion_vertical, ilev))
-        bottom_height = fu_bottom_of_layer_value(dispersion_vertical, ilev)
-        bottom_small = bottom_big
-        do ilev_new = 1, nsmall
-          height = height + thickness/nsmall
-          top_small = fu_set_constant_height_level(height)
-          new_level = fu_set_layer_between_two(bottom_small, top_small)
-          bottom_small = top_small
-          if (ilev == 1 .and. ilev_new == 1) then
-            call set_vertical(new_level, integration_vertical)
-          else
-            call add_level(integration_vertical, new_level)
-          end if
-        end do
-      end do
-
-      call arrange_levels_in_vertical(integration_vertical)
-
-      wind_interp_struct => fu_vertical_interp_struct(meteo_vertical, &
-                                                    & integration_vertical, &
-                                                    & dispersion_grid, &
-                                                    & linear, &
-                                                    & very_long_interval, 'wind_interp_incompr_2')
-
-      call msg('Vertical for integrating continuity equation')
-
-      call report(integration_vertical, ifFull=.true.)
-
-      ! set inter
-      ! refine
-      call free_work_array(metlev_counter)
-
-    end subroutine get_integration_vertical
-
-  end subroutine diag_vertical_wind_incompr_v2
-    
-  !***************************************************************************************************
-  
-  subroutine diag_vertical_wind_anelastic(met_src, metBufPtr, &
-                                        & obstimes, &
-                                        & ifHorizInterp, pHorizInterpStruct, &
-                                        & ifVertInterp, pVertInterpStruct, &
-                                        & dispMarketPtr, &
-                                        & if_half_levels)
-    !
-    ! Determine the vertical wind in the midpoints of each grid cell
-    ! from the incompressible continuity equation du/dx + dv/dy +
-    ! dw/dz = 0, where z is height and w is the height-system vertical
-    ! velocity.
-    ! 
-    ! Method: du/dx + dv/dy is computed in centres of grid cells and
-    ! integrated from the bottom of the layer to the top. The value at
-    ! the vertical midpoint ("full levels", w_full) is interpolated linearly. 
-    ! 
-    ! Vanishing w-wind is assumed on the bottom of first layer, while
-    ! the wind at the top of last leyer can be nonvanishing.
-    ! 
-    ! This subroutine includes the possible interpolation from meteo
-    ! to dispersion grid. The interpolated horizontal and the
-    ! resulting vertical wind are stored into dispersion miniMarket.
-    !
-    ! The fields are stored into dispersion market.
-    !
-    implicit none
-    
-
-    ! Units: SI 
-    ! Author: TBA
-
-    type(meteo_data_source), intent(in) :: met_src
-    type(Tfield_buffer), pointer :: metBufPtr
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    
-    ! meteo -> dispersion interpolation
-    type(TVertInterpStruct), pointer :: pVertInterpStruct
-    type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    ! See also module variables for interpolating winds.
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
-    type(mini_market_of_stacks), intent(inout) :: dispMarketPtr
-    logical, intent(in) :: if_half_levels
-
-    ! Local variables
-    
-    ! Grids of the horizontal winds as in meteo.
-    type(silja_grid) :: u_grid, v_grid
-    type(silja_time) :: now
-
-    type(silja_time), dimension(max_times) :: dispMarketTimes
-
-    ! fields needed from the meteo stack
-    real, dimension(:), pointer ::  u, v
-   
-    ! fields computed
-    real, dimension(:), pointer :: w_full, vertFluxb, vertFluxt
-    real :: dz       ! == h_{i+1/2} - h_{i-1/2}
-    real :: rho_adv
-    integer :: iTime, iLev, i, iu, iv, ip, it, ismall_prev, ismall
-    logical :: ifInterpolateUV
-    ! Temperature and pressure for calculating time derivative of density. 
-    real, dimension(:), pointer :: drho_dt, windfield, rho, drhodx, drhody, rho_c, rho_t
-    real :: weight_past
-    ! Check if dispersion stack must be arranged
-    logical :: ifFirst = .true.
-    ! Debug output
-    logical :: ifWrite = .false.
-    integer :: funit, iTmp, ix, iy, n_sm_times, n_dispMarketTimes
-    character (len=*), parameter :: sub_name = "diag_vertical_wind_anelastic"
-    
-    ! Pressure and temperature fields to calculate d(rho) / dt.
-    type(silja_field) :: p_2d, t_2d
-    type(silja_field_id) :: idTmp !, meteoWindID
-    type(silja_time) :: time, analysis_time
-    type(silja_interval) :: forecast_length, dt
-    
-    type(silja_level), dimension(:), pointer :: rhoLevels
-    type(silam_vertical) :: vertRho
-    real, dimension(:), pointer ::  xSizePtr, ySizePtr, zSizePtr, u_mean, v_mean, total_mass
-    real :: uw, ue, vn, vs, rhoe, rhow, rhon, rhos, dxn, dxs, dyw, dye, area
-    integer :: fs_uv
-    integer :: ind_rho, ind_disp, ind_u, ind_v, ix_u, iy_v, nx_u, ny_v
-    integer :: nx_dispersion_mpi, ny_dispersion_mpi
-
-    nx_dispersion_mpi = nx_dispersion + wing_depth_e + wing_depth_w
-    ny_dispersion_mpi = ny_dispersion + wing_depth_s + wing_depth_n    
-
-    rho_t => fu_work_array()
-    rho_c => fu_work_array()
-
-    drho_dt => fu_work_array()
-
-    vertFluxb => fu_work_array()
-    vertFluxt => fu_work_array()
-
-    u_mean => fu_work_array()
-    v_mean => fu_work_array()
-
-    total_mass => fu_work_array()
-
-    iu = fu_index(metBufPtr%buffer_quantities, u_flag)
-    iv = fu_index(metBufPtr%buffer_quantities, v_flag)
-    ip = fu_index(metBufPtr%buffer_quantities, pressure_flag)
-    it = fu_index(metBufPtr%buffer_quantities, temperature_flag)
-    if (.not. all((/iu, iv, ip, it/) > 0 )) then
-          call msg ("iu, iv, ip, it", (/iu, iv, ip, it/))
-          call set_error("Meteo input is not available", sub_name) 
-          return
-    endif
-
-    xSizePtr => fu_grid_data(dispersion_cell_x_size_fld)
-    ySizePtr => fu_grid_data(dispersion_cell_y_size_fld)
-    zSizePtr => fu_work_array()
-    do iLev = 1, nz_dispersion
-      zSizePtr(iLev) = fu_layer_thickness_m(fu_level(dispersion_vertical, iLev)) 
-    enddo
-
-    !
-    ! Before starting anything, let's check whether wind has already been diagnosed
-    !
-    call supermarket_times(dispMarketPtr, met_src_missing, dispMarketTimes, n_dispMarketTimes)
-
-
-    ! Interpolation of horizontal winds. The possibility of Arakawa
-    ! shifts complicates matters, and currently it is only considered
-    ! if the dispersion and meteo grids are otherwise equal. In this
-    ! case, if ifHorizInterp is false but u_grid /= dispersion_grid,
-    ! and separate interpolation structures are set for u and v.
-
-    ! Interpolating the winds
-    ! The u/v grids might still be shifted by a half cell.
-    u_grid = fu_grid(metBufPtr%p4d(iu)%past%p2d(1)%idPtr)
-    v_grid = fu_grid(metBufPtr%p4d(iv)%past%p2d(1)%idPtr)
-
-    if (.not. (u_grid == meteo_grid) .or. .not. (v_grid == meteo_grid) ) then
-
-      ! Need separate u/v interpolation because either dispersion or meteo has different
-      ! grids for the components.  
-      pHorizInterpU => fu_horiz_interp_struct(u_grid, dispersion_grid, linear, .true.)
-      pHorizInterpV => fu_horiz_interp_struct(v_grid, dispersion_grid, linear, .true.)
-      pHorizInterpRho => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
-      ifInterpolateUV = .true.
-    else
-      ! The winds are not shifted from the main meteo grid, which may or 
-      ! may not be the dispersion grid. If not, use interpolation as usual.
-      pHorizInterpU => pHorizInterpStruct
-      pHorizInterpV => pHorizInterpStruct
-      pHorizInterpRho => pHorizInterpStruct
-      ifInterpolateUV = ifHorizInterp
-    end if
-    ! 
-    ! Now u, v and rho will be interpolated into whole dispersion-uv grid. The diagnostics
-    ! will be done for this area. This means some extra work, but avoids massive
-    ! complexity with the grid indexing inside the diagnostic part.
-    
-    ! And vertical interpolation structure for level top
-    if(.not. associated(pVertInterpRho))then
-      call msg('Allocating vertical interpolation for vertical winds')
-      allocate(rhoLevels(nz_dispersion))
-      do iLev = 1, nz_dispersion
-        rhoLevels(iLev) = fu_upper_boundary_of_layer(fu_level(dispersion_vertical, iLev))
-      enddo
-      call set_vertical(rhoLevels, vertRho)
-      pVertInterpRho => fu_vertical_interp_struct(meteo_vertical, vertRho, dispersion_grid, linear, &
-                                                & one_hour, 'meteo_to_disp_leveltop')
-      if(error)return
-      call set_missing(vertRho, .false.)
-      deallocate(rhoLevels)
-    endif
-
-
-    !call msg('Making dispersion vertical w-wind')
-    
-    forecast_length = zero_interval
-    !
-    ! Start computations: loop over times. In principle, obstimes can
-    ! contain any times, but since values are taken from meteo buffer,
-    ! only times defined in buffer are actually considered. Normally
-    ! these are the same, of course.
-    ! 
-    
-    if (ifFirst) call get_integration_vertical()
-    ifFirst = .false.
-    
-    ! The grids used by this sub, with mpi:
-    ! u, v -> interpolated into dispersion u, v grids
-    ! rho -> interpolated into joint area of u, v but not corners
-    fs_uv = nx_dispersion*ny_dispersion
-
-    do itime = 1, size(obstimes)
-      now = obstimes(itime)
-      if (.not. defined(now)) exit
-      if (now == metBufPtr%time_past) then
-        weight_past = 1.0
-      else if (now == metBufPtr%time_future) then
-        weight_past = 0.0
-      else
-        call set_error('Strange meteo time:'+fu_str(obstimes(itime)), &
-                     & 'diag_vertical_wind_anelastic')
-      end if
-
-      analysis_time = now 
-
-      vertFluxt(1:fs_uv) = 0.
-      
-      call start_count('refine in wind')
-      call refine_interp_vert_coefs_v2(wind_interp_struct, metBufPtr, now)
-      call refine_interp_vert_coefs_v2(pVertInterpRho,  metBufPtr,  now)
-      call stop_count('refine in wind')
-      if(error)return
-
-      ismall_prev = 1
-
-      nx_u = nx_dispersion
-      ny_v = ny_dispersion
-
-      idTmp = fu_set_field_id(met_src, &                                            
-                            & dispersion_u_flag, &                                  
-                            & now, &                                      
-                            & zero_interval, &                                    
-                            & dispersion_grid, &                                    
-                            & fu_level(dispersion_vertical, 1, .false.)) ! Some level
-
-      do iLev = 1, nz_dispersion
-        
-        call set_level(idTmp, fu_level(dispersion_vertical, iLev, .false.))
-        call set_quantity(idTmp,dispersion_u_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u)       ! wind u
-        if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_anelastic'))return
-
-        call set_quantity(idTmp,dispersion_v_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, v)       ! wind v
-        if(fu_fails(.not.error,'Failed v field data pointer','diag_vertical_wind_anelastic'))return
-
-        call set_quantity(idTmp, dispersion_w_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, w_full)  ! wind w
-        if(fu_fails(.not.error,'Failed w_full field data pointer','diag_vertical_wind_anelastic'))return
-
-        call get_rho(ilev, pVertInterpRho, rho_t)
-        u_mean(1:fs_uv) = 0.0
-        v_mean(1:fs_uv) = 0.0
-        total_mass(1:fs_uv) = 0.0
-
-        do ismall = ismall_prev, ismall_prev + nsmall_in_layer(ilev) - 1
-          !$OMP PARALLEL DEFAULT(NONE) &
-          !$OMP & SHARED(u, v, integration_vertical, ismall, ifInterpolateUV, wind_interp_struct, rho_c, &
-          !$OMP        & error, vertFluxb, vertFluxt, nx_dispersion, ny_dispersion, xSizePtr, ySizePtr, &
-          !$OMP        & u_mean, v_mean, total_mass, fs_dispersion, drho_dt, fs_uv, &
-          !$OMP        & nx_dispersion_mpi, ny_dispersion_mpi, disp_grid_size_x, disp_grid_size_y) &
-          !$OMP & PRIVATE(dz, ix, iy, i, area, uw, ue, rhow, rhoe, dye, dyw, dxs, dxn, rhon, rhos, vs, vn)
-          
-          dz = fu_layer_thickness_m(fu_level(integration_vertical, ismall))
-          ! In this sub, the diagnostic will be done on full dispersion_grid.  Some
-          ! work could be avoided by restricting into dispersion_grid, but u, v are still
-          ! needed in wider area. Dealing with 1D indices of 4 different grids just gets
-          ! too technical.
-          call get_winds(ismall, u, v, ifInterpolateUV)
-          call get_drho_dt(ismall, wind_interp_struct)
-          call get_rho(ismall, wind_interp_struct, rho_c)
-          
-          !rho_c = 1.
-          !rho_t = 1.0
-          !drho_dt = 0.0
-          !if (error) return
-
-          !$OMP SINGLE
-          vertFluxb(1:fs_dispersion) = vertFluxt(1:fs_dispersion)
-          !$OMP END SINGLE
-          !$OMP BARRIER
-          i = 0
-          !$OMP DO
-          do iy = 1, ny_dispersion
-            do ix = 1, nx_dispersion
-              i = ix + (iy-1) * nx_dispersion
-
-              if(ix == 1)then 
-                !on borders just take the values in the middle of the gridcell and cell size as half
-                uw   = u(i)
-                rhow = rho_c(i)
-                dyw  = disp_grid_size_y(ix,iy) ! ySizePtr(i)
-              else
-                uw   = 0.5 * (u(i-1)+u(i))
-                rhow = 0.5 * (rho_c(i-1)+rho_c(i))
-                dyw  = 0.5 * (disp_grid_size_y(ix-1,iy) + disp_grid_size_y(ix,iy))!(ySizePtr(i-1) + ySizePtr(i))
-              endif
-              if(ix == nx_dispersion_mpi)then
-                ue   = u(i)
-                rhoe = rho_c(i)
-                dye  = disp_grid_size_y(ix,iy)!ySizePtr(i)
-              else
-                ue   = 0.5 * (u(i+1)+u(i))
-                rhoe = 0.5 * (rho_c(i+1)+rho_c(i))
-                dye  = 0.5 * (disp_grid_size_y(ix+1,iy) + disp_grid_size_y(ix,iy))!(ySizePtr(i+1)+ ySizePtr(i))
-              endif
-              if(iy == 1)then
-                vs   = v(i)
-                rhos = rho_c(i)
-                dxs  = disp_grid_size_x(ix,iy)!xSizePtr(i)
-              else
-                vs   = 0.5 * (v(i-nx_dispersion) + v(i))
-                rhos = 0.5 * (rho_c(i-nx_dispersion) + rho_c(i))
-                dxs  = 0.5 * (disp_grid_size_x(ix,iy-1) + disp_grid_size_x(ix,iy))
-                !(xSizePtr(i-nx_dispersion) + xSizePtr(i))
-              endif
-              if(iy == ny_dispersion)then
-                vn   = v(i)
-                rhon = rho_c(i)
-                dxn  = disp_grid_size_x(ix,iy) !xSizePtr(i)
-              else
-                vn   = 0.5 * (v(i+nx_dispersion) + v(i)) 
-                rhon = 0.5 * (rho_c(i+nx_dispersion) + rho_c(i))
-                dxn  = 0.5 * (disp_grid_size_x(ix,iy+1) + disp_grid_size_x(ix,iy))
-                !(xSizePtr(i+nx_dispersion) + xSizePtr(i))
-              endif
-
-              if(iy == ny_dispersion .or. iy == 1)then
-                dyw =  0.5 * dyw
-                dye =  0.5 * dye
-              endif
-              if(ix == nx_dispersion .or. ix == 1)then
-                dxs =  0.5 * dxs
-                dxn =  0.5 * dxn
-              endif
-              area = 0.5*(dyw+dye) * 0.5*(dxs+dxn)
-
-              ! vertFluxt(i)= ((uw*rhow -ue*rhoe)*ySizePtr(i) + (vs*rhos - vn*rhon)*xSizePtr(i))*zSizePtr(iLev) + &
-              ! & vertFluxb(i) - drho_dt(i)*xSizePtr(i)*ySizePtr(i)*zSizePtr(iLev)
-
-              vertFluxt(i) = vertFluxb(i)*area + &
-                   & (uw*rhow*dyw - ue*rhoe*dye + vs*rhos*dxs - vn*rhon*dxn) * dz - &
-                   &  drho_dt(i) * area * dz
-              ! Convert to flux density
-              vertFluxt(i) = vertFluxt(i) / area
-
-              u_mean(i) = u_mean(i) + rho_c(i)*dz*u(i)
-              v_mean(i) = v_mean(i) + rho_c(i)*dz*v(i)
-              total_mass(i) = total_mass(i) + rho_c(i) * dz
-            enddo
-          enddo
-          !$OMP END DO
-          !$OMP END PARALLEL
-        end do ! ismall
-        
-       
-
-        ismall_prev = ismall
-
-        do iy = 1, ny_dispersion
-          iy_v = iy + wing_depth_s
-          do ix = 1, nx_dispersion
-            ! Computing 1d indices for u, v and uv grids:
-            ! u -> ix_u, iy, nx_u, (ny)
-            ! v -> ix,   iy_v, nx, (ny_v)
-            ! uv -> ix_u, iy_v, nx_u, (ny_v)
-            ! where nx, ny are for dispersion grid
-            ix_u = ix + wing_depth_w
-
-            ind_disp = ix + (iy-1) * nx_dispersion
-            ind_u = ix_u + (iy-1)*nx_u
-            ind_v =  ix + (iy_v-1)*nx_dispersion
-            ind_rho = ix_u + (iy_v-1)*nx_u
-            
-            if (if_half_levels) then
-              w_full(ind_disp) = vertFluxt(ind_rho) / rho_t(ind_rho)
-            else
-              w_full(ind_disp) = 0.5 * (vertFluxb(ind_rho) + vertFluxt(ind_rho)) &
-                   & / rho_t(ind_rho)
-            end if
-          end do
-          ! mean u wind in u grid
-          do ix_u = 1, nx_u
-            ind_rho = ix_u + (iy_v-1)*nx_u
-            ind_u = ix_u + (iy-1)*nx_u
-            u(ind_u) = u_mean(ind_rho) / total_mass(ind_rho)
-          end do
-        end do
-        ! mean v in v grid
-        do iy_v = 1, ny_v
-          do ix = 1, nx_dispersion
-            ix_u = ix + wing_depth_w
-            ind_rho = ix_u + (iy_v-1)*nx_u
-            ind_v =  ix + (iy_v-1)*nx_dispersion
-            v(ind_v) = v_mean(ind_rho) / total_mass(ind_rho)
-          end do
-        end do
-        
-        
-!!$        if(if_half_levels)then ! Now actually at the top of the layer
-!!$          w_full(1:fs_dispersion) = vertFluxt(1:fs_dispersion) / (rho_t(1:fs_dispersion))
-!!$        else
-!!$          w_full(i:fs_dispersion) = 0.5*(vertFluxb(1:fs_dispersion) &
-!!$                                       & + vertFluxt(1:fs_dispersion)) &
-!!$                                     & /(rho_t(1:fs_dispersion))
-!!$        endif
-!!$
-!!$        u(1:fs_dispersion) = u_mean(1:fs_dispersion) / total_mass(1:fs_dispersion)
-!!$        v(1:fs_dispersion) = v_mean(1:fs_dispersion) / total_mass(1:fs_dispersion)
-
-        !call msg('Setting test winds...')
-        !u(1:fs_dispersion) = 0.0
-        !v(1:fs_dispersion) = 0.0
-        !w_full(1:fs_dispersion) = 0.0
-
-      end do ! level
-
-    end do ! time
-
-    call free_work_array(drho_dt)
-    
-    call free_work_array(rho_t)
-    call free_work_array(rho_c)
-    call free_work_array(vertFluxb)
-    call free_work_array(vertFluxt)
-
-    call free_work_array(zSizePtr)
-    
-    call free_work_array(u_mean)
-    call free_work_array(v_mean)
-    call free_work_array(total_mass)
-
-    call arrange_supermarket(dispMarketPtr)
-   
-
-    if (ifWrite) then
-      close(funit)
-      ifWrite = .false.
-    end if
-    
-    !==========================================================================================
-    
-  contains 
-
-    subroutine get_rho(ilev, VertInterp, data_rho)
-      ! interpolate rho to rho grid == uv_grid
-      implicit none
-      integer :: ilev
-      type(TVertInterpStruct), pointer  ::  VertInterp
-      real, dimension(:), pointer :: data_rho
-      ! Local variables
-      integer :: ix, iy
-      real :: pr, t
-      
-      !$OMP DO
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-          
-          pr = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, weight_past, &
-               pHorizInterpRho, VertInterp, ifHorizInterp, ifVertInterp)
-          
-          t = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, weight_past, &
-               pHorizInterpRho, VertInterp, ifHorizInterp, ifVertInterp)
-!          print *, smpi_adv_rank, ': ', pr, gas_constant_dryair, t 
-          data_rho(ix + (iy-1)*nx_dispersion_mpi) = pr / (gas_constant_dryair*t)
-          !data_rho(ix + (iy-1)*nx_dispersion) = 1.0
-          
-        end do
-      end do
-      !$OMP END DO
-    end subroutine get_rho
-
-    subroutine get_drho_dt(ilev, vertInterp)
-      ! Compute d rho / dt on level iLev
-      implicit none
-      integer :: iLev
-      type(TVertInterpStruct), pointer  ::  VertInterp
-
-      ! Local declarations
-      integer :: ix, iy
-      real :: p_now, p_next, p_prev, t_now, t_next, t_prev
-      real :: dt_sec
-
-      logical, parameter :: no_drho_dt = .false.
-
-      !dt_sec = fu_sec(fu_valid_time(metBufPtr%p4d(ip)%future%p2d(ilev)%idptr) &
-      !     & - fu_valid_time(metBufPtr%p4d(ip)%past%p2d(ilev)%idptr))
-      dt_sec = fu_sec(metBufPtr%time_future - metBufPtr%time_past)
-      
-      if ((dt_sec .eps. 0.0) .or. no_drho_dt) then
-        !if (.true.) then
-        !call msg_warning('dt_sec is zero', 'get_drho_dt @ diag_vertical_wind_anelastic')
-        !$OMP SINGLE
-        drho_dt(1:fs_dispersion) = 0.
-        !$OMP END SINGLE
-        return
-      end if
-      
-      if (ifHorizInterp .or. ifVertInterp) then
-      !$OMP DO
-        do iy = 1, ny_dispersion_mpi
-          do ix = 1, nx_dispersion_mpi
-
-            p_now = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, weight_past, &
-                 pHorizInterpRho, vertInterp, ifHorizInterp, ifVertInterp)
-            p_next = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, 0., &
-                 pHorizInterpRho, vertInterp, ifHorizInterp, ifVertInterp)
-            p_prev = fu_get_value(metBufPtr%p4d(ip), nx_meteo, ix, iy, iLev, 1., &
-                 pHorizInterpRho, vertInterp, ifHorizInterp, ifVertInterp)
-
-            t_now = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, weight_past, &
-                 pHorizInterpRho, vertInterp, ifHorizInterp, ifVertInterp)
-            t_next = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, 0., &
-                 pHorizInterpRho, vertInterp, ifHorizInterp, ifVertInterp)
-            t_prev = fu_get_value(metBufPtr%p4d(it), nx_meteo, ix, iy, iLev, 1., &
-                 pHorizInterpRho, vertInterp, ifHorizInterp, ifVertInterp)
-
-            drho_dt(ix + (iy-1)*nx_dispersion_mpi) = (t_now * (p_next-p_prev)/dt_sec &
-                 & + p_now * (t_next-t_prev)/dt_sec) / (gas_constant_dryair*t_now**2)
-
-          end do
-        end do
-        !$OMP END DO
-      else
-        if (fu_fails(nx_dispersion*ny_dispersion == nx_dispersion_mpi*ny_dispersion_mpi, &
-                   & 'Should not be here', 'get_drho_dt')) return
-        !$OMP DO
-        do iy = 1, ny_dispersion
-          do ix = 1, nx_dispersion
-
-            p_now = metBufPtr%p4d(ip)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * weight_past &
-                 & + metBufPtr%p4d(ip)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * (1.-weight_past)
-            p_prev = metBufPtr%p4d(ip)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-            p_next = metBufPtr%p4d(ip)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-
-            t_now = metBufPtr%p4d(it)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * weight_past &
-                 & + metBufPtr%p4d(it)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo) * (1.-weight_past)
-            t_prev = metBufPtr%p4d(it)%past%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-            t_next = metBufPtr%p4d(it)%future%p2d(iLev)%ptr(ix + (iy-1)*nx_meteo)
-
-            drho_dt(ix + (iy-1)*nx_dispersion) = &
-                 (t_now * (p_next-p_prev)/dt_sec &
-                 & + p_now * (t_next-t_prev)/dt_sec) / (gas_constant_dryair*t_now**2)
-
-          end do
-        end do
-        !$OMP END DO
-      end if
-      
-    end subroutine get_drho_dt
-
-    subroutine get_winds(iLev, data_u, data_v, ifInterpolate)
-      ! 
-      ! Get fields full of winds using wind_from_buffer.
-      !
-      implicit none
-      integer, intent(in) :: iLev
-      real, dimension(:), intent(inout) :: data_u, data_v
-      logical, intent(in) :: ifInterpolate
-      
-      integer :: ix, iy
-      
-      !$OMP DO
-      do iy = 1, ny_dispersion_mpi
-        do ix = 1, nx_dispersion_mpi
-          call wind_from_buffer_4d(metBufPtr%p4d(iu), metBufPtr%p4d(iv), &
-                                 & nx_meteo, ix, iy, ilev, &
-                                 & weight_past, &
-                                 & pHorizInterpU, wind_interp_struct, &
-                                 & PHorizInterpV, wind_interp_struct, &
-                                 & ifInterpolate, .true., &
-                                 & data_u(ix + (iy-1)*nx_dispersion_mpi), &
-                                 & data_v(ix + (iy-1)*nx_dispersion_mpi))
-        end do
-      end do
-      !$OMP END DO
-    end subroutine get_winds
-
-    subroutine get_integration_vertical()
-      implicit none
-      
-      integer :: nsublevs, ilev, lev_ind, nsmall, ilev_new, status
-      type(silja_level) :: metlev, displev, new_level, top_small, bottom_big, bottom_small
-      integer, dimension(:), pointer :: metlev_counter
-      real :: lev_ind_float, thickness, height, bottom_height
-      real, dimension(:), pointer :: met_data_col
-      real :: met_data_srf
-
-      metlev_counter => fu_work_int_array()
-      metlev_counter(1:nz_dispersion) = 0
-
-      met_data_col => fu_work_array()
-      call vert_interp_data_crude(meteo_vertical, dispersion_vertical, met_data_col, met_data_srf)
-      if (error) return
-
-      do ilev = 1, nz_meteo
-        metlev = fu_level(meteo_vertical, ilev, .true.)
-        !displev = fu_level_to_vertical_crude(metlev, dispersion_vertical)
-        lev_ind_float = fu_project_level(metlev, dispersion_vertical, met_data_col, met_data_srf)
-        !lev_ind_float = fu_level_index(displev, dispersion_vertical)
-        lev_ind = int(lev_ind_float + 0.5)
-        if (lev_ind > nz_dispersion) cycle
-        metlev_counter(lev_ind) = metlev_counter(lev_ind) + 1
-      end do
-      call free_work_array(met_data_col)
-
-      allocate(nsmall_in_layer(nz_dispersion), stat=status)
-      if (status /= 0) then
-        call set_error('Allocate failed', 'get_integration_vertical')
-        return
-      end if
-      
-      height = 0.0
-      
-      do ilev = 1, nz_dispersion
-        nsmall = max(2, metlev_counter(ilev))
-        !nsmall = 1
-        nsmall_in_layer(ilev) = nsmall
-        thickness = fu_layer_thickness_m(fu_level(dispersion_vertical, ilev))
-        bottom_big = fu_lower_boundary_of_layer(fu_level(dispersion_vertical, ilev))
-        bottom_height = fu_bottom_of_layer_value(dispersion_vertical, ilev)
-        bottom_small = bottom_big
-        do ilev_new = 1, nsmall
-          height = height + thickness/nsmall
-          top_small = fu_set_constant_height_level(height)
-          new_level = fu_set_layer_between_two(bottom_small, top_small)
-          bottom_small = top_small
-          if (ilev == 1 .and. ilev_new == 1) then
-            call set_vertical(new_level, integration_vertical)
-          else
-            call add_level(integration_vertical, new_level)
-          end if
-        end do
-      end do
-
-      call arrange_levels_in_vertical(integration_vertical)
-
-      wind_interp_struct => fu_vertical_interp_struct(meteo_vertical, integration_vertical, &
-                                                    & dispersion_grid, linear, &
-                                                    & one_hour, 'wind_itnerp_anelastic')
-      call msg('Vertical for integrating anelastic continuity equation')
-
-      call report(integration_vertical, ifFull=.true.)
-
-      ! set inter
-      ! refine
-      call free_work_array(metlev_counter)
-
-    end subroutine get_integration_vertical
-
-  end subroutine diag_vertical_wind_anelastic
-
-
-  !************************************************************************************
-  
-  subroutine diag_vertical_wind_eta(met_src, metBufPtr, &
-                                  & obstimes, &
-                                  & ifHorizInterp, pHorizInterpStruct, &
-                                  & ifVertInterp, pVertInterpStruct, &
-                                  & dispMarketPtr, &
-                                  & if_half_levels, if_from_omega, if_top_down)
-    !
-    ! Determine the vertical wind in the midpoints of each grid cell
-    ! from the incompressible continuity equation du/dx + dv/dy +
-    ! dw/dz = 0, where z is height and w is the eta-system vertical
-    ! velocity.
-    ! 
-    ! Method: du/dx + dv/dy is computed in centres of grid cells and
-    ! integrated from the bottom of the layer to the top. The value at
-    ! the vertical midpoint ("full levels", w_full) is interpolated linearly. 
-    ! 
-    ! Vanishing w-wind is assumed on the bottom of first layer, while
-    ! the wind at the top of last leyer can be nonvanishing.
-    ! 
-    ! This subroutine includes the possible interpolation from meteo
-    ! to dispersion grid. The interpolated horizontal and the
-    ! resulting vertical wind are stored into dispersion miniMarket.
-    !
-    ! The fields are stored into dispersion market.
-    !
-    ! Units: SI 
-    ! Author: J. Vira
-    implicit none
-    type(meteo_data_source), intent(in) :: met_src
-    type(Tfield_buffer), pointer :: metBufPtr
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    ! meteo -> dispersion interpolation
-    type(TVertInterpStruct), pointer :: pVertInterpStruct
-    type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    ! See also module variables for interpolating winds.
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
-    type(mini_market_of_stacks), intent(inout) :: dispMarketPtr
-    logical, intent(in) :: if_half_levels, if_from_omega, if_top_down
-
-    ! Local variables
-    !
-    ! Grids of the horizontal winds as in meteo.
-    type(silja_grid) :: u_grid, v_grid
-    type(silja_time) :: now
-    type(silja_time), dimension(max_times) :: dispMarketTimes
-    ! fields computed
-    real, dimension(:), pointer :: dudx, dvdy, w2d
-    real :: dz       ! == h_{i+1/2} - h_{i-1/2}
-    real :: rho_adv, dz_full
-    integer :: iTime, iLev, i, iu, iv, ip, it, ismall, ismall_prev
-    logical :: ifInterpolateUV
-    ! Temperature and pressure for calculating time derivative of density. 
-    real, dimension(:), pointer :: u2d, v2d, ps, spt, a_half, b_half, a_half_small, b_half_small
-    real :: weight_past, da_full, db_full, da_small, db_small, dp
-    ! Check if dispersion stack must be arranged
-    logical :: ifFirst = .true.
-    ! Debug output
-    logical :: ifWrite = .false.
-    integer :: funit, iTmp, ix, iy, n_sm_times, n_dispMarketTimes, stat, ips, iw
-    ! Pressure and temperature fields to calculate d(rho) / dt.
-    type(silja_field_id) :: idTmp !, meteoWindID
-    type(silja_time) :: time, analysis_time
-    type(silja_interval) :: forecast_length, dt
-
-    ps => null()
-    spt => fu_work_array()
-    a_half => fu_work_array()
-    b_half => fu_work_array()
-    a_half_small => fu_work_array()
-    b_half_small => fu_work_array()
-    
-    iu = fu_index(metBufPtr%buffer_quantities, u_flag)
-    if (fu_fails(iu /= int_missing, 'u-wind not available', 'diagnostic_vertical_wind_eta')) return
-    iv = fu_index(metBufPtr%buffer_quantities, v_flag)
-    if (fu_fails(iv /= int_missing, 'v-wind not available', 'diagnostic_vertical_wind_eta')) return
-    ips = fu_index(metBufPtr%buffer_quantities, surface_pressure_flag)
-    if (fu_fails(ips /= int_missing, 'surface pressure not available', 'diagnostic_vertical_wind_eta')) return
-
-    if (if_from_omega) then
-      iw = fu_index(metBufPtr%buffer_quantities, omega_flag)
-      if (fu_fails(iw /= int_missing, 'omega not available', 'diagnostic_vertical_wind_eta')) return
-    end if
-    
-    call msg('Eta vertical wind diagnosis')
-
-    !
-    ! Before starting anything, let's check whether wind has already been diagnosed
-    !
-    call supermarket_times(dispMarketPtr, met_src_missing, dispMarketTimes, n_dispMarketTimes)
-    ! Interpolation of horizontal winds. The possibility of Arakawa
-    ! shifts complicates matters, and currently it is only considered
-    ! if the dispersion and meteo grids are otherwise equal. In this
-    ! case, if ifHorizInterp is false but u_grid /= dispersion_grid,
-    ! and separate interpolation structures are set for u and v.
-
-    ! If horiz. interpolated is needed globally, always interpolate u, v.
-    ifInterpolateUV = ifHorizInterp
-
-    ! Interpolating the winds
-    ! The u/v grids might still be shifted by a half cell.
-    u_grid = fu_grid(metBufPtr%p4d(iu)%past%p2d(1)%idPtr)
-    v_grid = fu_grid(metBufPtr%p4d(iv)%past%p2d(1)%idPtr)
-
-    if (.not. (u_grid == meteo_grid) .or. .not. (v_grid == meteo_grid)) then
-      ! The meteo grid of winds differs from the main one. Create separate 
-      ! interpolateion structures.
-      if (.not. associated(pHorizInterpU)) then
-        call msg('Allocating interpolation for shifted horizontal winds')
-        allocate(pHorizInterpU, pHorizInterpV, stat=iTmp)
-        if (iTmp /= 0) then
-          call set_error('Cannot allocate', 'diag_vertical_wind_eta')
-          return
-        end if
-        pHorizInterpU => fu_horiz_interp_struct(u_grid, dispersion_grid, linear, .true.)
-        pHorizInterpV => fu_horiz_interp_struct(v_grid, dispersion_grid, linear, .true.)
-      end if
-      ifInterpolateUV = .true.
-    else
-      ! The winds are not shifted from the main meteo grid, which may or 
-      ! may not be the dispersion grid. If not, use interpolation as usual.
-      pHorizInterpU => pHorizInterpStruct
-      pHorizInterpV => pHorizInterpStruct
-      ifInterpolateUV = ifHorizInterp
-    end if
-
-    if (ifFirst) then 
-      call get_integration_vertical()
-      allocate(u3d(fs_dispersion, nz_dispersion), v3d(fs_dispersion, nz_dispersion), &
-             & eta_dot_3d(fs_dispersion, nz_dispersion+1), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', 'diagnostic_vertical_wind_eta')) return
-      if (if_from_omega) allocate(w3d(fs_dispersion, nz_dispersion), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed (omega)', 'diagnostic_vertical_wind_eta')) return
-      ifFirst = .false.
-    end if
-
-
-
-    call hybrid_coefs(dispersion_vertical, a_half=a_half, b_half=b_half)
-    call hybrid_coefs(integration_vertical, a_half=a_half_small, b_half=b_half_small)
-    forecast_length = zero_interval
-    !
-    ! Start computations: loop over times. In principle, obstimes can
-    ! contain any times, but since values are taken from meteo buffer,
-    ! only times defined in buffer are actually considered. Normally
-    ! these are the same, of course.
-    !
-    do itime = 1, size(obstimes)
-      now = obstimes(itime)
-      if (.not. defined(now)) exit
-      if (now == metBufPtr%time_past) then
-        weight_past = 1.0
-      else if (now == metBufPtr%time_future) then
-        weight_past = 0.0
-      else
-        call set_error('Strange time:'+fu_str(obstimes(itime)),'diag_vertical_wind_eta')
-        return
-      end if
-
-      analysis_time = now 
-      
-      call start_count('refine in wind')
-      call refine_interp_vert_coefs_v2(wind_interp_struct, metBufPtr, now)
-      call stop_count('refine in wind')
-      if(error)return
-      
-      if (.not. if_half_levels) then
-        call set_error('very unhappy: not if_half_levels', 'diag_vertical_wind_eta')
-        return
-      end if
-
-      ! Make the ps field
-      !
-      idTmp = fu_set_field_id(met_src, &
-                            & surface_pressure_flag, &
-                            & analysis_time, &
-                            & forecast_length, &
-                            & dispersion_grid, &
-                            & surface_level)
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, ps)
-      if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_anelastic'))return
-      call get_ps_and_spt(ps, spt, weight_past)
-      
-      ! Get the winds into 3d cubes. 
-      ! 
-      u3d = 0.0
-      v3d = 0.0
-      ismall_prev = 1
-
-
-      if (if_from_omega) w3d = 0.0
-
-      do ilev = 1, nz_dispersion
-        !
-        ! Get the fields to update
-        !
-        idTmp = fu_set_field_id(met_src, &
-                              & dispersion_u_flag, &
-                              & analysis_time, &
-                              & forecast_length, &
-                              & dispersion_grid, &
-                              & fu_level(dispersion_vertical, iLev, .false.))
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u2d)
-        if(fu_fails(.not.error,'Failed u2d field data pointer','diag_vertical_wind_eta'))return
-        call set_quantity(idTmp, dispersion_v_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, v2d)
-        if(fu_fails(.not.error,'Failed v2d field data pointer','diag_vertical_wind_eta'))return
-        call set_quantity(idTmp, dispersion_w_flag)
-        call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, w2d)
-        if(fu_fails(.not.error,'Failed w2d field data pointer','diag_vertical_wind_eta'))return
-
-        da_full = a_half(ilev) - a_half(ilev+1)
-        db_full = b_half(ilev) - b_half(ilev+1)
-        do ismall = ismall_prev, ismall_prev + nsmall_in_layer(ilev) - 1
-          da_small = a_half_small(ismall) - a_half_small(ismall+1)
-          db_small = b_half_small(ismall) - b_half_small(ismall+1)
-          call get_winds(ismall, u2d, v2d, ifInterpolateUV)
-          do i = 1, fs_dispersion
-            dp = (da_small+db_small*ps(i)) / (da_full + db_full*ps(i))
-            u3d(i,ilev) = u3d(i,ilev) + u2d(i)*dp
-            v3d(i,ilev) = v3d(i,ilev) + v2d(i)*dp
-          end do
-          if (if_from_omega) then
-            call get_omega(ismall, w2d, ifHorizInterp)
-            do i = 1, fs_dispersion
-              dp = (da_small+db_small*ps(i)) / (da_full + db_full*ps(i))
-              w3d(i,ilev) = w3d(i,ilev) + w2d(i)*dp
-            end do
-          end if
-        end do ! small levels
-        ismall_prev = ismall
-      end do
-
-      ! Diagnose the vertical motion. 
-      ! 
-      if (.not. if_from_omega) then
-        call diagnose_eta_dot(u3d, v3d, ps, spt, &
-                            & dispersion_vertical, &
-                            & dispersion_grid, dispersion_grid, dispersion_grid, &
-                            & .false., if_top_down, eta_dot_3d)
-      else
-        call eta_from_omega(u3d, v3d, ps, spt, w3d, &
-                            & dispersion_vertical, &
-                            & dispersion_grid, dispersion_grid, dispersion_grid, &
-                            & eta_dot_3d)
-      end if
-
-      do iLev = 1, nz_dispersion
-        u2d(1:fs_dispersion) = u3d(1:fs_dispersion, ilev)
-        v2d(1:fs_dispersion) = v3d(1:fs_dispersion, ilev)
-        w2d(1:fs_dispersion) = eta_dot_3d(1:fs_dispersion, ilev+1)
-        
-        !call msg('Setting test winds...')
-        !u(1:fs_dispersion) = 0.0
-        !v(1:fs_dispersion) = 0.0!v3d(1:fs_dispersion, ilev)
-        !w(1:fs_dispersion) = 0.0!eta_dot_3d(1:fs_dispersion, ilev+1)
-
-      end do ! level
-      
-!!$      ! To avoid potential inconsistencies and to save time, the
-!!$      ! surface pressure is also stored in dispersion grid.
-!!$      !
-!!$      idtmp = fu_set_field_id(met_src, &
-!!$                            & surface_pressure_flag, &
-!!$                            & analysis_time, forecast_length, &
-!!$                            & dispersion_grid, surface_level)
-!!$      call dq_store_2d(dispMarketPtr, idtmp, ps, multi_time_stack_flag, &
-!!$                     & iupdateType = overwrite_field, storage_grid=dispersion_grid)
-      ! OK gave up, too difficult to make it a dispersion buffer quantity.
-
-    end do ! time
-
-    call free_work_array(spt)
-    call free_work_array(a_half)
-    call free_work_array(b_half)
-    call free_work_array(a_half_small)
-    call free_work_array(b_half_small)
-    
-    call arrange_supermarket(dispMarketPtr)
-    
-    !==========================================================================================
-    
-  contains 
-
-    subroutine get_ps_and_spt(ps, spt, weight_past)
-      ! Compute d rho / dt on level iLev
-      implicit none
-      real, dimension(:), intent(out) :: ps, spt
-      real, intent(in) :: weight_past 
-      ! Local declarations
-      integer :: ix, iy
-      real :: ps_next, ps_prev
-      real :: dt_sec
-      
-      !dt_sec = fu_sec(fu_valid_time(metBufPtr%p4d(ip)%future%p2d(ilev)%idptr) &
-      !     & - fu_valid_time(metBufPtr%p4d(ip)%past%p2d(ilev)%idptr))
-      dt_sec = fu_sec(metBufPtr%time_future - metBufPtr%time_past)
-      
-      if (dt_sec .eps. 0.0) then
-        !if (.true.) then
-        call msg_warning('dt_sec is zero', 'get_ps_and_spt @ diag_vertical_wind_eta')
-        spt(1:fs_dispersion) = 0.0
-      end if
-      
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-
-          ps_next = fu_get_value(metBufPtr%p2d(ips), &
-                               & nx_meteo, ix, iy, &
-                               & 0.0, &
-                               & pHorizInterpStruct, ifHorizInterp, .true.)
-          ps_prev = fu_get_value(metBufPtr%p2d(ips), &
-                               & nx_meteo, ix, iy, &
-                               & 1.0, &
-                               & pHorizInterpStruct, ifHorizInterp, .true.)
-
-          if (dt_sec > 0.0) spt(ix + (iy-1)*nx_dispersion) = (ps_next - ps_prev) / dt_sec
-          ps(ix + (iy-1)*nx_dispersion) = ps_next * (1.0-weight_past) + ps_prev*weight_past
-          ! SET CONST PRES
-          !ps(ix + (iy-1)*nx_dispersion) = std_pressure_sl
-          !spt(ix + (iy-1)*nx_dispersion) = 0.0
-        end do
-      end do
-        
-      
-    end subroutine get_ps_and_spt
-
-    subroutine get_winds(iLev, data_u, data_v, if_interp_horiz)
-      ! 
-      ! Get fields full of winds using wind_from_buffer.
-      !
-      implicit none
-      integer, intent(in) :: iLev
-      real, dimension(:), pointer :: data_u, data_v
-      logical, intent(in) :: if_interp_horiz
-      
-      integer :: ix, iy
-      real :: rand
-
-      !data_u(1:fs_dispersion) = 10.0 !* ilev*0.2
-      !data_v(1:fs_dispersion) = 15.0
-
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-          call wind_from_buffer_4d(metBufPtr%p4d(iu), metBufPtr%p4d(iv), &
-                                 & nx_meteo, ix, iy, ilev, &
-                                 & weight_past, &
-                                 & pHorizInterpU, wind_interp_struct, &
-                                 & pHorizInterpV, wind_interp_struct, &
-                                 & if_interp_horiz, ifVertInterp, &
-                                 & data_u(ix + (iy-1)*nx_dispersion), &
-                                 & data_v(ix + (iy-1)*nx_dispersion))
-
-          !call random_number(rand)
-          !data_v(ix + (iy-1)*nx_dispersion) = data_v(ix + (iy-1)*nx_dispersion) + rand
-          !if (ix > 1) then
-          !  data_u(ix + (iy-1)*nx_dispersion) = data_u(ix-1 + (iy-1)*nx_dispersion) - 0.5*(rand-0.5)
-          !end if
-        end do
-      end do
-      
-    end subroutine get_winds
-
-    subroutine get_omega(ilev, omega, if_interp_horiz)
-      implicit none
-      integer, intent(in) :: ilev
-      real, dimension(:), intent(out) :: omega
-      logical, intent(in) :: if_interp_horiz
-
-      integer :: ix, iy
-
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-          omega(ix + (iy-1)*nx_dispersion) = fu_get_value(metBufPtr%p4d(iw), &
-                                                        & nx_meteo, ix, iy, ilev, &
-                                                        & weight_past, &
-                                                        & pHorizInterpStruct, wind_interp_struct, &
-                                                        & if_interp_horiz, ifVertInterp)
-        end do
-      end do
-      
-    end subroutine get_omega
-
-    subroutine get_omega_no_small(ilev, omega, if_interp_horiz)
-      implicit none
-      integer, intent(in) :: ilev
-      real, dimension(:), intent(out) :: omega
-      logical, intent(in) :: if_interp_horiz
-
-      integer :: ix, iy
-
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-          omega(ix + (iy-1)*nx_dispersion) = fu_get_value(metBufPtr%p4d(iw), &
-                                                        & nx_meteo, ix, iy, ilev, &
-                                                        & weight_past, &
-                                                        & pHorizInterpStruct, pVertInterpStruct, &
-                                                        & if_interp_horiz, ifVertInterp)
-        end do
-      end do
-      
-    end subroutine get_omega_no_small
-
-    subroutine get_integration_vertical()
-      implicit none
-      
-      integer :: nsublevs, ilev, lev_ind, nsmall, ilev_new, status, ilev_small_counter
-      type(silja_level) :: metlev, displev, new_level, top_small, top_big, bottom_small
-      integer, dimension(:), pointer :: metlev_counter
-      real :: lev_ind_float, a, b, da_disp, db_disp, interp_data_surf, lev_ind_float_2
-      real, dimension(:), pointer :: a_disp, b_disp, interp_data_col
-
-      metlev_counter => fu_work_int_array()
-      metlev_counter(1:nz_dispersion) = 0
-
-      interp_data_col => fu_work_array()
-      call vert_interp_data_crude(meteo_vertical, dispersion_vertical, interp_data_col, interp_data_surf)
-      !print *, interp_data_col(1:nz_dispersion), interp_data_surf
-      
-      do ilev = 1, nz_meteo
-        metlev = fu_level(meteo_vertical, ilev, .true.)
-        !displev = fu_level_to_vertical_crude(metlev, dispersion_vertical)
-        !lev_ind_float = fu_level_index(displev, dispersion_vertical)
-        lev_ind_float = fu_project_level(metlev, dispersion_vertical, interp_data_col, interp_data_surf)
-        !print *, lev_ind_float, lev_ind_float_2
-        lev_ind = int(lev_ind_float + 0.5)
-        if (lev_ind > nz_dispersion) cycle
-        metlev_counter(lev_ind) = metlev_counter(lev_ind) + 1
-      end do
-      call free_work_array(interp_data_col)
-      
-      if (.not. allocated(nsmall_in_layer)) then
-        allocate(nsmall_in_layer(nz_dispersion), stat=status)
-        if (status /= 0) then
-          call set_error('Allocate failed', 'get_winds')
-          return
-        end if
-      end if
-
-      a_disp => fu_work_array()
-      b_disp => fu_work_array()
-      call hybrid_coefs(dispersion_vertical, a_half=a_disp, b_half=b_disp)
-      
-      a = 0.0
-      b = 0.0
-      ilev_small_counter = 1
-      do ilev = nz_dispersion, 1, -1
-        nsmall = max(1, metlev_counter(ilev))
-        nsmall_in_layer(ilev) = nsmall
-        da_disp = a_disp(ilev) - a_disp(ilev+1)
-        db_disp = b_disp(ilev) - b_disp(ilev+1)
-        top_big = fu_upper_boundary_of_layer(fu_level(dispersion_vertical, ilev))
-        top_small = top_big
-        a = fu_hybrid_level_coeff_a(top_big)
-        b = fu_hybrid_level_coeff_b(top_big)
-        do ilev_new = 1, nsmall
-          !height = height + thickness/nsmall
-          a = a + da_disp/nsmall
-          b = b + db_disp/nsmall
-          bottom_small = fu_set_hybrid_level(ilev_small_counter, a, b)
-          !top_small = fu_set_constant_height_level(height)
-          new_level = fu_set_layer_between_two(top_small, bottom_small)
-          top_small = bottom_small
-          ilev_small_counter = ilev_small_counter + 1
-          if (ilev == nz_dispersion .and. ilev_new == 1) then
-            call set_vertical(new_level, integration_vertical)
-          else
-            call add_level(integration_vertical, new_level)
-          end if
-        end do
-      end do
-
-      call arrange_levels_in_vertical(integration_vertical)
-      
-
-      wind_interp_struct => fu_vertical_interp_struct(meteo_vertical, integration_vertical, &
-                                                    & dispersion_grid, linear, &
-                                                    & one_hour, 'wind_interp_eta')
-
-      call msg('Vertical for integrating continuity equation in eta vert')
-
-      call report(integration_vertical, ifFull=.true.)
-
-      call msg('Dispersion vertical:')
-      call report(dispersion_vertical, ifFull=.true.)
-      
-      ! set inter
-      ! refine
-      call free_work_array(metlev_counter)
-      call free_work_array(a_disp)
-      call free_work_array(b_disp)
-    end subroutine get_integration_vertical
-
-  end subroutine diag_vertical_wind_eta
-
   !***************************************************************************************************
 
   subroutine df_DMAT_Vd_correction(met_src, met_buf, &
@@ -3489,7 +1342,7 @@ MODULE diagnostic_variables
     !
     ! First, precipitation field(s)
     !
-    iQ = fu_index(mdl_in_q, total_precipitation_rate_flag)
+    iQ = fu_index(mdl_in_q, total_precipitation_int_flag)
     if(iQ <= 0)then
       call set_error('No total precipitation rate','df_DMAT_Vd_correction')
       return
@@ -3657,14 +1510,14 @@ MODULE diagnostic_variables
         if (.not. defined(now)) exit
         do ilev = 1, nlevs
            !ever valid
-            idTmp = fu_set_field_id(met_src, &                                            
+          idTmp = fu_set_field_id(met_src, &                                            
                                 & cell_size_z_flag, &                                  
                                 & really_far_in_past, &                                      
                                 & very_long_interval, &                                    
                                 & gridTarget, &
                                 & fu_level(vertTarget, iLev))
-            call find_field_data_storage_2d(miniMarket, idTmp, single_time_stack_flag, dz_3d_ptr(iLev)%ptr)
-            dz_3d_ptr(iLev)%ptr(1:nx*ny) = fu_layer_thickness_m(fu_level(vertTarget, iLev))
+          call find_field_data_storage_2d(miniMarket, idTmp, single_time_stack_flag, dz_3d_ptr(iLev)%ptr)
+          dz_3d_ptr(iLev)%ptr(1:nx*ny) = fu_layer_thickness_m(fu_level(vertTarget, iLev))
         enddo
         return
       enddo
@@ -3688,13 +1541,13 @@ MODULE diagnostic_variables
       if (.not. defined(now)) exit
       !$OMP MASTER
       do ilev = 1, nlevs
-          idTmp = fu_set_field_id(met_src, &                                            
+        idTmp = fu_set_field_id(met_src, &                                            
                               & cell_size_z_flag, &                                  
                               & now, &                                      
                               & zero_interval, &                                    
                               & gridTarget, &
                               & fu_level(vertTarget, iLev))
-          call find_field_data_storage_2d(miniMarket, idTmp, multi_time_stack_flag, dz_3d_ptr(iLev)%ptr)
+        call find_field_data_storage_2d(miniMarket, idTmp, multi_time_stack_flag, dz_3d_ptr(iLev)%ptr)
       enddo
 
       ! For hybrid we need some meteo
@@ -3710,11 +1563,11 @@ MODULE diagnostic_variables
       end if
 
       idTmp = fu_set_field_id(met_src, &                                            
-             & surface_pressure_flag, &
-             & now, &                                      
-             & zero_interval, &                                    
-             & gridTarget, &                                    
-             & surface_level)
+                            & surface_pressure_flag, &
+                            & now, &                                      
+                            & zero_interval, &                                    
+                            & gridTarget, &                                    
+                            & surface_level)
       call find_field_data_storage_2d(miniMarket, idTmp, multi_time_stack_flag, surf_pres)
       !$OMP END MASTER
       !$OMP BARRIER
@@ -3800,7 +1653,7 @@ MODULE diagnostic_variables
   !**************************************************************************************************
 
   subroutine diag_cell_fluxes(met_src, met_buf, obstimes, &
-        & dispMarketPtr, gridTarget, vertTarget, diag_rules)
+                            & dispMarketPtr, gridTarget, vertTarget, diag_rules)
     !
     ! Diagnozes mass fluxes through cell borders, as they appear
     ! from meteo, diagnoses vertical wind assuming zero surface pressure tendency
@@ -4071,6 +1924,7 @@ MODULE diagnostic_variables
          case default
           call msg ("diag_rules%wind_method=",diag_rules%wind_method)
           call set_error("Unknown massflux diagnostic method",sub_name)
+          return
          end select
       
       !$OMP PARALLEL default(none), shared(my_x_coord,my_y_coord,&
@@ -4641,126 +2495,199 @@ ix:      do ixTo = 1, nx_disp
   
   !***************************************************************************************************
   
-  subroutine df_cumul_daily_tempr_2m( met_buf,  dispMarketPtr, ifColdstartAllowed)
+  subroutine df_cumul_daily_variable(quantity_cumul, quantity_inst, iAvType, &
+                                   & met_buf, dispMarketPtr, ifColdstartAllowed)
     !
-    ! Computes the cumulative daily temperature from instant one
+    ! Computes the cumulative daily value for a given quantity from its instant counterpart
+    ! Instant quantity _must_ be in meteo buffer, whereas the cumulative one will be put
+    ! to dispersion market. 
     ! Note that allowColdStart flag should be handled on the _second_ call
     ! As a way to detect the initialization we store the zero-accumualted
-    !  past-field if allowColdStart==false.  The accumulation length   
+    ! past-field if allowColdStart==false.
     !
     implicit none
 
     ! Imported parameters
+    integer, intent(in) :: quantity_cumul, quantity_inst, iAvType
     TYPE(Tfield_buffer), POINTER :: met_buf
     type(mini_market_of_stacks), intent(inout) :: dispMarketPtr
-    logical, intent(in) :: ifColdstartAllowed
+    type(silja_logical), intent(in) :: ifColdstartAllowed
 
     ! Local variables
-    INTEGER :: iQ, ix, iy, iTo, iMeteo, iTime, fsTo, iLev, nLevs, nxTo, nyTo, iCoef, iTmp, indT2m
-    real, DIMENSION(:), POINTER :: pTemprPast, pTemprFuture, pTCum, pTCum_past
+    INTEGER :: iQ, ix, iy, iTo, iMeteo, iTime, fsTo, iLev, nLevs, nxTo, nyTo, iCoef, iTmp, indQinst
+    real, DIMENSION(:), POINTER :: pVarPast, pVarFuture, pTCum, pTCum_past
     TYPE(Tfield_buffer), POINTER :: met_bufPtr
     type(silja_field_id) :: idTmp
-    type(silja_field_id), pointer :: idTemprPast, idTemprFuture, idPastPtr, idFuturePtr
+    type(silja_field_id), pointer :: idVarPast, idVarFuture, idPastPtr, idFuturePtr
     type(silja_time) :: start_of_day, timeTmp
     type(silja_interval) :: intervalTmp, accLen
-    logical :: ifAddPAst, ifPastMadeHere
-    real :: seconds
+    logical :: ifAddPAst, ifPastMadeHere, ifQInstant_is_singletime
+    real :: seconds, vPast, vFuture
     real, dimension(:), pointer :: pData
     type(silja_field), pointer :: fldPtr
     type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    character(len=20), parameter :: sub_name = 'df_cumul_daily_tempr'
-
+    character(len=20), parameter :: sub_name = 'df_cumul_daily_variable'
 
     pHorizInterpStruct => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
     met_bufPtr => met_buf
     call grid_dimensions(dispersion_grid, nxTo, nyTo)
     fsTo = nxTo * nyTo
     !
-
-    indT2m =  fu_index(met_buf%buffer_quantities, temperature_2m_flag)
-    pTemprPast => met_buf%p2d(indT2m)%past%ptr
-    pTemprFuture => met_buf%p2d(indT2m)%future%ptr
-    idTemprPast => met_buf%p2d(indT2m)%past%idPtr
-    idTemprFuture => met_buf%p2d(indT2m)%future%idPtr
-
-
+    indQinst =  fu_index(met_buf%buffer_quantities, quantity_inst)
+    if(indQinst == int_missing)then
+      call msg_warning('Needed instant quantity is not in met_buf:' + fu_quantity_string(quantity_inst), &
+                   & sub_name)
+      call msg('Quantities in the buffer:')
+      do iQ = 1, size(met_buf%buffer_quantities)
+        if(met_buf%buffer_quantities(iQ) == int_missing)exit
+        call msg(fu_quantity_string(met_buf%buffer_quantities(iQ)))
+      end do
+      call set_error('Needed instant quantity is not in met_buf:' + fu_quantity_string(quantity_inst), &
+                   & sub_name)
+      return
+    endif   ! indQinst is missing
     !
-    !   Detect cold/warm start, otherwise past should be ready: 
-    !  day_temperature_2m_acc_flag must never have zero accumulation length
+    ! The instant quantity can be single-time, e.g., precipitation rate. Then
+    ! past and future times have to be taken from met_buf central timing and the 
+    ! field value itself - from the present pointer
     !
-    timeTmp = fu_valid_time(idTemprPast)
-    idTmp = fu_set_field_id_simple(fu_met_src(idTemprPast), &
-                                 & day_temperature_2m_acc_flag, timeTmp, level_missing) 
-    fldPtr => fu_get_field_from_mm_general(dispMarketPtr, idTmp, .false.)
-
-   ! Should be previous day for midnight
+    ifQInstant_is_singletime = fu_realtime_quantity(quantity_inst)
+    if(ifQInstant_is_singletime)then
+      pVarPast => met_buf%p2d(indQinst)%present%ptr
+      pVarFuture => met_buf%p2d(indQinst)%present%ptr
+      idVarPast => met_buf%p2d(indQinst)%present%idPtr
+      idVarFuture => met_buf%p2d(indQinst)%present%idPtr
+    else
+      pVarPast => met_buf%p2d(indQinst)%past%ptr
+      pVarFuture => met_buf%p2d(indQinst)%future%ptr
+      idVarPast => met_buf%p2d(indQinst)%past%idPtr
+      idVarFuture => met_buf%p2d(indQinst)%future%idPtr
+    endif
+    !
+    !  Detect cold/warm start, otherwise past should be ready: 
+    !  Cumulative quantity must never have zero accumulation length
+    !
+    if(ifQInstant_is_singletime)then
+      timeTmp = met_buf%time_past
+    else
+      timeTmp = fu_valid_time(idVarPast)
+    endif
+   ! Should be previous day for midnight, otherwise today morning
     start_of_day = fu_start_of_day_utc(timeTmp - one_second)
     accLen = timeTmp - start_of_day !! Should never be zero!
 
-    if (.not. associated(fldPtr)) then !! Coldstart
-          ! Create something here as mean from past and future temperature
-          ! accumulated since day start
-          ifPastMadeHere = .true.
+    idTmp = fu_set_field_id_simple(fu_met_src(idVarPast), &
+                                 & quantity_cumul, timeTmp, level_missing) 
+    !
+    ! Dangerous call - idTmp time is not guaranteed and will be reset to a close time 
+    ! that is directly available from stacks. It better be checked
+    !
+    call get_field_from_mm_general(dispMarketPtr, idTmp, fldPtr, .false.)
 
-          idTmp = fu_set_field_id(fu_met_src(idTemprPast),&
-                                & day_temperature_2m_acc_flag, &
-                                & start_of_day, &  !analysis_time,&
-                                & accLen, & !forecast_length, &
-                                & dispersion_grid, &
-                                & fu_level(idTemprPast), &
-                                & accLen, & ! & !length_of_accumulation, optional
-                                & zero_interval, &          !length_of_validity, optional
-                                & accumulated_flag)         !field_kind, optional
+    if (.not. associated(fldPtr)) then ! Coldstart
+      !
+      ! Create something here as mean from past and future temperature accumulated since day start
+      !
+      ifPastMadeHere = .true.
 
-          call msg_warning("Making surrogate past day_temperature_2m_acc_flag",sub_name)
-          call msg("ID for the surrogatre field")
-          call report(idTmp)
+      idTmp = fu_set_field_id(fu_met_src(idVarPast),&
+                            & quantity_cumul, &
+                            & start_of_day, &      !analysis_time,&
+                            & accLen, &            !forecast_length, &
+                            & dispersion_grid, &
+                            & fu_level(idVarPast), &
+                            & accLen, & !        & !length_of_accumulation, optional
+                            & zero_interval, &     !length_of_validity, optional
+                            & accumulated_flag)    !field_kind, optional
 
-          if(error)return
-          call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, pTCum_past)
-          if(fu_fails(.not.error,'Failed field data pointer', sub_name))return
+      call msg_warning("Making surrogate past for:" + fu_quantity_string(quantity_cumul),sub_name)
+      call msg("ID for the surrogatre field")
+      call report(idTmp)
+
+      if(error)return
+      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, pTCum_past)
+      if(fu_fails(.not.error,'Failed field data pointer', sub_name))return
          
-          seconds = fu_sec(accLen) 
-          if (pHorizInterpStruct%ifInterpolate) then
-            do iy = 1, nyTo
-              do ix = 1, nxTo
-                iTo = ix + (iy-1) * nxTo
-                  pTCum_past(iTo) = 0.
-                  do iCoef = 1, pHorizInterpStruct%nCoefs
-                    iTmp = pHorizInterpStruct%indX(iCoef,ix,iy) + &
-                                          & (pHorizInterpStruct%indY(iCoef,ix,iy) - 1) * nx_meteo
-                    pTCum_past(iTo) = pTCum_past(iTo) + pHorizInterpStruct%weight(iCoef,ix,iy) * &
-                                                  & (pTemprPast(iTmp) + pTemprFuture(iTmp))
-                  enddo
-                  pTCum_past(iTo) = pTCum_past(iTo) * seconds * 0.5
-              end do  ! ix
-            end do  ! iy
-          else
-            pTCum_past(1:fsTo) = (pTemprPast(1:fsTo) + pTemprFuture(1:fsTo)) * 0.5 * seconds
-          endif  ! if horizontal interpolation
+      seconds = fu_sec(accLen) 
+      if (pHorizInterpStruct%ifInterpolate) then
+        do iy = 1, nyTo
+          do ix = 1, nxTo
+            iTo = ix + (iy-1) * nxTo
+            vPast = 0.0
+            vFuture = 0.0
+            do iCoef = 1, pHorizInterpStruct%nCoefs
+              iTmp = pHorizInterpStruct%indX(iCoef,ix,iy) + &
+                        & (pHorizInterpStruct%indY(iCoef,ix,iy) - 1) * nx_meteo
+              vPast = vPast + pHorizInterpStruct%weight(iCoef,ix,iy) * pVarPast(iTmp)
+              vFuture = vFuture + pHorizInterpStruct%weight(iCoef,ix,iy) * pVarFuture(iTmp)
+            end do
+            !
+            ! Past and future of the instant quantity computed. Accumulate them now.
+            ! Note that there was nothing in pTCum_past till now
+            !
+            select case(iAvType)
+              case(av4mean, av4sum)
+                pTCum_past(iTo) = (vPast + vFuture) * seconds * 0.5
+              case(av4min)
+                pTCum_past(iTo) = min(vPast, vFuture)
+              case(av4max)
+                pTCum_past(iTo) = max(vPast, vFuture)
+              case default
+                call set_error('Unknown averaging type 1:' + fu_str(iAvType), sub_name)
+                return
+            end select
+          end do  ! ix
+        end do  ! iy
+      else
+        select case(iAvType)
+          case(av4mean, av4sum)
+            pTCum_past(1:fsTo) = (pVarPast(1:fsTo) + pVarFuture(1:fsTo)) * seconds * 0.5
+          case(av4min)
+            pTCum_past(1:fsTo) = min(pVarPast(1:fsTo),pVarFuture(1:fsTo))
+          case(av4max)
+            pTCum_past(1:fsTo) = max(pVarPast(1:fsTo),pVarFuture(1:fsTo))
+          case default
+            call set_error('Unknown averaging type 2:' + fu_str(iAvType), sub_name)
+            return
+        end select
+      endif  ! if horizontal interpolation
     else
+      !
+      !  fldPtr exists. Pick it up
+      !
       idPastPtr => fu_id(fldPtr) 
       pTCum_past => fu_grid_data(fldPtr)
       intervalTmp = fu_accumulation_length(idPastPtr)
       ifPastMadeHere = .false.
+      ! Should be right time
+      if(.not. fu_valid_time(idPastPtr) == timeTmp)then
+        call msg_warning('Wrong time found in stack',sub_name)
+        call msg('Requested and provided times:' + fu_str(timeTmp) + '<==  ==>' + &
+                                                 & fu_str(fu_valid_time(idPastPtr)))
+        call set_error('Wrong time found in stack',sub_name)
+        return
+      endif
 
       !!Should be valid field
       if (pTCum_past(1) == real_missing) then
-         if (ifColdStartAllowed) then
-            call  set_error("This should not happen", sub_name)
-            return
-         else
-            call msg_warning("Looks like day_temperature_2m_acc_flag was not initialised. crashing..", sub_name)
-            call msg("This behaviour can be overridden by 'allow_coldstart_day_temperature = yes' in standard_setup")
-            call set_error("Missing values for past", sub_name)
-            return
-         endif
-
+        if (fu_true(ifColdStartAllowed)) then
+          call  set_error("This should not happen", sub_name)
+          return
+        elseif(fu_false(ifColdStartAllowed)) then
+          call  set_error("This should not happen either", sub_name)
+          return
+        else
+          call msg_warning("Looks like:" + fu_quantity_string(quantity_cumul) &
+                         & + "-was not initialised. crashing..", sub_name)
+          call msg("This behaviour can be overridden by 'allow_coldstart_daily_variables = yes' in standard_setup")
+          call set_error("Missing values for past", sub_name)
+          return
+        endif
       endif
 
       ! Correct accumulation that might have been broken from the initialization
       if (.not. intervalTmp == accLen) then
-          call msg_warning("Correcting acc_length for past day_temperature_2m_acc_flag", sub_name)
+          call msg_warning("Correcting acc_length for past:" + fu_quantity_string(quantity_cumul), sub_name)
           call msg("Initial ID")
           call report(idPastPtr)
           call set_accumulation_length(idPastPtr, accLen)
@@ -4768,17 +2695,20 @@ ix:      do ixTo = 1, nx_disp
           call report(idPastPtr)
       endif
       idTmp = idPastPtr
-    endif
-
+    endif  ! past cumulative field exists
+    if(error)return
     !
     ! Past should be okay. Future now
     ! We should make it in any case: past might have been reset with ini
     
     ! Should be previous day for midnight
-    timeTmp = fu_valid_time(idTemprFuture)
+    if(ifQInstant_is_singletime)then
+      timeTmp = met_buf%time_future
+    else
+      timeTmp = fu_valid_time(idVarFuture)
+    endif
     start_of_day = fu_start_of_day_utc(timeTmp - one_second)
     intervalTmp = timeTmp - start_of_day !! Should never be zero!
-
 
     ifAddPast = (fu_hour(fu_valid_time(idTmp)) > 0) 
 
@@ -4786,57 +2716,105 @@ ix:      do ixTo = 1, nx_disp
     call set_accumulation_length(idTmp,intervalTmp)
 
     ! On the second diagnostics we should get the existig field
-    fldPtr => fu_get_field_from_mm_general(dispMarketPtr, idTmp, .false.)
-    if (associated(fldPtr)) then
-      idFuturePtr => fu_id(fldPtr)
-      idFuturePtr = idTmp
-      pTCum => fu_grid_data(fldPtr)
-    else
-      !This guy always creates a field 
-      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, pTCum)
-      if(fu_fails(.not.error,'Failed field data pointer', sub_name))return
-    endif
+    !
+!
+!     Dangerous call - idTmp time is not guaranteed and will be reset to something
+!     close and directly available, e.g. previous time step
+!
+!    fldPtr => fu_get_field_from_mm_general(dispMarketPtr, idTmp, .false.)
+!    if (associated(fldPtr)) then
+!      idFuturePtr => fu_id(fldPtr)
+!      idFuturePtr = idTmp
+!      pTCum => fu_grid_data(fldPtr)
+!    else
+!      !This guy always creates a field 
+!      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, pTCum)
+!      if(fu_fails(.not.error,'Failed field data pointer', sub_name))return
+!    endif
+
+    ! safe call is this one (also creates the field if it does not exist yet):
+    call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, pTCum)
+    if(fu_fails(.not.error,'Failed field data pointer', sub_name))return
 
     pTCum(1:fsTo) =  0.
     if (pHorizInterpStruct%ifInterpolate) then
       do iy = 1, nyTo
         do ix = 1, nxTo
           iTo = ix + (iy-1) * nxTo
-            do iCoef = 1, pHorizInterpStruct%nCoefs
+          vPast = 0.0
+          vFuture = 0.0
+          do iCoef = 1, pHorizInterpStruct%nCoefs
               iTmp =  pHorizInterpStruct%indX(iCoef,ix,iy) + &
                    & (pHorizInterpStruct%indY(iCoef,ix,iy)-1) * nx_meteo
-              pTCum(iTo) = pTCum(iTo) + pHorizInterpStruct%weight(iCoef,ix,iy) * &
-                                      & (pTemprPast(iTmp) + pTemprFuture(iTmp))
-            enddo
-        end do
-      end do
+              vPast = vPast + pHorizInterpStruct%weight(iCoef,ix,iy) * pVarPast(iTmp)
+              vFuture = vFuture + pHorizInterpStruct%weight(iCoef,ix,iy) * pVarFuture(iTmp)
+!              pTCum(iTo) = pTCum(iTo) + pHorizInterpStruct%weight(iCoef,ix,iy) * &
+!                                      & (pVarPast(iTmp) + pVarFuture(iTmp))
+          enddo  ! iCoef
+          select case(iAvType)
+            case(av4mean, av4sum)
+              pTCum(iTo) = vPast + vFuture
+            case(av4min)
+              pTCum_past(iTo) = min(vPast, vFuture)
+            case(av4max)
+              pTCum_past(iTo) = max(vPast,vFuture)
+            case default
+              call set_error('Unknown averaging type 3:' + fu_str(iAvType), sub_name)
+              return
+          end select
+        end do  ! ix
+      end do  ! iy
     else
-        pTCum(1:fsTo) = pTemprPast(1:fsTo) + pTemprFuture(1:fsTo)
+      select case(iAvType)
+        case(av4mean, av4sum)
+          pTCum(1:fsTo) = pVarPast(1:fsTo) + pVarFuture(1:fsTo)
+        case(av4min)
+          pTCum(1:fsTo) = min(pVarPast(1:fsTo),pVarFuture(1:fsTo))
+        case(av4max)
+          pTCum(1:fsTo) = max(pVarPast(1:fsTo),pVarFuture(1:fsTo))
+        case default
+          call set_error('Unknown averaging type 4:' + fu_str(iAvType), sub_name)
+          return
+      end select
     endif
 
     !! Finalize accumulation and add earlier accumulation if needed
-    seconds = fu_sec(fu_valid_time(idTemprFuture) - fu_valid_time(idTemprPast))
+    seconds = fu_sec(fu_valid_time(idVarFuture) - fu_valid_time(idVarPast))
     if (ifAddPast) then
-        pTCum(1:fsTo) = pTCum(1:fsTo)*0.5*seconds + pTCum_past(1:fsTo) 
+      select case(iAvType)
+        case(av4mean, av4sum)
+          pTCum(1:fsTo) = pTCum(1:fsTo)*0.5*seconds + pTCum_past(1:fsTo) 
+        case(av4min)
+          pTCum(1:fsTo) = min(pTCum(1:fsTo), pTCum_past(1:fsTo))
+        case(av4max)
+          pTCum(1:fsTo) = max(pTCum(1:fsTo), pTCum_past(1:fsTo))
+        case default
+          call set_error('Unknown averaging type 5:' + fu_str(iAvType), sub_name)
+          return
+      end select
     else
-        pTCum(1:fsTo) = pTCum(1:fsTo)*0.5*seconds
+      select case(iAvType)
+        case(av4mean, av4sum)
+          pTCum(1:fsTo) = pTCum(1:fsTo) * 0.5 * seconds
+        case(av4min, av4max)
+        case default
+          call set_error('Unknown averaging type 6:' + fu_str(iAvType), sub_name)
+          return
+      end select
     endif
-
-
     !
     ! Guard for missing initialisation
-    if (ifPastMadeHere .and. (.not. ifColdStartAllowed)) then
+    if (ifPastMadeHere .and. fu_false(ifColdStartAllowed))then
        pTCum_past(1:fsTo) = real_missing
     endif
 
-
-  end subroutine df_cumul_daily_tempr_2m
+  end subroutine df_cumul_daily_variable
   
   
   !***************************************************************************************************
 
   subroutine df_update_realtime_met_fields(pMMarket, buf_ptr, now, wdr, diag_rules, &
-                                         & valid_time_border_1, valid_time_border_2, ifResetTimes)
+                                         & valid_time_border_1, valid_time_border_2) !, ifResetTimes)
     !
     ! Updates realtime fields in meteo market/buffer
     ! Uses buffer wherever possible
@@ -4850,114 +2828,160 @@ ix:      do ixTo = 1, nx_disp
     type(silja_wdr), intent(in) :: wdr
     type(Tdiagnostic_rules), intent(in) :: diag_rules
     type(silja_time), intent(inout) :: valid_time_border_1, valid_time_border_2
-    logical, intent(in) :: ifResetTimes
+!    logical, intent(in) :: ifResetTimes
 
     !Local 
     type(silja_field), pointer :: field
     type(silja_field_id), pointer :: idIn
-    type(silja_field_id) :: idRequest
-    logical :: ifvalid, ifFound
-    integer :: iVar, shopQ, Qidx
-
-    !
-    ! List of realtime quantities that we know how to update
-    ! Huom! Order matters:  No validity checks in the deriving routines.
-    !
-    integer, parameter, dimension(1:10) :: st_update_list = &
-       & (/ground_pressure_flag, large_scale_rain_int_flag, convective_rain_int_flag, &
-            & total_precipitation_rate_flag, scavenging_coefficient_flag,& 
-            & disp_flux_cellt_rt_flag, disp_flux_celle_rt_flag, disp_flux_celln_rt_flag, &
-            & day_mean_temperature_flag, day_mean_temperature_2m_flag/)
-
-    call msg("Updating single-time fields for now=" + fu_str(now))
+    integer :: iVar, shopQ, nQstat
+    integer, dimension(max_quantities) :: quantities
+    logical :: ifFound
+    integer, parameter, dimension(3) :: rain_int = (/large_scale_rain_int_flag, &
+                                                   & convective_rain_int_flag, &
+                                                   & total_precipitation_int_flag/)
     valid_time_border_1 = really_far_in_past
     valid_time_border_2 = really_far_in_future
 
-    do iVar = 1, size(st_update_list)
-      shopQ = st_update_list(iVar)
-      if (shopQ == ground_pressure_flag) then
-        ! only multitime ground_pressure_field is accesible from the buffer.
-        ! Should use stack directly
-        call find_field_from_stack(met_src_missing, &
-                                 & ground_pressure_flag,&
-                                 & time_missing,& ! any time 
+    !
+    ! Go over the available diagnostics checking if the specific one has been ordered
+    ! Order matters!
+    !
+    ! First, get the single-time quantities
+    !
+    call supermarket_quantities(pMMarket, fu_met_src(wdr,1), single_time_stack_flag, quantities, nQstat)
+    if(error .or. nQstat < 1)return
+    call msg("Updating single-time fields for now =" + fu_str(now))
+
+    !
+    ! Update the ground pressure field
+    !
+    if(fu_quantity_in_quantities(ground_pressure_flag, buf_ptr%buffer_quantities))then
+      ! only multitime ground_pressure_field is accesible from the buffer.
+      ! Should use stack directly
+      call find_field_from_stack(met_src_missing, ground_pressure_flag, time_missing,& ! any time 
                                  & fu_stack(pMMarket, 1),& !ST stack
-                                 & field,&
-                                 & ifFound)
-        if (.not. ifFound) then
-          call msg("Not found in stack:"+ fu_name(fu_stack(pMMarket, 1)) )
-          cycle
-        endif
-        ! call msg("Found in stack:"+ fu_name(fu_stack(metMarket, 1)) )
-        ! call report(fu_stack(metMarket, 1))
+                                 & field, ifFound)
+      if (ifFound)then
         idIn => fu_id(field)
+        !
+        ! check validity and update if needed
+        if(fu_do_work(buf_ptr, int_missing, idIn))then
+          call msg('Updating ground pressure')
+          CALL df_update_ground_pressure(field, buf_ptr, valid_time_border_1, valid_time_border_2)
+        endif
+      else
+        call msg("Not found in stack:"+ fu_name(fu_stack(pMMarket, 1)) )
+      endif   ! found in stack
+    endif  ! ground pressure
+
+    !
+    ! Precipitation intensity
+    !
+    do iVar = 1, size(rain_int)
+      shopQ = rain_int(iVar)
+      if(fu_quantity_in_quantities(shopQ, buf_ptr%buffer_quantities))then
+        ! update
+        if(fu_do_work(buf_ptr, shopQ))then
+          call msg('Updating rain:' + fu_quantity_string(shopQ))
+          CALL df_update_rain_intensity(buf_ptr, shopQ, wdr, valid_time_border_1, valid_time_border_2)
+        endif
+      endif ! needed?
+    end do  ! rain vars
+
+    !
+    ! Scavenging coefficient
+    !
+    if(fu_quantity_in_quantities(scavenging_coefficient_flag, buf_ptr%buffer_quantities))then
+      ! update
+      if(fu_do_work(buf_ptr, scavenging_coefficient_flag))then
+        call msg('Updating scavenging coefficient')
+        CALL df_update_scav_coefficient(buf_ptr, valid_time_border_1, valid_time_border_2)
+      endif
+    endif
+    
+    !
+    ! Dispersion flux. Needed just one quantity in buffer to activate
+    !
+    if(fu_quantity_in_quantities(disp_flux_cellt_rt_flag, buf_ptr%buffer_quantities))then
+      ! update
+      if(fu_do_work(buf_ptr, disp_flux_cellt_rt_flag))then
+        call msg('Updating dispersion fluxes')
+        CALL df_update_cellfluxcorr_rt(buf_ptr, valid_time_border_1, valid_time_border_2, &
+                                     & diag_rules, now)
+        call exchange_wings(buf_ptr)
+      endif
+    endif
+
+    !
+    ! daily mean parameters
+    !
+    do iVar = 1, size(day_mean_quantities)
+      shopQ = day_mean_quantities(iVar)
+      if(fu_quantity_in_quantities(shopQ, buf_ptr%buffer_quantities))then
+        ! update
+        if(fu_do_work(buf_ptr, shopQ))then
+          call msg('Updating daily mean:' + fu_quantity_string(shopQ))
+          if(fu_fails(fu_get_time_direction_sm(pMMarket) == forwards, &
+                    & 'Mean daily and cumulative variables cannot be made in adjoint runs', &
+                    & 'df_update_realtime_met_fields'))return
+          call df_daily_mean_variable(fu_cumul_quantity_for_mean_one(shopQ), shopQ, fu_accumulation_type(shopQ), &
+                                    & buf_ptr, now, valid_time_border_1, valid_time_border_2, &
+                                    & diag_rules%ifAllowColdstartDailyVars)
+        endif
+      endif ! needed?
+    end do  ! daily mean parameters
+
+
+    CONTAINS
+    
+    !=============================================================================================
+    
+    logical function fu_do_work(buf_ptr, shopQ, idPtr_)
+      !
+      ! Checks if a field is still valid
+      !
+      implicit none
+      ! Imported parameters
+      type(Tfield_buffer), pointer :: buf_ptr
+      integer, intent(in) :: shopQ
+      type(silja_field_id), pointer, optional :: idPtr_
+      
+      ! Local parameters
+      integer :: iTmp, Qidx
+      type(silja_field_id) :: idRequest
+      type(silja_field_id), pointer :: idPtr
+      
+      fu_do_work = .false.
+
+      ! get the input id
+      !
+      if(present(idPtr_))then
+        idPtr => idPtr_
       else
         Qidx  = fu_index(buf_ptr, shopQ) 
-        if (Qidx < 1) cycle 
-             
+        if (Qidx < 1) return
         if (fu_dimension(buf_ptr, Qidx) == 4 ) then 
-          idIn => buf_ptr%p4d(Qidx)%present%p2d(1)%idPtr
+          idPtr => buf_ptr%p4d(Qidx)%present%p2d(1)%idPtr
         else
-          idIn => buf_ptr%p2d(Qidx)%present%idPtr
+          idPtr => buf_ptr%p2d(Qidx)%present%idPtr
         endif
       endif
-!call msg(fu_quantity_string(shopQ))
+      !
+      ! ID found. Does the field cover the required time?
+      !
       idRequest = fu_set_field_id_simple(met_src_missing, shopQ, now, level_missing)
-      ifvalid = fu_field_id_covers_request(idIn, idRequest, .true.)
       if (error) return
-!        call msg("---------------")
-!        call msg("requested ID:")
-!        call report(idRequest)
-!        call msg("found ID:")
-!        call report(idIn)
-!        call ooops("Achtung!")
 
-
-      if (ifvalid) then
-        call msg("Still valid:"+ fu_quantity_string(shopQ))
-        if(valid_time_border_1 < fu_valid_time(idIn)) valid_time_border_1 = fu_valid_time(idIn)
-        if(valid_time_border_2 > fu_valid_time(idIn) + fu_validity_length(idIn)) &
-                        & valid_time_border_2 = fu_valid_time(idIn) + fu_validity_length(idIn)
-        cycle ! no need to update
+      if (fu_field_id_covers_request(idPtr, idRequest, .true.)) then
+        call msg("Still valid:"+ fu_quantity_string(fu_quantity(idPtr)))
+        if(valid_time_border_1 < fu_valid_time(idPtr)) valid_time_border_1 = fu_valid_time(idPtr)
+        if(valid_time_border_2 > fu_valid_time(idPtr) + fu_validity_length(idPtr)) &
+                        & valid_time_border_2 = fu_valid_time(idPtr) + fu_validity_length(idPtr)
+        return
       endif
+      fu_do_work = .true.
+    end function fu_do_work
 
-call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
-
-      select case (shopQ)
-        case (ground_pressure_flag)
-            CALL df_update_ground_pressure(field, buf_ptr, &
-                                         & valid_time_border_1, valid_time_border_2) 
-! call report(fu_id(field))
-        case (large_scale_rain_int_flag, convective_rain_int_flag, &
-                    &  total_precipitation_rate_flag)
-            CALL df_update_rain_intensity(buf_ptr, shopQ, wdr, &
-                                        & valid_time_border_1, valid_time_border_2) 
-
-        case (scavenging_coefficient_flag)
-            CALL df_update_scav_coefficient(buf_ptr, valid_time_border_1, valid_time_border_2)
-
-        case (disp_flux_cellt_rt_flag, disp_flux_celle_rt_flag, disp_flux_celln_rt_flag)
-             ! Should be called for dispersion buffer only
-            CALL df_update_cellfluxcorr_rt(buf_ptr, valid_time_border_1, valid_time_border_2, &
-                                         & diag_rules, now)
-            call exchange_wings(buf_ptr)
-
-        case(day_mean_temperature_2m_flag)
-            if(fu_get_time_direction_sm(pMMarket) == backwards)then
-              call set_error('Mean daily and cumulative temperature cannot be made in adjoint runs', &
-                           & 'df_update_realtime_met_fields')
-              return
-            endif
-            call df_daily_mean_tempr_2m(buf_ptr, now, valid_time_border_1, valid_time_border_2, &
-               & diag_rules%ifAllowColdstartDayTemperature)
-
-        case default
-          call msg_warning('Do not know how to update:' + fu_quantity_string(shopQ) + ', skipping...', &
-                                   & 'df_update_realtime_met_fields')
-
-      end select
-    enddo  ! Updatable meteo Var list
-    
   end subroutine df_update_realtime_met_fields
 
 
@@ -4986,7 +3010,7 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
         accQ =  large_scale_accum_rain_flag
       case (convective_rain_int_flag)
         accQ = convective_accum_rain_flag
-      case (total_precipitation_rate_flag)
+      case (total_precipitation_int_flag)
         accQ = total_precipitation_acc_flag
       case default
         call set_error("Can't make rain out of:"+ fu_quantity_string(desiredQ), &
@@ -5962,7 +3986,8 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
 
   !***********************************************************************************************
 
-  subroutine df_daily_mean_tempr_2m(buf, now, valid_time_border_1, valid_time_border_2, ifColdstartAllowed)
+  subroutine df_daily_mean_variable(quantity_accum, quantity_mean, iAvType, buf, now, &
+                                  & valid_time_border_1, valid_time_border_2, ifColdstartAllowed)
     ! 
     ! Mean temperature over _previous_ UTC day (00Z-00Z)
     ! Field set as average from 00Z-00Z for today
@@ -5970,10 +3995,11 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
     implicit none
 
     ! Imported parameters
+    integer, intent(in) :: quantity_accum, quantity_mean, iAvType
     type(Tfield_buffer), INTENT(in) :: buf   ! actually, dispersion buffer
-    type(silja_time) :: now !! Used only for temporary solution
+    type(silja_time) :: now                  ! Used only for temporary solution
     type(silja_time), intent(inout) :: valid_time_border_1, valid_time_border_2
-    logical, intent(in) :: ifColdstartAllowed
+    type(silja_logical), intent(in) :: ifColdstartAllowed
 
     ! Local variables
     TYPE(silja_field_id), pointer :: pIdCum_past, pIdCum_future, pIdMean
@@ -5983,26 +4009,24 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
     integer :: iT_mean, iT_cum, iLev, nLevs, nx, ny, fs
     real :: seconds
     logical :: ifMakeIt, ifMakeSurrogate, stillValid
-    character(len=19), parameter :: sub_name = 'df_daily_mean_tempr_2m'
+    character(len=22), parameter :: sub_name = 'df_daily_mean_variable'
     
     integer, save :: callCnt = 0
-
 
     callCnt = callCnt + 1
     !
     ! Do we need to do anything?
-    ! is mean temperature field valid for the time range between pst and future?
+    ! is mean field valid for the time range between pst and future?
     !
     ! Preparatory steps
     !
-    iT_cum  = fu_index(buf%buffer_quantities, day_temperature_2m_acc_flag)
-    iT_mean = fu_index(buf%buffer_quantities, day_mean_temperature_2m_flag)
+    iT_cum  = fu_index(buf%buffer_quantities, quantity_accum)
+    iT_mean = fu_index(buf%buffer_quantities, quantity_mean)
     if (any((/iT_cum, iT_mean/) < 1 )) then
       call msg("(/iT_cum, iT_mean/)",(/iT_cum, iT_mean/))
       call set_error("Could not find indices in a buffer", sub_name)
       return
     endif
-
 
     time_past = buf%time_past
     time_future = buf%time_future
@@ -6015,7 +4039,6 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
     cum_T_future => buf%p2d(iT_cum)%future%ptr
     mean_T => buf%p2d(iT_mean)%present%ptr   ! single-time field, only present
 
-
     stillValid = (fu_hour(time_past) /= 0 .and. callCnt > 2) 
       !Always rediagnoze for after-midnight interval
       ! or on the second call
@@ -6024,7 +4047,7 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
         & (fu_valid_time(pIdMean) - fu_accumulation_length(pIdMean) <= time_future) 
 
     if( stillValid) then
-      call msg("Still valid: "//fu_quantity_string(day_mean_temperature_2m_flag))
+      call msg("Still valid: "//fu_quantity_string(quantity_mean))
       ! av_end (end_of "applicable time")
       time_tmp = fu_valid_time(pIdMean)
       if(valid_time_border_2 > time_tmp) valid_time_border_2 = time_tmp
@@ -6036,38 +4059,72 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
 
     fs = fu_number_of_gridpoints(fu_grid(pIdMean))
 
-     ! Few options:
-     ! 1. Very first diagnostics (pIdMean valid really_far_in_past):  
-     !     make an instant field valid for "now" with analysis  really_far_in_past
-     !     to satisfy the first output (Make Instant)
-     ! 2. Second diagnostic, not initialised (instant with analysis really_far_in_past):
-     !     If possible, Rediagnose from cum_T_past for 24h
-     !       otherwise make a surrogate if allowed, or crash (Make )
-     ! 3. Second diagnostic, initialised (instant field with analysis not really_far_in_past ):
-     !     If it is time, Rediagnose from cum_T_past for 24h
-     !     otherwise just make it 24-h valid.
-     ! 4. Regular diagnostics: 24-hour average field:
-     !      Just make it     
+    ! Few options:
+    ! 1. Very first diagnostics (pIdMean valid really_far_in_past):  
+    !     make an instant field valid for "now" with analysis  really_far_in_past
+    !     to satisfy the first output (Make Instant)
+    ! 2. Second diagnostic, not initialised (instant with analysis really_far_in_past):
+    !     If possible, Rediagnose from cum_T_past for 24h
+    !       otherwise make a surrogate if allowed, or crash (Make )
+    ! 3. Second diagnostic, initialised (instant field with analysis not really_far_in_past ):
+    !     If it is time, Rediagnose from cum_T_past for 24h
+    !     otherwise just make it 24-h valid.
+    ! 4. Regular diagnostics: 24-hour average field:
+    !      Just make it     
 
-     !! FIXME
-     ! For now, just make it if we can or reset the averaging time
-
-
+    !! FIXME
+    ! For now, just make it if we can or reset the averaging time
 
     ifMakeIt = fu_accumulation_length(pIdCum_past) == one_day .and. fu_hour(time_past) == 0
-    if (ifMakeIt) then ! Just reset it
-          call msg("Recalculating daymean T")
-          call msg("Before mean_T(1:10)", mean_T(1:10))
+    if (ifMakeIt) then 
+      !
+      ! Just reset it: next day came
+      !
+      call msg("Recalculating daymean T")
+      call msg("Before mean_T(1:10)", mean_T(1:10))
+      select case(iAvType)
+        case(av4mean)
           mean_T(1:fs) = cum_T_past(1:fs) / seconds_in_day
-          call msg("After mean_T(1:10)", mean_T(1:10))
-    elseif (mean_T(1) == real_missing) then  !fingerprint of gobal_io_init
-      if (CallCnt == 1) then  !Field was just created by gobal_io_init
-        if (ifColdstartAllowed) then
+        case(av4sum, av4min, av4max)
+          mean_T(1:fs) = cum_T_past(1:fs)
+        case default
+          call set_error('Unknown averaging type 1:' + fu_str(iAvType), 'df_daily_mean_variable')
+          return
+      end select
+      call msg("After mean_T(1:10)", mean_T(1:10))
+
+    elseif (mean_T(1) == real_missing) then
+      !
+      ! fingerprint of gobal_io_init is recognised
+      !
+      if (CallCnt == 1) then
+        !
+        ! Field was just created by gobal_io_init and not reset. Allowed?
+        !
+        if (fu_true(ifColdstartAllowed)) then
+          !
           ! Put coldstart values here, so next time will not crash on missing ini
+          !
           call msg("Filling daymean T with something meaningful for the first out")
-          mean_T(1:fs) = cum_T_past(1:fs) / fu_sec(fu_accumulation_length(pIdCum_past))
+          select case(iAvType)
+            case(av4mean)
+              mean_T(1:fs) = cum_T_past(1:fs) / fu_sec(fu_accumulation_length(pIdCum_past))
+            case(av4sum, av4min, av4max)
+              mean_T(1:fs) = cum_T_past(1:fs)
+            case default
+              call set_error('Unknown averaging type 2:' + fu_str(iAvType), 'df_daily_mean_variable')
+              return
+          end select
+
+        elseif (fu_false(ifColdstartAllowed)) then
+          ! Forbidden thing happened
+          call set_error('Cold start is not allowed but happened','df_daily_mean_variable')
+          return
         else
-          call msg("Leaving real_missing daymean T ")
+          ! Do not know what to do
+!          call msg("Leaving real_missing daymean T ")
+          call set_error('Cold start permission undefined but it happened','df_daily_mean_variable')
+          return
         endif
       else
         call set_error("Uninitialized daymean T!",  sub_name)
@@ -6079,25 +4136,19 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
     endif
     call msg("resetting ID for daymean T")
     !(Re)set the field ID, that might have got outdated and/or came broken from initialization
-    call msg("before")
-    call report(pIdMean)
-
      !! It is just an average field for the whole day
     start_of_day = fu_start_of_day_utc(time_past)
     pIdMean =  fu_set_field_id(met_src_missing,&
-                                     & day_mean_temperature_2m_flag, &
-                                     & start_of_day,& ! Analysis
-                                     & one_day, &             ! Forecast length 
-                                     & fu_grid(pIdCum_past),&
-                                     & fu_level(pIdCum_past),&
-                                     & one_day, & ! optional accumulation interval
-                                     & zero_interval, & ! !! We should get rid of validity_length at some point
-                                     & averaged_flag) !field_kind
-    call msg ("After")                                                     
-    call report(pIdMean)
-    !call ooops("")
+                             & quantity_mean, &
+                             & start_of_day,& ! Analysis
+                             & one_day, &             ! Forecast length 
+                             & fu_grid(pIdCum_past),&
+                             & fu_level(pIdCum_past),&
+                             & one_day, & ! optional accumulation interval
+                             & zero_interval, & ! !! We should get rid of validity_length at some point
+                             & averaged_flag) !field_kind
 
-    if (callCnt < 2) then !! Forece recalculation on the second call
+    if (callCnt < 2) then !! Force recalculation on the second call
       time_tmp = start_of_day
     else
       time_tmp = start_of_day + one_day
@@ -6105,17 +4156,55 @@ call msg("Updating realtime meteo field:"+ fu_quantity_string(shopQ))
       if(valid_time_border_1 < start_of_day) valid_time_border_1 = start_of_day
       if(valid_time_border_2 > time_tmp) valid_time_border_2 = time_tmp
 
+  end subroutine df_daily_mean_variable
 
+  
+  !**********************************************************************************************
+  
+  integer function fu_accumulation_type(quantity)
+    !
+    ! Averaged quantities can be period-mean, period-max and period-min. This function
+    ! checks the action judjing from the quantity
+    !
+    implicit none
+    
+    ! Imported parameter
+    integer, intent(in) :: quantity
+    
+    select case(quantity)
+      case(day_temperature_acc_flag, day_mean_temperature_flag, &
+         & day_temperature_2m_acc_flag, day_mean_temperature_2m_flag, &
+         & day_windspeed_10m_acc_flag, day_mean_windspeed_10m_flag, &
+         & day_relat_humid_2m_acc_flag, day_mean_relat_humid_2m_flag)
 
+        fu_accumulation_type = av4Mean
 
-  end subroutine df_daily_mean_tempr_2m
+      case(day_temperature_2m_acc_max_flag, day_max_temperature_2m_flag, &
+         & day_windspeed_10m_acc_max_flag, day_max_windspeed_10m_flag)
 
+        fu_accumulation_type = av4Max
 
+      case(large_scale_accum_rain_flag, convective_accum_rain_flag, total_precipitation_acc_flag, &
+         & day_precipitation_acc_flag, day_sum_precipitation_flag)
+
+        fu_accumulation_type = av4sum
+
+      case(day_relat_humid_2m_acc_min_flag, day_min_relat_humid_2m_flag)
+
+        fu_accumulation_type = av4Min
+
+      case default
+        call set_error('Not an accumulation quantity:' + fu_quantity_string(quantity),'fu_accumulation_type')
+        fu_accumulation_type = int_missing
+    end select
+    
+  end function fu_accumulation_type
+  
+  
   !**********************************************************************************************
   
  subroutine adjust_2D_fluxes(U2D, V2D, deltaM2Drate, m2D, ifLonGlobal, ifSpole, ifNpole, nx, ny,&
-            &  masscorrfactor)
-
+                          &  masscorrfactor)
     !
     !Calls Poisson solver and gets corrections for column-integrated fluxes.
     ! The corrections are normalized by cell masses: mean of two cells for 

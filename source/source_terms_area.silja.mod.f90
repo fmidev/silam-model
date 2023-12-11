@@ -31,8 +31,6 @@ MODULE source_terms_area
   IMPLICIT NONE
   private
 
-  
-  
   ! The public functions and subroutines available in this module:
   
   public reserve_area_source
@@ -674,7 +672,7 @@ CONTAINS
                                        & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                        & a_src%params, &                ! param array
                                        & a_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                       & area_source, &                 ! type of the source
+                                       & area_source_flag, &                 ! type of the source
                                        & a_src%nDescriptors, &          ! max nbr of descriptors in the source
                                        & indDescriptorOfParLine, nDescriptorInParLine, & 
                                        & chSubstNm, & 
@@ -687,7 +685,7 @@ CONTAINS
                                        & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                        & a_src%params, &
                                        & a_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                       & area_source, &   ! type of the source
+                                       & area_source_flag, &   ! type of the source
                                        & a_src%nDescriptors, &
                                        & indDescriptorOfParLine, nDescriptorInParLine, &
                                        & '', fVals, &    ! void here
@@ -1105,7 +1103,7 @@ CONTAINS
                                         & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                         & paramPtr, &                    ! receiving temporary
                                         & a_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                        & area_source, &                 ! type of the source
+                                        & area_source_flag, &                 ! type of the source
                                         & a_src%nDescriptors, &
                                         & indDescriptorOfParLine, nDescriptorInParLine, & 
                                         & fu_content(nlSrc,'emitted_substance'), &
@@ -1118,7 +1116,7 @@ CONTAINS
                                         & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                         & paramPtr, &                    ! receiving temporary
                                         & a_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                        & area_source, &                 ! type of the source
+                                        & area_source_flag, &                 ! type of the source
                                         & a_src%nDescriptors, &
                                         & indDescriptorOfParLine, nDescriptorInParLine, &
                                         & '', a_src%fDescrTotals, a_src%ifSpecies)
@@ -1503,14 +1501,14 @@ CONTAINS
     ! A bit of preparations
     !
     spContent%sp => fu_work_string()
-    indDescriptorOfParLine => fu_work_int_array()
+    indDescriptorOfParLine => fu_work_int_array(max_descriptors)
     nullify(ptrItems)
     !
     ! Check that the source header has not yet been defined. Error otherwise.
     ! Note that field-based source cannot be redefined or added-up. All field files
     ! must be defined at once in one header.
     !
-    if(a_src%defined == silja_true)then
+    if(fu_true(a_src%defined))then
       !
       ! The source has already been defined. 
       !
@@ -1584,7 +1582,7 @@ CONTAINS
                                   & release_rate_unit, & ! source release rate unit
                                   & a_src%params, &
                                   & a_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                  & area_source, &   ! type of the source
+                                  & area_source_flag, &   ! type of the source
                                   & a_src%nDescriptors, &
                                   & indDescriptorOfParLine, nDescriptorInParLine, &
                                   & fu_content(nlSrc,'total_emission_whole_period'), &
@@ -2304,8 +2302,11 @@ CONTAINS
     
     subroutine fill_file_indices(idList, nIDs, iFile)
       !
-      ! Determines what descriptor is available from the given file and stores its index
-      ! Also overrides the species with one extracted from the file 
+      ! - Searches for the required quantity, 
+      ! - Determines what descriptor is available from the given file and stores its index
+      ! - Overrides the species with one extracted from the file
+      ! - checks for levels and either leaves the vertical as-is or overrides it with the 
+      !   actual level/layer of the variable
       !
       implicit none
       
@@ -2320,10 +2321,14 @@ CONTAINS
       type(Tcocktail_descr) :: descrTmp
       
       !
-      ! Just scan the IDs checking for quantity and descriptor names. The rest is unimportant.
+      ! Just scan the IDs checking for quantity and descriptor names.
       !
-      quantity = emission_intensity_flag
-      if (a_src%ifFluxes) quantity = emission_flux_flag
+      if (a_src%ifFluxes)then
+        quantity = emission_flux_flag
+      else
+        quantity = emission_intensity_flag
+      endif
+      
       do iID = 1, nIDs
         if(fu_quantity(idList(iID)) == quantity)then
           chIDDescrNm = fu_cocktail_name(idList(iID))
@@ -2364,9 +2369,17 @@ CONTAINS
                        & '-is available from two files', 'fill_file_indices@fill_a_src_from_namelist_v4')
               endif
             endif
-          end do
-        end if
-      end do
+          end do  ! a_src%nDescriptors
+          !
+          ! Check the vertical for the particular variable
+          ! Two options: either a layer in the vertical or a dedicated level, e.g., surface_level
+          !
+          if(.not. fu_level_belongs_to_vertical(fu_level(idList(iID)), a_src%vertLevs))then
+            call set_vertical(fu_level(idList(iID)), a_src%vertLevs)
+            a_src%levFraction = 1.0
+          endif
+        end if  ! if correct quantity
+      end do  ! nIDs
       
     end subroutine fill_file_indices
 
@@ -2416,7 +2429,8 @@ CONTAINS
     ! Time slot and variation parameters
     !
     do iTmp = 1, size(a_src%params)
-      call store_time_param_as_namelist(a_src%params(iTmp), a_src%cocktail_descr_lst, uOut, area_source)
+      call store_time_param_as_namelist(a_src%params(iTmp), a_src%cocktail_descr_lst, uOut, &
+                                      & area_source_flag)
     end do
     do iDescr = 1, a_src%nDescriptors
       write(uOut,fmt='(2A,1x,24(F10.6,1x))')'hour_in_day_index = ', &
@@ -2558,9 +2572,9 @@ CONTAINS
     !
     ! Time slot and variation parameters
     call store_time_param_as_namelist(timeStart, 10.0, 0.0, mapEmis%species, mapEmis%nSpecies, &
-                                    & uOut, area_source)
+                                    & uOut, area_source_flag)
     call store_time_param_as_namelist(timeEnd, 10.0, 0.0, mapEmis%species, mapEmis%nSpecies, &
-                                    & uOut, area_source)
+                                    & uOut, area_source_flag)
     !
     ! If  multi-level structure is constant in time, write it
     !
@@ -4303,7 +4317,7 @@ endif
 
   !*****************************************************************
 
-  subroutine project_a_src_second_grd(as, grid, vert_disp, vert_proj, iAccuracy, tmpCellDispGrd_val, &
+  subroutine project_a_src_second_grd(as, grid, vert_disp, iAccuracy, tmpCellDispGrd_val, &
                                     & ifRandomise, rng)
     !
     ! Duplicates the whole set of emission cells re-projecting them to the given new grid
@@ -4319,7 +4333,7 @@ endif
     type(silja_grid), intent(in) :: grid
     ! vert_proj determines the centre of mass and fractions, vert_disp converts to the
     ! dispersion vertical unit.
-    type(silam_vertical), intent(in) :: vert_disp, vert_proj
+    type(silam_vertical), intent(in) :: vert_disp
     integer, intent(in) :: iAccuracy
     type(silja_rp_1d), dimension(:), pointer :: tmpCellDispGrd_val
     logical, intent(in) :: ifRandomise
@@ -4338,6 +4352,7 @@ endif
     type(silam_species) :: speciesTmp
     type(silam_species), dimension(:), pointer :: speciesArPtr
     type(silja_field_id) :: idTmp
+    type(silam_vertical) :: vertTmp, vertSrf
     logical :: ifSimpleReprojection
 
     type(THorizInterpStruct), pointer :: pHIS
@@ -4345,7 +4360,7 @@ endif
 
     nSmall=int_missing
 
-   if (as%ifFieldGiven) then  !! Not exactly reprojection, but allocation once dispersion grid known
+    if (as%ifFieldGiven) then  !! Not exactly reprojection, but allocation once dispersion grid known
 
       iTmp = summation
       if (as%ifFluxes) iTmp = average 
@@ -4361,9 +4376,6 @@ endif
           as%nCellsDispGrd = 0
           return
       endif 
-      
-
-
       !
       ! Binary contains all info. Use the bunch of field_3d to store the thing
       !
@@ -4420,8 +4432,6 @@ endif
       as%nCells = int_missing !!! Should not be used
       as%nCellsDispGrd = fu_number_of_gridpoints(dispersion_grid)
 
-
-
     endif
     !
     ! If data are given in the binary file, all what we need is to create 
@@ -4434,26 +4444,49 @@ endif
       as%ifHorizInterp = silja_true
     endif
 
-    if(fu_cmp_verts_eq(as%vertLevs, vert_proj))then
+    if(fu_cmp_verts_eq(as%vertLevs, vert_disp))then
       as%ifVertInterp = silja_false
       as%pVertIS => VertInterpStruct_missing
     else
       as%ifVertInterp = silja_true
       if(as%ifFieldGiven)then
-          if (fu_if_layer(fu_level(as%vertLevs,1))) then
-               !$OMP CRITICAL(mk_v_interp_struct)
-               as%pVertIS => fu_vertical_interp_struct(&
-                                                & as%vertLevs, vert_proj, &
+        if (fu_if_layer(fu_level(as%vertLevs,1))) then
+          !$OMP CRITICAL(mk_v_interp_struct)
+          as%pVertIS => fu_vertical_interp_struct(as%vertLevs, vert_disp, &
                                                 & grid, summation, & ! vertical projection in dispersion grid!
                                                 & one_hour*3., &
                                                 & 'a_src_to_emis_MassMap_' + fu_str(as%id_nbr))
-              !$OMP END CRITICAL(mk_v_interp_struct)
-          elseif (as%ems2wholeABL) then
-            as%pVertIS => null()
-            call msg_warning("Surface-only area source fields..", sub_name)
-          else
-            call set_error("Non-layer area source fields with 3D interp", sub_name)
-          endif
+          !$OMP END CRITICAL(mk_v_interp_struct)
+          
+        elseif (as%ems2wholeABL) then
+          ! Emission to the whole ABL for now is written as surface emission plus the flag
+          as%pVertIS => VertInterpStruct_missing
+          call msg_warning("Surface-only area source fields..", sub_name)
+
+        elseif (fu_cmp_levs_eq(fu_level(as%vertLevs,1), surface_level)) then
+          ! Emission at the surface is, well, surface emission
+          call set_vertical(fu_level(vert_disp,1), vertSrf)
+          if(error)return
+          as%pVertIS => fu_vertical_interp_struct(vertSrf, vert_disp, &
+                                                & grid, summation, & ! vertical projection in dispersion grid!
+                                                & one_hour*3., &
+                                                & 'a_src_to_emis_MassMap_' + fu_str(as%id_nbr))
+
+        elseif(fu_cmp_levs_eq(fu_level(as%vertLevs,1), entire_atmosphere_integr_level))then
+          !
+          ! Whole-atmosphere means the whole dispersion vertical in one layer
+          !
+          !$OMP CRITICAL(mk_v_interp_struct)
+          call set_vertical(fu_set_layer_covering_vertical(vert_disp), vertTmp)
+          as%pVertIS => fu_vertical_interp_struct(vertTmp, vert_disp, &
+                                                & grid, summation, & ! vertical projection in dispersion grid!
+                                                & one_hour*3., &
+                                                & 'a_src_to_emis_MassMap_' + fu_str(as%id_nbr))
+          !$OMP END CRITICAL(mk_v_interp_struct)
+          as%levFraction = 1.0
+        else
+          call set_error("Non-layer area source fields with 3D interp", sub_name)
+        endif
       endif
     endif
 
@@ -4485,7 +4518,7 @@ endif
       as%fzDisp(:) = 0.0
 
       call reproject_verticals(as%vertLevs, as%levFraction, &   ! vertical from, fractions from
-                             & vert_proj, as%levFractDispVert, &     ! vertical to, fractions to
+                             & vert_disp, as%levFractDispVert, &     ! vertical to, fractions to
                              & as%fzDisp, as%nLevsDispVert, & ! mass centres, number of non-zero levels
                              & ifMassCentreInRelUnit=.true.)
 
@@ -4801,7 +4834,7 @@ endif
     as%fzDisp(:) = 0.0
 
     call reproject_verticals(as%vertLevs, as%levFraction, &   ! vertical from, fractions from
-                           & vert_proj, as%levFractDispVert, &     ! vertical to, fractions to
+                           & vert_disp, as%levFractDispVert, &     ! vertical to, fractions to
                            & as%fzDisp, as%nLevsDispVert, & ! mass centres, number of non-zero levels
                            & ifMassCentreInRelUnit = .true.)
 
@@ -5146,7 +5179,7 @@ endif
     nSlots = size(a_src%times)
 
     if(a_src%FieldFormat(a_src%indFile4Descr(1))%iformat==netcdf_file_flag)then
-       if (a_src%times(1) > timeEnd .or. a_src%times(nSlots) < timeStart) then 
+       if (a_src%times(1) >= timeEnd .or. a_src%times(nSlots) <= timeStart) then 
 
          !!File outside of the current emission step -- update time slots
          timeTmp=timeStart + (a_src%times(2)-a_src%times(1))*a_src%slotOffForFile 
@@ -5206,7 +5239,7 @@ endif
     pField => fu_field_from_3d_field(a_src%pFldEmis(1)%fp,1)  
     idRequest => fu_id(pField) 
     if(.not. (iSlotStart == iSlotEnd-1 .and. &
-     & fu_valid_time(idRequest) == a_src%times(iSlotStart+1)))then
+            & fu_valid_time(idRequest) == a_src%times(iSlotStart+1)))then
       !
       ! Reading needed. Get field from file   
       !
@@ -5255,8 +5288,8 @@ endif
             if(iSlotStart == iSlotEnd-1)then          ! only one time slot to read
               fMassTimeCommon => fu_grid_data(pField) ! take it to main datapointer
             else
-            pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
-            if(iSlot == iSlotStart) pData(1:fs) = 0  ! prepare for summation below
+              pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
+              if(iSlot == iSlotStart) pData(1:fs) = 0  ! prepare for summation below
             endif
             if(error)return
 
@@ -5267,12 +5300,12 @@ endif
             chTmp = fu_FNm(a_src%chFieldFNmTemplates(a_src%indFile4Descr(iDescr)), &    ! Input file name
                           & timeTmp, timeTmp, zero_interval, &
                           & chSource = a_src%src_nm, chSector = a_src%sector_nm) 
+
+            if (a_src%ifFluxes) call set_quantity(idRequest, emission_flux_flag)
+!              fMassTimeCommon(1:fs) = 0.0   not needed, overwritten anyway
             !
             ! Use get_input_field sub providng it with the iBinary pointer to already open file
             !
-            if (a_src%ifFluxes) call set_quantity(idRequest, emission_flux_flag)
-!              fMassTimeCommon(1:fs) = 0.0   not needed, overwritten anyway
-
             call get_input_field(chTmp, &
                                & a_src%FieldFormat(a_src%indFile4Descr(iDescr)), &   ! Input file format
                                & idRequest, &         ! The stuff to search
@@ -5289,6 +5322,7 @@ endif
                 !Emission massmap
 
 #ifdef DEBUG_SRC
+            call msg('After get_input_field, sum of fMassTimeCommon', sum(fMassTimeCommon(1:fs)))
             if (.not. all(fMassTimeCommon(1:fs)>=0)) then
 !              uTmp = fu_next_free_unit()
 !              open(unit=uTmp, file='ems_debug.grads',form='binary',recl=fs*4,access='direct')
@@ -5339,13 +5373,22 @@ endif
 !      call msg("Last ID read from file:")
 !      call report(idFromFile)
 
+#ifdef DEBUG_SRC
+      do iDescr = 1, a_src%nDescriptors
+        do iLev = 1, nLevs
+          pField => fu_field_from_3d_field(a_src%pFldEmis(iDescr)%fp,iLev)
+          pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
+        end do
+        call msg('Reading over. Emission for descriptor:', iDescr, sum(pData(1:fs)))
+      end do
+#endif
+
       if (a_src%ifFluxes) then !!Convert fluxes to rates
         do iLev = 1, nLevs
           do iDescr = 1, a_src%nDescriptors
             pField => fu_field_from_3d_field(a_src%pFldEmis(iDescr)%fp,iLev)
-            pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
-
             idRequest => fu_id(pField)
+            pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
             call set_quantity(idRequest, emission_intensity_flag)
             pData(1:fs) = pData(1:fs) * cellArea(1:fs)
           enddo
@@ -5355,6 +5398,16 @@ endif
       if(iSlotStart /= iSlotEnd-1) call free_work_array(fMassTimeCommon)
 
     endif  ! if reading is needed
+
+#ifdef DEBUG_SRC
+    do iDescr = 1, a_src%nDescriptors
+      do iLev = 1, fu_NbrOfLevels(a_src%vertLevs)
+        pField => fu_field_from_3d_field(a_src%pFldEmis(iDescr)%fp,iLev)
+        pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
+        call msg('Prior to distribution. Emission for descriptor:', iDescr, sum(pData))
+      end do
+    end do
+#endif
     !
     ! Source emission array is filled-in. Distribute 
     !
@@ -5424,13 +5477,20 @@ endif
       ! Now interpolate the data with spltitting to species and scaling
       !
 #ifdef DEBUG_SRC
-    if (fu_true(a_src%ifHorizInterp)) then 
-      call set_error("No more field emissions in source grid!", sub_name)
-      return
-    endif
+      if (fu_true(a_src%ifHorizInterp)) then 
+        call set_error("No more field emissions in source grid!", sub_name)
+        return
+      endif
+      call msg('Descriptor:', iDescr)
+      do iLev = 1, fu_NbrOfLevels(a_src%vertLevs)
+        pField => fu_field_from_3d_field(pFldEmis3d,iLev)
+        pData => fu_grid_data(pField)    ! these data will be summed-up to intermediate
+        call msg('Prior to add_field_to_mass_map_interp. Emission for level:', iLev, sum(pData))
+      end do
 #endif
-
-      call add_field_to_mass_map_interp(pFldEmis3d, &      ! pointer to valid field_3d
+      
+      if (fu_sec(timestep) > 0) then
+           call add_field_to_mass_map_interp(pFldEmis3d, &      ! pointer to valid field_3d
                                       & a_src%pEmisSpeciesMapping(:,iDescr), & ! mapping to emis massmap
                                       & a_src%fDescr2SpeciesUnit(:,iDescr), &  ! fMassFractionTo, 
                                       & a_src%nSpeciesInDescr(iDescr), &       ! nSpeciesTo, &
@@ -5440,10 +5500,22 @@ endif
                                       & HorizInterpStruct_missing, a_src%pVertIS, &
                                       & a_src%id_nbr, &
                                       & mapEmis, mapCoordX, mapCoordY, mapCoordZ)
+      else
+           call add_field_to_mass_map_interp(pFldEmis3d, &      ! pointer to valid field_3d
+                                      & a_src%pEmisSpeciesMapping(:,iDescr), & ! mapping to emis massmap
+                                      & a_src%fDescr2SpeciesUnit(:,iDescr), &  ! fMassFractionTo, 
+                                      & a_src%nSpeciesInDescr(iDescr), &       ! nSpeciesTo, &
+                                      & fMassInjected, &   ! total amount, inout
+                                      & a_src%params(1)%rate_descr_unit(iDescr), &   ! rate scaling
+                                      & .False., ifVertInterp, &
+                                      & HorizInterpStruct_missing, a_src%pVertIS, &
+                                      & a_src%id_nbr, &
+                                      & mapEmis) !! No moments on inverse runs
+      endif
 
-       if (any(fMassInjected < 0.)) then 
-         call ooops("Neg mass injected")
-       endif
+!       if (any(fMassInjected < 0.)) then 
+!         call ooops("Neg mass injected")
+!       endif
 !!!!!        !
 !!!!!        ! Formality but useful: total mass sent to emission mass map. Note that if we do not
 !!!!!        ! read the field the totals still stay

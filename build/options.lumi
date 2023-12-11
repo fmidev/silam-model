@@ -6,8 +6,8 @@ F90C = gfortran
 # Flags for optimization, etc.
 OPTIMIZATION = -O3 -fopenmp -ffast-math
 OPENMP = 
-#DEBUG =  -g  -fbacktrace   # -finit-real=snan   -fcheck=all -finit-integer=-88888888 # -DDEBUG
-DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
+DEBUG =  -g  -fbacktrace   # -finit-real=snan   -fcheck=all -finit-integer=-88888888 # -DDEBUG
+#DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
 FIXED = -ffixed-form
 PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -DUSE_PROJ6
 FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none

@@ -48,15 +48,13 @@ CONTAINS
 
   ! ****************************************************************
 
-  subroutine euler_adv_input_needs(adv_method, &
-                                 & ifIncludeVerticalDependentFlds, &
-                                 & ifMakeMassfluxes, &
+  subroutine euler_adv_input_needs(adv_method, ifMakeMassfluxes, &
                                  & q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
     ! Include the meteorological quantities needed by the eulerian
     ! advection methods.
     implicit none
     INTEGER, INTENT(in) :: adv_method
-    logical, intent(in) :: ifIncludeVerticalDependentFlds, ifMakeMassfluxes
+    logical, intent(in) :: ifMakeMassfluxes
     INTEGER, DIMENSION(:), INTENT(inout) :: q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st
     ! Local variables
     integer :: iTmp
@@ -74,13 +72,11 @@ CONTAINS
 !                        & ifMakeMassfluxes, &
 !                        & q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
       case(adv_euler_Galperin_v5)
-        call  euler_adv_v5_input_needs( ifIncludeVerticalDependentFlds, &
-                        & q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
+        call  euler_adv_v5_input_needs(q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
       CASE DEFAULT
         CALL set_error('Unknown advection method:' + fu_str(adv_method),'euler_adv_input_needs')
         RETURN
     END SELECT
-
 
    end subroutine euler_adv_input_needs
 

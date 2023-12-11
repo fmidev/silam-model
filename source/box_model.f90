@@ -11,6 +11,7 @@ program box
   type Tbox_setup
      type(silja_time) :: start_time, end_time
      type(silja_interval) :: timestep
+     character (len=fnlen) :: case_name
      real :: lat = 45.0
      real :: lon = 0.0
      integer :: output_unit_cnc, output_unit_nbr
@@ -20,29 +21,38 @@ program box
        species_aerosol, species_emission
   integer :: nspecies, nspecies_shortlived = 0, nspecies_aerosol = 0, nspecies_emission = 0
   integer :: nreact_rates = 0
+  integer :: retcode = 0
   
   type(Tmeteo_input) :: meteo_input
   type(Tchem_rules), pointer :: pChemrules
   type(Tbox_setup) :: box_setup
 
   real(sp), dimension(:), allocatable, save :: cnc_shortlived, cnc_normal, cnc_aerosol
-  real, dimension(:), allocatable, save :: metdat
+  real, dimension(:,:), allocatable, save :: metdat
   real(sp), dimension(:,:), allocatable, save :: tan_lin_traj
+  real(sp), dimension(:), allocatable :: h_start_arr
 
   nullify(species_normal, species_shortlived, species_aerosol, species_emission)
   allocate(pChemRules)
 
   call setup(pChemrules)
-  if (error) stop
+  if ( .not. error) then 
 
-  call msg('')
-  !call adjoint_test(box_setup, chemrules)
-  !stop
-  call run(box_setup, pChemrules)
+    call msg('')
+    call adjoint_test(box_setup, pchemrules)
+ !   stop
+ !    call run(box_setup, pChemrules)
+    close(box_setup%output_unit_cnc)
+    close(box_setup%output_unit_nbr)
+  endif
 
-  close(box_setup%output_unit_cnc)
-  close(box_setup%output_unit_nbr)
+
+  if (error) retcode = 10 !! Some nonzero
+  call msg("Returning", retcode)
   close(run_log_funit)
+  call exit_with_status(retcode)
+
+
 
   !************************************************************************************
 
@@ -67,10 +77,6 @@ contains
 
     first_ppb = .true.
     do iSpecies = 1, species_list_size 
-      !ident = fu_output_name(fu_substance_name(species_list(iSpecies)), &
-      !                     & fu_mode(species_list(iSpecies)), &
-      !                     & real_missing)
-!      ident = fu_species_output_name(species_list(ispecies))
       ident = fu_str(species_list(ispecies))
       val = fu_content_real(nlInit, ident)
       content = fu_content(nlInit, ident)
@@ -92,19 +98,19 @@ contains
       material => fu_material(species_list(ispecies))
       if (fu_fails(associated(material), 'Material not associated', 'initial_conditions')) return
       if (unit == 'ppb') then
-        ind_pres = fu_index(meteo_input, pressure_flag)
-        ind_tempr = fu_index(meteo_input, temperature_flag)
+        ind_pres = fu_index_in_meteo_input(meteo_input, pressure_flag)
+        ind_tempr = fu_index_in_meteo_input(meteo_input, temperature_flag)
         if (fu_fails(ind_pres /= int_missing, 'Where is pressure', 'initial_conditions')) return
         if (fu_fails(ind_tempr /= int_missing, 'Where is temperature', 'initial_conditions')) return
-        conversion = metdat(ind_pres) / (gas_constant_uni * metdat(ind_tempr)) * 1e-9
+        conversion = metdat(ind_pres,1) / (gas_constant_uni * metdat(ind_tempr,1)) * 1e-9
         if (first_ppb) call msg('PPB to concentration conversion:', conversion)
         first_ppb = .false.
       else
         conversion = fu_conversion_factor(unit, fu_basic_mass_unit(material), material)
       end if
       values(iSpecies) = val*conversion
-      write(line, fmt='(I3,2x, A20, G20.3, A10)') iSpecies, trim(ident), val*conversion, &
-           & trim(fu_basic_mass_unit(material))
+      write(line, fmt='(I3,2x, A20, G20.3, A10, A3)') iSpecies, trim(ident), val*conversion, &
+           & trim(fu_basic_mass_unit(material)), '/m3'
       call msg(line)
     end do
 
@@ -122,8 +128,8 @@ contains
 
 
     integer :: iTmp, nModes, i, iType, iStatus, S
-	real :: f1, f2, cnc
-	character(len=clen) ::  chMatNm, chType
+    real :: f1, f2, cnc
+    character(len=clen) ::  chMatNm, chType
     type(silam_species), dimension(:), pointer :: speciesTmp  
     type(TspeciesReference), dimension(:), pointer :: mapMass,  mapNbr
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
@@ -136,7 +142,7 @@ contains
 
     do iTmp = 1, nModes
       
-	  spContent%sp = fu_content(ptrItems(iTmp))
+    spContent%sp = fu_content(ptrItems(iTmp))
       read(unit=spContent%sp, iostat=iStatus, fmt=*) chMatNm, chType, f1, f2, s, cnc
 
       select case(trim(chType))
@@ -183,10 +189,10 @@ contains
   
   !************************************************************************************
 
-  subroutine get_meteo_params(metdat, nlMet, values)
+  subroutine get_meteo_params(metInput, nlMet, values)
     implicit none
-    type(Tmeteo_input), intent(in) :: metdat
-    real, dimension(:), intent(out) :: values
+    type(Tmeteo_input), intent(in) :: metInput
+    real, dimension(:,:), intent(out) :: values
     type(Tsilam_namelist), pointer :: nlMet
 
     integer :: i
@@ -198,14 +204,14 @@ contains
       return
     end if
 
-    do i = 1, metdat%nQuantities
-      quantname = fu_quantity_short_string(metdat%quantity(i))
+    do i = 1, metInput%nQuantities
+      quantname = fu_quantity_short_string(metInput%quantity(i))
       val = fu_content_real(nlMet, quantname)
       if (val .eps. real_missing) then
         call set_error('Missing quantity ' // trim(quantname) // ' in meteo namelist', &
                      & 'get_meteo_params')
       end if
-      values(i) = val 
+      values(i,1) = val 
     end do
     
 
@@ -218,7 +224,7 @@ contains
 
     type(Tchem_rules), intent(inout) :: chemrules
 
-    character(len=fnlen) :: inifilename, setup_filename, emis_cockt_name
+    character(len=fnlen) :: inifilename, filename, emis_cockt_name, inidir
     integer :: stat, inifile, stdsetupfile, iTmp
     type(Tsilam_namelist_group), pointer :: nlSetupGrp
     type(Tsilam_namelist), pointer :: nl, nlStdSetup
@@ -234,7 +240,20 @@ contains
       call set_error('Failed to open log file', 'setup')
     end if
 
-    inifilename = 'box.ini'
+    !!! Own file name
+    CALL GET_COMMAND_ARGUMENT(0, filename, STATUS=stat)
+    if (stat/=0) then
+      call set_error('Failed to get own filename', 'setup')
+      return
+    end if
+
+
+    CALL GET_COMMAND_ARGUMENT(1, inifilename, STATUS=stat)
+    if (stat/=0) then
+      call set_error('Usage: '// trim(filename)//' box_ini_file.ini', 'setup')
+      return
+    end if
+
     inifile = fu_next_free_unit()
     open(inifile, file=inifilename, iostat=stat, action='read', status='old')
     if (stat /= 0) then
@@ -257,32 +276,21 @@ contains
     box_setup%start_time = fu_io_string_to_time(fu_content(nl, 'start_time'))
     box_setup%end_time = fu_io_string_to_time(fu_content(nl, 'end_time'))
     box_setup%timestep = fu_set_named_interval(fu_content(nl, 'timestep'), box_setup%start_time)
+    box_setup%case_name = fu_content(nl, 'case_name')
     if (error) return
     
     box_setup%lat = fu_content_real(nl, 'latitude')
-    if (box_setup%lat .eps. real_missing) then
+    if (box_setup%lat == real_missing) then
       call set_error('Missing latitude in setup namelist', 'setup')
       return
     end if
     box_setup%lon = fu_content_real(nl, 'longitude')
-    if (box_setup%lon .eps. real_missing) then
+    if (box_setup%lon == real_missing) then
       call set_error('Missing longitude in setup namelist', 'setup')
       return
     end if
 
-    stdsetupfile = fu_next_free_unit()
-    setup_filename = fu_expand_environment(fu_content(nl, 'standard_setup'))
-    open(stdsetupfile, file=setup_filename, action='read', status='old', iostat=stat)
-    if (stat /= 0) then
-      call set_error('Failed to open standard setup ' // &
-                   & setup_filename, &
-                   & 'setup')
-      return
-    end if
-    nlStdSetup => fu_read_namelist(stdsetupfile, ifEnv=.true.)
-    close(stdsetupfile)
-    call expand_paths(nlStdSetup, setup_filename)
-    if (error) return
+    nlStdSetup => fu_namelist(nlSetupGrp, 'STANDARD_SETUP')
 
     
     nl => fu_namelist(nlSetupGrp, 'transformation_parameters')
@@ -291,9 +299,10 @@ contains
       return
     end if
 
-    !   call init_chemical_materials(nlStdSetup)
-    call init_chemical_materials(fu_expand_environment(fu_content(nlStdSetup,'chemical_database_fnm')), &
-                               & fu_expand_environment(fu_content(nlStdSetup,'nuclide_database_fnm')))
+    inidir = fu_content(nlStdSetup,'standard_setup_directory')
+    call expand_paths(nlStdSetup, inidir)
+    call init_chemical_materials(fu_content(nlStdSetup,'chemical_database_fnm'), &
+                               & fu_content(nlStdSetup,'nuclide_database_fnm'))
     
 !    call set_standard_cocktails_fname(fu_expand_environment(fu_content(nlStdSetup,'standard_cocktail_fnm')))
     ! Set the standard cocktail descriptions
@@ -304,7 +313,7 @@ contains
     if(error)return
     
     
-    call set_chemistry_rules(nl, nlStdSetup, chemrules, .true.)
+    call set_chemistry_rules(nl, nlStdSetup, chemrules, .true., .False.)
     if (error) return
     
     ! Some transformations depend on emission species. We can fake them with the
@@ -335,7 +344,7 @@ contains
                                       & q_disp_stat, meteo_input)
     if (error) return
     call free_work_array(q_disp_dyn)
-    allocate(metdat(meteo_input%nquantities))
+    allocate(metdat(meteo_input%nquantities, 1))
     call get_meteo_params(meteo_input, fu_namelist(nlSetupGrp, 'meteo'), metdat)
     if (error) return
     
@@ -412,7 +421,8 @@ contains
     chemRules%low_mass_trsh = 0.
 
     box_setup%output_unit_cnc = fu_next_free_unit()
-    open(box_setup%output_unit_cnc, file='box_cnc.out', iostat=stat)
+    filename = 'box_cnc'//trim(box_setup%case_name)//'.out'
+    open(box_setup%output_unit_cnc, file=filename, iostat=stat)
     if (stat /= 0) then
       call set_error('Failed to open output file', 'setup')
       return
@@ -423,7 +433,8 @@ contains
                       & (trim(fu_str(species_shortlived(iTmp))), iTmp=1,nSpecies_shortlived)
 
     box_setup%output_unit_nbr = fu_next_free_unit()
-    open(box_setup%output_unit_nbr, file='box_nbr.out', iostat=stat)
+    filename = 'box_nbr'//trim(box_setup%case_name)//'.out'
+    open(box_setup%output_unit_nbr, file=filename, iostat=stat)
     if (stat /= 0) then
       call set_error('Failed to open output file', 'setup')
       return
@@ -442,29 +453,28 @@ contains
   end subroutine setup
 
     
-  subroutine expand_paths(nlptr, filename_setup)
+  subroutine expand_paths(nlptr, setupdir)
     ! Process the (possible) filepaths in the setup namelist:
     ! replace environment variables
     ! replace ^ with the directory setupfile is in
     implicit none
     type(Tsilam_namelist), pointer :: nlptr
-    character(len=*), intent(in) :: filename_setup
+    character(len=*), intent(in) :: setupdir
 
     integer :: ind_item, num_items
     type(Tsilam_nl_item_ptr), pointer :: item
     character(len=worksize_string) :: content
 
     if (fu_fails(associated(nlptr), 'nlptr not associated', 'expand_paths')) return
-    call msg('Expanding paths: ' // trim(filename_setup))
+    call msg('Expanding paths: ' // trim(setupdir))
 
     do ind_item = 1, fu_nbr_of_items(nlptr)
       item => fu_get_item(nlptr, ind_item)
       content = fu_content(item)
-      content = fu_expand_environment(content)
       if (error) return
-      content = fu_extend_grads_hat(content, filename_setup)
+      content = fu_extend_grads_hat_dir(content, setupdir)
       if (error) return
-      call replace_namelist_item(nlptr, fu_name(item), fu_name(item), content)
+      call replace_namelist_item(item, "", fu_name(item), content)
       if (error) return
     end do
 
@@ -483,7 +493,7 @@ contains
   
     if (fu_fails(num_steps > 0, 'num_steps not positive', 'init_tangent_linear')) return
 
-    allocate(tan_lin_traj(nspecies, num_steps), stat=stat)
+    allocate(tan_lin_traj(nspecies, num_steps), h_start_arr(num_steps), stat=stat)
     if (fu_fails(stat == 0, 'Allocate failed', 'init_tangent_linear')) return
     tan_lin_traj = 0.0
   end subroutine init_tangent_linear
@@ -493,17 +503,16 @@ contains
   subroutine run(box_setup, chemRules)
     implicit none
     type(Tbox_setup) :: box_setup
-    type(Tchem_rules), intent(inout) :: chemrules
+    type(Tchem_rules), intent(in) :: chemrules
 
     type(silja_time) :: now
     integer :: iTransf, step_count, num_steps, ind_press
     real :: seconds, cell_volume, lat, lon, zenith_cos, h_start, fixed_albedo
     real, dimension(:), pointer :: garb_array, low_mass_thres
     real(sp), dimension(size(cnc_normal)) :: lin_pt
-    real(sp), dimension(size(tan_lin_traj, 2)) :: h_start_arr
     logical, parameter :: no_reporting = .false.
     logical :: forward, print_it
-    real, dimension(:,:), pointer :: photorates
+    real, dimension(1000,1):: photorates
 
     lat = box_setup%lat
     lon = box_setup%lon
@@ -520,9 +529,8 @@ contains
 
     step_count = 0
     num_steps = size(tan_lin_traj, 2)
-    !h_start = 900.0
+    h_start = seconds
     
-    photorates => fu_work_array_2d()
 
     if (chemRules%useDynamicAlbedo) then 
        fixed_albedo = real_missing  !!Use it from meteo input
@@ -533,7 +541,6 @@ contains
     if (allocated(cnc_shortlived)) cnc_shortlived = 0.0
     !do while (now <= box_setup%end_time)
     do while (fu_between_times(now, box_setup%start_time, box_setup%end_time, accept_boundaries_too=.true.))
-      call report(now)
       call output(box_setup%output_unit_cnc, cnc_normal, nspecies, cnc_shortlived, nSpecies_shortlived, &
                 & fu_sec(now-box_setup%start_time))
      
@@ -588,17 +595,16 @@ contains
         case(transformation_passive)
           call transform_passive(cnc_normal, &
                                & chemRules%rulesPassive, &
-                               & metdat, &
+                               & metdat(:,1), &
                                & 1, &
                                & seconds, &
-                               & seconds, & ! ageing increment
                                & print_it)
           
         case (transformation_sulphur_dmat)
           call transform_dmat(cnc_normal, &
                             & cnc_shortlived, &
                             & chemRules%rulesSulphurDMAT, &
-                            & metdat, &
+                            & metdat(:,1), &
                             & zenith_cos, &
                             & now, lat, lon, &
                             & seconds, low_mass_thres, garb_array(:), &
@@ -609,7 +615,7 @@ contains
           call transform_acid_Basic(cnc_normal, &
                                   & cnc_shortlived, &
                                   & chemRules%rulesAcidBasic, &
-                                  & metdat,&
+                                  & metdat(:,1),&
                                   & seconds, &
                                   & garb_array(:), &
                                   & zenith_cos, &
@@ -619,7 +625,7 @@ contains
                                   & print_it)
           
         case (transformation_cbm4)
-          ind_press = fu_index(meteo_input, pressure_flag)
+          ind_press = fu_index_in_meteo_input(meteo_input, pressure_flag)
           if (fu_fails(ind_press > 0, 'Failed to get pressure', 'run')) return
           zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
           !call get_photorates_column(lon, lat, now, zenith_cos, (/metdat(ind_press)/), photorates)
@@ -629,12 +635,11 @@ contains
               tan_lin_traj(:,step_count) = cnc_normal
               h_start_arr(step_count) = h_start
             end if
-            h_start = 360.0
             call msg('hstart::', h_start)
             call transform_cbm4(cnc_normal, &
 !                              & photorates(:,1), &
                               & chemRules%rulesCBM4, &
-                              & metdat, &
+                              & metdat(:,1), &
                               & seconds, &
                               & garb_array(:), &
                               & zenith_cos, h_start, print_it)
@@ -646,7 +651,7 @@ contains
             call transform_cbm4_adj(cnc_normal, lin_pt(1:nspecies), &
 !                                  & photorates(:,1), &
                                   & chemRules%rulesCBM4, &
-                                  & metdat, &
+                                  & metdat(:,1), &
                                   & seconds, &
                                   & garb_array(:), &
                                   & zenith_cos, h_start, print_it)
@@ -656,7 +661,7 @@ contains
           if (forward) then
             call transform_radioactive(cnc_normal, &
                                      & chemRules%rulesRadioactive, &
-                                     & metdat, &
+                                     & metdat(:,1), &
                                      & seconds, &
                                      & print_it)
           else
@@ -664,15 +669,20 @@ contains
           end if
 
         case (transformation_cbm42_strato)
-          ind_press = fu_index(meteo_input, pressure_flag)
+          ind_press = fu_index_in_meteo_input(meteo_input, pressure_flag)
           if (fu_fails(ind_press > 0, 'Failed to get pressure', 'run')) return
           zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
           !call get_photorates_column(lon, lat, now, zenith_cos, (/metdat(ind_press)/), photorates) !Old buggy
           !call get_photorates_column(metdat_col, zenith_cos, fixed_albedo, now, aodext, & !copy from chemistry_manager
           !       & aodscat, photorates, chemRules%ifPhotoAOD)
           !metdat should be two dimensions array:
-          call get_photorates_column(reshape(metdat,(/shape(metdat),1/)), zenith_cos, fixed_albedo, now, (/1.0/), &
-                 & (/0.9/), photorates, chemRules%ifPhotoAOD) !CHECK
+          call get_photorates_column(metdat, zenith_cos, fixed_albedo, now, (/1.0/), &
+                 & (/0.9/), (/300./), photorates, chemRules%ifPhotoAOD, standard_atmosphere, (/0./), 0.999,fake_cloud) !CHECK
+
+              !  subroutine  get_photorates_column(metdat_col, zenith_cos, alb_sfc_fixed, now, &
+         !!& aod_ext, aod_scat, o3_col, rates, ifPhotoAOD, PhotoO3colType, tau_above_bott, ssa, cloud_model)
+
+
           if (error) return
           call prepare_step_cbm42_strato(.false., photorates(:,1))
           if (forward) then
@@ -683,7 +693,7 @@ contains
             call transform_cbm42_strato(cnc_normal, &
                                       & photorates(:,1), &
                                       & chemRules%rulesCBM42_strato, &
-                                      & metdat, &
+                                      & metdat(:,1), &
                                       & seconds, &
                                       & garb_array(:), &
                                       & zenith_cos, lat, &
@@ -691,11 +701,11 @@ contains
                         
           else
             lin_pt(1:nspecies) = tan_lin_traj(:,num_steps - step_count + 1)
-            h_start = h_start_arr(step_count)
+            h_start = h_start_arr(num_steps - step_count + 1)
             call transform_cbm42_strato_adj(cnc_normal, lin_pt(1:nspecies), &
                                           & photorates(:,1), &
                                           & chemRules%rulesCBM42_strato, &
-                                          & metdat, &
+                                          & metdat(:,1), &
                                           & seconds, &
                                           & garb_array(:), &
                                           & zenith_cos, lat, h_start, now, print_it)
@@ -703,33 +713,44 @@ contains
           
           
           
-        case (transformation_cbm4_SOA)
+        case (transformation_cbm5_SOA)
             zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
-            ind_press = fu_index(meteo_input, pressure_flag)
+            ind_press = fu_index_in_meteo_input(meteo_input, pressure_flag)
             !call get_photorates_column(lon, lat, now, zenith_cos, (/metdat(ind_press)/), photorates) !Old buggy
             !call get_photorates_column(metdat_col, zenith_cos, fixed_albedo, now, aodext, & !copy from chemistry_manager
             !     & aodscat, photorates, chemRules%ifPhotoAOD)
             !metdat should be two dimensions array:
-            call get_photorates_column(reshape(metdat,(/shape(metdat),1/)), zenith_cos, fixed_albedo, now, (/1.0/), &
-                 & (/0.9/), photorates, chemRules%ifPhotoAOD) !CHECK
-            call prepare_step_cbm4_soa(.true., photorates(:,1))
+            call get_photorates_column(metdat, zenith_cos, fixed_albedo, now, (/1.0/), &
+                   & (/0.9/), (/300./), photorates, chemRules%ifPhotoAOD, standard_atmosphere, (/0./), 0.999,fake_cloud) !CHECK
+            call prepare_step_cbm5_soa(.false., photorates(:,1))  !! Sets constant rates, reports others
             if (forward) then
                 if (allocated(tan_lin_traj)) then 
                   tan_lin_traj(:,step_count) = cnc_normal
                   h_start_arr(step_count) = h_start
                 end if
+               call msg('hstart::', h_start)
 
-               call transform_cbm4_SOA(cnc_normal, &
+               call transform_cbm5_SOA(cnc_normal, &
                                      & photorates(:,1), &
-                                     & chemRules%rulesCBM4_SOA, &
-                                     & metdat, &
+                                     & chemRules%rulesCBM5_SOA, &
+                                     & metdat(:,1), &
                                      & seconds, &
                                      & garb_array(:), &
                                      & zenith_cos, lat, &
                                      & h_start, &
                                      & now, &
                                      & print_it)
-                  end if
+            else
+              lin_pt(1:nspecies) = tan_lin_traj(:,num_steps - step_count + 1)
+              h_start = h_start_arr(num_steps - step_count + 1)
+              call transform_cbm5_SOA_adj(cnc_normal, lin_pt(1:nspecies), &
+                                            & photorates(:,1), &
+                                            & chemRules%rulesCBM5_SOA, &
+                                            & metdat(:,1), &
+                                            & seconds, &
+                                            & garb_array(:), &
+                                            & zenith_cos, lat, h_start, now, print_it)
+            end if
         end select
       end do
 
@@ -744,7 +765,7 @@ contains
                                      & chemRules%low_mass_trsh, &
                                      & garb_array(:), &
                                      & chemRules%ChemRunSetup%mapVolume2NumberCnc, &
-                                     & metdat, &
+                                     & metdat(:,1), &
                                      & seconds, print_it)
                       
           case(aerosol_dynamics_simple)
@@ -753,7 +774,7 @@ contains
                                       & garb_array, &
                                       & chemRules%rulesAerDynSimple, &
                                       & low_mass_thres, &
-                                      & metdat, seconds, zenith_cos, print_it)
+                                      & metdat(:,1), seconds, zenith_cos, print_it)
             
           case(aerosol_dynamics_Mid_Atmosph)
             call transform_AerDynMidAtm(cnc_normal, &
@@ -762,7 +783,7 @@ contains
                                       & garb_array, &
                                       & chemRules%rulesAerDynMidAtmosph, &
                                       & low_mass_thres, &
-                                      & metdat, &
+                                      & metdat(:,1), &
                                       & seconds, &
                                       & nSpecies, species_normal, 1,1,1, &
                                       & print_it)
@@ -772,7 +793,7 @@ contains
                                     & cnc_shortlived, &
                                     & garb_array, &
                                     & chemRules%rulesAerDynVBS, low_mass_thres, &
-                                    & metdat, seconds, print_it)
+                                    & metdat(:,1), seconds, print_it)
             
           case default
             continue
@@ -786,7 +807,6 @@ contains
     end do
     call free_work_array(low_mass_thres)
     call free_work_array(garb_array)
-    call free_work_array(photorates)
   end subroutine run
 
   !************************************************************************************
@@ -807,7 +827,7 @@ contains
   subroutine adjoint_test(setup_fwd, chemrules)
     implicit none
     type(Tbox_setup), intent(in) :: setup_fwd
-    type(Tchem_rules), intent(inout) :: chemrules
+    type(Tchem_rules), intent(in) :: chemrules
 
     type(Tbox_setup) :: setup_adj
     integer :: ispecies
@@ -832,6 +852,7 @@ contains
     do while (delta > 1e-18)
       do ispecies1 = 1, nspecies
         !if (ispecies1 /= 6) cycle
+        delta = max(1e-10, 1e-3*cnc1(ispecies1))
         cnc_normal = cnc1
         cnc_normal(ispecies1) = cnc1(ispecies1) + delta
         call run(setup_fwd, chemrules)
@@ -846,12 +867,15 @@ contains
         call run(setup_fwd, chemrules) ! linearization
         do ispecies2 = 1, nspecies
           !if (ispecies2 /= 14) cycle
-          cnc_normal = 0.0
-          cnc_normal(ispecies2) = 1.0
-          call run(setup_adj, chemrules)
           deriv = (cnc_plus(ispecies2) - cnc_minus(ispecies2)) / (2*delta)
-          adj_deriv = cnc_normal(ispecies1)
-          print *, 'adj_test', ispecies1, ispecies2, deriv, adj_deriv, cnc_plus(ispecies2)
+
+            cnc_normal = 0.0
+            cnc_normal(ispecies2) = 1.0
+            call run(setup_adj, chemrules)
+            adj_deriv = cnc_normal(ispecies1)
+
+            write (*,"(3(A10, X), 3(E13.5, X))") "adj_test", trim(fu_str(species_normal(ispecies1))), &
+                & trim(fu_str(species_normal(ispecies2))), deriv, adj_deriv, cnc_plus(ispecies2)
         end do
       end do
       exit

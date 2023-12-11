@@ -797,6 +797,7 @@ end do
             !
             ! Check for overlap
             !
+            ! HUOM: dx and dy are assumed to be longitude and latitude, which is very roughly the case
             if(fu_if_cover(lon(i),lat(i),dx(i),dy(i), lon(j),lat(j))) then
               !
               ! Duplicate. Very strong one will always eat much smaller one. Also, if the small
@@ -857,7 +858,7 @@ endif
                   frp(i) = frp(j)
                   frp(j) = fTmp
                   mark(i) = mark(i) + mark(j)
-                  mark(j) = 0         ! whether the location is averaged or not, kill i-th pixel
+                    mark(j) = 0         ! whether the location is averaged or not, kill i-th pixel
                   fTmp = fu_fraction_covered(lon(i),lat(i),dx(i),dy(i), lon(j),lat(j),dx(j),dy(j))
                   frp(i) = frp(i) + frp(j) * (1.-fTmp)
                   frp(j) = frp(j) * fTmp

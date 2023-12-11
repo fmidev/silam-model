@@ -648,11 +648,12 @@ MODULE geography_tools
     !
     ! Imported parameters with intent IN:
     TYPE(silam_pole), INTENT(in) :: pole1, pole2
-
-    IF ((ABS(pole1%lat - pole2%lat) < 1.0e-6) .and. &
-      & (ABS(pole1%lon - pole2%lon) < 1.0e-6) .and. &
-      & pole1%defined == silja_true .and.  pole2%defined == silja_true) THEN
-      fu_compare_poles_eq = .true.
+    real :: gcdistance 
+    real, parameter :: pole_tolerance = 10 !meters
+     
+    IF (pole1%defined == silja_true .and.  pole2%defined == silja_true) then
+      gcdistance = fu_gc_distance(pole1%lon, pole2%lon, pole1%lat,  pole2%lat)
+      fu_compare_poles_eq = (gcdistance <  pole_tolerance)
     ELSE
       fu_compare_poles_eq = .false.
     END IF

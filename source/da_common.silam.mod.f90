@@ -1,58 +1,30 @@
 module da_common
+!
+  ! The module incorporates definitions, data structures and subroutines
+  ! used in all assimilation techniques
+  !
   use correlations
   use pollution_cloud
   use cocktail_basic
   use globals
   use observation_server
   use source_apportionment, only : slot_start, slot_end, &
-       & processor_tm_hgt_force, processor_tm_hgt_force_wgt, processor_tm_hgt_scale
+       & processor_tm_hgt_force_flag, processor_tm_hgt_force_wgt_flag, processor_tm_hgt_scale_flag
   use dispersion_server, only : update_mass_map_from_file
   use enkf
   use io_server, only : fu_species_output_name
 
   implicit none
 
-  interface init_control
-     module procedure init_control_from_cloud
-  end interface
-
-  interface init_control_array
-     module procedure init_control_array_from_cloud
-     module procedure init_control_array_from_par
-  end interface
-
-  interface destroy
-     module procedure destroy_control
-  end interface
-
-  interface fu_size
-     module procedure fu_size_control
-  end interface
-
-  interface fu_mode
-     module procedure fu_mode_control
-  end interface
-
-  interface defined
-     module procedure fu_defined_control
-     module procedure fu_defined_bgr_cov
-  end interface
-
-  interface report
-     module procedure report_control
-  end interface
-
-  interface get_localisation
-     module procedure get_localisation_control
-  end interface
   public get_localisation
 
-  public init_control_array
+  public init_control_array_from_cloud
+  public init_control_array_from_par
   public fu_mode
   public defined
   public report
   public fu_size
-!  public init_control
+  public init_control_from_cloud
   public init_control_from_par
   public copy_control
   public fu_n_emission
@@ -73,6 +45,7 @@ module da_common
   public fu_isp_initial    !Indices
   public fu_isp_emis_ctrl
   public report_norm
+  public background_from_files
   public set_bgr_cov_ptr
   public get_emis_time_slots
   public fu_num_emis_time_slots
@@ -85,6 +58,7 @@ module da_common
   public fu_have_emission_xy
   public fu_have_emission_zt
   public fu_have_emission_volc
+  public fu_have_boundaries
 !  public fu_control_includes
 
   public get_fieldvars_for_control
@@ -95,6 +69,34 @@ module da_common
   
   public fu_num_params_volc
 
+  private report_da_rules
+  
+  interface destroy
+     module procedure destroy_control
+  end interface
+
+  interface fu_size
+     module procedure fu_size_control
+  end interface
+
+  interface fu_mode
+     module procedure fu_mode_control
+  end interface
+
+  interface defined
+     module procedure fu_defined_control
+     module procedure fu_defined_bgr_cov
+  end interface
+
+  interface report
+     module procedure report_control
+     module procedure report_da_rules
+  end interface
+
+  interface get_localisation
+     module procedure get_localisation_control
+  end interface
+  !
   ! options for the DA output content
   !
   integer, public, parameter :: da_out_none_flag = 190001         ! silent DA, not even bacground and analysis, just forecast after DA
@@ -132,22 +134,39 @@ module da_common
   end type DA_numericalParameters
   !
   ! The main set of rules for performing the data assimilation
+  ! DA is made as a series of events, each confined to assim_window, which can be 
+  ! zero-length (3D-var). Single-use DA, e.g., 4D-var, can have only one such event
+  ! DA timing is controlled by:
+  ! DA_begin             start of the first assimilation event
+  ! first_analysis_time  valid time of the first analysis 
+  ! last_analysis_time   valid time of the last analysis
+  ! assim_window            length of assimilation event (zero for 3dvar, whole period for 4dvar, etc)
+  ! interval_btwn_assim  interval between the assimiation events
   !
   type DA_rules
      integer :: method = int_missing ! 3d|4d
      type(silja_time) :: DA_begin, first_analysis_time, last_analysis_time
-     type(silja_interval) :: da_window ! assimilation window, 4dvar: periodToCompute,  (zero for 3dvar)
-     type(silja_interval) :: assim_interval ! 3dvar (or seq. 4dvar): time between assimilations
+     type(silja_interval) :: assim_window ! assimilation window, 4dvar: periodToCompute, 3dvar: zero
+     type(silja_interval) :: interval_btwn_assim ! 3dvar (or seq. 4dvar): time between assimilations
      logical :: ifRandomise
      logical :: defined = .false.
-     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+    
      logical :: use_log_cloud = .false.
      logical :: use_log_obs = .false.
      real :: observation_stdev = -1.0
      real :: emission_stdev = 0.6
      real :: emis_corr_dist = -1.0
      real :: emis_max_corr = -1.0
-     !!!!!!!!!!!!!!!!!!!!!!!!!!!!111
+     logical :: pert_emis_xy_lognormal = .false.
+
+     real :: boundary_stdev = 0.6
+     real :: boundary_corr_dist = -1.0
+     real :: boundary_max_corr = -1.0
+     real :: boundary_collective_pert_wgt = 0.0
+     real :: O3_boundary_pert_fact = 1.0
+     real :: dust_boundary_pert_fact = 1.0
+     logical :: pert_boundary_lognormal = .false.
+     
      ! Introducing support for arbitrary mixes of control variables:
      ! define the control variable as a bitmask - see above.
      integer :: controlVariable = int_missing
@@ -157,11 +176,8 @@ module da_common
      type(grads_template) :: cov_setup_templ_init, cov_setup_templ_emis
      character(len=fnlen) :: station_path
      ! specifications for observations
-     character(len=fnlen), dimension(:), pointer :: obs_items
-     ! a pointer to file with the specifications above
-     character(len=fnlen) :: obs_list_path = ''
-     integer :: num_obs_items
-     type(grads_template), dimension(:), pointer :: obs_templ_list
+     character(len=fnlen), dimension(:), pointer :: obs_files  ! with types of obs, unit, etc
+     integer :: num_obs_files_assim, num_obs_files_eval
      ! 4dvar: analysis species always full transport/emission, 3dvar - can be a subset of transport.
      character(len=substNmLen), dimension(:), pointer :: analysis_subst_list_3d
      !integer, dimension(:), pointer :: ind_species_in_transp 
@@ -313,11 +329,10 @@ module da_common
   public t_background_covariance
   type (t_background_covariance), target :: background_covariance_missing !Should get all undefined 
 
-  private init_control_from_cloud
   private destroy_control
   
   ! Values for the transf_state flag above.
-  integer, parameter, public :: physical_space = 1001, control_space = 1002
+  integer, parameter, public :: physical_space = 21001, control_space = 21002
 
   ! Options for type-flag in t_background_covariance
   !
@@ -331,8 +346,6 @@ module da_common
   integer, parameter, public :: diagonal = 20006, & ! no spatial correlation
                                & diagonal_logarithmic = 20007
 
-  real, dimension(:), private, allocatable, save, target ::  transf_work
-
   ! The control variable mode. Originally, we had separate flags for each combination of
   ! control (emission, initial state, etc). Now this is done more flexibly and each
   ! possible component can be enabled or disabled (although some combinations are still
@@ -341,7 +354,7 @@ module da_common
                                                 & control_emis_xy = ibset(0,1), &
                                                 & control_emis_zt = ibset(0,2), &
                                                 & control_emis_volc = ibset(0,3), &
-                                                & control_meteo_time = ibset(0,4)
+                                                & control_boundaries = ibset(0,4)
   ! "IBSET(I,POS) returns the value of I with the bit at position POS set to one."
 
   ! for backwards compatibility, still used by some subroutines.
@@ -350,7 +363,12 @@ module da_common
                               & da_emission_and_initial = ior(control_init, control_emis_xy), &
                               & da_emission_time_height = control_emis_zt
 
+  character(len=6), dimension(2), parameter, public :: chObsPurpose = (/'_assim','_eval '/)
+
+
   CONTAINS
+
+  !************************************************************************************
 
   logical function fu_defined_control(control) result(is_defined)
     implicit none
@@ -367,12 +385,19 @@ module da_common
     integer :: n_data
     real, dimension(:), pointer :: p_data
 
-    call msg('Reporting control..-')
     if (.not. defined(control)) then
       call msg('Undefined control')
       return
     end if
-    call msg('Transformation state:', control%transf_state)
+    select case(control%transf_state)
+      case(physical_space)  ! = 21001
+        call msg('Transformation state: physical_space', control%transf_state)
+      case(control_space) ! = 21002
+        call msg('Transformation state: control_space', control%transf_state)
+      case default
+        call set_error('Wrong transformation state:' + fu_str(control%transf_state),'report_control')
+        return
+    end select
 
     p_data => fu_values_ptr(control)
     
@@ -383,32 +408,24 @@ module da_common
     end select
 
     n_data = fu_size(control)
-    call msg('Whole control:')
-    call msg('  min:', minval(p_data(1:n_data)))
-    call msg('  max:', maxval(p_data(1:n_data)))
-    call msg('  mean:', sum(p_data(1:n_data))/n_data)
-    call msg('  norm:', sqrt(sum(p_data(1:n_data)**2)))
+
+    call report_vectorstat('Whole control',  p_data, n_data)
 
     if (control%shift_initial /= int_missing) then
       p_data => fu_initial_ptr(control)
       n_data = fu_n_initial(control)
-      call msg('Initial state component:')
-      call msg('  min:', minval(p_data(1:n_data)))
-      call msg('  max:', maxval(p_data(1:n_data)))
-      call msg('  mean:', sum(p_data(1:n_data))/n_data)
-      call msg('  norm:', sqrt(sum(p_data(1:n_data)**2)))
+      call report_vectorstat('Initial state component:',  p_data, n_data)
     end if
     if (control%shift_emission /= int_missing) then
       p_data => fu_emission_ptr(control)
       n_data = fu_n_emission(control)
-      call msg('Emission component:')
-      call msg('  min:', minval(p_data(1:n_data)))
-      call msg('  max:', maxval(p_data(1:n_data)))
-      call msg('  mean:', sum(p_data(1:n_data))/n_data)
-      call msg('  norm:', sqrt(sum(p_data(1:n_data)**2)))
+      call report_vectorstat('Emission component', p_data, n_data) 
     end if
     
   end subroutine report_control
+
+
+
 
   !************************************************************************************
 
@@ -418,6 +435,9 @@ module da_common
     real, dimension(:), pointer :: p_vals
     p_vals => control%vals
   end function fu_values_ptr
+
+
+  !*********************************************************************************
 
   ! The following pair of routines returns pointers to the array sections corresponding to
   ! the emission and initial state components. The dimensions of these components are
@@ -448,7 +468,9 @@ module da_common
       p_init => control%vals(ind_start:ind_end)
     endif
   end function fu_initial_ptr
-    
+
+  !=========================================================================
+  
   function fu_emission_ptr(control, ind_species) result(p_emis)
     implicit none
     type(da_control), intent(in) :: control
@@ -457,6 +479,7 @@ module da_common
 
     integer :: ind_start, ind_end, field_size, nx, ny
     character(len=*), parameter :: subname = 'fu_emission_ptr'
+
     if (fu_fails(control%shift_emission /= int_missing, 'emission_ptr not available', subname)) return
 
     if (fu_have_emission_zt(fu_mode(control))) then
@@ -482,6 +505,7 @@ module da_common
     
     p_emis => control%vals(ind_start:ind_end)
   end function fu_emission_ptr
+
 
   !************************************************************************************
 
@@ -619,16 +643,19 @@ module da_common
   subroutine init_control_array_from_cloud(control_arr, cloud, rules, space_flag, num_controls, storage, &
                                          & initial_value, bgr_cov)
     implicit none
+    
+    ! Imported parameters
     type(da_control), dimension(:), intent(out) :: control_arr
     type(silam_pollution_cloud), target, intent(in) :: cloud
     type(da_rules), intent(in) :: rules
     ! Specify whether the control is initially in physical or control space:
     integer, intent(in) :: space_flag, num_controls
     real, dimension(:), pointer :: storage
-    
+    ! optional parameters
     real, intent(in), optional :: initial_value
     type(t_background_covariance), intent(in), optional, target :: bgr_cov
 
+    ! Local variables
     type(Tmass_map), pointer :: p_map_transp
     type(silam_pollution_cloud), pointer :: cloud_ptr
     type(silam_species), dimension(:), pointer :: transp_species, emis_species
@@ -659,7 +686,7 @@ module da_common
 
     initial_value_ = real_missing
     if (present(initial_value)) then
-          initial_value_ = initial_value
+      initial_value_ = initial_value
     endif
 
     call init_control_array_from_par(control_arr, analysis_grid, analysis_vertical, &
@@ -682,7 +709,6 @@ module da_common
     type(da_rules), intent(in) :: rules
     ! Specify whether the control is initially in physical or control space:
     integer, intent(in) :: space_flag
-
     real, intent(in) :: initial_value
     type(t_background_covariance), intent(in), optional, target :: bgr_cov
     integer, intent(in), optional :: controlvar ! to override what is in the rules
@@ -697,7 +723,6 @@ module da_common
       controlvar_ = rules%controlVariable
     end if
     
-    
     ! Initialization in two parts: first do everything but allocate, then allocate here,
     ! then finalize with set_control_storage. The reason is to enable allocation of
     ! several control variables sharing a contiguous storage vector (see init_control_array).
@@ -709,13 +734,14 @@ module da_common
     if (size_req > 0) then
       allocate(storage(size_req), stat=stat)
       if (fu_fails(stat == 0, 'Allocate failed', subname)) return
-      if (initial_value /= real_missing) storage = initial_value
+      storage = initial_value
       call set_control_storage(control, storage)
     else
       call set_control_storage(control, null())
     endif
     
   end subroutine init_control_from_par
+
 
   !************************************************************************************
 
@@ -753,8 +779,7 @@ module da_common
     else
       controlvar_ = rules%controlVariable
     end if
-    
-    
+
     nullify(storage)
     if (fu_fails(num_controls > 0, 'Bad num_controls', subname)) return
     if (fu_fails(size(control_arr) >= num_controls, 'control_arr too small', subname)) return
@@ -933,8 +958,8 @@ module da_common
       shift = shift + nvals_emis
       control%ind_species_emis(1:control%nsp_emis) = (/(ii, ii=1, control%nsp_emis)/)
 
-      control%species_emission = (/(p_species_transport(control%ind_species_emis(ii)), &
-                                  & ii=1, control%nsp_emis)/)
+      control%species_emission(1:control%nsp_emis) = (/(p_species_transport(control%ind_species_emis(ii)), &
+                                                      & ii=1, control%nsp_emis)/)
       control%size_emission = nvals_emis
       control%nz_emis = 1
     end if
@@ -987,7 +1012,7 @@ module da_common
       if (control%size_initial > 0) control%shift_initial = 1
       if (control%size_emission > 0) control%shift_emission = control%size_initial + 1
     case default
-      call set_error('Bad space_flag', 'init_control')
+      call set_error('Bad space_flag:' + fu_str(space_flag), 'init_control')
       return
     end select
     control%transf_state = space_flag
@@ -1021,6 +1046,7 @@ module da_common
     
   end subroutine set_control_storage
 
+
   !************************************************************************************
 
   subroutine pick_species(subst_name_list, full_species_list, indices, num_contr_species)
@@ -1050,9 +1076,9 @@ module da_common
     end do
 
     indices(1:num_contr_species) = indices_wrk(1:num_contr_species)
-    
-    
+
   end subroutine pick_species
+
 
   !************************************************************************************
 
@@ -1103,7 +1129,9 @@ module da_common
     implicit none
     type(da_control), intent(inout) :: control
 
-    if (control%nvals > 0)  deallocate(control%vals)
+    if (control%nvals > 0)then
+      if(associated(control%vals))deallocate(control%vals)
+    endif
     
     control = control_missing
 
@@ -1219,24 +1247,28 @@ module da_common
 
   !************************************************************************************
   
-  subroutine control_from_files(control, cloud, file_initial, update_initial, default_initial, &
-                              & file_emission, update_emission, default_emission, valid_time, &
-                              & ifRandomise)
+  subroutine background_from_files(control, cloud, &
+                                 & file_initial, if_update_initial, default_initial, &
+                                 & file_emission, if_update_emission, default_emission, &
+                                 & valid_time, ifRandomise)
     implicit none
     type(da_control), intent(inout) :: control
     type(silam_pollution_cloud), intent(in) :: cloud
     character(len=*), intent(in) :: file_initial, file_emission
-    logical, intent(in) :: update_initial, update_emission
+    logical, intent(in) :: if_update_initial, if_update_emission
     real, intent(in) :: default_initial, default_emission
     type(silja_time), intent(in) ::valid_time
     logical, intent(in) :: ifRandomise
 
+    ! Local variables
     type(Tmass_map_ptr), dimension(1) :: mass_map_ptr_array
     type(Tmass_map), pointer :: map_c
     type(Tmass_map), target :: map_cnc
-    integer :: ix, iy, iz, isp, nx, ny, nz, nsp, idim, ind, isp_transp, nsp_contr, nFields_updated
-    real, dimension(:), pointer :: init_p, emis_p
-    character(len=*), parameter :: sub_name = 'control_from_file'
+    integer :: ix, iy, iz, isp, nx, ny, nz, nsp, idim, ind, isp_transp, nFields_updated, &
+             & ind_start, ind_end
+    real, dimension(:), pointer :: init_p, emis_p, arPtr
+    type(silam_species), dimension(:), pointer :: emission_species
+    type(silja_field_id) :: id, idOut
 
     map_c => fu_concMM_ptr(cloud)
     
@@ -1247,35 +1279,37 @@ module da_common
     if (iand(fu_mode(control),control_init) /= 0) then 
       init_p => fu_initial_ptr(control)
       !if (rules%have_init_background) then
-      if (update_initial) then
+      if (if_update_initial) then
         !
         ! Initial state must come from a file. We borrow the
         ! concentration map for reading it.
+        ix = index(file_initial,' ')
         nFields_updated = 0
         call set_mass_map(map_cnc, concentration_flag, 1, 0, map_c%gridTemplate, map_c%vertTemplate, &
-                             & map_c%species, val=0.0)
+                        & map_c%species, val=0.0)
         mass_map_ptr_array(1)%ptrMassMap => map_cnc
-        call update_mass_map_from_file(file_initial, &
-                                     & grads_file_format, &
+        call update_mass_map_from_file(fu_process_filepath(file_initial(ix+1:)), &
+                                     & fu_input_file_format(file_initial(1:ix)), &  ! file format
                                      & mass_map_ptr_array,&
                                      & 1, &
                                      & valid_time, ifRandomise, &
                                      & nFields_updated=nFields_updated)
-        
 
-        if(nFields_updated == 0)call msg_warning('DA_INITIAL_STATE: No fields have been red','control_from_files')
+        if(nFields_updated == 0)call msg_warning('DA_INITIAL_STATE: No fields have been red','background_from_files')
         if (error) return
-
-        nsp_contr = size(control%ind_species_init)
-        do isp = 1, nsp_contr
+        !
+        ! Convert the mass map to the control vector
+        !
+        do isp = 1, control%nsp_init
           call msg('isp_contr, real(isp_transp)', isp, real(control%ind_species_init(isp)))
         end do
         do iy = 1, ny
           do ix = 1, nx
             do iz = 1, nz
-              do isp = 1, nsp_contr
+              do isp = 1, control%nsp_init
                 isp_transp = control%ind_species_init(isp)
-                ind = (iy-1)*nx*nz*nsp_contr + (ix-1)*nz*nsp_contr + (iz-1)*nsp_contr + isp
+                ind = (iy-1)*nx*nz*control%nsp_init + (ix-1)*nz*control%nsp_init &
+                    & + (iz-1)*control%nsp_init + isp
                 init_p(ind) = map_cnc%arm(isp_transp, 1, iz, ix, iy)
               end do
             end do
@@ -1284,93 +1318,67 @@ module da_common
         call dealloc_mass_map(map_cnc)
       else
         init_p = default_initial
-      end if
-    endif
+      end if   ! update_intial
+    endif   ! if initial state in control
 
       !call msg('sum of background init_p', sum(init_p))
       !call msg('sum of arm', sum(map_cnc%arm))
+    !
+    ! Emission background term
+    !
     if (iand(fu_mode(control),control_emis_xy) /= 0) then 
       emis_p => fu_emission_ptr(control)
-      if (update_emission) then
-        call emission_from_grads(file_emission, fu_species_emission(cloud), emis_p)
+      if (if_update_emission) then
+        arPtr => fu_work_array()
+        ix = index(file_emission,' ')
+        !
+        ! get the data from the field to the control. 
+        ! Note the multi-species case
+        !
+        emission_species => fu_species_emission(cloud)
+        nsp = size(emission_species)
+        do isp = 1, nsp
+          id = fu_set_field_id(met_src_missing, emission_scaling_flag, valid_time, zero_interval, &
+                             & dispersion_grid, surface_level, &
+                             & species=emission_species(isp))
+          if(error)return
+          call get_input_field(fu_process_filepath(file_emission(ix+1:)), &  ! file name
+                             & fu_input_file_format(file_emission(1:ix)), &  ! file format
+                             & id, &                  ! The id to search
+                             & arPtr, &               ! data array
+                             & dispersion_gridPtr, &  ! storage grid
+                             & iOutside = nearestPoint, &         ! out of grid interpolation
+                             & iAccuracy = 5, &
+                             & wdr = wdr_missing, & 
+                             & ifAcceptSameMonth = .false., &
+                             & idOut = idOut)         ! output id
+          if(error)return
+          ! species are not consecutive! grids are.
+          ind_start = isp
+          ind_end = ind_start + (fs_dispersion-1)*nsp
+          emis_p(ind_start:ind_end:nsp) = max(arPtr(1:fs_dispersion), 0.0)
+        end do  ! species
+        call free_work_array(arPtr)
       else
         emis_p = default_emission
-      end if
-    endif  
-      
-
+      end if  ! if_update_emission
+    endif  ! emis_xy
+    !
+    ! Time-height assimilation does not support non-trivial background
+    !
     if (iand(fu_mode(control),control_emis_zt) /= 0) then
       emis_p => fu_emission_ptr(control)
-      if (update_emission) then
-        call set_error('Cannot update emission_time_height', sub_name)
+      if (if_update_emission) then
+        call set_error('Cannot update emission_time_height', 'background_from_files')
       else
         emis_p = default_emission
       end if
-     endif
+    endif
 
     
   contains
 
-    subroutine emission_from_grads(file_name, emission_species, p_emis)
-      implicit none
-      character(len=*), intent(in) :: file_name
-      type(silam_species), dimension(:), intent(in) :: emission_species
-      real, dimension(:), intent(out) :: p_emis
-
-      real, dimension(:), pointer :: input_grid_data
-      integer :: isp, nsp_emis, ind_gf, ind_start, ind_end, step
-      integer :: nx, ny, offx, offy, gnx, gny
-      type(silja_field_id) :: fid
-      
-      ind_gf = fu_open_gradsfile_i(file_name)
-      if (error) return
-
-      if (.not. (fu_silamGrid_of_grads(ind_gf) == wholeMPIdispersion_grid)) then
-        call msg('Grid for emission correction background field:')
-        call report(fu_silamGrid_of_grads(ind_gf))
-        call msg('Dispersion grid:')
-        call report(dispersion_grid)
-        call msg('wholeMPIdispersion grid:')
-        call report(wholeMPIdispersion_grid)
-        call set_error('Bad emission correction background grid', 'emission_from_grads')
-        return
-      end if
-      !if (.not. fu_cmp_verts_eq(fu_silamVert_of_grads(ind_gf), dispersion_vertical)) then
-      !  call msg('Vertical for emission correction background field:')
-      !  call report(fu_silamVert_of_grads(ind_gf))
-      !  call msg('Dispersion vertical:')
-      !  call report(dispersion_vertical)
-      !  call set_error('Bad emission correction background vertical', 'emission_from_grads')
-      !  return
-      !end if
-      call smpi_get_decomposition(nx, ny, offx, offy, gnx, gny)
-      if (nx /= gnx .or. ny /= gny) then
-        call set_error("MPI emission_from_grads not implemented yet", "emission_from_grads")
-        return
-      endif
-
-      input_grid_data => fu_work_array(gnx*gny)
-
-      nsp_emis = size(emission_species)
-      do isp = 1, nsp_emis
-        fid = fu_set_field_id(met_src_missing, emission_scaling_flag, valid_time, zero_interval, &
-                            & wholeMPIdispersion_grid, surface_level, &
-                            & species=emission_species(isp))
-        if (error) return
-        call read_field_from_grads_id(ind_gf, fid, input_grid_data)
-        if (error) return
-        ind_start = isp
-        step = nsp_emis
-        ind_end = ind_start + (fs_dispersion-1)*step
-          p_emis(ind_start:ind_end:step) = max(input_grid_data(1:fs_dispersion), 0.0)
-      end do
-      
-      call close_gradsfile_i(ind_gf)
-      call free_work_array(input_grid_data)
-      
-    end subroutine emission_from_grads
-
-    !=================================================================
+    !==========================================================================
     
     subroutine test_time_hgt_from_file()
       implicit none
@@ -1504,7 +1512,8 @@ module da_common
         end do
       end if
     end subroutine time_hgt_from_file
-  end subroutine control_from_files
+
+  end subroutine background_from_files
 
   !*****************************************************************************
   
@@ -1530,7 +1539,8 @@ module da_common
     type(da_rules), pointer :: rules
     character(len=worksize_string) :: nl_content
     character(len=*), parameter :: sub_name = 'set_da_rules'
-    integer :: ind_obs, num_obs_items, stat
+    integer :: ind_obs, stat, n_assim, n_eval, file_unit
+    type(Tsilam_namelist), pointer :: nlPtr_list
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: items
     logical :: need_emission, need_initial
     integer :: ind_subst, num_subst, num_items, ind_step, int_content
@@ -1563,101 +1573,130 @@ module da_common
 
     rules%allow_negative = rules%method == flag_3dvar
 
-
     ! Parse parameters without any analysis
     nl_content = fu_content(nlptr, 'assimilation_window')
-    rules%da_window = interval_missing
-    if (nl_content /= '') rules%da_window = fu_set_named_interval(nl_content)
-    if (error) then
-      call set_error("assimilation_window",sub_name)
+    if (nl_content == '')then
+      rules%assim_window = interval_missing
+    else
+      rules%assim_window = fu_set_named_interval(nl_content)
+    endif
+    if(fu_fails(.not.error, "failed assimilation_window",sub_name))return
+
+    !!More meaningful response for old syntax
+    call get_items(nlptr, 'assimilation_interval', items, num_items)
+    if (num_items > 0) then
+      call set_error("assimilation_interval is obsolete, please replcae with interval_between_assimilations", sub_name)
       return
     endif
-    nl_content = fu_content(nlptr, 'assimilation_interval')
-    rules%assim_interval = interval_missing
-    if (nl_content /= '') rules%assim_interval = fu_set_named_interval(nl_content)
-    if (error) then
-      call set_error("assimilation_interval",sub_name)
-      return
+
+
+    nl_content = fu_content(nlptr, 'interval_between_assimilations')
+    if (nl_content == '')then
+      rules%interval_btwn_assim = interval_missing
+    else
+      rules%interval_btwn_assim = fu_set_named_interval(nl_content)
     endif
+    if(fu_fails(.not.error, "failed interval_between_assimilations",sub_name))return
+
     nl_content = fu_content(nlptr, 'smoother_step')
-    rules%smoother_step = interval_missing
-    if (nl_content /= '') rules%smoother_step = fu_set_named_interval(nl_content)
-    if (error) then
-      call set_error("smoother_step",sub_name)
-      return
+    if (nl_content == '')then
+      rules%smoother_step = interval_missing
+    else
+      rules%smoother_step = fu_set_named_interval(nl_content)
     endif
+    if(fu_fails(.not.error, "failed smoother_step",sub_name))return
 
-    ! These two are used only for ensemble  DAs so far
     nl_content = fu_content(nlptr, 'first_analysis_time')
-    rules%first_analysis_time = time_missing
-    if (nl_content /= '') rules%first_analysis_time = fu_io_string_to_time(nl_content)
-    if (error) then
-      call set_error("first_analysis_time",sub_name)
-      return
+    if (nl_content == '')then
+      rules%first_analysis_time = time_missing
+    else
+      rules%first_analysis_time = fu_io_string_to_time(nl_content)
     endif
+    if(fu_fails(.not.error, "failed first_analysis_time",sub_name))return
+
     nl_content = fu_content(nlptr, 'last_analysis_time')
-    rules%last_analysis_time = time_missing
-    if (nl_content /= '') rules%last_analysis_time = fu_io_string_to_time(nl_content)
-    if (error) then
-      call set_error("last_analysis_time",sub_name)
-      return
+    if (nl_content == '')then
+      rules%last_analysis_time = time_missing
+    else
+      rules%last_analysis_time = fu_io_string_to_time(nl_content)
     endif
+    if(fu_fails(.not.error, "failed last_analysis_time",sub_name))return
 
-
-
+    ! Structure of the simulations
     ! ini
+    ! pre-run / spin-up
     ! dump                   <---+
     ! assimilate                 |  
     ! run                    ----+
-
-
-    
-    ! Define the assimilation window. For 4D, the
-    ! assimilation window is just taken from the time window of the run.
+    ! post-run / forecasting
+    !
+    ! Time of each step depends on the method. In some cases, some steps are skipped
+    !
+    ! Define the assimilation times and intervals
+    !
     select case(rules%method)
+
       case(flag_4dvar,flag_h_matrix) 
+        !
+        ! assimilation window is taken from the time of the run. No timing in the DA namelist
+        !
+        if(fu_fails(.not.defined(rules%assim_window),"assimilation_window should not appear in the DA namelist for 4dvar",sub_name))return
+        if(fu_fails(.not.defined(rules%interval_btwn_assim),"interval_between_assimilations should not appear in the DA namelist for 4dvar",sub_name))return
+        if(fu_fails(.not.defined(rules%first_analysis_time),"first_analysis_time should not appear in the DA namelist for 4dvar",sub_name))return
+        if(fu_fails(.not.defined(rules%last_analysis_time),"last_analysis_time should not appear in the DA namelist for 4dvar",sub_name))return
         rules%da_begin = startTime
-        if (defined(rules%da_window)) then
-          call set_error("da_window should not appear in the DA namelist for 4dvar",sub_name)
+        rules%assim_window = periodToCompute
+        if (.not. fu_sec(rules%assim_window) > 0) then
+          call set_error('Bad assimilation window: '//fu_str(rules%assim_window), sub_name)
           return
-        else
-          rules%da_window = periodToCompute
-        endif
-        if (.not. fu_sec(rules%da_window) > 0) then
-            call set_error('Bad assimilation window: '//fu_str(rules%da_window), sub_name)
-            return
         endif
 
       case (flag_3dvar)
-          
-       if (defined(rules%da_window)) then
-          call msg_warning("Defined da_window. Please use assimilation_interval instead", sub_name)
-          if (.not. defined(rules%assim_interval)) then !! workaround for obsolete syntax
-             rules%assim_interval = rules%da_window
+        !
+        ! Instant assimilation, intervals between them are to be defined
+        !
+        if (defined(rules%assim_window)) then
+          call set_error("assimilation_window must not be defined for 3dvar. Use interval_between_assimilations", sub_name)
+          call unset_error('set_da_rules')
+          if (defined(rules%interval_btwn_assim)) then
+            call set_error("assim_window should not appear for 3dvar",sub_name)
+            return
           else
-             call set_error("da_window should not appear for 3dvar",sub_name)
-             return
+            ! workaround for obsolete syntax
+            rules%interval_btwn_assim = rules%assim_window
           endif
-       endif
-       rules%da_window = zero_interval
-       if (.not. fu_sec(rules%assim_interval) > 0) then
-           call set_error('Bad assimilation interval: '//fu_str(rules%assim_interval), sub_name)
-           return
-       endif
-       if (.not. defined(rules%first_analysis_time)) rules%first_analysis_time = startTime
-       if (.not. defined(rules%last_analysis_time) ) &
-                                  &rules%last_analysis_time =  startTime + periodToCompute
-
-
+        endif  ! assimilation_window is defined
+!        rules%da_begin = startTime
+        if (.not. defined(rules%first_analysis_time)) rules%first_analysis_time = startTime
+        if (.not. defined(rules%last_analysis_time) ) &
+                                  &rules%last_analysis_time = startTime + periodToCompute
+        rules%da_begin = rules%first_analysis_time
+        rules%assim_window = zero_interval  ! 3Dvar is instant
+        if (.not. fu_sec(rules%interval_btwn_assim) > 0) then
+          call set_error('Bad interval between assimilations: '//fu_str(rules%interval_btwn_assim), sub_name)
+          return
+        endif
+        ! There can be a spin-up before and forecast after the assimilation
+        if (.not. defined(rules%first_analysis_time)) rules%first_analysis_time = startTime
+        if (.not. defined(rules%last_analysis_time) ) &
+                                  &rules%last_analysis_time = startTime + periodToCompute
 
       case (flag_4dvar_seq)
-        call set_error("flag_4dvar_seq not implemented (YET?)", sub_name)
-        return
+        !
+        ! A series of 4D-var events, first started at the DA_begin, lasting
+        ! over assim_window, repeated after every interval_ttwn_assim
+        !
+        if(fu_fails(defined(rules%interval_btwn_assim),'Undefined interval_between_assimilations in 4Dvar-seq',sub_name))return
+        if(fu_fails(defined(rules%assim_window),'Undefined assim_window in 4Dvar-seq',sub_name))return
+        if (.not. defined(rules%first_analysis_time)) rules%first_analysis_time = startTime
+        if (.not. defined(rules%last_analysis_time) ) &
+                                  &rules%last_analysis_time = startTime + periodToCompute
+        rules%da_begin = rules%first_analysis_time
+
       case (flag_enkf,flag_enks)
 
         rules%da_begin = startTime ! will be later set according to the current step
         
-
         nl_content = fu_content(nlptr, 'smoother_step')
         if (rules%method == flag_enks .and. .not. defined(rules%smoother_step) ) then
             call msg('No smoother_step -- only single-time analysis')
@@ -1674,13 +1713,14 @@ module da_common
           do ind_step = 1, num_items
             int_content = fu_content_int(items(ind_step))
             if (fu_fails(int_content >= 0, 'Bad smoother_output_step', sub_name)) return
-            !if (rules%smoother_step*int_content > rules%assim_interval) then
+            !if (rules%smoother_step*int_content > rules%interval_btwn_assim) then
             !  call set_error('Requested smoother_output_step exceeds available', sub_name)
             !  return
             !end if
             rules%smoother_output_steps(ind_step) = int_content
           end do
           rules%num_smoother_output_steps = num_items
+          deallocate(items)
         else
           nullify(rules%smoother_output_steps)
           rules%num_smoother_output_steps = 0
@@ -1689,12 +1729,14 @@ module da_common
         if (.not. defined(rules%last_analysis_time)) then
           ! No assimilation at simulation end step; this would require extending beyond
           ! simulation end if 4d-var is used. 
-          rules%last_analysis_time = startTime + periodToCompute - rules%assim_interval
+          ! rules%last_analysis_time = startTime + periodToCompute - rules%interval_btwn_assim
+          ! This enables the last assimilation step, not sure why it was disabled above
+          rules%last_analysis_time = startTime + periodToCompute
         end if
 
-    case default
-      call set_error('Strange assimilation method', sub_name)
-      return
+      case default
+        call set_error('Strange assimilation method:' + fu_str(rules%method), sub_name)
+        return
     end select
 
     nl_content = fu_process_filepath(fu_content(nlPtr,'output_directory'))
@@ -1729,22 +1771,69 @@ module da_common
     ! The reprojection aliasing may be smoothed by randomization
     !
     rules%ifRandomise = .not. fu_str_u_case(fu_content(nlStandardSetup,'randomise_reprojection')) == 'NO'
+    if (error) return
 
     ! observation templates
+    ! obs_data_assim is a list of all types of data and their files, for assimilation
+    ! obs_data_eval is a list of all types of data and their files, for evaluation
+    ! If some files are numerous, they can be put to a separate list of files obs_list, which 
+    ! will be explored and added to obs_data_*
     !
-    if (error) return
-    call get_items(nlptr, 'obs_data', items, num_obs_items)
-    rules%num_obs_items = num_obs_items
-    if (num_obs_items > 0) then
-      allocate(rules%obs_items(num_obs_items), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
-      do ind_obs = 1, num_obs_items
-        rules%obs_items(ind_obs) = fu_content(items(ind_obs))
-      end do
-    end if
-    rules%obs_list_path = fu_content(nlptr, 'obs_list') ! may be empty
-    rules%station_path = fu_content(nlptr, 'station_list') ! may be empty if no surface obs
+    ! get the list of observations from external file and add to the main namelist
+    !
+    nl_content = fu_content(nlptr, 'obs_data_extra_list') ! may be empty or non-existing
+    if(nl_content /= '')then
+      call msg('Reading observation defs from ' + nl_content)
+      file_unit = fu_next_free_unit()
+      open(file=nl_content, unit=file_unit, iostat=stat)
+      if (fu_fails(stat == 0, 'Failed to open:' + nl_content, sub_name)) return
+      nlptr_list => fu_read_namelist(file_unit, .false.)
+      close(file_unit)
 
+      ! Good file?
+      if (fu_fails(associated(nlptr_list), 'No namelist read from obs_list', sub_name))return
+      !
+      ! Get the obs_data_* namelit items and add them to the main namelist
+      !
+      call get_items(nlptr_list, 'obs_data_assim', items, n_assim)
+      do ind_obs = 1, n_assim
+        call add_namelist_item(nlptr, 'obs_data_assim', fu_content(items(ind_obs)))
+      end do
+      deallocate(items)
+      call get_items(nlptr_list, 'obs_data_eval', items, n_eval)
+      if (fu_fails(n_assim + n_eval > 0, 'No obs_items_assim/eval in obs_list', sub_name)) return
+      do ind_obs = 1, n_eval
+        call add_namelist_item(nlptr, 'obs_data_eval', fu_content(items(ind_obs)))
+      end do
+      ! Done
+      call destroy_namelist(nlptr_list)
+      deallocate(items)
+    endif  ! if external file with obs data
+    
+    ! Now, handle the observation templates
+    ! obs_data_* is a list of all types of data and their files
+    ! Carefully join the obs_items, first the ones to assimilate, then ones for evaluation
+    !
+    call get_items(nlptr, 'obs_data_eval', items, n_eval)
+    call get_items(nlptr, 'obs_data_assim', items, n_assim)  ! items are now for assimilation
+    if (error) return
+    rules%num_obs_files_assim = n_assim
+    rules%num_obs_files_eval = n_eval
+    if(fu_fails(n_assim > 0,'No obs_data_assim lines in the namelist',sub_name))return
+
+    allocate(rules%obs_files(n_assim + n_eval), stat=stat)
+    if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
+    do ind_obs = 1, n_assim
+      rules%obs_files(ind_obs) = fu_content(items(ind_obs))
+    end do
+    call get_items(nlptr, 'obs_data_eval', items, n_eval)
+    do ind_obs = 1, n_eval
+      rules%obs_files(ind_obs + n_assim) = fu_content(items(ind_obs))
+    end do
+    !
+    ! For in-situ obseravtions, one need to provide station_list, if any
+    !
+    rules%station_path = fu_content(nlptr, 'station_list') ! may be empty if no surface obs
 
     ! assimilated species
     !
@@ -1855,12 +1944,12 @@ module da_common
 
       if (fu_have_emission_volc(rules%perturbVariable)) then
         ! set some ze-emission specific rules
-        rules%time_height_mode = processor_tm_hgt_force
-        rules%emis_time_slot = rules%da_window
+        rules%time_height_mode = processor_tm_hgt_force_flag
+        rules%emis_time_slot = rules%assim_window
       else if (fu_have_emission_zt(rules%perturbVariable)) then
-        rules%time_height_mode = processor_tm_hgt_scale
+        rules%time_height_mode = processor_tm_hgt_scale_flag
       else if (fu_have_emission_xy(rules%perturbVariable)) then
-        rules%emis_time_slot = rules%da_window
+        rules%emis_time_slot = rules%assim_window
       end if
 
       ! Background/perturbation covariances
@@ -1889,13 +1978,20 @@ module da_common
       call get_real_param(nlptr, 'emis_corr_dist', rules%emis_corr_dist, .true., .false., sub_name)
       call get_real_param(nlptr, 'emis_max_corr', rules%emis_max_corr, .true., .false., sub_name)
 
+      ! Boundary condition perturbations
+      call get_real_param(nlptr, 'boundary_stdev', rules%boundary_stdev, .true., .false., sub_name)
+      call get_real_param(nlptr, 'boundary_corr_dist', rules%boundary_corr_dist, .true., .false., sub_name)
+      call get_real_param(nlptr, 'boundary_max_corr', rules%boundary_max_corr, .true., .false., sub_name)
+      call get_real_param(nlptr, 'O3_boundary_pert_fact', rules%O3_boundary_pert_fact, .true., .false., sub_name)
+      call get_real_param(nlptr, 'dust_boundary_pert_fact', rules%dust_boundary_pert_fact, .true., .false., sub_name)
+      
       ! volcanic emission parametric perturbations
       !
       if (iand(control_emis_volc, rules%perturbVariable) /= 0) then
         call get_real_param(nlptr, 'volc_massflux_scaling', rules%volc_massflux_scaling, &
                           & if_positive=.true., if_required=.true., caller=sub_name)
         call get_real_param(nlptr, 'volc_volflux_sigma', rules%volc_volflux_sigma, .true., .true., sub_name)
-        call get_real_param(nlptr, 'volc_volflux_mean_base_10_exponent', rules%volc_volflux_mode, .true., .true., sub_name)
+        call get_real_param(nlptr, 'volc_volflux_mean_base_10_exponent', rules%volc_volflux_mode, .false., .true., sub_name)
         call get_real_param(nlptr, 'volc_height_sigma', rules%volc_height_sigma, .true., .false., sub_name)
         call get_real_param(nlptr, 'volc_height_exp', rules%volc_height_exp, .false., .false., sub_name)
         call get_real_param(nlptr, 'volc_height_scaling', rules%volc_height_scaling, &
@@ -2024,11 +2120,11 @@ module da_common
         end if
         select case(fu_str_l_case(fu_content(nlptr, 'time_height_mode')))
         case ('force')
-          rules%time_height_mode = processor_tm_hgt_force
+          rules%time_height_mode = processor_tm_hgt_force_flag
         case ('scale', '')
-          rules%time_height_mode = processor_tm_hgt_scale
+          rules%time_height_mode = processor_tm_hgt_scale_flag
         case ('force_weighted')
-          rules%time_height_mode = processor_tm_hgt_force_wgt
+          rules%time_height_mode = processor_tm_hgt_force_wgt_flag
         case default
           call set_error('Bad time_height_mode', sub_name)
           return
@@ -2049,13 +2145,16 @@ module da_common
 
       ! Background fields
       !
+      nl_content = fu_str_l_case(fu_content(nlptr, 'ignore_deviation_from_background'))
+      rules%no_background_term = nl_content == 'yes'
+      if (rules%no_background_term) call msg_warning('Background term disabled in cost function!')
+
       nl_content = fu_content(nlPtr,'initial_state_background_file')
       if (nl_content /= '') then
         nl_content = fu_process_filepath(nl_content, must_exist=.true.)
         rules%have_init_background = .true.
         if (error) return
       else
-        call msg_warning('No background given for initial state')
         rules%have_init_background = .false.
       end if
       rules%initialStateBgrFile = nl_content
@@ -2066,18 +2165,13 @@ module da_common
         rules%have_emis_background = .true.
         if (error) return
       else
-        call msg_warning('No background given for emission correction')
         rules%have_emis_background = .false.
       end if
       rules%emissionCorrectionBgrFile = nl_content
 
-      nl_content = fu_str_l_case(fu_content(nlptr, 'disable_background'))
-      rules%no_background_term = nl_content == 'yes'
-      if (rules%no_background_term) call msg_warning('Background term disabled in cost function!')
-
       nl_content = fu_str_l_case(fu_content(nlptr, 'zero_emis_backgr'))
       rules%use_zero_emis_backgr = nl_content == 'yes'
-
+      !
       ! Background/perturbation covariances
       !
       need_initial = fu_have_initial(rules%controlVariable)
@@ -2110,7 +2204,7 @@ module da_common
 
       character(len=fnlen) :: nl_content
       real :: nl_content_real
-      character(len=*), parameter :: sub_name = 'set_nemerics'
+      !
       ! Minimization parameters. Defaults are in the type definition.
       !
       nl_content_real = fu_content_int(nlPtr,'max_iterations')
@@ -2119,12 +2213,9 @@ module da_common
       nl_content_real = fu_content_real(nlPtr, 'cost_rel_tol')
       if (.not. (nl_content_real .eps. real_missing)) numerics%cost_rel_tol = nl_content_real
 
-      nl_content_real = fu_content_real(nlPtr, 'minimum_step')
+      nl_content_real = fu_content_real(nlPtr, 'minimum_step')   ! steepest descent only
       if (.not. (nl_content_real .eps. real_missing)) numerics%minimumStepLength = nl_content_real
       
-      !nl_content_real = fu_content_real(nlPtr, 'min_move')
-      !if (.not. (nl_content_real .eps. real_missing)) numerics%minmax = nl_content_real
-
       nl_content_real = fu_content_real(nlPtr, 'grad_rel_tol')
       if (.not. (nl_content_real .eps. real_missing)) numerics%grad_rel_tol = nl_content_real
       
@@ -2139,17 +2230,17 @@ module da_common
 
       nl_content = fu_content(nlptr, 'search_method')
       select case(nl_content)
-      case ('steepest_descent')
-        numerics%searchMethod = steepest_descent_flag
-      case ('m1qn3')
-        numerics%searchMethod = m1qn3_flag
-      case ('l_bfgs_b')
-        numerics%searchMethod = l_bfgs_b_flag
-      case ('')
-        call msg_warning('No search_method, will use default')
-      case default
-        call set_error('Strange search_method: ' // trim(nl_content), sub_name)
-        return
+        case ('steepest_descent')
+          numerics%searchMethod = steepest_descent_flag
+        case ('m1qn3')
+          numerics%searchMethod = m1qn3_flag
+        case ('l_bfgs_b')
+          numerics%searchMethod = l_bfgs_b_flag
+        case ('')
+          call msg_warning('No search_method, will use default')
+        case default
+          call set_error('Strange search_method: ' // trim(nl_content), 'set_numerics')
+          return
       end select
 
     end subroutine set_numerics
@@ -2163,7 +2254,7 @@ module da_common
     implicit none
     type(da_rules), intent(in) :: darules
 
-    num_slots = ceiling(darules%da_window / darules%emis_time_slot)
+    num_slots = ceiling(darules%assim_window / darules%emis_time_slot)
     
   end function fu_num_emis_time_slots
 
@@ -2195,7 +2286,7 @@ module da_common
     slot_interval = darules%emis_time_slot
     if (fu_fails(.not. (slot_interval == interval_missing), &
                & 'slot_interval not defined', 'get_emis_time_slots')) return
-    num_slots = fu_num_emis_time_slots(darules) !ceiling(darules%da_window / slot_interval)
+    num_slots = fu_num_emis_time_slots(darules) !ceiling(darules%assim_window / slot_interval)
     if (allocate_slots) then
       allocate(ptr_slots(2,num_slots), stat=stat)
       if (fu_fails(stat == 0, 'Allocate failed', 'get_emis_time_slots')) return
@@ -2206,8 +2297,8 @@ module da_common
     do ind_slot = 2, num_slots
       slots(slot_start, ind_slot) = slots(slot_end, ind_slot-1)
       slots(slot_end, ind_slot) = slots(slot_start, ind_slot) + slot_interval
-      if (slots(slot_end, ind_slot) > darules%da_begin + darules%da_window) then
-        slots(slot_end, ind_slot) = darules%da_begin + darules%da_window
+      if (slots(slot_end, ind_slot) > darules%da_begin + darules%assim_window) then
+        slots(slot_end, ind_slot) = darules%da_begin + darules%assim_window
       end if
       if (fu_fails(.not. slots(slot_end, ind_slot) == slots(slot_start, ind_slot), &
                  & 'Bad time slot', 'get_emis_time_slots')) return
@@ -2215,6 +2306,176 @@ module da_common
       
   end subroutine get_emis_time_slots
 
+  
+  !*****************************************************************************
+  
+  subroutine report_da_rules(darules)
+  
+    implicit none
+    
+    type(DA_rules), intent(in) :: darules
+    
+    integer :: iTmp
+
+    call msg('=====================  DA rules ======================')
+    if(.not. darules%defined)then
+      call msg('Undefined darules')
+      return
+    endif
+    select case(darules%method)
+    case (flag_3dvar)
+        call msg('3D-VAR')
+      case (flag_4dvar)
+        call msg('4D-VAR')
+      case (flag_4dvar_seq)
+        call msg('4D_SEQ')
+      case (flag_h_matrix)
+        call msg('MATRIX')
+      case (flag_enkf)
+        call msg('ENKF')
+      case (flag_enks)
+        call msg('ENKS')
+      case default
+        call set_error('Unknown DA methos','report_da_rules')
+        return
+    end select
+
+    call msg('DA_begin=' + fu_str(darules%DA_begin) + &
+            & ', first_analysis_time=' + fu_str(darules%first_analysis_time) + &
+            & ', last_analysis_time=' + fu_str(darules%last_analysis_time))
+    call msg('assim_window=' + fu_str(darules%assim_window))
+    call msg('interval_btwn_assim=' + fu_str(darules%interval_btwn_assim))
+    if(darules%ifRandomise)then
+      call msg('With randomising')
+    else
+      call msg('no randomization')
+    endif
+    if(darules%use_log_cloud)then
+      call msg('With use_log_cloud')
+    else
+      call msg('no use_log_cloud')
+    endif
+    if(darules%use_log_obs)then
+      call msg('With use_log_obs')
+    else
+       call msg('no use_log_obs')
+    endif
+    call msg('observation_stdev, emission_stdev, emis_corr_dist, emis_max_corr:', &
+            & (/darules%observation_stdev, darules%emission_stdev, darules%emis_corr_dist, darules%emis_max_corr/))
+    call msg('controlVariable, perturbVariable', (/darules%controlVariable, darules%perturbVariable/))
+    call msg('tolerance, weightNonzero, weightZero', &
+           & (/darules%tolerance, darules%weightNonzero, darules%weightZero/))
+     
+    call report(darules%cov_setup_templ_init)
+    call report(darules%cov_setup_templ_emis)
+    call msg('station_path=' + darules%station_path)
+    do iTmp = 1, size(darules%obs_files) 
+      if(trim(darules%obs_files(iTmp)) == '')exit
+      call msg('obs_file = ' // trim(darules%obs_files(iTmp)))
+    end do
+    call msg('num_obs_files_assim, num_obs_files_eval =', darules%num_obs_files_assim, darules%num_obs_files_eval)
+    do iTmp = 1, size(darules%analysis_subst_list_3d)
+      if(trim(darules%analysis_subst_list_3d(iTmp)) =='')exit
+      call msg('analysis substance:' + darules%analysis_subst_list_3d(iTmp))
+    end do
+    call msg('Emis time slot =' + fu_str(darules%emis_time_slot))
+    call msg('time_height_mode', darules%time_height_mode)
+    call msg('h_matrix_unit = ',darules%h_matrix_unit)
+    call msg('outputDir = ' // darules%outputDir)
+    call msg('outdir_templ_str = ' // darules%outdir_templ_str)
+
+    select case(darules%numerics%searchMethod)
+      case(steepest_descent_flag)
+        call msg('Search by steepest_descent')
+      case (m1qn3_flag)
+        call msg('Search by m1qn3')
+      case(l_bfgs_b_flag)
+        call msg('Search by l_bfgs_b')
+      case default
+        call msg_warning('Strange search_method: ' + fu_str(darules%numerics%searchMethod), 'report_da_rules')
+    end select
+    call msg('maxIterations = ', darules%numerics%maxIterations)
+    call msg('cost_rel_tol, minimumStepLength, grad_rel_tol', (/darules%numerics%cost_rel_tol, &
+           & darules%numerics%minimumStepLength, darules%numerics%grad_rel_tol/))
+    call msg('quasi_newton_df1, cost_incr_rel_tol, cost_rel_tol', (/darules%numerics%quasi_newton_df1, &
+           & darules%numerics%cost_incr_rel_tol, darules%numerics%cost_rel_tol/))
+
+    call msg('da_output = ', darules%output_level, darules%ind_obs)
+    if(darules%allow_negative)then
+      call msg('negatives in mass map are allowed')
+    else
+      call msg('negatives in mass map are allowed')
+    endif
+    call msg('initialStateBgrFile = ' // trim(darules%initialStateBgrFile))
+    call msg('emissionCorrectionBgrFile = ' // trim(darules%emissionCorrectionBgrFile))
+    if(darules%have_init_background)then
+      call msg('have_init_background')
+    else
+      call msg('NOT have_init_background')
+    endif
+    if(darules%have_emis_background)then
+      call msg('have_emis_background')
+    else
+      call msg('NOT have_emis_background')
+    endif
+    call msg('adjointMethod = ', darules%adjointMethod)
+    if(darules%log_transform)then
+      call msg('log_transform')
+    else
+      call msg('NOT log_transform')
+    endif
+    if(darules%no_background_term)then
+      call msg('no_background_term')
+    else
+      call msg('NOT no_background_term')
+    endif
+    if(darules%use_zero_emis_backgr)then
+      call msg('use_zero_emis_backgr')
+    else
+      call msg('NOT use_zero_emis_backgr')
+    endif
+    if(darules%restart_iteration)then
+      call msg('restart_iteration')
+    else
+      call msg('NOT restart_iteration')
+    endif
+    if(darules%run_forecast)then
+      call msg('run_forecast')
+    else
+      call msg('NOT run_forecast')
+    endif
+    call msg('ens_size, emis_corr_time =', darules%ens_size, darules%emis_corr_time)
+
+    call msg('volc_massflux_scaling, volc_volflux_corr_time, volc_volflux_sigma', &
+           & (/darules%volc_massflux_scaling, darules%volc_volflux_corr_time, darules%volc_volflux_sigma/))
+    call msg('volc_volflux_mode, volc_height_exp, volc_height_sigma', &
+           & (/darules%volc_volflux_mode, darules%volc_height_exp, darules%volc_height_sigma/))
+    call msg('volc_fract_mass_top, volc_fract_height_top, volc_fract_height_sigma', &
+           & (/darules%volc_fract_mass_top, darules%volc_fract_height_top, darules%volc_fract_height_sigma/))
+     
+    call msg('loc_type, enkf_flavor', darules%loc_type, darules%enkf_flavor)
+    call msg('loc_dist_m, rfactor, zt_loc_lon, zt_loc_lat', &
+           & (/darules%loc_dist_m, darules%rfactor, darules%zt_loc_lon, darules%zt_loc_lat/))
+    if(darules%enkf_master_only)then
+      call msg('enkf_master_only')
+    else
+      call msg('NOT enkf_master_only')
+    endif
+    call msg('smoother_step =' + fu_str(darules%smoother_step))
+    if(darules%num_smoother_output_steps > 0)then
+      call msg('smoother output steps,' + fu_str(darules%num_smoother_output_steps) + ':', &
+             & darules%smoother_output_steps)
+    else
+      call msg('No smoother steps')
+    endif
+    call msg('not reporting perturb_meteo')
+
+    call msg('===================== end DA rules ======================')
+    call msg('')
+
+  end subroutine report_da_rules
+  
+  
   !**********************************************************************************
 
   subroutine to_physical(control, background, control_phys)
@@ -2298,32 +2559,31 @@ module da_common
       real, dimension(:) :: physvals, controlvals, bgrvals 
       !real, dimension(:), pointer :: stdev, bgrvals, modelvals
       
-      integer :: ii, stat
+      integer :: ii, n
       real, dimension(:), pointer :: work
       
 !      call msg('size(physvals), size(controlvals)', size(physvals), size(controlvals))
 !      call msg('size(bgrvals)', size(bgrvals))
-      
-      if (.not. allocated(transf_work)) then
-        allocate(transf_work(size(physvals)), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'to_physical')) return
-      else if (size(transf_work) < size(physvals)) then
-        deallocate(transf_work)
-        allocate(transf_work(size(physvals)), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'to_physical')) return
-      end if
 
-      work => transf_work(1:size(controlvals))
+      n = size(controlvals)
+      
       if (defined(correlation)) then
-        work(:) = controlvals(:) ! to avoid changing controlvals
-        call transf_fwd(correlation, work, physvals)
+        work => fu_work_array(n)
+        work(1:n) = controlvals(1:n) ! to avoid changing controlvals
+        call transf_fwd(correlation, work(1:n), physvals)
+        call free_work_array(work)
       else
-        physvals = controlvals
+        ! If correlator is not defined, these two are of identical size
+        physvals(1:n) = controlvals(1:n)
       end if
       ! standard deviation + background
+      !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ii)
+      !$OMP DO
       do ii = 1, size(physvals)
         physvals(ii) = stdev(ii)*physvals(ii) + bgrvals(ii)
       end do
+      !$OMP END DO
+      !$OMP END PARALLEL
 
     end subroutine apply_cov
 
@@ -2405,32 +2665,27 @@ module da_common
       real, dimension(:) :: controlvals, physvals ! no intent to allow pointers (above)
 
       real, dimension(:), pointer :: work
-      integer :: ii
+      integer :: ii, n
+      
+      n = size(physvals)
 
-      if (.not. allocated(transf_work)) then
-        allocate(transf_work(size(physvals)), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'to_control')) return
-      else if (size(transf_work) < size(physvals)) then
-        deallocate(transf_work)
-        allocate(transf_work(size(physvals)), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'to_control')) return
-      end if
-
-      work => transf_work(1:size(physvals))
+      work => fu_work_array(n)
       !call msg('sum of modelvals before stdev:', sum(physvals))
       !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ii)
       !$OMP DO
-      do ii = 1, size(physvals)
-        work(ii) = stdev(ii)*physvals(ii)
+      do ii = 1, n
+        work(ii) = stdev(ii) * physvals(ii)
       end do
       !$OMP END DO
       !$OMP END PARALLEL
       !call msg('sum of modelvals before:', sum(work(1:size(physvals))))
       if (defined(correlation)) then
-        call transf_adj(correlation, work(1:size(physvals)), controlvals)
+        call transf_adj(correlation, work(1:n), controlvals)
       else
-        controlvals = work
+        ! if correlation is not defined, these should be of same size
+        controlvals(1:n) = work(1:n)
       end if
+      call free_work_array(work)
       !call msg('sum of modelvals after:', sum(controlvals))
     end subroutine apply_cov
 
@@ -2439,8 +2694,9 @@ module da_common
   !************************************************************************************
 
   subroutine recover_control(control_phys, control, background)
-    ! This subroutine attempts to perform inverse of to_physical. Works only if diagonal B
-    ! is used.
+    !
+    ! This subroutine attempts to perform inverse of to_physical. Works only if diagonal B is used.
+    !
     implicit none
     type(da_control), intent(in) :: control_phys, background
     type(da_control), intent(inout) :: control
@@ -2486,7 +2742,7 @@ module da_common
     if (fu_mode(control) == DA_EMISSION_CORRECTION .or. fu_mode(control) == DA_EMISSION_AND_INITIAL &
       & .or. fu_mode(control) == DA_EMISSION_TIME_HEIGHT) then
       if (.not. fu_is_diagonal(p_bgr_cov%correlation_emission)) then
-        call set_error('Initial state correlation not diagonal', sub_name)
+        call set_error('Emission correlation not diagonal', sub_name)
         return
       end if
       p_values_ctrl => fu_emission_ptr(control)
@@ -2832,12 +3088,12 @@ module da_common
       character(len=fnlen) :: file_name, quantity_name, stdev_input
       character(len=substNmLen) :: subst_name
       real :: stdev_const, stdev_a, stdev_b
-      type(t_spatial_correlation), dimension(:), pointer :: correlations
+      type(t_spatial_correlation), dimension(:), pointer :: correl
 
       p_items => null()
       num_species = size(analysis_species)
 
-      allocate(correlations(num_species), stat=stat)
+      allocate(correl(num_species), stat=stat)
       if (fu_fails(stat == 0, 'Allocate failed', 'set_cov_mdl')) return
       species_ok(:) = .false.
 
@@ -2871,7 +3127,7 @@ module da_common
             ind_species = subst_indices(ind_selected)
             ! do not override with '*' as substance
             if (species_ok(ind_species) .and. subst_name == char_missing) cycle 
-            call set_spatial_corr_from_nl(nlptr, analysis_grid, correlations(ind_species))
+            call set_spatial_corr_from_nl(nlptr, analysis_grid, correl(ind_species))
             if (error) return
 
             !ind_start_species = (ind_species-1) * num_vals_3d + 1
@@ -2936,7 +3192,6 @@ module da_common
               call set_error('Strange stdev_method: ' // trim(fu_content(nlptr, 'stdev_method')), &
                            & 'set_cov_mdl')
               return
-
             end select
             
             species_ok(ind_species) = .true.
@@ -2953,10 +3208,13 @@ module da_common
         end if
       end do
 
-      ! Finally combine the separate correlations into one:
-      call set_total_correlation(correlations, analysis_grid, analysis_vertical, num_species, correlation)
-      !!FIXME Should be deallocated, but used elsewhere via pointers
-      !!deallocate (correlations) 
+      ! Finally combine the separate correl into one item.
+      ! Do NOT deallocate correl - the "correlation" will have a pointer set to it. No reason
+      ! to copy and then destroy the original - this is a static metadata variable, released at the
+      ! end of the run
+      call set_total_correlation(correl, analysis_grid, analysis_vertical, num_species, correlation)
+      if(error)return
+      
     end subroutine set_cov
 
     !========================================================
@@ -3352,6 +3610,7 @@ module da_common
   !************************************************************************************
 
   subroutine get_posit_constr(control_template, background, bgr_cov, lower_bounds, bounds_defined)
+    !
     ! Get the positivity constraint (lower boundary) in control space. Depends on the
     ! background standard deviation, and only possible if the correlation matrix is
     ! diagonal.
@@ -3362,62 +3621,138 @@ module da_common
     ! The diagonality is required blockwise; this is now by control variable component
     ! (emission/initial), however, in absence of chemical correlations it would be
     ! possible to extend this to species level.
+    !
     implicit none
+    
+    ! Imported parameters
     type(da_control), intent(in) :: background, control_template
     type(t_background_covariance), intent(in) :: bgr_cov
-    
-    ! this is used by l_bfgs_b, so real(8)
+    !
+    ! this is used by l_bfgs_b, so real(8). Seem to be in control space
     real(r8k), dimension(:), intent(out) :: lower_bounds
     integer, dimension(:), intent(out) :: bounds_defined
     
-    real, dimension(:), pointer :: stdev, mask, set_mask, values
-    
+    ! Local variables
+    real, dimension(:), pointer :: stdev, mask, values, values_bckgr
     type(da_control) :: control_bnd, control_stdev
+    logical :: ifInitConstrain, ifEmisConstrain
+    integer :: n_data, n_start
 
-    call msg('Checking positivity constraint...')
+    !
+    ! If a parameter is assimilated, its correlation must be defined, either as none
+    ! or something meaningful. Positiveness constrain can be set only to none-correlations
+    !
+    ifInitConstrain = .false.
+    if(defined(bgr_cov%correlation_initial))then
+      if (fu_is_diagonal(bgr_cov%correlation_initial)) then
+        call msg('Setting constraint for intitial state')
+        ifInitConstrain = .true.
+      else
+        call msg('Constraint not available for initial state')
+      end if
+    else
+      call msg('No initial state assimilation')
+    endif
 
+    ifEmisConstrain = .false.
+    if(defined(bgr_cov%correlation_emission))then
+      if (fu_is_diagonal(bgr_cov%correlation_emission)) then
+        call msg('Setting constraint for emission')
+        ifEmisConstrain = .true.
+      else
+        call msg('Constraint not available for emission')
+      end if
+    else
+      call msg('No emission assimilation')
+    endif
+    !
+    ! Anything to set?
+    !
+    if(.not.(ifInitConstrain .or. ifEmisConstrain))then
+      bounds_defined = 0   ! nothing, actually...
+      lower_bounds = real_missing
+      return
+    endif
+    !
+    ! Proceed for those we can...
+    !
+#ifdef DEBUG
+    call msg('Reporting background control 1')
+    call report(background)
+    call msg('Reporting control_template control 1')
+    call report(control_template)
+#endif
+    !
     ! The trick is to use the operations on control variables: knowing their mathematical
-    ! definition we don't care of the physical meaning.
-    
+    ! definition we don't care of the physical meaning, i.e., initial and emission corrections are
+    ! handled together
+    !
     if (fu_fails(.not. fu_in_physical_space(control_template), 'Need template in control space', &
                & 'get_posit_constr')) return
     call copy_control(control_template, control_bnd, if_allocate=.true.) ! in control space
     call copy_control(background, control_stdev, if_allocate=.true.) ! in physical space
     values => fu_values_ptr(control_bnd)
     values = 1.0
+#ifdef DEBUG
+    call msg('Reporting control_bnd control 2')
+    call report(control_bnd)
+    call msg('Reporting control_stdev control 2')
+    call report(control_stdev)
+#endif
     call to_physical(control_bnd, background, control_stdev)
     values => fu_values_ptr(control_stdev)
-    ! now values = stdev + background
-    values = values - fu_values_ptr(background)
+    values_bckgr => fu_values_ptr(background)
+#ifdef DEBUG
+    call msg('Reporting control_stdev control 3')
+    call report(control_stdev)
+#endif
+    ! now values = stdev + background, subtract the background
+    values = values - values_bckgr
     stdev => values
-    where (stdev > 0)
-      lower_bounds = -fu_values_ptr(background) / stdev
-    elsewhere
-      ! may happen if B is non-diagonal. Lower boundary will not be set (see below).
-      lower_bounds = real_missing
-    end where
+    
+    ! Must choose only the block(s) that has none-correlation
+    !
+    if(ifInitConstrain)then
+      n_start = control_template%shift_initial
+      n_data = fu_n_initial(control_template)
+      where (stdev(n_start:n_start+n_data-1) > 0)
+        lower_bounds(n_start:n_start+n_data-1) = - values_bckgr(n_start:n_start+n_data-1) &
+                                               & / stdev(n_start:n_start+n_data-1)
+      elsewhere
+        ! may happen if B is non-diagonal. Lower boundary will not be set (see below).
+        lower_bounds(n_start:n_start+n_data-1) = real_missing
+      end where
+    else
+      if(fu_have_initial(fu_mode(control_bnd)))then
+        mask => fu_initial_ptr(control_bnd)
+        mask = 1
+      endif
+    endif  ! ifInitConstrain
+
+    if(ifEmisConstrain)then
+      n_start = control_template%shift_emission
+      n_data = fu_n_emission(control_template)
+      where (stdev(n_start:n_start+n_data-1) > 0)
+        lower_bounds(n_start:n_start+n_data-1) = - values_bckgr(n_start:n_start+n_data-1) &
+                                               & / stdev(n_start:n_start+n_data-1)
+      elsewhere
+        ! may happen if B is non-diagonal. Lower boundary will not be set (see below).
+        lower_bounds(n_start:n_start+n_data-1) = real_missing
+      end where
+    else
+      if(fu_have_emission_xy(fu_mode(control_bnd)) .or. &
+       & fu_have_emission_zt(fu_mode(control_bnd)) .or. &
+       & fu_have_emission_volc(fu_mode(control_bnd)))then
+        mask => fu_emission_ptr(control_bnd)
+        mask = 1
+      endif
+    endif  ! ifEmisConstrain
+
     ! check that constraint can be used for each component: if correlation is defined, use
     ! the control_bnd to mask out elements corresponding to that component.
+    !
     bounds_defined = 1
-    mask => fu_values_ptr(control_bnd)
-    mask = 0
-
-    if (.not. fu_is_diagonal(bgr_cov%correlation_initial)) then
-      call msg('...constraint not available for initial state')
-      set_mask => fu_initial_ptr(control_bnd)
-      set_mask = 1
-    else
-      call msg('...constraint set for intitial state')
-    end if
-
-    if (.not. fu_is_diagonal(bgr_cov%correlation_emission)) then
-      call msg('...constraint not available for emission')
-      set_mask => fu_emission_ptr(control_bnd)
-      set_mask = 1
-    else
-      call msg('...constraint set for emission')
-    end if
-        
+    mask => fu_values_ptr(control_bnd)  ! anything left?
     where (mask > 0) bounds_defined = 0
 
     call destroy(control_bnd)
@@ -3451,10 +3786,10 @@ module da_common
     fu_have_emission_volc = iand(controlvar, control_emis_volc) /= 0
   end function fu_have_emission_volc
 
-  logical function fu_have_meteo_time(controlvar)
+  logical function fu_have_boundaries(controlvar)
     integer, intent(in) :: controlvar
-    fu_have_meteo_time = iand(controlvar, control_meteo_time) /= 0
-  end function fu_have_meteo_time
+    fu_have_boundaries = iand(controlvar, control_boundaries) /= 0
+  end function fu_have_boundaries
   
   function fu_get_control_bits(name) result(bits)
     character(len=*), intent(in) :: name
@@ -3468,6 +3803,8 @@ module da_common
       bits = control_emis_zt
     case ('emission_volc')
       bits = control_emis_volc
+    case ('boundary_condition')
+      bits = control_boundaries
     case default
       call set_error('Bad control variable: ' // trim(name), 'fu_get_control_bits')
     end select
@@ -3505,6 +3842,8 @@ module da_common
     character(len=*), parameter :: sub_name = 'control_to_file'
     type(silja_time) :: valid_time_
 
+    if (smpi_adv_rank /= 0) return !!! Only master has meaningful control to dump...
+
     grid=control%grid
 
 !    if (fu_control_includes(fu_mode(control), 'emission_volc')) then
@@ -3533,7 +3872,8 @@ module da_common
 
     select case (fu_mode(control))
     case (DA_INITIAL_STATE)
-      ind_file = open_gradsfile_o('', filename, grid)
+      ind_file = open_gradsfile_o('', filename, grid, &
+              & time_label_position = instant_fields) !! Not exactly true, but shoudl hit timestamp match
       if (error) return
       call msg('::initial to grads')
       call initial_to_grads(fu_initial_ptr(control_output), grid, &
@@ -3542,7 +3882,8 @@ module da_common
       call close_gradsfile_o(ind_file,"")
     
     case (DA_EMISSION_CORRECTION)
-      ind_file = open_gradsfile_o('', filename, grid)
+      ind_file = open_gradsfile_o('', filename, grid, &
+              & time_label_position = instant_fields) !! Not exactly true, but shoudl hit timestamp match
       if (error) return
       call emission_to_grads(fu_emission_ptr(control_output), grid, &
                            & fu_species_emission_ctrl(control), &
@@ -3550,7 +3891,8 @@ module da_common
       call close_gradsfile_o(ind_file,"")
 
     case (DA_EMISSION_AND_INITIAL)
-      ind_file = open_gradsfile_o('', filename, grid)
+      ind_file = open_gradsfile_o('', filename, grid, &
+              & time_label_position = instant_fields) !! Not exactly true, but shoudl hit timestamp match
       if (error) return
       call initial_to_grads(fu_initial_ptr(control_output), grid, &
                           & dispersion_vertical, fu_species_initial(control), &
@@ -3949,7 +4291,6 @@ module da_common
                                       & valid_time, zero_interval, &
                                       & control%grid, surface_level, &
                                       & species=species_list(isp))
-        
       end do
     end if
     
@@ -3961,5 +4302,249 @@ module da_common
   integer function fu_num_params_volc()
      fu_num_params_volc=7
   end function  fu_num_params_volc
+
+  
+  !***************************************************************
+  !
+  ! A bunch of routines for finding the best iteration using the L-curve based truncated iterations
+  !
+  !***************************************************************
+  
+
+  !***************************************************************
+
+  subroutine best_iter_L_curve(nIter, obs_err, bckgr_err, best_iter, fit_params)
+    !
+    ! Implementis L-curve truncated-iterations formalism
+    ! Stop criterion: critical_derivative = -0.1
+    ! Fitting now is done via simplex downhill minimization of RMSE.
+    !
+    implicit none
+    
+    ! Imported parameters:
+    integer, intent(in) :: nIter
+    real, dimension(:), intent(in) :: obs_err, bckgr_err
+    integer, intent(out) :: best_iter
+    real, dimension(:), intent(inout) :: fit_params
+
+    ! Local variables
+    real, parameter :: critical_derivative = -0.1
+    integer, parameter :: nParams = 2
+    real, dimension(nParams+1,nParams) :: P  ! array of simplex vectors
+    real, dimension(:), allocatable :: obs_err_rel, bckgr_err_rel, cartDistRel
+    integer, dimension(1) :: idx1d
+    real :: xFitCritRel, yFitCritRel
+    integer :: iter
+    
+    allocate(obs_err_rel(nIter), bckgr_err_rel(nIter), cartDistRel(nIter), stat=iter)
+      if (fu_fails(iter == 0, 'Allocate failed', 'best_iter_L_curve')) return
+    !
+    ! Normalise and find the best fitting
+    !
+    obs_err_rel(1:nIter) = obs_err(1:nIter) / maxval(obs_err(1:nIter))
+    bckgr_err_rel(1:nIter) = bckgr_err(1:nIter) / maxval(bckgr_err(1:nIter))
+    !
+    ! Define the simplex starting points. For fu_L_curve_log10_fit_RMSE, parameters
+    ! with values of ~0.5 and ~10 are acceptable. Two other vectors are around this one
+    !
+    if(any(fit_params(1:nParams) == real_missing))then
+      fit_params(1) = 0.5  ! for the curve fu_L_curve_log10_fit_RMSE, this is a good guess
+      fit_params(2) = 10.
+    endif
+    P(:,1) = fit_params(1)
+    P(:,2) = fit_params(2)
+    P(2,1) = fit_params(1) * 1.1
+    P(3,2) = fit_params(2) * 1.1
+    !
+    ! find the best fit
+    !
+    call L_curve_fit(fu_L_curve_log10_fit_RMSE,  nIter, nParams, bckgr_err_rel(1:nIter), &
+                   & log10(obs_err_rel(1:nIter)), P, fit_params)
+    if(error)return
+    
+    ! critical point on the curve determined via critical derivative
+    !
+    xFitCritRel = -1.0 / fit_params(2) * log(-critical_derivative / fit_params(1) / fit_params(2))
+    yFitCritRel = 10**fu_L_curve_log10(xFitCritRel, fit_params(1), fit_params(2))
+    !
+    ! Cartesian distance from this point and the nearest iteration
+    !
+    cartDistRel(1:nIter) = (bckgr_err_rel(1:nIter) - xFitCritRel)**2 &
+                         & + (obs_err_rel(1:nIter) - yFitCritRel)**2
+    idx1d = minloc(cartDistRel(1:nIter))
+    best_iter = idx1d(1)
+    !
+    ! may be, still plus one?
+    !
+    if(best_iter < nIter)then
+      if(bckgr_err_rel(best_iter+1) < bckgr_err_rel(best_iter) &
+       & .and. obs_err_rel(best_iter+1) < obs_err_rel(best_iter))then
+        best_iter = best_iter + 1
+      elseif(obs_err_rel(best_iter+1) < 0.9 * obs_err_rel(best_iter))then
+        best_iter = best_iter + 1
+      endif
+    endif
+    
+    deallocate(obs_err_rel, bckgr_err_rel, cartDistRel)
+
+  end subroutine best_iter_L_curve
+
+  
+  !********************************************************************************
+  
+  subroutine L_curve_fit(function_to_fit, nIterations, nParams, bckgr_err, obs_err, P, fit_params)
+    !
+    ! Finds the best-fit L-curve to the given set of points on observation and background deviations
+    !
+    implicit none
+    
+    ! Imported parameters
+    procedure(fu_func_AMOEBA_interface) :: function_to_fit
+    integer, intent(in) :: nIterations, nParams
+    real, dimension(:), intent(in) :: bckgr_err, obs_err
+    real, dimension(:,:), intent(inout) :: P
+    real, dimension(:), intent(inout) :: fit_params
+    
+    ! Local variables
+    real, parameter :: FTOL=1.e-4   ! Required tolerance
+    real, dimension(:), allocatable :: Y, arExtraInput
+    integer, dimension(1) :: idxMin
+    integer :: iTmp, n_minimization_steps
+    real :: fTmp
+    logical :: ifGO
+    integer :: verbosity
+
+    verbosity = 0
+    !
+    ! Simples is defined in the parameter space by matrix P(nParams+1,nParams), which are
+    ! the initial vectors of parameters, nParams+1 points
+    ! define NDIM+1 initial vertices (one by row)
+    !
+    allocate(arExtraInput(1+nIterations*2), Y(nParams+1), stat=iTmp)
+    if (fu_fails(iTmp == 0, 'Allocate failed', 'L_curve_fit')) return
+    !
+    ! Construct the arExtraInput to pass to minimizer
+    ! (nIter, bckgr_err, obs_err)
+    !
+    arExtraInput(1) = nIterations
+    arExtraInput(2:1+nIterations) = bckgr_err(1:nIterations)
+    arExtraInput(2+nIterations:1+nIterations*2) = obs_err(1:nIterations)
+    !
+    ! Get RMSE for the vectors in P (each point of the simplex)
+    !
+    do iTmp = 1, nParams+1
+      Y(iTmp) = function_to_fit(P(iTmp,:), arExtraInput)
+    end do
+    !
+    ! Call the minimizing subroutine. The last argument iVerbose = 0 means silent
+    ! 1 means full report to screen and log, 2 means only report to screen
+    !
+    if ( verbosity > 0) call msg('Calling optimiser for the first time...')
+    CALL AMOEBA(function_to_fit, P,Y, nParams, FTOL, arExtraInput, n_minimization_steps, verbosity)
+    if(error)return
+    !
+    ! The best point of the final simplex. 
+    !
+    idxMin = minloc(Y)  ! dimension of idxMin is equal to rank of Y: 1
+    fTmp = Y(idxMin(1))  ! store for the next step
+    !
+    ! Run the minimization again starting from this point. It is recommended to make sure 
+    ! that simplex did not get degenerated
+    !
+    ifGO = .true.
+    if(idxMin(1) /= 1) P(1,:) = P(idxMin(1),:)  ! the first vector is optimal
+    ! set other vectors
+    do iTmp = 1, nParams
+      P(iTmp+1,:) = P(1,:)  ! replicate the optimal
+      P(iTmp+1,iTmp) = P(1,iTmp) * 1.1  ! change one component by 10%
+    end do
+    !
+    ! RMSE for this simplex, also check for sanity
+    !
+    do iTmp = 1, nParams+1
+      Y(iTmp) = function_to_fit(P(iTmp,:), arExtraInput)
+      if(.not. Y(iTmp) == Y(iTmp)) ifGO = .false.  ! nan will fail here
+    end do
+    !
+    ! Call the minimizing subroutine
+    !
+    if(ifGO)then
+      if ( verbosity > 0) call msg('Calling optimiser for the second time...')
+      CALL AMOEBA(function_to_fit, P,Y, nParams, FTOL, arExtraInput, iTmp, verbosity)
+      if(error)return
+      !
+      ! Was the second run needed?
+      !
+      if((fTmp - minval(Y)) > 0.01 * (fTmp + minval(Y)))then
+        call msg('The second minimization step was needed. min1, min2:',fTmp, minval(Y))
+        call msg_warning('The second minimization step was needed','L_curve_fit')
+      endif
+      !
+      ! Final values
+      !
+      idxMin = minloc(Y)
+      fit_params(1:nParams) = P(idxMin(1),1:nParams)
+    else
+      call set_error('Setup for the second round failed','L_curve_fit')
+    endif
+
+  end subroutine L_curve_fit
+
+
+  !***************************************************************
+  
+  real function fu_L_curve_log10_fit_RMSE(arParams, arExtraInput)result(RMSE)
+    !
+    ! A function to call from the minimization routine. It calculates RMSE of the fit:
+    ! obs_err = fu_L_curve_log10(bckgr_err)
+    !
+    implicit none
+    
+    ! Imported parameters
+    real, dimension(:), intent(in) :: arParams, arExtraInput  ! (/params/), (/nVals,bckgr_err,obs_err/)
+    
+    ! Local variables
+    integer :: nIter, iVal
+    
+    ! How many iterations to fit?
+    nIter = nint(arExtraInput(1))
+    !
+    ! Get the RMSE of the fit: sum( (obs_err - fit(bckg_err)) **2 )
+    !
+    RMSE = 0
+    do iVal = 1, nIter
+      RMSE = RMSE + (arExtraInput(nIter+1+iVal) - fu_L_curve_log10(arExtraInput(1+iVal), &
+                                                                 & arParams(1), arParams(2))) ** 2
+    end do
+    return
+  end function fu_L_curve_log10_fit_RMSE
+  
+
+  !***************************************************************
+    
+  real function fu_L_curve_log10(bckgr_err, a, b)
+    !
+    ! L-Curve itself, computes one value
+    ! Take care of the area of definition of log
+    !
+    implicit none
+    
+    ! Imported parameters
+    real, intent(in) :: bckgr_err
+    real, intent(in) :: a, b
+    
+    ! Local variables
+    real :: fTmp
+    
+    fTmp = a * exp(-b * bckgr_err) + (1.0 - a)
+    if(fTmp > 0)then
+      fu_L_curve_log10 = log10(fTmp)
+    else
+      fu_L_curve_log10 = -1e10  ! big enough and negative
+      call msg('Out of area of definition, bckgr_err, a, b, log-argval:', (/bckgr_err, a, b, fTmp/))
+      call msg_warning('Out of area of definition', 'fu_L_curve_log10')
+    endif
+    
+  end function fu_L_curve_log10
 
 end module da_common

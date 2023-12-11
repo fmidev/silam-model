@@ -162,12 +162,12 @@ CONTAINS
 
   ! ****************************************************************
 
-  subroutine euler_adv_v5_input_needs( ifIncludeVerticalDependentFlds, &
+  subroutine euler_adv_v5_input_needs( & !ifIncludeVerticalDependentFlds, &
                                  & q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st)
     ! Include the meteorological quantities needed by the eulerian
     ! advection methods.
     implicit none
-    logical, intent(in) :: ifIncludeVerticalDependentFlds
+!    logical, intent(in) :: ifIncludeVerticalDependentFlds
     INTEGER, DIMENSION(:), INTENT(inout) :: q_met_dynamic, q_met_st, q_disp_dynamic, q_disp_st
     ! Local variables
     integer :: iTmp
@@ -205,22 +205,6 @@ CONTAINS
         iTmp = fu_merge_integer_to_array(height_flag, q_met_dynamic)
 !    endif
 
-    !  Not really needed for advection!!!
- !   iTmp = fu_merge_integer_to_array(dispersion_u_flag, q_disp_dynamic)
- !   iTmp = fu_merge_integer_to_array(dispersion_v_flag, q_disp_dynamic)
- !   iTmp = fu_merge_integer_to_array(dispersion_w_flag, q_disp_dynamic)
- !   iTmp = fu_merge_integer_to_array(air_density_flag, q_disp_dynamic)
- !   iTmp = fu_merge_integer_to_array(cell_size_z_flag, q_disp_dynamic)
-    if(ifIncludeVerticalDependentFlds)then
-      if(.not. defined(dispersion_vertical))then
-        call set_error('Dispersion vertical not defined', 'euler_adv_input_needs')
-        return
-      end if
-      if(fu_leveltype(dispersion_vertical) == layer_btw_2_hybrid)then
-        iTmp = fu_merge_integer_to_array(cell_size_z_flag, q_disp_dynamic)
-        iTmp = fu_merge_integer_to_array(surface_pressure_flag, q_disp_dynamic)
-      end if
-    end if
 
    end subroutine euler_adv_v5_input_needs
 
@@ -684,18 +668,12 @@ CONTAINS
 
            
          if( .not. ifLoopX)then
-            if (seconds > 0) then
-
                call get_linestuff_from_boundaries(pdispFlds, moment_x, iy, iLev, nx_dispersion_mpi, &
                   & western_boundary, eastern_boundary, iCellStartAdv, iCellEndAdv, &
-                  & mystuff%wind_right(0)*seconds,  -mystuff%wind_right(nx_dispersion_mpi)*seconds, &
+                  & mystuff%wind_right(0),  -mystuff%wind_right(nx_dispersion_mpi), seconds, &
                   & mystuff, nSrc, nSp, arMinAdvMass, pBBuf, & 
                   & mystuff%x0_mass(:, :, incoming, iLev), mystuff%xM_mass(:, :, incoming, iLev))
               if(error)cycle
-           else
-               mystuff%passengers(:,0,:,:) = 0.
-               mystuff%passengers(:,nx_dispersion_mpi+1,:,:) = 0.
-           endif
          else
             ! numerics might break advect_cellboundaries
             if (mystuff%wind_right(0) /= mystuff%wind_right(nx_dispersion_mpi)) then
@@ -1092,18 +1070,12 @@ call msg('Done checking')
 
            
          if( .not. ifLoopY)then
-        if (seconds > 0) then
-
             call get_linestuff_from_boundaries(pdispFlds,moment_y, ix, iLev, ny_dispersion_mpi, &
                & southern_boundary, northern_boundary, iCellStartAdv, iCellEndAdv, &
-               &   mystuff%wind_right(0)*seconds,  -mystuff%wind_right(ny_dispersion_mpi)*seconds, &
+               &   mystuff%wind_right(0),  -mystuff%wind_right(ny_dispersion_mpi), seconds, &
                & mystuff, nSrc, nSp, arMinAdvMass, pBBuf, & 
                & mystuff%y0_mass(:, :, incoming, iLev), mystuff%yM_mass(:, :, incoming, iLev))
               if(error)cycle
-         else
-            mystuff%passengers(:,0,:,:) = 0.
-            mystuff%passengers(:,ny_dispersion_mpi+1,:,:) = 0.
-           endif
          else
             ! numerics might break advect_cellboundaries
             if (mystuff%wind_right(0) /= mystuff%wind_right(ny_dispersion_mpi)) then
@@ -2549,19 +2521,15 @@ endif
 
 
         ! Boundaries
-        if (seconds > 0) then
          !FIXME Mass to inject depends on settling!
          ! Should be fixed at some point !! R
+         ! Also winds here are with their original sign, so influx should be adjusted
+         ! by timesign, in horizontal afvection winds already reversed on backward run
          call get_linestuff_from_boundaries(pdispFlds,moment_z, ix, iy, nz_dispersion, &
                & bottom_boundary, top_boundary, levMinadvection, levMaxadvection, &
-               & mystuff%wind_right(0)*seconds,  -mystuff%wind_right(nz_dispersion)*seconds, &
+               & timesign*mystuff%wind_right(0),  -timesign*mystuff%wind_right(nz_dispersion), seconds, &
                & mystuff, nSrc, nSpecies, arMinAdvMass, pBBuf, & 
                & mystuff%bottom_mass(:, :, incoming), mystuff%top_mass(:, :, incoming))
-         else
-            mystuff%passengers(:,0,:,:) = 0.
-            mystuff%passengers(:,nz_dispersion+1,:,:) = 0.
-         endif
-
           !
           ! Real advection starts  
           !
@@ -2574,7 +2542,6 @@ endif
               !
               ! update advected cell boundaries        
 
-              ! NB: all velosities here are in Pa/s -- settling -positive
               mystuff%windRightTmp(0:nz_dispersion) = &
                   & timeSign*(mystuff%wind_right(0:nz_dispersion) &
                             & + mystuff%vSettling(ispecies,0:nz_dispersion))
@@ -2656,8 +2623,8 @@ if(ifTalk)call msg('Prior to advect_mass:',(/ix,iy,iLev,iSpecies/))
               if ((.not. all(abs(mystuff%passengers_out(0,0:nz_dispersion+1)) >= 0. )) .or. & !NaNs
                  & ( (.not. have_negatives) .and. any(mystuff%passengers_out(0,0:nz_dispersion+1)<0. )) .or. &!Invalid neg
                  & (abs(fTmp - sum(mystuff%passengers_out(0,0:nz_dispersion+1)))/ (fTmp1+fMinAdvectedMass)) > 1e-5 ) then
-                
-                call msg("################ Trouble  After Advection #######################", ix, iy)
+!$OMP CRITICAL(v4bark)
+                call msg("################ Trouble  After Vertical Advection #######################", ix, iy)
                 call msg("Column mass 3 before, after", fTmp,   sum(mystuff%passengers_out(0,0:nz_dispersion+1)) )
                 call msg("mystuff%PAbove -1:nz+1", mystuff%PAbove(0:nz_dispersion))
                 call msg("mystuff%lineParams   :", mystuff%lineParams(0:nz_dispersion))
@@ -2667,6 +2634,7 @@ if(ifTalk)call msg('Prior to advect_mass:',(/ix,iy,iLev,iSpecies/))
               call msg("CMIn (0:nz+1)",mystuff%cm_line(1:nz_dispersion,iSpecies,iSrc) )
               !call msg("CmOut (1:nz)", mystuff%cm_line_out(1:nz_dispersion) )
                 call set_error("Trouble after advection1! End", "AdvVertV5") 
+!$OMP END CRITICAL(v4bark)
                 cycle iX_do
               endif
 #endif
@@ -4816,7 +4784,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
  !**************************************************************************
   subroutine get_linestuff_from_boundaries(pdispFlds, moment_my, ii2, ii3, nCells, &
          & left_boundary, right_boundary, iCellStartAdv, iCellEndAdv, &
-         & inflow_left,  inflow_right, &
+         & inflow_left,  inflow_right, seconds,&
          & mystuff, nSrc, nSp, arMinAdvMass, pBBuf,  massIn0,  massInM)
 
          ! Puts mass_map stuff from boundaries.
@@ -4832,7 +4800,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
       integer, intent(out) :: iCellStartAdv, iCellEndAdv ! assigned  0 and nCells+1 
                                                          ! if something comes
 
-      real, intent(in) :: inflow_left,  inflow_right ! kg/s incoming positive!!!
+      real, intent(in) :: inflow_left,  inflow_right, seconds ! kg/s incoming positive!!!
       real(r8k), dimension(:,:), intent(inout) :: massIn0,  massInM ! (1:nSrc 1:nSp) Slice of  x0_mass, xM_mass, 
                                                    !y0_mass, yM_mass  bottom_mass, or top_mass
                                                    ! Accumulates injected mass
@@ -4846,6 +4814,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
       !Local
       real :: fMass
       integer :: iSrc, iSpecies, iTmp, nPass
+      real :: airMassInLeft, airMassInRight
       real, parameter :: lmtfactor = 1.
                                  !!Dirty hack to fight retared coding of
                                 !   boundary files that causes negative
@@ -4857,8 +4826,10 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
 
        mystuff%passengers(:,0,:,:) = 0.
        mystuff%passengers(:,nCells+1,:,:) = 0.
+       airMassInLeft  = inflow_left * abs(seconds)
+       airMassInRight = inflow_right * abs(seconds)
 
-       if (inflow_left > 0) then
+       if (airMassInleft > 0) then
          select case (pBBuf%iBoundaryType(left_boundary))
            case(zero_boundary_type, smpi_comm_boundary_type, periodic_boundary_type)
            case(polar_boundary_type)
@@ -4867,27 +4838,28 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                do ispecies = 1, pdispFlds%nspecies
                   nPass = moment_my%passengers(iSpecies)%nPassengers
                   fMass = pBBuf%bSouth(iSpecies, iSrc, 1, ii3) /   & ! Mass here!
-                               pBBuf%PoleCapAirmass(left_boundary)%pp(ii3) * inflow_left
+                               pBBuf%PoleCapAirmass(left_boundary)%pp(ii3) * airMassInleft
                   fMass = fMass * pBBuf%outflowFactor(southern_boundary,ii3)
-                   iCellStartAdv = 0
-                   mystuff%passengers(0,0,iSpecies,iSrc) = fMass         ! mass
-                   mystuff%passengers(nPass+2,0,iSpecies,iSrc) = &       ! z moment
-                             & fMass * pBBuf%bSouth(iSpecies, iSrc, 2, ii3)
-                   massIn0(iSrc,iSpecies) = massIn0(iSrc,iSpecies) + fMass
+                  iCellStartAdv = 0
+                  mystuff%passengers(0,0,iSpecies,iSrc) = fMass         ! mass
+                  mystuff%passengers(nPass+2,0,iSpecies,iSrc) = &       ! z moment
+                            & fMass * pBBuf%bSouth(iSpecies, iSrc, 2, ii3)
+                  massIn0(iSrc,iSpecies) = massIn0(iSrc,iSpecies) + fMass
                 enddo
              enddo
 
            case(dirichlet_boundary_type)
+               if (seconds > 0.) then !! On adjoint only ones can be injected
                   iSrc = 1
                   do ispecies = 1, pdispFlds%nspecies
                     iTmp = pBBuf%iBoundarySpecies(iSpecies, left_boundary)
                     if (iTmp == int_missing) cycle
                     nPass = moment_my%passengers(iSpecies)%nPassengers
-                    fMass = pBBuf%pBoundaryData(left_boundary)%ptr(iTmp, iSrc, ii2, ii3) * inflow_left
+                    fMass = pBBuf%pBoundaryData(left_boundary)%ptr(iTmp, iSrc, ii2, ii3) * airMassInleft
                     if (fMass>0) then 
+                      iCellStartAdv = 0
                       mystuff%passengers(0,0,iSpecies,1:nSrc) = fMass
                       massIn0(1:nSrc,iSpecies) = massIn0(1:nSrc,iSpecies) + fMass
-                      iCellStartAdv = 0
                     elseif (fMass >  -lmtfactor*arMinAdvMass(ispecies)) then ! Some numrics, still okay
                       mystuff%tmp_garbage(ispecies, iSrc) =  mystuff%tmp_garbage(ispecies,isrc) + fMass
                     else
@@ -4899,20 +4871,22 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                                                 &sub_name)
                     endif
                   enddo
-                  ! handle ones species
-                  iSpecies = pBBuf%iOnesSp
-                  if (pBBuf%iOnesSp /= int_missing) then
-                      mystuff%passengers(0,0,iSpecies,1:nSrc) = inflow_left
-                      massIn0(1:nSrc,iSpecies) = massIn0(1:nSrc,iSpecies) + inflow_left
-                      iCellStartAdv = 0
-                  endif
-             case default
-                call set_error("Strange _"+BoundaryChar(left_boundary)+"_ boundary type:"+ &
-                   &fu_str(pBBuf%iBoundaryType(left_boundary)), sub_name)
-             endselect
+               endif
+               ! handle ones species
+               iSpecies = pBBuf%iOnesSp
+               if (pBBuf%iOnesSp /= int_missing) then
+                   iCellStartAdv = 0
+                   mystuff%passengers(0,0,iSpecies,1:nSrc) = airMassInleft
+                   massIn0(1:nSrc,iSpecies) = massIn0(1:nSrc,iSpecies) + airMassInleft
+               endif
+           case default
+                call set_error("Strange _"//BoundaryChar(left_boundary)//"_ boundary type: "// &
+                   & trim(fu_str(pBBuf%iBoundaryType(left_boundary))), sub_name)
+                return
+           endselect
        endif !Left boundary
 
-       if (inflow_right > 0) then
+       if (airMassInright > 0) then
          select case (pBBuf%iBoundaryType(right_boundary))
            case(zero_boundary_type, smpi_comm_boundary_type, periodic_boundary_type)
            case(polar_boundary_type)
@@ -4921,7 +4895,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                do ispecies = 1, pdispFlds%nspecies
                   nPass = moment_my%passengers(iSpecies)%nPassengers
                   fMass = pBBuf%bNorth(iSpecies, iSrc, 1, ii3) /   &! Mass here!
-                               pBBuf%PoleCapAirmass(right_boundary)%pp(ii3) * inflow_right
+                               pBBuf%PoleCapAirmass(right_boundary)%pp(ii3) * airMassInright
                   fMass = fMass * pBBuf%outflowFactor(northern_boundary,ii3)
                   iCellEndAdv = nCells+1
                   mystuff%passengers(0,nCells+1,iSpecies,iSrc) = fMass         ! mass
@@ -4930,17 +4904,15 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                   massInM(iSrc,iSpecies) = massInM(iSrc,iSpecies) + fMass
                 enddo
              enddo
-    !         if (inflow_left > 0. ) call msg("MMR * 1e6 from NP, SP", &
-    !                & mystuff%passengers(0,nCells+1,1,1)/inflow_right * 1e6, &
-    !                & mystuff%passengers(0,0,1,1)/inflow_left * 1e6)
 
            case(dirichlet_boundary_type)
+               if (seconds > 0.) then !! On adjoint only ones can be injected
                   iSrc = 1
                   do ispecies = 1, pdispFlds%nspecies
                     iTmp = pBBuf%iBoundarySpecies(iSpecies, right_boundary)
                     if (iTmp == int_missing) cycle
                     nPass = moment_my%passengers(iSpecies)%nPassengers
-                    fMass = pBBuf%pBoundaryData(right_boundary)%ptr(iTmp, iSrc, ii2, ii3) * inflow_right
+                    fMass = pBBuf%pBoundaryData(right_boundary)%ptr(iTmp, iSrc, ii2, ii3) * airMassInright
                     if (fMass>0) then 
                       iCellEndAdv = nCells+1
                       mystuff%passengers(0,nCells+1,iSpecies,1:nSrc) = fMass
@@ -4954,22 +4926,22 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                                 & pBBuf%pBoundaryData(right_boundary)%ptr(iTmp, iSrc, ii2, ii3), fMass)
                       call set_error("Negative concentration in _"//BoundaryChar(right_boundary)//"_ boundary",&
                                                 &sub_name)
-                      
                     endif
                   enddo
-                  ! handle ones species
-                  iSpecies = pBBuf%iOnesSp
-                  if (pBBuf%iOnesSp /= int_missing) then
-                      iCellEndAdv = nCells+1
-                      mystuff%passengers(0,nCells+1,iSpecies,1:nSrc) = inflow_right
-                      massInM(1:nSrc,iSpecies) = massInM(1:nSrc,iSpecies) + inflow_right
-                  endif
-             case default
-                call set_error("Strange _"//BoundaryChar(right_boundary)//"_ boundary type: "// &
+               endif
+               ! handle ones species
+               iSpecies = pBBuf%iOnesSp
+               if (pBBuf%iOnesSp /= int_missing) then
+                   iCellEndAdv = nCells+1
+                   mystuff%passengers(0,nCells+1,iSpecies,1:nSrc) = airMassInright
+                   massInM(1:nSrc,iSpecies) = massInM(1:nSrc,iSpecies) + airMassInright
+               endif
+           case default
+             call set_error("Strange _"//BoundaryChar(right_boundary)//"_ boundary type: "// &
                    & trim(fu_str(pBBuf%iBoundaryType(right_boundary))), sub_name)
-                return
-             endselect
-          endif !right boundary
+             return
+           endselect
+        endif !right boundary
   end  subroutine get_linestuff_from_boundaries
 
   subroutine init_molec_diff(species, a_half, b_half, xplus, xminus, nsp, nz, seconds)
@@ -5723,4 +5695,3 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
   
 
 END MODULE advection_eulerian_v5
-

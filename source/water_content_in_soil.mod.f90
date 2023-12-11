@@ -76,8 +76,8 @@ module water_in_soil
     integer :: iFile, nFiles
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
 
-    
     rulesWIS = rulesWIS_missing        ! precaution: some pieces may be undefined
+    if(.not.associated(nlSetup))return
 
     ! 
     ! Two possibilities for the soil water: take it from NWP or compute as suggested in this module
@@ -236,7 +236,7 @@ module water_in_soil
                                 & time_missing, &        ! valid time
                                 & fu_level(vertTmp,iFlds), &
                                 & species_missing)
-      pField => fu_get_field_from_mm_general(meteoMarketPtr, id, .false.)
+      call get_field_from_mm_general(meteoMarketPtr, id, pField, .false.)
       if(associated(pField))then
         ifOK= defined(pField)    ! exists already
       else
@@ -298,7 +298,7 @@ module water_in_soil
         iTmp = fu_merge_integer_to_array(relative_humidity_flag,    q_met_dynamic)
         iTmp = fu_merge_integer_to_array(temperature_2m_flag,       q_met_dynamic)
         ! Meteo single-time
-        iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag,        q_met_st)
+        iTmp = fu_merge_integer_to_array(total_precipitation_int_flag,        q_met_st)
         iTmp = fu_merge_integer_to_array(soil_sand_mass_fraction_flag, q_met_st)
         iTmp = fu_merge_integer_to_array(soil_clay_mass_fraction_flag, q_met_st)
         iTmp = fu_merge_integer_to_array(fraction_of_land_flag, q_met_st)
@@ -333,10 +333,23 @@ module water_in_soil
     
     ! Local variables
     integer, parameter :: indSrf = 1, indDeep = 2
-    integer :: iMet, ixMet, iyMet, indWISsrf, indWISdeep
+    integer :: iMet, indWISsrf, indWISdeep
     real :: drain_up2down, evap, plant_uptake, capillar_uplift, dMup_dt, dMdown_dt, seconds
     real, dimension(:), pointer :: pTotalRain, pSWrad, pWISsrf, pWISdeep, pWISvolNWP, pLatentHeat, &
                                  & free_water, pWaterCapacitySrf, pWaterCapacityDeep, pSandMassFract
+!    type(silja_field_id) :: idTmp
+!    !
+!    ! Prepare target fields
+!    !
+!    idTmp = fu_set_field_id(met_src, &
+!                          & water_in_soil_srf_grav_flag, &
+!                          & analysis_time, &
+!                            & forecast_length, &
+!                            & dispersion_grid, &
+!                            & fu_level(dispersion_vertical, 1, .false.))
+!      call find_field_data_storage_2d(dispMarketPtr, idTmp, multi_time_stack_flag, u)       ! wind u
+!      if(fu_fails(.not.error,'Failed u field data pointer','diag_vertical_wind_incompr'))return
+
     !
     ! First, a simple case: if NWP data are used, just turn volumetric to gravimetric
     !
@@ -372,7 +385,7 @@ module water_in_soil
       ! - 2m temperature 
       ! - two current water_in_soil fields at two depths; 
       !
-      if(fu_fails(fu_index(met_buf, total_precipitation_rate_flag, pTotalRain) /= int_missing, &    ! total precip
+      if(fu_fails(fu_index(met_buf, total_precipitation_int_flag, pTotalRain) /= int_missing, &    ! total precip
                               & 'Failed total rain','update_water_in_soil'))return
       if(fu_fails(fu_index(met_buf, surf_sw_down_radiation_flag, pSWrad) /= int_missing, &          ! short-w.rad
                               & 'Failed surface short-wave radiation','update_water_in_soil'))return
@@ -395,85 +408,80 @@ module water_in_soil
       !
       ! Cycle over the main grid
       !
-      do iyMet = 1, ny_meteo
-        do ixMet = 1, nx_meteo
-  
-          iMet = ixMet + (iyMet-1) * nx_meteo
-          !
-          ! Rates of changes in the layers. Note that the upper layer is almost independent from the 
-          ! lower one except for tiny input through water capillar uplift when the upper layer gets dry.
-          !
-          ! Upper layer: +rain -drainage_from_upper_to_lower -plant_uptake_up -evaporation
-          !
-          drain_up2down = max(0., (pWISsrf(iMet) - pWaterCapacitySrf(iMet)) * &
-                                & (1. - exp(- seconds / rulesWIS%tauDrain_up2down)))
+      do iMet = 1, ny_meteo * nx_meteo
+        !
+        ! Rates of changes in the layers. Note that the upper layer is almost independent from the 
+        ! lower one except for tiny input through water capillar uplift when the upper layer gets dry.
+        !
+        ! Upper layer: +rain -drainage_from_upper_to_lower -plant_uptake_up -evaporation
+        !
+        drain_up2down = max(0., (pWISsrf(iMet) - pWaterCapacitySrf(iMet)) * &
+                              & (1. - exp(- seconds / rulesWIS%tauDrain_up2down)))
 
-          plant_uptake = rulesWIS%evapPlant_scale * SWRad_2_PAR * pSWrad(iMet)
-          !
-          ! Evaporation can be taken from several points of view.
-          ! 1. Latent heat is total water release as seen by meteo model. Can be used like this:
-          !
-          if(plant_uptake > pLatentHeat(iMet) / vaporization_latentheat)then
-            evap = pLatentHeat(iMet) / vaporization_latentheat - plant_uptake  ! W/m2 / J/kg = kg/m2sec <-> mm/sec
-          else
-            evap = 0.0
-          endif
-          !
-          ! 2. Can be taken simply via dry deposition resistance assuming the water content is soil via capacity
-          !    Pretty much the fugacity approach. Too many unknown constants so far.
-          !
+        plant_uptake = rulesWIS%evapPlant_scale * SWRad_2_PAR * pSWrad(iMet)
+        !
+        ! Evaporation can be taken from several points of view.
+        ! 1. Latent heat is total water release as seen by meteo model. Can be used like this:
+        !
+        if(plant_uptake > pLatentHeat(iMet) / vaporization_latentheat)then
+          evap = pLatentHeat(iMet) / vaporization_latentheat - plant_uptake  ! W/m2 / J/kg = kg/m2sec <-> mm/sec
+        else
+          evap = 0.0
+        endif
+        !
+        ! 2. Can be taken simply via dry deposition resistance assuming the water content is soil via capacity
+        !    Pretty much the fugacity approach. Too many unknown constants so far.
+        !
 !        evap = (pWISup_past(iDisp) / pWaterFugacity(iMeteo) - q(iMeteo)) / (Ra(iMeteo) + Rb(iMeteo))  ! Rs=0 ??
 
-          !
-          ! Capillar uplist just needs water diffusivity in specific soil. So far, put zero
-          !
-          capillar_uplift = 0.
-          !
-          ! The water-in-soil change rate
-          !
-          dMup_dt = pTotalRain(iMet) - drain_up2down - rulesWIS%fract_roots_up * plant_uptake - evap + capillar_uplift
+        !
+        ! Capillar uplist just needs water diffusivity in specific soil. So far, put zero
+        !
+        capillar_uplift = 0.
+        !
+        ! The water-in-soil change rate
+        !
+        dMup_dt = pTotalRain(iMet) - drain_up2down - rulesWIS%fract_roots_up * plant_uptake - evap + capillar_uplift
 
-          if(dMup_dt < 0.)then
-            !
-            ! Discharge goes exponentially: processes taking water out will slow with reduced availability
-            !
-            pWISsrf(iMet) = pWISsrf(iMet) * exp(dMup_dt * seconds)
-          else
-            !
-            ! The layer gets more water. Just make sure that it does not overfill
-            !
-            pWISsrf(iMet) = pWISsrf(iMet) + dMup_dt * seconds
-        
-            if(pWISsrf(iMet) > pWaterCapacitySrf(iMet))then
-              drain_up2down = drain_up2down + pWISsrf(iMet) - pWaterCapacitySrf(iMet)
-              pWISsrf(iMet) = pWaterCapacitySrf(iMet)                         ! fully charged
-            endif
-        
-          endif  ! if upper layer gets filled or depleted
+        if(dMup_dt < 0.)then
           !
-          ! Lower layer: +drainage_from_upper_to_lower -drainage_from_lower_layer -plant_uptake_down -capillar uplift
+          ! Discharge goes exponentially: processes taking water out will slow with reduced availability
           !
-          dMDown_dt = drain_up2down - (1.-rulesWIS%fract_roots_up) * plant_uptake - capillar_uplift
+          pWISsrf(iMet) = pWISsrf(iMet) * exp(dMup_dt * seconds)
+        else
+          !
+          ! The layer gets more water. Just make sure that it does not overfill
+          !
+          pWISsrf(iMet) = pWISsrf(iMet) + dMup_dt * seconds
+        
+          if(pWISsrf(iMet) > pWaterCapacitySrf(iMet))then
+            drain_up2down = drain_up2down + pWISsrf(iMet) - pWaterCapacitySrf(iMet)
+            pWISsrf(iMet) = pWaterCapacitySrf(iMet)                         ! fully charged
+          endif
+        
+        endif  ! if upper layer gets filled or depleted
+        !
+        ! Lower layer: +drainage_from_upper_to_lower -drainage_from_lower_layer -plant_uptake_down -capillar uplift
+        !
+        dMDown_dt = drain_up2down - (1.-rulesWIS%fract_roots_up) * plant_uptake - capillar_uplift
       
-          if(dMDown_dt < 0.)then
-            !
-            ! Discharge goes exponentially: processes taking water out will slow with reduced availability
-            !
-            pWISdeep(iMet) = pWISdeep(iMet) * exp(dMdown_dt * seconds)
-          else
-            !
-            ! The layer gets water. Just get rid of excess: rivers will take it
-            !
-            pWISdeep(iMet) = pWISdeep(iMet) + dMdown_dt * seconds
+        if(dMDown_dt < 0.)then
+          !
+          ! Discharge goes exponentially: processes taking water out will slow with reduced availability
+          !
+          pWISdeep(iMet) = pWISdeep(iMet) * exp(dMdown_dt * seconds)
+        else
+          !
+          ! The layer gets water. Just get rid of excess: rivers will take it
+          !
+          pWISdeep(iMet) = pWISdeep(iMet) + dMdown_dt * seconds
         
-            if(pWISdeep(iMet) > pWaterCapacityDeep(iMet))then
-              free_water(iMet) = free_water(iMet) + (pWISdeep(iMet) - pWaterCapacityDeep(iMet))
-              pWISdeep(iMet) = pWaterCapacityDeep(iMet)
-            endif
-        
-          endif ! if lower layer gets filled or depleted
-        end do ! x meteo grid
-      end do ! y meteo grid
+          if(pWISdeep(iMet) > pWaterCapacityDeep(iMet))then
+            free_water(iMet) = free_water(iMet) + (pWISdeep(iMet) - pWaterCapacityDeep(iMet))
+            pWISdeep(iMet) = pWaterCapacityDeep(iMet)
+          endif
+        endif ! if lower layer gets filled or depleted
+      end do ! meteo grid
       !
       ! Update valid time
       !

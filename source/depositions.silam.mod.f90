@@ -1,15 +1,15 @@
 module depositions
   !
   ! A module for standard deposition calculations. At least dry deposition
-  ! rates (Rs,Rb,etc) and settling should be defined here, as well as 
-  ! the wet deposition. All the necessary information is included in a 
+  ! rates (Rs,Rb,etc) and settling should be defined here, as well as
+  ! the wet deposition. All the necessary information is included in a
   ! species structure, which can be given as arguments to the subroutines.
   !
   ! The deposition setup should come from two places: material should
   ! include material-specific data, while general options can be
   ! stored in the deposition_rules structure.
   !
-  ! Should the non-standard deposition be used for some species, it has to 
+  ! Should the non-standard deposition be used for some species, it has to
   ! be either defined here and used via the deposition_rules or defined in
   ! the corresponding transformation modules. The later decision, however,
   ! should have a reason, such as the compatibility requirement with the
@@ -31,9 +31,9 @@ module depositions
 !  private
 
 !!!!!!!!!!!!!!!!#define DEBUG_TLA
-  
+
   public set_deposition_rules
-  public init_standard_deposition
+  public init_deposition
   public add_deposition_input_needs
   public wet_deposition_input_needs
   public prepare_deposition
@@ -48,12 +48,11 @@ module depositions
   public scavenge_column
   public verify_deposition
   public allocate_scav_amount
-  public fu_if_TLA_required
+  public fu_tla_size_scav
 
   private scavenge_lagr
   private scavenge_puff_2011
   private scavenge_column_2011_adjoint
-  private fu_if_TLA_required_scav
   private material_properties
   private test_TL_ADJ
   private make_rain_in_cell
@@ -67,10 +66,6 @@ module depositions
   private DERIV2
   private fu_Psi
   private fu_vdplus_rough
-  
-  interface fu_if_TLA_required
-    module procedure fu_if_TLA_required_scav
-  end interface
 
   ! max_scav_rate_depends on one of these
   integer, public, parameter :: horiz_wind = 7001
@@ -78,8 +73,6 @@ module depositions
   integer, public, parameter :: cape_and_wind = 7003
 
   type Tdeposition_rules
-    integer, dimension(:), pointer :: iDepositionType
-    integer :: nDepositionTypes
     type(silam_species), dimension(:), pointer :: pSpecies
     integer, dimension(:), pointer :: indGasesDepositing, indAerosolDepositing ! grouping the species
     integer :: nGasesDepositing, nAerosolsDepositing
@@ -96,18 +89,18 @@ module depositions
     type(silja_logical) :: defined
   end type Tdeposition_rules
   public Tdeposition_rules
-  
+
   ! Private placeholders for rain features in the cell and column
   !
   type Train_in_cell ! type to hold  wet-dep rlated parameters of a grid-cell
-                     ! and params needed to diagnose Train_in_cell below 
+                     ! and params needed to diagnose Train_in_cell below
     logical :: ifRainyCell, ifRainSfc, ifRealCloud, ifValid=.FALSE.
     integer :: iMeteo, ix, iy, iLev
     real :: fCloudCover, fPressure, fTemperature, fRainRateSfc, cwcColumn, pwcColumn ! kg/m2
                 !Generic meteo
     real :: max_scav_rate  !!!1./sec
     real :: mu_air, rho_air, nu_air, lambda_air !air parameters
-    real :: rain_rate_in, deltarain, & !rain rate from above 
+    real :: rain_rate_in, deltarain, & !rain rate from above
                    cwcColumnLayer, pwcColumnLayer !  kg/m2
     real :: is_liquid, drop_size, drop_mass, drop_vel, drop_Re !droplets/snowflakes
     real :: cell_zsize, cell_volume
@@ -118,28 +111,28 @@ module depositions
   !
   type Tscav_coefs
     real, dimension(max_species) :: scav_coef_ic, scav_coef_sc, scav_coef_tau, A, tauf_over_RdCd
-    real :: fB, fC, Ceq, dLsc_dWc, dLic_dWc, dCeq_dMs, dWC_dMs, dCeq_dMa, dWC_dMa
+  ! Not used (Yet?)
+   ! real :: fB, fC, Ceq, dLsc_dWc, dLic_dWc, dCeq_dMs, dWC_dMs, dCeq_dMa, dWC_dMa
   end type Tscav_coefs
   private Tscav_coefs
   type Tscav_coefs_1d
     type(Tscav_coefs), dimension(max_levels) :: c
   end type Tscav_coefs_1d
   private Tscav_coefs_1d
-  type(Tscav_coefs), private, parameter :: coefs_zero = Tscav_coefs(0.,0.,0.,0.,0., &
-                                                                  & 0.,0.,0.,0.,0.,0.,0.,0.,0.)
+  type(Tscav_coefs), private, parameter :: coefs_zero = Tscav_coefs(0.,0.,0.,0.,0.)
 
-  ! For each grid column, we will have to collect the scavenging amount into a single array 
+  ! Not used (Yet?)
+  !type(Tscav_coefs), private, parameter :: coefs_zero = Tscav_coefs(0.,0.,0.,0.,0., &
+  !                                                                & 0.,0.,0.,0.,0.,0.,0.,0.,0.)
+  ! For each grid column, we will have to collect the scavenging amount into a single array
   !
-  real, dimension(:,:,:,:), private, pointer :: scavAmount  ! (nSpecies, nSrc, nLevels, nthreads)
-
-  ! Standard deposition flag
-  !
-  integer, public, parameter :: deposition_standard = 5100
+  real, dimension(:,:,:,:), private, allocatable, target :: scavAmount  ! (nSpecies, nSrc, nLevels, nthreads)
 
   real, public, parameter :: freezing_point_of_water = 263
 
   ! Scavenging computation allowed so far
   integer, public, parameter :: scavStandard = 6101 ! Standard 3D scavenging ratio
+  integer, public, parameter :: scavAny = 6110 ! Some wet depo
 
   integer, public, parameter :: scav2011 = 6112     ! Scavenge accounting
                                                      ! for rain profile,
@@ -153,13 +146,13 @@ module depositions
   ! Dry deposition computation allowed so far
 !  integer, public, parameter :: DryD_none = 6200 ! No dry deposition at all.
   ! Resistance-based schemes
-!  integer, private, parameter :: DryD_Rb_only = 6201 ! Only Rb of resistive scheme 
-!  integer, private, parameter :: DryD_resist_only = 6202 ! Only resistive scheme, all R-s 
+!  integer, private, parameter :: DryD_Rb_only = 6201 ! Only Rb of resistive scheme
+!  integer, private, parameter :: DryD_resist_only = 6202 ! Only resistive scheme, all R-s
 !  integer, private, parameter :: DryD_grav_only = 6203 ! Only settling
 !  integer, private, parameter :: DryD_Rb_grav_combine = 6204 ! Rb and settling
 !  integer, private, parameter :: DryD_resist_grav_combine = 6205 ! Both resist and settling
 
-! for schemes >= DryD_KS2011  Vd is calculated  
+! for schemes >= DryD_KS2011  Vd is calculated
   integer, public, parameter :: DryD_KS2011 = 6266 ! Our deposition scheme
   integer, public, parameter :: DryD_KS2011_TF = 6267 ! Our deposition scheme
                                                       ! with thermophoresis
@@ -171,9 +164,9 @@ module depositions
 
 
   integer, public, parameter :: DryD_Rs_standard = 6300 ! Standard land-sea Rs
-  integer, public, parameter :: DryD_Rs_2013     = 6301 ! Fancy Rs                                                      
+  integer, public, parameter :: DryD_Rs_2013     = 6301 ! Fancy Rs
 
-! Types of Zhang parameterization 
+! Types of Zhang parameterization
 ! Stub. To be removed at some point..
   integer, public, parameter :: ZhangGeneric = 10000
   integer, public, parameter :: ZhangSmooth = 10001
@@ -218,7 +211,7 @@ module depositions
   integer, dimension(:), private, pointer :: indSulphurSpecies, indStrongAcidSpecies, &
                                            & indAcidityAffectingSp, iAciditySign  ! acid and alcaline species
   integer, private :: nSulphurSpecies, indSO2, nStrongAcidSpecies, nAcidityAffectingSpecies, &
-                    & indNH3, indHNO3, indO3
+                    & indNH3, indHNO3, indO3, indSomeStrongAcid
 
 
 
@@ -240,7 +233,7 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(Tsilam_namelist), intent(in) :: nlSetup 
+    type(Tsilam_namelist), intent(in) :: nlSetup
     type(Tdeposition_rules) :: rulesDeposition
     logical, intent(in) :: if_lagr_present
 
@@ -254,7 +247,7 @@ CONTAINS
       return
     endif
 
-    rulesDeposition%if_lagr = if_lagr_present 
+    rulesDeposition%if_lagr = if_lagr_present
     !
     ! Scavenging type. May be undefined - then take the default one
     !
@@ -291,17 +284,17 @@ CONTAINS
     end select
 
 
-    if (fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')) == 'HORIZONTAL_WIND') then
+    if (trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on'))) == 'HORIZONTAL_WIND') then
       call msg('Max scavenging rate depends on the horizontal wind')
       rulesDeposition%max_scav_rate_depends_on = horiz_wind
-    else if (fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')) == 'CAPE') then
+    elseif (trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on'))) == 'CAPE') then
       call msg('Max scavenging rate depends on the convective available potential energy')
       rulesDeposition%max_scav_rate_depends_on = cape
-    else if (fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')) == 'CAPE_AND_WIND') then
+    elseif (trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on'))) == 'CAPE_AND_WIND') then
       call msg('Max scavenging rate depends on the convective available potential energy and the horizontal wind')
       rulesDeposition%max_scav_rate_depends_on = cape_and_wind
-    end if
-    
+    endif
+
     if (rulesDeposition%max_scav_rate_depends_on == int_missing .neqv. &
        & any(rulesDeposition%scavengingType == (/scavStandard, scav2011, scav2011fc, scavNoScav/))) then
        call set_error("Incompatible max_scav_rate_depends_on and wet_deposition_scheme", sub_name)
@@ -324,14 +317,14 @@ CONTAINS
         return
       endif
     end if
-    
+
     !
     ! Saturation of sulphur scavenging is so far the only non-linear species-specific process
     !
     rulesDeposition%ifSulphurSaturation = &
                & fu_str_u_case(fu_content(nlSetup,'if_sulphur_scavenging_saturation')) == 'YES'
     rulesDeposition%fSulphurSaturation = 2.3e-2  ! about 750 mg S / l
- 
+
     !
     ! Dry deposition type. May be undefined - then take the default one.
     !
@@ -357,14 +350,14 @@ CONTAINS
 
       case('KS2011_TF')
         rulesDeposition%DryDepType = DryD_KS2011_TF
-      
+
       case('VD_DIFSED')
         rulesDeposition%DryDepType = DryD_Vd_difsed
 
-      case('NO_DD') 
+      case('NO_DD')
          rulesDeposition%DryDepType = DryD_Vd_Zero
 
-      case('VD_SP98') 
+      case('VD_SP98')
          rulesDeposition%DryDepType = DryD_Vd_SP98
 
 
@@ -432,20 +425,15 @@ CONTAINS
 
   !**********************************************************************************
 
-  subroutine init_standard_deposition(speciesTransport, indDepositionType, nSpeciesTransport, &
-                                    & rulesDeposition)
+  subroutine init_deposition(speciesTransport, nSpeciesTransport, rulesDeposition)
     !
-    ! Essentially, distributes the species among the deposition procedures,
-    ! Sets indices for some special species and checks if they have needed parameters set.
-    ! For the standard deposition computed here, we have two groups: aerosols and gases
-    ! They need somewhat different input parameters, etc, so it is easier to treat them
-    ! together.
+    ! Sets indices for species and checks if they have needed parameters set.
+    ! For the deposition, we have two groups: aerosols and gases.
     !
     implicit none
 
     ! Imported parameters
     type(silam_species), dimension(:), pointer :: speciesTransport
-    integer, dimension(:), intent(inout) :: indDepositionType
     integer, intent(in) :: nSpeciesTransport
     type(Tdeposition_rules), intent(inout) :: rulesDeposition
 
@@ -464,10 +452,10 @@ CONTAINS
            & rulesDeposition%indAerosolDepositing(nSpeciesTransport), &
            & stat=iTmp)
     if(iTmp /= 0)then
-      call set_error('Failed to allocate the depositing species arrays','init_standard_deposition')
+      call set_error('Failed to allocate the depositing species arrays','init_deposition')
       return
     endif
-    
+
     iarTmp => fu_work_int_array()
     iarTmpSa => fu_work_int_array()
     iarTmpAAS => fu_work_int_array()
@@ -476,22 +464,20 @@ CONTAINS
     nStrongAcidSpecies = 0
     nAcidityAffectingSpecies = 0
 
-    indSO2 = -1 
+    indSO2 = -1
     indNH3 = -1
     indHNO3 = -1
     indO3 = -1
+    indSomeStrongAcid = -1
     do iTmp = 1, nSpeciesTransport
-      if(indDepositionType(iTmp) == int_missing)then
-        indDepositionType(iTmp) = deposition_standard
-        if(fu_mode(speciesTransport(iTmp)) == in_gas_phase)then
-          if(fu_if_gas_depositing(speciesTransport(iTmp)%material))then
-            rulesDeposition%nGasesDepositing = rulesDeposition%nGasesDepositing + 1
-            rulesDeposition%indGasesDepositing(rulesDeposition%nGasesDepositing) = iTmp
-          endif
-        else
-          rulesDeposition%nAerosolsDepositing = rulesDeposition%nAerosolsDepositing + 1
-          rulesDeposition%indAerosolDepositing(rulesDeposition%nAerosolsDepositing) = iTmp
+      if(fu_mode(speciesTransport(iTmp)) == in_gas_phase)then
+        if(fu_if_gas_depositing(speciesTransport(iTmp)%material))then
+          rulesDeposition%nGasesDepositing = rulesDeposition%nGasesDepositing + 1
+          rulesDeposition%indGasesDepositing(rulesDeposition%nGasesDepositing) = iTmp
         endif
+      else
+        rulesDeposition%nAerosolsDepositing = rulesDeposition%nAerosolsDepositing + 1
+        rulesDeposition%indAerosolDepositing(rulesDeposition%nAerosolsDepositing) = iTmp
       endif
       select case(fu_str_u_case(fu_name(fu_material(speciesTransport(iTmp)))))
         case('NH3')
@@ -532,7 +518,7 @@ CONTAINS
     !
     if(nSulphurSpecies > 0)then
       allocate(indSulphurSpecies(nSulphurSpecies), stat=iTmp)
-      if(fu_fails(iTmp == 0, 'Failed to allocate sulphur species array','init_standard_deposition'))return
+      if(fu_fails(iTmp == 0, 'Failed to allocate sulphur species array','init_deposition'))return
       indSulphurSpecies(1:nSulphurSpecies) = iarTmp(1:nSulphurSpecies)
     else
       nullify(indSulphurSpecies)
@@ -542,8 +528,9 @@ CONTAINS
     !
     if(nStrongAcidSpecies > 0)then
       allocate(indStrongAcidSpecies(nStrongAcidSpecies), stat=iTmp)
-      if(fu_fails(iTmp == 0,'Failed to allocate strong acid species array','init_standard_deposition'))return
+      if(fu_fails(iTmp == 0,'Failed to allocate strong acid species array','init_deposition'))return
       indStrongAcidSpecies(1:nStrongAcidSpecies) = iarTmpSa(1:nStrongAcidSpecies)
+      indSomeStrongAcid = indStrongAcidSpecies(1)
     else
       nullify(indStrongAcidSpecies)
     endif
@@ -552,7 +539,7 @@ CONTAINS
     !
     if(nAcidityAffectingSpecies > 0)then
       allocate(indAcidityAffectingSp(nAcidityAffectingSpecies), stat=iTmp)
-      if(fu_fails(iTmp == 0,'Failed to allocate acidity-affecting species array','init_standard_deposition'))return
+      if(fu_fails(iTmp == 0,'Failed to allocate acidity-affecting species array','init_deposition'))return
       indAcidityAffectingSp(1:nAcidityAffectingSpecies) = iarTmpAAS(1:nAcidityAffectingSpecies)
     else
       nullify(indAcidityAffectingSp)
@@ -563,7 +550,7 @@ CONTAINS
     call free_work_array(iarTmpSa)
 
     !
-    ! Now some checks: species must have needed parameters set. 
+    ! Now some checks: species must have needed parameters set.
     ! No need to repeat them everytime...
     !
     !
@@ -583,7 +570,7 @@ CONTAINS
             !  ptrDepData%Henry_const_298K = 0.
             !  call msg ("Henry constant is missing for:" + &
             !                 & fu_name(speciesTransport(iSpTr)%material))
-            !  call msg_warning("Henry constant set to zero", "init_standard_deposition")
+            !  call msg_warning("Henry constant set to zero", "init_deposition")
             !endif
             if (DepData%Henry_const_T_dep == real_missing) then
               call msg ("Assuming zero Henry_const_T_dep for:" + &
@@ -594,7 +581,7 @@ CONTAINS
        enddo
       case default
        call msg('Unknown scavenging type',rulesDeposition%scavengingType)
-       call set_error('Unknown scavenging type','init_standard_deposition')
+       call set_error('Unknown scavenging type','init_deposition')
     end select ! type of scavenging
 
 
@@ -613,7 +600,7 @@ CONTAINS
               !  ptrDepData%Henry_const_298K = 0.
               !  call msg ("Henry constant is missing for:" + &
               !                 & fu_name(speciesTransport(iSpTr)%material))
-              !  call msg_warning("Henry constant set to zero", "init_standard_deposition")
+              !  call msg_warning("Henry constant set to zero", "init_deposition")
               !endif
               if  (DepData%Henry_const_T_dep == real_missing) then
                 call msg ("Assuming zero Henry_const_T_dep for:" + &
@@ -628,12 +615,12 @@ CONTAINS
         enddo  ! iSpecies
       case default
        call msg('Unknown Rs method',rulesDeposition%scavengingType)
-       call set_error('Unknown Rs method','init_standard_deposition')
+       call set_error('Unknown Rs method','init_deposition')
 
     end select ! type of Rs
 
 
-  end subroutine init_standard_deposition
+  end subroutine init_deposition
 
 
   !**********************************************************************************
@@ -680,7 +667,7 @@ CONTAINS
       !iTmp = fu_merge_integer_to_array(surface_roughness_disp_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(surface_roughness_meteo_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(fraction_of_land_flag, q_met_st)
-      iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag, q_met_st)
+      iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
       iTmp = fu_merge_integer_to_array(SILAM_sensible_heat_flux_flag, q_met_dyn)
 !      iTmp = fu_merge_integer_to_array(Vd_correction_DMAT_flag, q_disp_dyn) ! Needed for Rs
     endif
@@ -691,7 +678,7 @@ CONTAINS
 #ifdef DEBUG
          call msg('**DEP**: Preparing KS2011 depo')
 #endif
-        
+
         case(DryD_KS2011_TF)
 #ifdef DEBUG
           call msg('**DEP**: Preparing KS2011-TF depo')
@@ -718,14 +705,14 @@ CONTAINS
           return
       end select ! rulesDeposition%DryDepType
 
-!    endif 
+!    endif
 
 
     !
     ! Rs
     !
     if (rulesDeposition%DryDepType /= DryD_Vd_Zero) then
-       iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag, q_met_st)
+       iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
        iTmp = fu_merge_integer_to_array(fraction_of_land_flag, q_met_st)
     endif
     select case (rulesDeposition%RsType)
@@ -756,26 +743,26 @@ CONTAINS
     !
     ! Now scavenging. Might need the ABL height as well to position the cloud bottoma
 
-    !! Needed for Lagrangian transport only, the input needs for scavenging in Eulerian transport 
+    !! Needed for Lagrangian transport only, the input needs for scavenging in Eulerian transport
     !! are set in the subroutine wet_deposition_input_needs
 
     if (rulesDeposition%if_lagr) then
 
      select case(rulesDeposition%scavengingType)
        case(scavStandard)
-         iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag, q_met_st)
+         iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
          iTmp = fu_merge_integer_to_array(scavenging_coefficient_flag, q_met_st)
  !        iTmp = fu_merge_integer_to_array(abl_height_m_flag, q_met_dyn)
 
        case(scav2011,scav2011fc)
-         iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag, q_met_st)
+         iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
          iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
          iTmp = fu_merge_integer_to_array(pressure_flag, q_met_dyn)
          iTmp = fu_merge_integer_to_array(temperature_flag, q_met_dyn)
          iTmp = fu_merge_integer_to_array(cell_size_z_flag, q_disp_dyn)
          if (rulesDeposition%scavengingType == scav2011) &
                 & iTmp = fu_merge_integer_to_array(cwcabove_3d_flag, q_met_dyn)
-      
+
        case(scavNoScav)
 
        case default
@@ -787,12 +774,12 @@ CONTAINS
 
   subroutine wet_deposition_input_needs(rulesDeposition, meteo_input_local)
     implicit none
-    ! Imported parameters                                                                                                        
+    ! Imported parameters
     type (Tdeposition_rules), intent(in) :: rulesDeposition
     type(Tmeteo_input), intent(out), target :: meteo_input_local
     character(len=*), parameter :: subname="wet_deposition_input_needs"
 
-    ! Local variables                                                                        
+    ! Local variables
     integer :: iQ, iTmp, nq
 
     meteo_input_local =  meteo_input_empty
@@ -802,7 +789,7 @@ CONTAINS
     endif
 
     if (rulesDeposition%scavengingType == scavNoScav) return
-      
+
     nq=2
     meteo_input_local%quantity(1:2) = (/cell_size_x_flag, cell_size_y_flag/)
     meteo_input_local%q_type(1:2) = dispersion_single_time_flag
@@ -810,12 +797,12 @@ CONTAINS
     imet_dy_size =>  meteo_input_local%idx(2)
 
     nq = nq +1
-    meteo_input_local%quantity(nq) = total_precipitation_rate_flag
+    meteo_input_local%quantity(nq) = total_precipitation_int_flag
     meteo_input_local%q_type(nq) = meteo_single_time_flag
     imet_prec => meteo_input_local%idx(nq)
 
-    select case(rulesDeposition%scavengingType)                 
-      case(scavStandard)        
+    select case(rulesDeposition%scavengingType)
+      case(scavStandard)
         nq = nq +1
         meteo_input_local%quantity(nq) = scavenging_coefficient_flag
         meteo_input_local%q_type(nq) = meteo_single_time_flag
@@ -879,7 +866,7 @@ CONTAINS
         meteo_input_local%quantity(nq) = cwcabove_3d_flag
         meteo_input_local%q_type(nq) = meteo_dynamic_flag
         imet_cwc3d => meteo_input_local%idx(nq)
-        
+
         if(rulesDeposition%scavengingType == scav2018 .or. &
              & rulesDeposition%scavengingType == scav2018entr) then
           nq = nq +1
@@ -937,7 +924,7 @@ CONTAINS
           meteo_input_local%quantity(nq) = abl_height_m_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
           imet_abl => meteo_input_local%idx(nq)
-          
+
         end if
         if (rulesDeposition%max_scav_rate_depends_on == CAPE_AND_WIND) then
           nq = nq +1
@@ -958,8 +945,8 @@ CONTAINS
 
       case(scavNoScav)
 
-      case default                                                   
-        call set_error('Unknown scavenging type', subname)                
+      case default
+        call set_error('Unknown scavenging type', subname)
 
     end select ! rulesDeposition%scavengingType
 
@@ -972,7 +959,7 @@ CONTAINS
 
   subroutine prepare_deposition(met_buf, disp_buf, rulesDeposition)
     !
-    ! The subroutine prepares the private module pointers to the fields requested in the 
+    ! The subroutine prepares the private module pointers to the fields requested in the
     ! deposition input needs
     !
     implicit none
@@ -998,7 +985,7 @@ CONTAINS
     ! thus wdr_missing is a good option....
     call add_deposition_input_needs(q_met_dyn, q_met_st, q_disp_dyn, q_disp_st, &
                                   & rulesDeposition, wdr_missing)
-    
+
     if(error)return
     !
     ! Scan the meteo buffer
@@ -1145,17 +1132,17 @@ CONTAINS
            pMetFricVel => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: friction_velocity_flag')
 
-         case(total_precipitation_rate_flag)
+         case(total_precipitation_int_flag)
            pMetPrecTot => buf%p2d(indexQ)%present%ptr
-! call msg('**DEP**: total_precipitation_rate_flag')
+! call msg('**DEP**: total_precipitation_int_flag')
 
          case(large_scale_rain_int_flag)
            pMetPrecLs => buf%p2d(indexQ)%present%ptr
-! call msg('**DEP**: total_precipitation_rate_flag')
+! call msg('**DEP**: total_precipitation_int_flag')
 
          case(convective_rain_int_flag)
            pMetPrecCnv => buf%p2d(indexQ)%present%ptr
-! call msg('**DEP**: total_precipitation_rate_flag')
+! call msg('**DEP**: total_precipitation_int_flag')
 
          case(abl_height_m_flag)
            pMetABLHeight => buf%p2d(indexQ)%present%ptr
@@ -1172,11 +1159,11 @@ CONTAINS
          case(surface_roughness_meteo_flag)
            pMetSrfRoughMeteo => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: surface_roughness_flag')
-         
+
          case(surface_roughness_disp_flag)
            pMetSrfRoughDisp => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: surface_roughness_flag')
-         
+
        case(convective_velocity_scale_flag)
            pMetConvVel => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: convective_velocity_scale_flag')
@@ -1230,8 +1217,8 @@ CONTAINS
     ! with new KS2011 deposition scheme plus thermpohoresis.
     ! For gases the return value is an inverse resistance
     !
-    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the 
-    !            very transport species, which were used for the precomputation step. This is 
+    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
+    !            very transport species, which were used for the precomputation step. This is
     !            checked upon the first call
     ! Units: SI
     ! Author: Roux
@@ -1246,8 +1233,8 @@ CONTAINS
     real, intent(in) :: Rs                              ! surface resistance
     integer, intent(in) :: deptype                      ! deposition type
     integer, intent(in) :: timeSign                     ! 1 for forward, -1 for backward
-    real, intent(inout) :: invVd2m                            ! resistance from zref to 2m 
-    
+    real, intent(inout) :: invVd2m                            ! resistance from zref to 2m
+
     ! Local variables
     real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
           & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0, fTemperature, &
@@ -1278,11 +1265,11 @@ CONTAINS
     fRoughfr = pMetLandFr(indexMeteo)
     !fZ0      =  pMetSrfRoughDisp(indexMeteo)
     fZ0      =  pMetSrfRoughMeteo(indexMeteo)
-        
+
     Cp_ro = specific_heat_dryair*pMetSrfPressure(indexMeteo) / &
           & (gas_constant_dryair*pMetTempr2m(indexMeteo))
     fSensHeatVelplus = pMetSensHF(indexMeteo)/(Cp_ro * pMetTempr2m(indexMeteo) * u_star )
-    !        - u_star*u_star*invL/(0.4*g) 
+    !        - u_star*u_star*invL/(0.4*g)
     ! <w'T'>/T/ u_*
 
 
@@ -1295,26 +1282,26 @@ CONTAINS
     if (fZ0 < 3. * fKin_visc/u_star) then !FIXME: May be some other coefficient needed here
       fRoughfr = 0.
     endif
-                                               
-    if(pMetPrecTot(indexMeteo) > 0.0) then ! Dimensionless meteoswitch for impaction 
-      fStickRatio = 1.0 
+
+    if(pMetPrecTot(indexMeteo) > 0.0) then ! Dimensionless meteoswitch for impaction
+      fStickRatio = 1.0
     else
       fStickRatio = 0.0
-    endif 
-        
+    endif
+
     !
     ! Dimensionless species properties
     if(fu_mode(speciesTransport) == in_gas_phase)then    !gas
       ! Sc = nu / D (kinematic viscosity over molecular diffusivity)
       fSc = fKin_visc/fu_gas_molecular_diffusivity_air(speciesTransport%material)
-      fWetDiam = real_missing 
+      fWetDiam = real_missing
       tauplus = 0.
       vsplus = 0.
       rplus = 0.
       Rsplus = Rs*u_star
       fTau = 0.
       fVTFplus = 0.
-    else    
+    else
       ! particles
       ! No deposition rules here....
       !if(rulesDeposition%ifHumidityDependent)then
@@ -1348,7 +1335,7 @@ CONTAINS
       rplus  = 0.5 * fWetDiam * u_star / fKin_visc
       Rsplus = 0. ! No surface resistance for particles
     endif ! gas or particles
-        
+
 !! Temporary hack
 !fu_get_vd = & !1e-8 +  fTau * g
 !  & u_star * fu_vdplus_DS(tauplus,fSc,vsplus, Rsplus, invL*fZ0, zref/fZ0)
@@ -1378,12 +1365,12 @@ CONTAINS
               call msg ("**DEPO** Negative vdsmooth!, zref=",zref)
               call msg ("**DEPO** Negative vdsmooth!, z0smooth=",fTmp)
               call msg ("**DEPO** Negative vdsmooth!, invL=",invL)
-              vdsmooth = 0. ! Should not happen, but happens. 
+              vdsmooth = 0. ! Should not happen, but happens.
                             ! sometimes returns NAN due to over-/under- flow
             endif
-          endif 
+          endif
        endif
-        vsplusCorrTF = 0.5*(vsplusCorrTF+abs(vsplusCorrTF)) ! Can not be negative for rough surfaces. 
+        vsplusCorrTF = 0.5*(vsplusCorrTF+abs(vsplusCorrTF)) ! Can not be negative for rough surfaces.
                                                             ! Could be treated in some better way
         if (fRoughfr > 0.) then ! rough fraction exist
            Re =  ascale * u_star / fKin_visc
@@ -1402,10 +1389,10 @@ CONTAINS
                   call msg('fZ0 , zref',fZ0 , zref)
                   vdrough = 0. ! FIXME Should never happen
             endif
-        endif          
-        fu_get_vd = vdsmooth + vdrough 
+        endif
+        fu_get_vd = vdsmooth + vdrough
         fwdOnly = .false.
-        
+
 
 
       CASE (DryD_Vd_difsed) ! Vd ==  diffusion + settling
@@ -1414,7 +1401,7 @@ CONTAINS
         fwdOnly = .true.
 
       CASE (DryD_Vd_SP98) ! Vd Slinn (Accoding to Seinfeld Pandis 2006)
-         fu_get_vd = u_star * & 
+         fu_get_vd = u_star * &
                & fu_vdplus_slinnSP98(tauplus,fSc,abs(vsplus), Rsplus, invL*fZ0, zref/fZ0)
         fwdOnly = .true.
 
@@ -1427,8 +1414,8 @@ CONTAINS
         fwdOnly = .false.
 
       CASE DEFAULT ! Old scheme
-            call msg("Unknown dry depo  rules! rules:", deptype) 
-            call set_error("Unknown dry depo  rules", "fu_get_vd") 
+            call msg("Unknown dry depo  rules! rules:", deptype)
+            call set_error("Unknown dry depo  rules", "fu_get_vd")
     END SELECT
 
     ! correct Vd for inverse time
@@ -1450,10 +1437,21 @@ CONTAINS
       R2m = 2.5 * (log(Zref/Z2m) + fu_Psi(Zref*invL) - fu_Psi(Z2m*invL))
       V = g * fTau * timeSign
       invVd2m = 1./ fu_get_vd
-      if (zref>Z2m) then 
+      if (zref>Z2m) then
         R2m = max(0., R2m)   ! Could become negative in unstable
         fTmp = V*R2m
-        if (-fTmp < LOG_MAX_REAL ) then  !exp defined
+! Problems like this cause arithmetic exception, better stay clean
+! 1449: invVd2m, fTmp, V   53.8973999       1.08506525      -1.87622122E-02
+! 1449: invVd2m, fTmp, V   47.9674492       1.10740995      -1.85509678E-02
+! 1449: invVd2m, fTmp, V   182.322647       1.10023880      -1.87041257E-02
+! 1449: invVd2m, fTmp, V   51.3347435       1.10711932      -1.85464676E-02
+! 1449: invVd2m, fTmp, V   68.8748627       1.10041344      -1.86553001E-02
+! 1449: invVd2m, fTmp, V   1.04545293E+09   95888.5234      -1.84673797E-02
+! 1449: invVd2m, fTmp, V   24.0280857       1.09530103      -1.90008879E-02
+! 1449: invVd2m, fTmp, V   23.0923443       1.10184014      -1.91738810E-02
+! 1449: invVd2m, fTmp, V   188.234879       1.13369203      -1.86895579E-02
+
+        if (-fTmp < 0.1 * LOG_MAX_REAL ) then  !exp defined, plus hack as below
           if (abs(fTmp) .gt. 0.001) then
             fTmp = exp(-fTmp)
             invVd2m = invVd2m*fTmp + (1.-fTmp)/V
@@ -1464,7 +1462,7 @@ CONTAINS
       else
         R2m = -min(R2m, 0.0)   ! Could become wrong sign. In the end, should become positive
         fTmp = V*R2m
-        if (fTmp < 0.1*LOG_MAX_REAL ) then  !exp defined Plus hack.. 
+        if (fTmp < 0.1*LOG_MAX_REAL ) then  !exp defined Plus hack..
           if (abs(fTmp) .gt. 0.001) then
             fTmp = exp(fTmp)
             invVd2m = invVd2m*fTmp + (fTmp - 1.)/V !!Hack needed for this line
@@ -1492,7 +1490,7 @@ CONTAINS
         call msg('fZ0 , zref',fZ0 , zref)
         call msg("vdsmooth, vdrough", vdsmooth, vdrough)
         invVd2m = fu_get_vd !Safe choice
-  
+
 !                  !FIXME This should not happen, but happened in apta run....
 !   Negative Vd2m     -22.5560760
 !   fRoughfr, u_star:       0.8557873       1.4377022
@@ -1511,14 +1509,14 @@ CONTAINS
 !   Rs       25.0000000
       endif
     else
-       !Inside roughness 
+       !Inside roughness
        invVd2m = 1./ fu_get_vd
     endif
 
   end function  fu_get_vd
 
   !****************************************************************************************
-  
+
   subroutine  get_vd_species(zref,  speciesTransport, &  ! Reference height, what to deposit
                          & indexMeteo, weight_past, &  ! position in space and time
                          & Rs, deptype, timeSign, fVd, invVd2m)     ! surface resistance
@@ -1527,8 +1525,8 @@ CONTAINS
     ! with new KS2011 deposition scheme plus thermpohoresis.
     ! For gases the return value is an inverse resistance
     !
-    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the 
-    !            very transport species, which were used for the precomputation step. This is 
+    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
+    !            very transport species, which were used for the precomputation step. This is
     !            checked upon the first call
     ! Units: SI
     ! Author: Roux
@@ -1543,9 +1541,9 @@ CONTAINS
     real, dimension(:), intent(in) :: Rs         ! (nSp) surface resistance
     integer, intent(in) :: deptype               ! deposition type
     integer, intent(in) :: timeSign              ! 1 for forward, -1 for backward
-    real, dimension(:,:), intent(out) :: fVd, invVd2m ! resistance from zref to 2m 
+    real, dimension(:,:), intent(out) :: fVd, invVd2m ! resistance from zref to 2m
 
-    
+
     ! Local variables
     real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
           & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0, fTemperature, &
@@ -1580,11 +1578,11 @@ CONTAINS
         fRoughfr = pMetLandFr(indexMeteo)
         !fZ0      =  pMetSrfRoughDisp(indexMeteo)
         fZ0      =  pMetSrfRoughMeteo(indexMeteo)
-        
+
         Cp_ro = specific_heat_dryair*pMetSrfPressure(indexMeteo) / &
               & (gas_constant_dryair*pMetTempr2m(indexMeteo))
         fSensHeatVelplus = pMetSensHF(indexMeteo)/(Cp_ro * pMetTempr2m(indexMeteo) * u_star )
-        !        - u_star*u_star*invL/(0.4*g) 
+        !        - u_star*u_star*invL/(0.4*g)
         ! <w'T'>/T/ u_*
 
 
@@ -1596,24 +1594,24 @@ CONTAINS
               fz0=1.e-6
             endif
 
-        if (fZ0 < 3. * fKin_visc/u_star) then !FIXME: May be some other coefficient 
+        if (fZ0 < 3. * fKin_visc/u_star) then !FIXME: May be some other coefficient
                                               !needed here
                 fRoughfr = 0.
         endif
-                                               
+
         if(pMetPrecTot(indexMeteo) > 0.0) then ! Dimensionless meteo
-                                                !switch for impaction 
-                 fStickRatio = 1.0 
+                                                !switch for impaction
+                 fStickRatio = 1.0
         else
                  fStickRatio = 0.0
-        endif 
-        
+        endif
+
        !
        ! Dimensionless species properties
         if(fu_mode(speciesTransport(iSp)) == in_gas_phase)then    !gas
         ! Sc = nu / D (kinematic viscosity over molecular diffusivity)
             fSc = fKin_visc/fu_gas_molecular_diffusivity_air(speciesTransport(iSp)%material)
-            fWetDiam = real_missing 
+            fWetDiam = real_missing
             tauplus = 0.
             vsplus = 0.
             rplus = 0.
@@ -1639,27 +1637,27 @@ CONTAINS
             fLambda = 2.37e-5 * pMetTempr2m(indexMeteo) / pMetSrfPressure(indexMeteo)
             fKn = 2*fLambda / fWetDiam
             fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
-            
+
             fDiffusivity = boltzmann_const * pMetTempr2m(indexMeteo) * fCun / &
                          & (3. * Pi * fDyn_visc * fWetDiam)
             fTau =  fWetDiam * fWetDiam * wetParticle%fWetParticleDensity * &
                           & fCun / (18. * fDyn_visc)
 
-            
-            fVTFplus = - fSensHeatVelplus * fPrm  & !Thermophoretic velocity 
+
+            fVTFplus = - fSensHeatVelplus * fPrm  & !Thermophoretic velocity
                 &        * 2*fCun *1.17 *(fkgkp+2.18*fKn) & ! (Friedlander 2000)
                 &        / (1+3*1.14*fKn)/(1.+2.*fkgkp +2.*2.18*fKn) * timeSign
             fSc = fKin_visc / fDiffusivity
             tauplus = fTau * u_star * u_star / ( fKin_visc)
             vsplus = fTau * g / u_star * timeSign
-            rplus  = 0.5 * fWetDiam * u_star / fKin_visc   
+            rplus  = 0.5 * fWetDiam * u_star / fKin_visc
             Rsplus = 0. ! No surface resistance for particles
-          endif 
+          endif
 
 
 
 
-        
+
 !! Temporary hack
 !fu_get_vd = & !1e-8 +  fTau * g
 !  & u_star * fu_vdplus_DS(tauplus,fSc,vsplus, Rsplus, invL*fZ0, zref/fZ0)
@@ -1668,7 +1666,7 @@ CONTAINS
     SELECT CASE(deptype)
       CASE(DryD_KS2011, DryD_KS2011_TF) ! Original KS scheme
         vsplusCorrTF=0. ! vorrection of VsPlus for thermophoresis
-        if (deptype == DryD_KS2011_TF)  vsplusCorrTF = fvtfplus 
+        if (deptype == DryD_KS2011_TF)  vsplusCorrTF = fvtfplus
                                 !  thermophoresis
         if  (fRoughfr < 1.) then ! smooth fraction exist
            fTmp = fKin_visc/u_star ! z0smooth
@@ -1690,15 +1688,15 @@ CONTAINS
                   call msg ("**DEPO** Negative vdsmooth!, vdsmooth=",vdsmooth)
                   call msg ("**DEPO** Negative vdsmooth!, zref=",zref(iSp, iSrc))
                   call msg ("**DEPO** Negative vdsmooth!, z0smooth=",fTmp)
-                  vdsmooth = 0. ! Should not happen, but happens. 
+                  vdsmooth = 0. ! Should not happen, but happens.
                                 ! sometimes returns NAN due to over-/under- flow
                 endif
-              endif 
+              endif
        endif
         vsplusCorrTF = 0.5*(vsplusCorrTF+abs(vsplusCorrTF)) ! Can not be
-                       ! negative for rough surfaces. 
+                       ! negative for rough surfaces.
                        ! Could be treated in some better way
-        
+
         if (fRoughfr > 0.) then ! rough fraction exist
            Re =  ascale * u_star / fKin_visc
            St = 2*tauplus/Re * fStickRatio ! No impaction for non-sticky
@@ -1716,10 +1714,10 @@ CONTAINS
                   call msg('fZ0 , zref',fZ0 , zref(iSp, iSrc))
                   vdrough = 0. ! FIXME Should never happen
             endif
-        endif          
-        fVd = vdsmooth + vdrough 
+        endif
+        fVd = vdsmooth + vdrough
         fwdOnly = .false.
-        
+
 
 
       CASE (DryD_Vd_difsed) ! Vd ==  diffusion + settling
@@ -1728,7 +1726,7 @@ CONTAINS
         fwdOnly = .true.
 
       CASE (DryD_Vd_SP98) ! Vd Slinn (Accoding to Seinfeld Pandis 2006)
-         fVd = u_star * & 
+         fVd = u_star * &
                & fu_vdplus_slinnSP98(tauplus,fSc,abs(vsplus), Rsplus, invL*fZ0, zref(iSp, iSrc)/fZ0)
         fwdOnly = .true.
 
@@ -1736,13 +1734,13 @@ CONTAINS
         fVd = fu_vd_Zhang(fTau,fSc,fWetDiam,u_star, Zref(iSp, iSrc), Rs(iSp), invL, ZhangGrass)
         fwdOnly = .true.
 
-      CASE (DryD_VD_Zero)! 
+      CASE (DryD_VD_Zero)!
         fVd = 0
         fwdOnly = .false.
 
       CASE DEFAULT ! Old scheme
-            call msg("Unknown dry depo  rules! rules:", deptype) 
-            call set_error("Unknown dry depo  rules", "fVd") 
+            call msg("Unknown dry depo  rules! rules:", deptype)
+            call set_error("Unknown dry depo  rules", "fVd")
     END SELECT
 
     ! correct Vd for inverse time
@@ -1760,7 +1758,7 @@ CONTAINS
             ! R2m is positive for zref > Z2m and negative for  zref < Z2m
             V = g * fTau * timeSign
             invVd2m = 1./ fVd
-            if (zref(iSp, iSrc)>Z2m) then 
+            if (zref(iSp, iSrc)>Z2m) then
                    R2m  = 0.5*(R2m+abs(R2m))   ! Could become negative in
                                              ! unstable
                    fTmp = V*R2m
@@ -1791,7 +1789,7 @@ CONTAINS
 
 
 !**********************************************************************************
-! New deposition DryD_Vd_SP98 does the same at revision 57750  FIXME 
+! New deposition DryD_Vd_SP98 does the same at revision 57750  FIXME
 ! To be removed?
 !
 !  subroutine get_Rb(speciesTransport, nSpecies, &                ! resistance for them
@@ -1799,12 +1797,12 @@ CONTAINS
 !                  & rulesDeposition, &           ! rules for standard deposition
 !                  & arRb)                        ! output array for Rb
 !    !
-!    ! Returns an array of Rs for the subset of the given species - those, which are handled 
-!    ! by the standard deposition procedure and thus referred to via the module private 
+!    ! Returns an array of Rs for the subset of the given species - those, which are handled
+!    ! by the standard deposition procedure and thus referred to via the module private
 !    ! index arrays indGasesDepositing and indAerosolDepositing.
 !    !
-!    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the 
-!    !            very transport species, which were used for the precomputation step. This is 
+!    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
+!    !            very transport species, which were used for the precomputation step. This is
 !    !            checked upon the first call
 !    !
 !    implicit none
@@ -1815,7 +1813,7 @@ CONTAINS
 !    type(Tdeposition_rules), intent(in) :: rulesDeposition
 !    real, intent(in) :: weight_past
 !    real, dimension(:), intent(out) :: arRb
-!    
+!
 !    ! Local variables
 !    integer :: iTmp, index
 !    ! Local variables
@@ -1856,13 +1854,13 @@ CONTAINS
 !!          call msg('iTmp, indGasesDepositing(iTMp)',iTmp,rulesDeposition%indGasesDepositing(iTmp))
 !!          call msg('Reporting species:')
 !!          call report(speciesTransport(rulesDeposition%indGasesDepositing(iTmp)))
-!          
+!
 !          if(fu_if_gas_depositing(speciesTransport(rulesDeposition%indGasesDepositing(iTmp))%material))then
 !            u_star = pMetFricVel(indexMeteo)
 !            prandtl = pMetPrandtl(indexMeteo)
 !            index = rulesDeposition%indGasesDepositing(iTmp)
 !            mol_diff = fu_gas_molecular_diffusivity_air(speciesTransport(index)%material)
-!            arRb(index) = 2.0 / (u_star*karmann_c) * (fKin_visc / (mol_diff*prandtl))**0.666667            
+!            arRb(index) = 2.0 / (u_star*karmann_c) * (fKin_visc / (mol_diff*prandtl))**0.666667
 !          else
 !            arRb(rulesDeposition%indGasesDepositing(iTmp)) = -1.
 !          endif
@@ -1870,8 +1868,8 @@ CONTAINS
 !        !
 !        ! For aerosols:
 !        ! 1/Rb = u* (Sc**(-2/3) + 10**(-3/St))
-!        ! Sc=nu/D, nu=1.46e-5 m2/s, D = kT Cun/(3pi d mu), d is 
-!        ! particle diameter, mu is dynamic viscosity=1.8e-5, k=1.38e-23 J/K - 
+!        ! Sc=nu/D, nu=1.46e-5 m2/s, D = kT Cun/(3pi d mu), d is
+!        ! particle diameter, mu is dynamic viscosity=1.8e-5, k=1.38e-23 J/K -
 !        ! Boltzman's constant, Cun is no-slip correction
 !        ! St is Stokes number (inertial passing through layer), St=v_sedim * u* * u* /(g*nu)
 !        !
@@ -1924,13 +1922,13 @@ CONTAINS
 !            arRb(rulesDeposition%indAerosolDepositing(iTmp)) = 1. / &
 !                              & (pMetFricVel(indexMeteo) * (fSc**(-0.66666667) + 10**(-3.0/fSt)))
 !            !
-!            ! Option 2 seems to be better but the interception and stokes number require detailed land use, 
+!            ! Option 2 seems to be better but the interception and stokes number require detailed land use,
 !            ! which is still in the future. So far, let's just distinguish between the land and sea
 !            !
 !! 14.1.2011.
 !! This option is from Zhang(2001) and, in fact, is rubbish. The deposition velocity is much too high.
 !!
-!!            arRb(rulesDeposition%indAerosolDepositing(iTmp)) = & 
+!!            arRb(rulesDeposition%indAerosolDepositing(iTmp)) = &
 !!                          &   1. / (3. * pMetFricVel(indexMeteo) * fStickRatio * &
 !!                                  & (fSc**(-0.55) + &                                ! Brownian diffusion
 !!                                   & fSt*fSt/((1+fSt)*(1+fSt)) + &                 ! Impaction
@@ -1952,11 +1950,11 @@ CONTAINS
                   & arRs, ifTuned)                                ! output array for Rs
                   !& arRs, massair,massDep)                                ! output array for Rs
     !
-    ! Returns an array of Rs for the subset of the given species - those, which are handled 
-    ! by the standard deposition procedure and thus referred to via the module private 
+    ! Returns an array of Rs for the subset of the given species - those, which are handled
+    ! by the standard deposition procedure and thus referred to via the module private
     ! index arrays indGasesDepositing and indAerosolDepositing.
     !
-    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the 
+    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
     !            very transport species, which were used for the precomputation step
     !
     !  Losely adapted from EMEP unified model
@@ -1966,7 +1964,7 @@ CONTAINS
 
     ! Imported parameters
     type(silam_species), dimension(:), intent(in) :: speciesTransport
-    real, dimension(:), intent(in) :: mmr_lowest_lev 
+    real, dimension(:), intent(in) :: mmr_lowest_lev
     integer, intent(in) :: nSpecies, indexMeteo
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, intent(in) :: weight_past
@@ -1992,17 +1990,17 @@ CONTAINS
 
     real, parameter :: mmrSO2sat = 10.e-6 /1.2  / .064 !10 ug/m3 / 1.2kg/m3 / .064 kg/mole
 
-!! Here, "Gext=0.2cm/s" refers to the external conductance, G_ext, where 
-!! G_ext=LAI/R_ext. In many studies, it has been assumed 
+!! Here, "Gext=0.2cm/s" refers to the external conductance, G_ext, where
+!! G_ext=LAI/R_ext. In many studies, it has been assumed
 !! that G_ext should be low, particularly relative to stomatal conductance g_s.
-!! Results from a variety of experiments, however, have made the above 
+!! Results from a variety of experiments, however, have made the above
 !! estimates  Rext0 and RextS plausible.  The above equation for G_ext has been
-!! designed on the basis of these experimental results. 
+!! designed on the basis of these experimental results.
 !
-!! Notice also that given the equations for the canopy resistance R_sur and the 
+!! Notice also that given the equations for the canopy resistance R_sur and the
 !! deposition velocity V_g, V_g>=LAI/R_ext. The value of G_ext can therefore be
 !! interpreted as the minimum value for V_g.
-    
+
     !
     ! Initially, all is negative. Those, which deposit, will be set to something reasonable
     arRs(1:nSpecies) = -1.0
@@ -2040,7 +2038,7 @@ CONTAINS
     hveg     = 10 * fZ0 ! Vegetation height used for snow cover, incanopy
                         ! resistance etc
     u_star = pMetFricVel(indexMeteo)
-    pressure = pMetSrfPressure(indexMeteo) 
+    pressure = pMetSrfPressure(indexMeteo)
     t2m      = pMetTempr2m(indexMeteo)
     t2c      = t2m - 273.15 !In Celsius
     rh2m     = pMetRh2m(indexMeteo)
@@ -2049,9 +2047,9 @@ CONTAINS
     if (LAI < 0.) LAI=0  !Can be missing or something...
     g_sto    = pMetGsto(indexMeteo)
     landfr   = pMetLandFr(indexMeteo)
-    !fice     = pMetIceFr(indexMeteo) 
+    !fice     = pMetIceFr(indexMeteo)
 
-    
+
     if (hveg > 2.) then ! high vegetation
         SAI = LAI + 1 !! Surface area index of canopy
         canopy = .true.
@@ -2076,7 +2074,7 @@ CONTAINS
                             !but it might be ice without snow..
     fsnow = min(fsnow,1.0)
     fsnow = max(fsnow,0.0)
- 
+
   !===========================================================================
   !  Adjustment for low temperatures (Wesely, 1989, p.1296, left column)
 
@@ -2086,7 +2084,7 @@ CONTAINS
                                    !effectivelluy means that it will only
                                    !kick in for T<-1
 
-! Rsnow for sulphur and O3, Erisman, 1994 + Zhang, 2003. Also used for ice. 
+! Rsnow for sulphur and O3, Erisman, 1994 + Zhang, 2003. Also used for ice.
     RsnowS = 70.0*(2.0 - t2c) !Used for snow_flag and ice_nwp
     if (t2C < -1.0) RsnowS = 700.0 !700 from Cadle,1985
     RsnowS = min(700.0,RsnowS) !Erisman 1994=500,very low.. Puts to 2000
@@ -2102,21 +2100,21 @@ CONTAINS
 !       call CoDep_factors(G%so2nh3ratio24hr,G%so2nh3ratio,&
 !              L%t2C,L%rh,L%is_forest, debug_flag)
     if (T2c > 0 ) then    ! Use "rh" - now in fraction 0..1.0
-        
+
       F1 = 10.0 * log10(T2C+2.0) * exp(100.0*(1.0-rh2m)/7.0) ! tab_exp_rh(IRH)
       F2 = 48 * exp(-2.53 * alphaSNair)
       !a_SN =  ia_SN * MAX_SN /real(NTAB)
       !ia_SN = nint( NTAB * a_SN/MAX_SN )   ! Spread values from 0-3 to 0:100
       !tab_F2 (ia_SN)            = 10.0**( (-1.1099 * a_SN)+1.6769 )
-      !120 * alphaSNdep**(-0.7)  
+      !120 * alphaSNdep**(-0.7)
       !!tab_F2( iaSN  )
       Rns_NH3 = BETA * F1 * F2
       Rns_NH3 = min( 200.0, Rns_NH3)  ! After discussion with Ron
-      Rns_NH3 = max(  10.0,Rns_NH3)   ! Sic! FIXME Does not depend on LAI/SAI 
-        
+      Rns_NH3 = max(  10.0,Rns_NH3)   ! Sic! FIXME Does not depend on LAI/SAI
+
       !Rns_SO2_dry = 11.84  * exp(1.1*so2nh3ratio24hr) * ( frh**(-1.67) )
       Rns_SO2 = 8.0 * alphaSNdep **0.3 * ( rh2m**(-1.67) )
-      Rns_SO2 = min( 1000.0, Rns_SO2)  ! Set because rh goes almost 
+      Rns_SO2 = min( 1000.0, Rns_SO2)  ! Set because rh goes almost
       ! to zero occationally over the Alps, Greenland and Svalbard
       ! 1000 chosen sort of random
       Rns_SO2 = max(  10.0,Rns_SO2) !hf CoDep SHOULD WE LIMIT IT to 10??
@@ -2135,13 +2133,13 @@ CONTAINS
 
     end if !Ts_C
 
-  !** Calculate Rinc, Gext 
+  !** Calculate Rinc, Gext
 
     if(  canopy ) then
 
       Rinc = 14.0 * SAI * hveg  / u_star    ! Erisman's b.LAI.h/u*
 
-      ! for now, use CEH stuff for canopies,and soils (canopies ouside 
+      ! for now, use CEH stuff for canopies,and soils (canopies ouside
       ! growing season)
       ! keep Ggs for non-canopy
 
@@ -2161,7 +2159,7 @@ CONTAINS
       !  giving higher deposition to water, less to deserts
 
       !SILAM value, map is used in EMEP model
-      
+
       !Again error in EMEP
       !RgsSsfc = 50 * (1. - landfr) + 500 * landfr  ! Default for bare surface
 
@@ -2180,7 +2178,7 @@ CONTAINS
     !!but - we have underlying surfaces only for O3 and for simplicity we treat them equally
     !!RECONSIDER THIS ESPECIALLY BASED ON SATELITTES
 
-    !!no snow corrections (or low temperature) for Rinc 
+    !!no snow corrections (or low temperature) for Rinc
     !!RgsO 'corrected for snow' and low temp
     !!as adviced by Juha-Pekka
 
@@ -2200,8 +2198,8 @@ ifTuned = .true.
     GigsO=  (1.-fsnow)/RgsOsfc   + fsnow/RsnowO
     RigsO = lowTcorr/GigsO +  Rinc
 
-!!####   2. Calculate Surface Resistance, Rsur, for HNO3 and Ground Surface 
-!!####      Resistance, Rgs, for the remaining Gases of Interest                                
+!!####   2. Calculate Surface Resistance, Rsur, for HNO3 and Ground Surface
+!!####      Resistance, Rgs, for the remaining Gases of Interest
 
    !!/ Ozone values....
 
@@ -2214,7 +2212,7 @@ ifTuned = .true.
       iSpecies = rulesDeposition%indGasesDepositing(iTmp)
       DepData => fu_gas_deposition_param(speciesTransport(iSpecies)%material)
       if (DepData%Henry_const_298K < 0.) cycle ! No deposition for the gas
-     
+
       if (iSpecies == indHNO3) then
         arRs(iSpecies) = max(10., -2.*T2c) ! Simpson 2012, eq.56
         if (fu_fails(arRs(iSpecies) >= 0., "Negative surface resistance HNO3","get_Rs_2013"))return
@@ -2223,7 +2221,7 @@ ifTuned = .true.
 
       Hstar = DepData%Henry_const_298K * &
             & exp (DepData%Henry_const_T_dep * ((1./t2m)-(1./298.)) )
-      
+
       !Diffusivity ratio D(x)/D(H20)
       ! In EMEP more diffusive stuff deposites slower!!! Corrected here. Roux
       !DRx =  fu_gas_molecular_diffusivity_air(speciesTransport(iSpecies)%material) / 2e-5
@@ -2232,20 +2230,20 @@ ifTuned = .true.
       if (iSpecies == indNH3) then
         Gns = (1.-fsnow)/(Rns_NH3 * lowTcorr) + fsnow/RsnowS
       else
-        Gns = Hstar * 0.67e-5 * GnsS + DepData%Wesely_f0 * GnsO 
+        Gns = Hstar * 0.67e-5 * GnsS + DepData%Wesely_f0 * GnsO
       endif
       !
       ! Stomatal resistance is a sum of the leaf stomatal resistance and mesophyll resistance
       ! See Seinfeld & Pandis 2006, p.921.
       ! Note that in Eq. (19.52) the Henry law contant should be in units of M/atm but
-      ! SILAM has it in units of mol/kg/Pa. Therefore an extra factor of 1.01e5 is needed. 
+      ! SILAM has it in units of mol/kg/Pa. Therefore an extra factor of 1.01e5 is needed.
       !
       Gmesophyl = 3.3e-4 * 1.01e5*Hstar + 100.0 * DepData%Wesely_f0
 
 !      fTmp = max( LAI * DRx * G_sto + Gns, 1e-10 ) !1/Rs, misses mesophyl resistor
 !      fTmp = max( LAI / (1./(DRx * G_sto) + 1. / Gmesophyl) + Gns, 1e-10 ) !1/Rs
       fTmp = max( LAI * DRx * G_sto * Gmesophyl / (Gmesophyl + DRx*G_sto) + Gns, 1e-10 ) !1/Rs
-            
+
       arRs(iSpecies) = 1.0 / fTmp
       if (.not. (arRs(iSpecies) >= 0.)) then
         call msg("Non-positive surface resistance for:" + fu_name(speciesTransport(iSpecies)%material), arRs(iSpecies))
@@ -2269,11 +2267,11 @@ ifTuned = .true.
                   & rulesDeposition, &                   ! rules for standard deposition
                   & arRs)                                ! output array for Rs
     !
-    ! Returns an array of Rs for the subset of the given species - those, which are handled 
-    ! by the standard deposition procedure and thus referred to via the module private 
+    ! Returns an array of Rs for the subset of the given species - those, which are handled
+    ! by the standard deposition procedure and thus referred to via the module private
     ! index arrays indGasesDepositing and indAerosolDepositing.
     !
-    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the 
+    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
     !            very transport species, which were used for the precomputation step
     !
     implicit none
@@ -2309,7 +2307,7 @@ ifTuned = .true.
 
       if(pMetLandFr(indexMeteo) > 0.01)then
         !
-        ! Land exists. Apply the standard soil resistance (so far!) and the correction coefficient for the 
+        ! Land exists. Apply the standard soil resistance (so far!) and the correction coefficient for the
         ! soil wetness. The correction can be non-integer but in general, it is 1 for dry conditions,
         ! 2 for slight rain and 3 for strong rain. Algorithm: for dry case take the soil parameter, for
         ! slight rain a mixture of soil and water, for strong rain - water parameter.
@@ -2317,10 +2315,10 @@ ifTuned = .true.
         !
         fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
                   & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
-        
-        
+
+
         !
-        ! Procedure: 
+        ! Procedure:
         ! 1. Strong rain => water coefficeint
         ! 2. Mild rain OR high humidity with not too high temperature => intermediate value
         ! 3. Else: (No rain, low humidity or high temperature) => dry value
@@ -2441,7 +2439,7 @@ ifTuned = .true.
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, dimension(:), intent(inout):: velocity
     real, intent(in), optional :: forced_humidity
-    
+
     ! Local variables
     real :: fTempr, fPressure, fWetDiam, mu_air
     type(TwetParticle) :: WetParticle
@@ -2518,20 +2516,20 @@ real function fu_settling_vel(dp, rhop, mu_air, T, P) result(vs)
   ! Implements settling velocity for the whole range of particles
   !
   ! Implements Solution for equation taht F_g + F_stokes + F_drag = 0
-  ! F_g = - pi/18  rho_p g  dp**3    
+  ! F_g = - pi/18  rho_p g  dp**3
   ! F_stokes = 3 pi mu_air dp vs / Cun
   ! where Cun = 1 + 2*lambda/d * (1.26 + 0.4 * exp(-0.55 * d/lambda))
   ! lambda = 2.18e-5 * T / P ## Constant to match eq 9.7 of SeinfeldPandis2006, p.399
             !! Earlier was 2.37e-5 from unknown source
   ! F_drag = pi/8 dp**2 rho_air C_d
- 
+
     implicit none
     real, intent(in) :: dp, rhop, mu_air, T, P
     real :: A, B, C, Det, lambda_over_dp, fCun, rho_air
     character(len = *), parameter :: sub_name = 'fu_settling_vel'
-  
+
       rho_air = P / (gas_constant_dryair * T)
-    ! Equation: A * vs * vs + B * vs + C =0 
+    ! Equation: A * vs * vs + B * vs + C =0
       A = rho_air * dp * 0.45  !! A = F_t * 6 /pi / U^2 /dp  Turbulent drag
                                  !! Drag coefficient for a sphre Cd=0.45
       B = 18 * mu_air   ! B = F_s *6 /pi  / U /dp ##Stokes drag without Cunningham
@@ -2545,7 +2543,7 @@ real function fu_settling_vel(dp, rhop, mu_air, T, P) result(vs)
         Det = B*B - 4*A*C !! No cunningham for large particles (hopefully)
         vs = 0.5*(-B + sqrt(Det)) / A
       endif
-  
+
 end function fu_settling_vel
 
 
@@ -2556,7 +2554,7 @@ end function fu_settling_vel
                                          & rulesDeposition, &
                                          & velocity, ifPressure)
     !
-    ! Computes the general settling velocity in m/s or in Pa/s 
+    ! Computes the general settling velocity in m/s or in Pa/s
     ! for the given substance and given mode.
     !
     ! Positive -- down!!!!
@@ -2573,7 +2571,7 @@ end function fu_settling_vel
     logical, intent(in) :: ifPressure
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, dimension(:), intent(out):: velocity
-    
+
     ! Local variables
     real :: mu_air, fWetDiam
     type(TwetParticle) :: WetParticle
@@ -2601,7 +2599,7 @@ end function fu_settling_vel
       if(rulesDeposition%ifHumidityDependent)then
 #ifdef DEBUG
           if (fu_fails(fRelHum /= real_missing, "Missing relaive humidity", "get_settling_motion_species")) return
-#endif        
+#endif
          wetParticle = fu_wet_particle_features(speciesTransport(iSp)%material, fRelHum)
       else
          wetParticle = fu_wet_particle_features(speciesTransport(iSp)%material, rulesDeposition%fDefaultRelHumidity)
@@ -2651,7 +2649,7 @@ end function fu_settling_vel
       call msg('.. or, may be, input transport species:',nSpecies)
       call set_error('Inconsistent number of species','verify_deposition')
     endif
-    
+
   end subroutine verify_deposition
 
   !************************************************************************************
@@ -2702,7 +2700,7 @@ end function fu_settling_vel
     if(error)return
 
     nDispLev = fu_NbrOfLevels(dispersion_vertical)
-    
+
     !
     ! Grand loop over particles
     !
@@ -2722,11 +2720,11 @@ end function fu_settling_vel
             fVd = fu_get_vd(dz1 * (lpDyn(lp_z,iP)-0.4999),  &    ! Reference height
                           & mapDryDep%species(iSp), &         ! what to deposit
                           & indexMeteoHoriz, weight_past, &   ! position in space and time
-                          & arRs(iSp), &                      ! surface resistance 
+                          & arRs(iSp), &                      ! surface resistance
                           & rulesDeposition%DryDepType, 1, fiVd2m)       ! Depo rules
-            dM = lpMassTrn(iSp,iP) * (1. - exp(-fVd * timestep_sec / lpDyn(lp_dz,iP))) 
+            dM = lpMassTrn(iSp,iP) * (1. - exp(-fVd * timestep_sec / lpDyn(lp_dz,iP)))
                                 ! ?????? Should it be something like (z+dz)/2
-                                ! instead of dz here??? 
+                                ! instead of dz here???
                                 ! Now point particles would deposit instantly
                                 ! FIXME R.
             lpMassTrn(iSp,iP) = lpMassTrn(iSp,iP) - dM
@@ -2763,15 +2761,15 @@ end function fu_settling_vel
 
   !************************************************************************************
 
-  subroutine scavenge_column(mapConc, mapWetDep, arGarbage, tla_step, timestep_sec, &
+  subroutine scavenge_column(mapConc, mapWetDep, arGarbage, tla_column, timestep_sec, &
                         & rulesDeposition, arLowMassThreshold, metdat_col, ix, iy, pwc_col, &
                         & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)
 
     type(TMass_map), intent(inout)  :: mapConc, mapWetDep
     real, dimension(:,:), intent(inout)  :: arGarbage
-    type(t_tla_step), intent(inout) :: tla_step
-    real, dimension(:), pointer :: arLowMassThreshold
-    real, dimension(:,:), pointer, intent(in) :: metdat_col
+    real, dimension(:,:), pointer :: tla_column !(nz, nTla = 3) !! associated if TLA in use
+    real, dimension(:), intent(in) :: arLowMassThreshold
+    real, dimension(:,:), intent(in) :: metdat_col
     real, intent(in) :: timestep_sec !, tcc
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     Integer, intent(in) :: ix, iy
@@ -2781,7 +2779,7 @@ end function fu_settling_vel
     logical, intent(in) :: ifHorizInterp, ifVertInterp
     type(Tfield_buffer), intent(in) :: met_buf
 
-    ! Local variables                                                                                                         
+    ! Local variables
     real :: scav_coef_std, scav_coef,  timestep_sec_abs, fSO2, fS_rest, fMaxScav, precip_rate, &
          & cape_met, tcc, fTempr_1, cell_size_x, cell_size_y, abl_height, landfrac
     integer :: iLev, iSrc, iSpecies, iSpTr, ithread
@@ -2790,14 +2788,11 @@ end function fu_settling_vel
 
     logical :: not_adjoint
     real :: pwc_above_top, pwc_above_bottom, pwc_column, cwc_column_layer
-
+    real, dimension(:), pointer :: tla_cell !! slice of tla_column
     real, dimension(:,:), pointer :: precipContent
     real, dimension(:,:,:), pointer :: precipContent3d
-    real, dimension(:,:,:,:), pointer :: TL_store_mass_in_air => null()
-    real, dimension(mapConc%nSpecies,mapConc%n3D) :: tl_array
 
     integer :: istat, iMeteo, num_levs
-    logical :: have_tla
     character(len=*), parameter :: sub_name = 'scavenge_column'
     real, dimension(:), pointer ::  pMetPrecTot, pCAPE, pMetTotCloud
     integer, dimension(:), pointer :: mdl_in_q
@@ -2810,7 +2805,7 @@ end function fu_settling_vel
     num_levs = mapConc%n3D
     mdl_in_q => met_buf%buffer_quantities
 
-    pMetPrecTot => met_buf%p2d(fu_index(mdl_in_q, total_precipitation_rate_flag))%present%ptr
+    pMetPrecTot => met_buf%p2d(fu_index(mdl_in_q, total_precipitation_int_flag))%present%ptr
 
     iMeteo = fu_grid_index(nx_meteo, ix, iy, pHorizInterpStruct)
     precip_rate = pMetPrecTot(iMeteo)
@@ -2819,46 +2814,46 @@ end function fu_settling_vel
     if (precip_rate < 1e-30/3600.) return
 
     iThread = 0
-    !$ iThread = OMP_GET_THREAD_NUM() 
+    !$ iThread = OMP_GET_THREAD_NUM()
 
     Timestep_sec_abs = Abs(Timestep_sec)
-    not_adjoint = timestep_sec > 0
+    not_adjoint = .TRUE.!!timestep_sec > 0
 
     select case (rulesDeposition%scavengingType)
 
     case(scavStandard)
-      !                                                                                                          
-      ! Standard 3D scavenging coefficient. Each material has own scaling applied as a                           
-      ! correction factor: material-wise for gases, size-wise for aerosols.                                      
-      !                                                                                                          
-      ! For aerosols, we will want to have a settling velocity as a scaling parameter                            
-      ! with regard to some reference value of a "default" aerosol.                                              
-      ! Note that settling is ro*d^2 - proportional. Hence, here we can simply take                              
-      ! diameter as the proportionality factor                                                                   
-      !                                                                                                          
+      !
+      ! Standard 3D scavenging coefficient. Each material has own scaling applied as a
+      ! correction factor: material-wise for gases, size-wise for aerosols.
+      !
+      ! For aerosols, we will want to have a settling velocity as a scaling parameter
+      ! with regard to some reference value of a "default" aerosol.
+      ! Note that settling is ro*d^2 - proportional. Hence, here we can simply take
+      ! diameter as the proportionality factor
+      !
 !      call msg('Standard scavenging...',rulesDeposition%scavengingType)
 
       fldScavCoefStd => met_buf%p4d(fu_index(mdl_in_q, scavenging_coefficient_flag))
 
       if(rulesDeposition%nAerosolsDepositing > 0)then
         call get_settling_velocity_species(mapConc%species, mapConc%nSpecies, &
-             & 1, 1, 1.0, &      ! indexMeteo, iLev, weight_past                    
+             & 1, 1, 1.0, &      ! indexMeteo, iLev, weight_past
              & rulesDeposition, &
              & rSettling, &
-             & 0.9)  ! forced relative humidity                                     
-        !                                                                                                        
-        ! Default settling velocity is for 1 micrometre aerosol with 1000 kg/m3 density,                         
-        ! which is about 3.3e-5 m/sec. We take 4.e-5m/s just voluntarily. The sub-cloud scavenging               
-        ! is directly proportional to sedimentation velocity but in-cloud is entirely independent                
-        ! from it. So, a geometric average is a crude option.                                                    
-        ! Note that for small particles, the proportionality to sedimentation disappears                         
-        !                                                                                                        
+             & 0.9)  ! forced relative humidity
+        !
+        ! Default settling velocity is for 1 micrometre aerosol with 1000 kg/m3 density,
+        ! which is about 3.3e-5 m/sec. We take 4.e-5m/s just voluntarily. The sub-cloud scavenging
+        ! is directly proportional to sedimentation velocity but in-cloud is entirely independent
+        ! from it. So, a geometric average is a crude option.
+        ! Note that for small particles, the proportionality to sedimentation disappears
+        !
         do iSpecies = 1, mapConc%nSpecies
-          if(rSettling(iSpecies) > 4.0e-5)then  ! a formal settling of slightly over-1um particle                
+          if(rSettling(iSpecies) > 4.0e-5)then  ! a formal settling of slightly over-1um particle
             rSettling(iSpecies) = sqrt(min(1000.0, rSettling(iSpecies) * 2.5e4))
-            !             rSettling(iSpecies) = min(1000.0, rSettling(iSpecies) * 2.5e4)  ! sqrt may be too much, try linear  
+            !             rSettling(iSpecies) = min(1000.0, rSettling(iSpecies) * 2.5e4)  ! sqrt may be too much, try linear
           else
-            rSettling(iSpecies) = 1.0 ! gases or whatever else with small deposition                             
+            rSettling(iSpecies) = 1.0 ! gases or whatever else with small deposition
           endif
         end do
       endif  ! if there are aerosols
@@ -2868,18 +2863,18 @@ end function fu_settling_vel
 
       do iLev = 1, num_levs
         do iSrc = 1, mapConc%nSrc
- 
+
           if(.not. mapConc%ifColumnValid(iSrc,ix,iy))cycle
-           
+
           scav_coef_std = metdat_col(imet_scav, iLev)
           fTempr_1 = metdat_col(imet_temp, 1)
 
           if(scav_coef_std <= 0.0)cycle
           scav_coef_std = scav_coef_std * timestep_sec_abs
 
-          !                                                                                                     
-          ! The scaling with regard to standard 3D coefficient depends on the phase.                            
-          ! Gases keep their scaling in the chemical database                                                   
+          !
+          ! The scaling with regard to standard 3D coefficient depends on the phase.
+          ! Gases keep their scaling in the chemical database
           !
           do iSpecies = 1, rulesDeposition%nGasesDepositing
             iSpTr = rulesDeposition%indGasesDepositing(iSpecies)
@@ -2894,15 +2889,15 @@ end function fu_settling_vel
                 scav_coef = scav_coef_std * &
                      & fu_scavenging_scale_gas_snow(mapConc%species(iSpTr)%material)
               endif
-              ! Negatives for non-depositing stuff                                                              
+              ! Negatives for non-depositing stuff
               if (scav_coef < 0.0) cycle  ! no wet deposition
               ScavAmount(iSpTr,iSrc,iLev,iThread) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) * (1.-exp(-scav_coef))
             endif
-          end do  !  gases                                                                                      
+          end do  !  gases
 
-          !                                                                                                     
-          ! Aerosols scaling can be considered either via the settling velocity or via                          
-          ! the material properties, just like gases. The default option is probably the size.                  
+          !
+          ! Aerosols scaling can be considered either via the settling velocity or via
+          ! the material properties, just like gases. The default option is probably the size.
           !
           do iSpecies = 1, rulesDeposition%nAerosolsDepositing
             iSpTr = rulesDeposition%indAerosolDepositing(iSpecies)
@@ -2912,19 +2907,19 @@ end function fu_settling_vel
             else
               ScavAmount(iSpTr,iSrc,iLev,iThread) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) * &
                    & (1.-exp(-scav_coef_std * rSettling(iSpTr)))
-              !                mapConc%arM(iSpTr,iSrc,iLev,ix,iy) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) - ScavAmount             
-              !                mapWetDep%arM(iSpTr,iSrc,1,ix,iy) = mapWetDep%arM(iSpTr,iSrc,1,ix,iy) + ScavAmount               
+              !                mapConc%arM(iSpTr,iSrc,iLev,ix,iy) = mapConc%arM(iSpTr,iSrc,iLev,ix,iy) - ScavAmount
+              !                mapWetDep%arM(iSpTr,iSrc,1,ix,iy) = mapWetDep%arM(iSpTr,iSrc,1,ix,iy) + ScavAmount
             endif
           end do  !  aerosols
-        end do   ! iSrc                                                                                         
+        end do   ! iSrc
       enddo   ! iLev
-      !                                                                                                        
-      ! Saturation of the sulphur deposition and other non-linear effects can be evaluated now.                
-      !                                                                                                        
+      !
+      ! Saturation of the sulphur deposition and other non-linear effects can be evaluated now.
+      !
       if(rulesDeposition%ifSulphurSaturation)then
-        !                                                                                                      
-        ! Sum-up the total amount and find out the excess over the max scavengeable value                      
-        !                                                                                                      
+        !
+        ! Sum-up the total amount and find out the excess over the max scavengeable value
+        !
         fSO2 = 0.
         fS_rest = 0.
         do iLev = 1, mapConc%n3D
@@ -2936,33 +2931,33 @@ end function fu_settling_vel
                 fS_rest = fS_rest + ScavAmount(indSulphurSpecies(iSpecies),iSrc,iLev,iThread)
               endif
             end do
-          end do  ! iSrc                                                                                       
-        end do  ! iLev                                                                                         
-        if (fTempr_1  > freezing_point_of_water) then    ! Rain                                                  
+          end do  ! iSrc
+        end do  ! iLev
+        if (fTempr_1  > freezing_point_of_water) then    ! Rain
           fMaxScav = precip_rate * cell_size_x * cell_size_y * timestep_sec_abs * &
                & rulesDeposition%fSulphurSaturation
-        else                                   ! Snow                                                          
+        else                                   ! Snow
           fMaxScav = precip_rate * cell_size_x * cell_size_y * timestep_sec_abs * &
                & rulesDeposition%fSulphurSaturation / 1.5
         endif
-        !                                                                                                      
-        ! We assume that SO2 cannot go into droplet if there is enough sulfur. For                             
-        ! sulphates that are already there, nothing changes - they can even go higher                          
-        ! than the saturation level                                                                            
-        !                                                                                                      
+        !
+        ! We assume that SO2 cannot go into droplet if there is enough sulfur. For
+        ! sulphates that are already there, nothing changes - they can even go higher
+        ! than the saturation level
+        !
         if(fSO2 + fS_rest > fMaxScav)then
           call msg('SOx saturation (ix,iy), fSO2, fS_rest:' + fu_str(ix) + ',' + fu_str(iy),fSO2, fS_rest)
           fMaxScav = max(fMaxScav - fS_rest, 0.) / fSO2
           do iLev = 1, mapConc%n3D
             do iSrc = 1, mapConc%nSrc
               ScavAmount(indSO2,iSrc,iLev,iThread) = ScavAmount(indSO2,iSrc,iLev,iThread) * fMaxScav
-            end do  ! iSrc                                                                                     
-          end do  ! iLev                                                                                       
+            end do  ! iSrc
+          end do  ! iLev
         end if
-      endif   ! ifSulphur saturation                                                                           
-      !                                                                                                        
-      ! Having all magic done with the scavenged amount, introduce it into the main arrays                     
-      !                                                                                                        
+      endif   ! ifSulphur saturation
+      !
+      ! Having all magic done with the scavenged amount, introduce it into the main arrays
+      !
       do iLev = 1, mapConc%n3D
         do iSrc = 1, mapConc%nSrc
           do iSpTr = 1, mapConc%nSpecies
@@ -2973,64 +2968,39 @@ end function fu_settling_vel
         end do
       end do
 
-      
-      !case(scavNoScav) 
+
+      !case(scavNoScav)
       !Should crash if we got here
    !   call msg('Dummy scavenging -- no scavenging at all!')
    !   return
-      
-    case(scav2011fc, scav2011, scav2018, scav2018entr, scav2020)    
-      ! Should be checked by init_standard_deposition                                                                                                                              
-      !       call  check_deposition_rules(rulesDeposition, mapConc%species)                                                                                                       
-      !                                                                                                                                                                    
-      ! If adjoint is needed then TLA structure is defined and we need to pick or create                                                                                   
-      ! the 4D array for TL storage. Its dimensions correspond to massMap with eliminated nSrc=1                                                                           
-      !                                                                                                                                                                    
-      if (defined(tla_step)) then
-        call msg('Have tla step, SCAV20XX')
-        have_tla = .true.
-        TL_store_mass_in_air => fu_get_tla_point(tla_step, rulesDeposition%scavengingType)
-        if(fu_fails(mapConc%n3d == 1,'TLA allow only one source in mass map', sub_name))return
-      else
-        nullify(TL_store_mass_in_air)
-        have_tla = .false.
-      end if
-      
-      if (.not. any(mapConc%ifColumnValid(:,ix, iy)))then
-        if (have_tla .and. not_adjoint) TL_store_mass_in_air(:,:,ix,iy) = 0.
-        return
-      endif
 
-      ! Store TLA on forward run
+    case(scav2011fc, scav2011, scav2018, scav2018entr, scav2020)
+      ! Should be checked by init_deposition
+      !       call  check_deposition_rules(rulesDeposition, mapConc%species)
+      !
+      ! If adjoint is needed then TLA structure is defined and we need to pick or create
+      ! the 4D array for TL storage. Its dimensions correspond to massMap with eliminated nSrc=1
+      !
+      if (associated(tla_column) .and. not_adjoint) tla_column(:,:) = 0. ! zero TLA: some levels might not be filled below
+      if (.not. any(mapConc%ifColumnValid(:,ix, iy)))  return
 
-      if ( not_adjoint) then
-        if (have_tla) TL_store_mass_in_air(:,:,ix,iy) = mapConc%arM(:, 1, :, ix, iy)
-      else !! Adjoint
-        if (have_tla) then
-           tl_array(:,:) = TL_store_mass_in_air(:,:,ix,iy)
-        else
-           tl_array(:,:)  = 0. !! No TLA, pretend they were all zeroes
-        endif
-      end if
-
-                  
       if (rulesDeposition%scavengingType == scav2020) then
         pwc_column = sum(pwc_col(1:num_levs))
       else
         pwc_column = real_missing
       end if
 
-      ! Contents of precipitation at the bottom of each layer. Essentialy, reuse ScavAmount array                                                                          
-      !                                                                                                                                                                    
-      if(timestep_sec > 0.)then
-        ! forward: no z-dimension needed, cumulative is good enough                                                                                                        
+      ! Contents of precipitation at the bottom of each layer. Essentialy, reuse ScavAmount array
+      !
+!!      if(timestep_sec > 0.)then
+        ! forward: no z-dimension needed, cumulative is good enough
         precipContent => scavAmount(1:mapConc%nSpecies,1:mapConc%nSrc,1,ithread)
-      else
-        ! adjoint: need all levels                                                                                                                                         
-        precipContent3d => scavAmount(1:mapConc%nSpecies, 1:mapConc%nSrc, 1:mapConc%n3D, ithread)
-      endif
-      
-    
+!!      else
+        ! adjoint: need all levels
+!!        precipContent3d => scavAmount(1:mapConc%nSpecies, 1:mapConc%nSrc, 1:mapConc%n3D, ithread)
+!!      endif
+
+
       tcc = metdat_col(imet_tcc,1)
       if (rulesDeposition%max_scav_rate_depends_on == cape .or. &
            & rulesDeposition%max_scav_rate_depends_on == cape_and_wind) then
@@ -3045,7 +3015,7 @@ end function fu_settling_vel
       else
         cwc_col(1:num_levs) = 0.
       endif
-      
+
       do iLev = num_levs,1,-1
           if (rulesDeposition%scavengingType == scav2020) then
             if (iLev < num_levs) then
@@ -3085,14 +3055,17 @@ end function fu_settling_vel
       enddo
 
       if(not_adjoint)then
-                
+
         precipContent(1:mapConc%nSpecies, 1:mapConc%nSrc) = 0. !Reset
+        tla_cell => null() !!will be reset below if needed
         do iLev = num_levs,1,-1
           if (.not. r1d(iLev)%ifRainyCell) cycle  ! no rain at this level
-          
-          call scavenge_puff_2011(mapConc%arM(:,:,iLev,ix,iy), &    ! stuff in the air                                                                                               
-               & precipContent(:,:), & ! stuff in precipitation                                                                                                     
+          if (associated(TLA_column)) tla_cell => TLA_column(:,iLev)
+
+          call scavenge_puff_2011(mapConc%arM(:,:,iLev,ix,iy), &    ! stuff in the air
+               & precipContent(:,:), & ! stuff in precipitation
                & arLowMassThreshold, &
+               & TLA_cell, &     ! TL- stored mass in the air
                & mapConc%species,      &
                & mapConc%nSpecies,&
                & mapConc%nSrc,&
@@ -3105,28 +3078,28 @@ end function fu_settling_vel
              & precipContent(1:mapConc%nSpecies,1:mapConc%nSrc)
 
       else
-        !                                                                                                                                      
-        ! Adjoint                                                                                                                                                                     
-        ! Now, call the adjoint scavenging keeping in mind that we need the whole column                                                                                              
-        ! There will be several passes along the vertical handled inside                                                                                                              
-        !                                                                                                                                                                             
-        call scavenge_column_2011_adjoint(mapConc%arM(:,:,:,ix,iy), & ! sensitivity in the air, column                                                                                
-             & precipContent3d(:,:,:), &   ! sensitivity mass in precip, column                                                                            
-             & arLowMassThreshold, &
-             & tl_array, &     ! TL- stored mass in the air                                                                         
-             & mapConc%species,  &
-             & mapConc%nSpecies, mapConc%nSrc, mapConc%n3D, &
-             & - timestep_sec, &   ! invert the sign to have it positive                                                                                   
-             & rulesDeposition, &
-             & r1d)
-        ! Finally deposit rain contents....      
+        !
+        ! Adjoint
+        ! Now, call the adjoint scavenging keeping in mind that we need the whole column
+        ! There will be several passes along the vertical handled inside
+        !
+        call scavenge_column_2011_adjoint(mapConc%arM(:,:,:,ix,iy), & ! sensitivity in air, column
+                          & precipContent3d(:,:,:), &   ! sensitivity mass in precip, column
+                          & TLA_column, &     ! TL- stored mass in the air
+                          & arLowMassThreshold, &
+                          & mapConc%species,  &
+                          & mapConc%nSpecies, mapConc%nSrc, mapConc%n3D, &
+                          & - timestep_sec, &   ! invert the sign to have it positive
+                          & rulesDeposition, &
+                          & r1d)
+        ! Finally deposit rain contents....
         do iLev = 1, mapConc%n3D
           mapWetDep%arM(1:mapConc%nSpecies,1:mapConc%nSrc,1,ix,iy) = &
                & mapWetDep%arM(1:mapConc%nSpecies,1:mapConc%nSrc,1,ix,iy) + &
                & precipContent3d(1:mapConc%nSpecies,1:mapConc%nSrc, iLev)
         end do
       endif  ! forward or adjoint
-      
+
     case default
       call msg('Unknown scavenging type',rulesDeposition%scavengingType)
       call set_error('Unknown scavenging type', sub_name)
@@ -3135,17 +3108,17 @@ end function fu_settling_vel
   end subroutine scavenge_column
 
 
-  !*************************************************************************************                      
-                        
+  !*************************************************************************************
+
   subroutine report_rain(r)
     type (Train_in_cell), intent(in) :: r
     type(silam_sp) :: l
-    
+
     l%sp => fu_work_string()
     if(error)return
-    
+
     call msg("***Reporting rain in cell")
-    WRITE (l%sp, '(A,L1,A,L1,A,L1,A,L1)')  "ifRainyCell = ", r%ifRainyCell, & 
+    WRITE (l%sp, '(A,L1,A,L1,A,L1,A,L1)')  "ifRainyCell = ", r%ifRainyCell, &
                         &", fRainSfc = ", r%ifRainSfc, &
                         &", ifRealCloud = ",r%ifRealCloud, &
                         &", ifValid = ", r%ifValid
@@ -3163,7 +3136,7 @@ end function fu_settling_vel
                         &"rain_rate_in(mm/h) = ", r%rain_rate_in*3600, &
                         &", deltarain (mm/h) = ", r%deltarain*3600, &
                         &", cwcColumnLayer(mm) = ", r%cwcColumnLayer, &
-                        &", pwcColumnLayer(mm) = ", r%pwcColumnLayer 
+                        &", pwcColumnLayer(mm) = ", r%pwcColumnLayer
     call msg(l%sp)
 
     WRITE (l%sp, '(A,F3.1,A,F5.3,A,F5.0,A,F5.2,A,F10.2)') &
@@ -3179,7 +3152,7 @@ end function fu_settling_vel
                         &", cell_volume(km3) = ", r%cell_volume*1e-9
     call msg(l%sp)
     call free_work_array(l%sp)
-    
+
   end subroutine report_rain
 
 !subroutine check_deposition_rules(rulesDeposition, species)
@@ -3215,14 +3188,14 @@ end function fu_settling_vel
 !       enddo
 !end subroutine check_deposition_rules
 
-  
+
   !*****************************************************************************************************
 
-  
   subroutine scavenge_puff_2011(mass_in_air, &    ! stuff in the air
                               & mass_in_water, &  ! stuff in precipitation
                               & arLowMassThreshold, &
-                              & species,      &   ! array of 
+                              & tla_cell, &
+                              & species,      &   ! array of
                               & Nspecies,&
                               & Nsources,&
                               & timestep_sec,&
@@ -3238,6 +3211,7 @@ end function fu_settling_vel
     ! Imported parameters
     type (Train_in_cell), intent(in) :: r
     type(Tdeposition_rules), intent(in) :: rulesDeposition
+    real, dimension(:), pointer :: tla_cell !(nTla = 3) !! associated if TLA in use
     real, dimension(:), intent(in) :: arLowMassThreshold
 !        real, dimension(:,:), pointer, intent(in) :: arGarbage
     type(silam_species), dimension(:), intent(in) :: species
@@ -3245,12 +3219,12 @@ end function fu_settling_vel
     integer , intent (in) :: Nspecies, Nsources
     real, intent(in) :: timestep_sec, cell_volume, cell_zsize
     type(Tscav_coefs), intent(out), optional :: coefs  ! if need to store internal values
-    
+
     ! Local variables
     integer :: iSpTr,iSrc ! indices for mass_in_air, precipContent,  arLowMassThreshold, arGarbage
     integer :: iSp, iSpeciesSA
     real :: efficiency, acid_mol
-    real :: equilibrium_aq_SIV, fB, fC, fD ! stuff for sulphur equilibrium
+    real :: equilibrium_aq_SIVfrac, fB, fC, fD ! stuff for sulphur equilibrium
     real, parameter :: H0_SO2    = 1.2e-5  !True Henry const for SO2 @ 298.15 K  [Mol/kg/Pa]
    !!!    real, parameter :: fKs10_SO2 = 1.3e-2  !Dissociation constant for H2SO3   @ 298.15 K [Mol/kg]
                                    ! I have not found any reasonable data on temperature-dependence. R.
@@ -3261,15 +3235,15 @@ end function fu_settling_vel
           & total_SIV_in_scav_zone, scav_zone_volume, total_water_in_scav_zone, &
           & unscav_mass_in_scav_zone, & ! Mass in equilibrium with incoming precipitation
           & water_capacitance_factor, scav_amt, scav_coef_tau, A, fTmp
+    character(len=*), parameter :: sub_name = 'scavenge_puff_2011'
 
     scav_zone_volume = cell_volume * r%fCloudCover
     precip_rate = r%rain_rate_in /  r%fCloudCover
     tauf_over_RdCd = 0.0
-    
     !
     ! Sources are considered indeoendently from each other - for the case if we run many
     ! runs with varying source configuration
-    !    
+    !
     do iSrc = 1, nSources
       do iSp = 1, nSpecies
         !
@@ -3279,7 +3253,6 @@ end function fu_settling_vel
         iSptr=iSp
         if (iSp == indSO2) iSpTr = nSpecies ! scavenge instead of SO2
         if ((indSO2 > 0) .and. (iSp == nSpecies)) iSpTr = indSO2   ! Finally SO2
-
         !
         ! Below, in case of small mass etc, we skip the scavenging. Prepare for this
         ! by setting TL coefs to zero
@@ -3290,30 +3263,29 @@ end function fu_settling_vel
           coefs%scav_coef_tau(iSptr) = 0
           coefs%A(iSptr) = 0
           coefs%tauf_over_RdCd(iSptr) = 0
-          if(iSptr== indSO2)then
-            coefs%fB = 0
-            coefs%fC = 0
-            coefs%Ceq = 0
-            coefs%dLsc_dWc = 0
-            coefs%dLic_dWc = 0
-            coefs%dCeq_dMs = 0
-            coefs%dWC_dMs = 0
-            coefs%dCeq_dMa = 0
-            coefs%dWC_dMa = 0
-          endif  ! if SO2
+  ! Not used (Yet?)
+!!!          if(iSptr== indSO2)then
+!!!            coefs%fB = 0
+!!!            coefs%fC = 0
+!!!            coefs%Ceq = 0
+!!!            coefs%dLsc_dWc = 0
+!!!            coefs%dLic_dWc = 0
+!!!            coefs%dCeq_dMs = 0
+!!!            coefs%dWC_dMs = 0
+!!!            coefs%dCeq_dMa = 0
+!!!            coefs%dWC_dMa = 0
+!!!          endif  ! if SO2
         endif   ! if internal coefs are requested
 
         ! puting directly to garbage here is risky....
         if(mass_in_air(iSpTr,iSrc) +  mass_in_water(iSpTr,iSrc) < arLowMassThreshold(iSpTr))cycle
         !
-        ! Get material-dependent properties. 
+        ! Get material-dependent properties.
         !
         call material_properties(species(iSpTr), r, water_capacitance_factor, efficiency)
-
         if(error)return
 
         if (water_capacitance_factor <0) cycle  !! not scavenged
-
 
         if(iSpTr == indSO2) then       !adjust water_capacitance_factor for SO2
           !
@@ -3322,6 +3294,8 @@ end function fu_settling_vel
           ! here it is defined formally as above mentioned ratio
           ! for total rain amount + clouds and total SO2 (air+water)
           !
+          if (fu_fails( timestep_sec > 0, "Negative timestep on SO2 scavinging", sub_name)) return  
+
           total_water_in_scav_zone = (r%rain_rate_in * timestep_sec + r%cwcColumnLayer) * &  ! kg/m2
                                    & scav_zone_volume / cell_zsize       ! cell area, m2
           ! Total amount of SO2 in air and, in a dissolved form, in water
@@ -3340,7 +3314,7 @@ end function fu_settling_vel
               call msg("mass_in_air(iSpTr,iSrc)",mass_in_air(iSpTr,iSrc))
               call msg("mass_in_water(iSpTr,iSrc)",mass_in_water(iSpTr,iSrc))
               call msg("total_water_in_scav_zone", total_water_in_scav_zone)
-              
+
               call msg("r%cwcColumnLayer", r%cwcColumnLayer)
               call msg("cell_zsize", cell_zsize)
               call msg("scav_zone_volume", scav_zone_volume)
@@ -3361,7 +3335,7 @@ end function fu_settling_vel
               call msg("mass_in_water(iSpTr,iSrc)",mass_in_water(iSpTr,iSrc))
               call msg("total_water_in_scav_zone", total_water_in_scav_zone)
               call msg("acid_mol (moles)", acid_mol)
-              
+
               call msg("r%cwcColumnLayer", r%cwcColumnLayer)
               call msg("cell_zsize", cell_zsize)
               call msg("scav_zone_volume", scav_zone_volume)
@@ -3372,10 +3346,10 @@ end function fu_settling_vel
               cycle
             endif
           endif  ! total SIV in scavenging zone >< 0
- 
+
           if (acid_mol < 2.5e-6) acid_mol = 2.5e-6 ! pH5.6
 
-          ! Solubility 
+          ! Solubility
 
           ! Equilibrium molar fraction of S(IV)  [mol/kg]
           ! stuff_in_... supposed to be moles...
@@ -3385,45 +3359,46 @@ end function fu_settling_vel
           ! fKs1_SO2 - Dissociation constant for HSO3 [mol/kg]
           !  fA = -1./(fKs1_SO2 * water_capacitance_factor) !True Henry constant needed here
           !
-          
           ! https://webbook.nist.gov/cgi/cbook.cgi?ID=C7446095&Mask=10#Solubility
           !
           H_SO2 = H0_SO2 * exp(H0_SO2_Tconst*(1./r%fTemperature - 1./298.5)) ![Mol/kg]
 
           ! Sulfur‐Dioxide/Water Equilibria Between 0° and 50°C. An Examination of Data at Low Concentrations
-          ! Howard G. Maahs (1982) https://doi.org/10.1029/GM026p0187 
+          ! Howard G. Maahs (1982) https://doi.org/10.1029/GM026p0187
           ! Cited after https://www.slideserve.com/asasia/b-krasovitov-t-elperin-and-a-fominykh-department-of-mechanical-engineering
           !  10**(853/T - 4.74) is there
           !
-          fKs1_SO2 = exp(1964.1/r%fTemperature - 10.91) ![mol/kg]  
+          fKs1_SO2 = exp(1964.1/r%fTemperature - 10.91) ![mol/kg]
 
           fTmp = (fKs1_SO2 * gas_constant_uni*r%fTemperature * H_SO2)/ scav_zone_volume
-          fB =  acid_mol + fTmp * total_water_in_scav_zone
+          fB =  (acid_mol + fTmp * total_water_in_scav_zone) * total_SIV_in_scav_zone
           fC = - fTmp * total_SIV_in_scav_zone
+
+          !! equilibrium_aq_SIVfrac := total_SIV_in_scav_zone / equilibrium_aq_SIV defimed also at equilibrium_aq_SIV=0
           if (fB*fB > 10000*abs(fC)  ) then ! No need for quadratic equation, Taylor series sufficient
-            equilibrium_aq_SIV = - fC/fB - fC*fC / (fB*fB*fB)
+            equilibrium_aq_SIVfrac = - fC/fB - fC*fC / (fB*fB*fB)
           else
             fD = fB*fB - 4*fC
-            equilibrium_aq_SIV =  0.5*(-fB + sqrt(fD))
+            equilibrium_aq_SIVfrac =  0.5*(-fB + sqrt(fD))
           endif
           !
-          ! In case of no strong acids (acid_mol=0) in the droplet and quadratic equation reduced to 
+          ! In case of no strong acids (acid_mol=0) in the droplet and quadratic equation reduced to
           ! linear approximation, capasitance will be infinity. Should prevent this from happening
           !
-          fTmp =  1 -  equilibrium_aq_SIV*total_water_in_scav_zone / total_SIV_in_scav_zone 
+          fTmp =  1 -  equilibrium_aq_SIVfrac*total_water_in_scav_zone 
                   !! fraction of S_IV that wants to stay in air
           if (abs(fTmp) < 1e-3 ) fTmp = 1e-3  !!Some numeric can be
 
           water_capacitance_factor =  scav_zone_volume / total_water_in_scav_zone / fTmp
 
-          if (.not. water_capacitance_factor >= 0) then 
+          if (.not. water_capacitance_factor >= 0) then
 !$OMP CRITICAL(WC_SO2)
             fD = fB*fB - 4*fC
             call msg(".not. water_capacitance_factor > 0., iSpTr, iSrc",iSpTr,iSrc)
             call msg("mass_in_air(iSpTr,iSrc)",mass_in_air(iSpTr,iSrc))
             call msg("mass_in_water(iSpTr,iSrc)",mass_in_water(iSpTr,iSrc))
             call msg("total_water_in_scav_zone", total_water_in_scav_zone)
-            
+
             call msg("r%cwcColumnLayer", r%cwcColumnLayer)
             call msg("cell_zsize", cell_zsize)
             call msg("scav_zone_volume", scav_zone_volume)
@@ -3438,31 +3413,31 @@ end function fu_settling_vel
             call msg('fKs1_SO2, gas_constant_uni, r%fTemperature, H_SO2',(/fKs1_SO2, gas_constant_uni, r%fTemperature, H_SO2/))
             call msg("total_water_in_scav_zone, total_SIV_in_scav_zone, scav_zone_volume, cell_zsize, acid_mol", &
                    & (/total_water_in_scav_zone, total_SIV_in_scav_zone, scav_zone_volume, cell_zsize, acid_mol/))
-            call msg('fC, equilibrium_aq_SIV', fC, equilibrium_aq_SIV)
-            call msg('their ratios:', fC/equilibrium_aq_SIV, total_water_in_scav_zone/scav_zone_volume)
-            water_capacitance_factor = 1e-3 !something small 
+            call msg('fC, equilibrium_aq_SIVfrac', fC, equilibrium_aq_SIVfrac)
+            call msg('their ratios:', fC/equilibrium_aq_SIVfrac, total_water_in_scav_zone/scav_zone_volume)
+            water_capacitance_factor = 1e-3 !something small
             call msg("Rain report:")
             call report_rain(r)
-            call set_error("WC_SO2","scavenge_puff_2011")
+            call set_error("WC_SO2",sub_name)
 
 !$OMP END CRITICAL(WC_SO2)
           endif
-
+          if (associated(tla_cell)) tla_cell(1:2) = (/total_SIV_in_scav_zone, acid_mol/) !! Looks like thesse two control nonlinearity
         endif ! SO2
 
         if (water_capacitance_factor < 1e-10) cycle       ! less than 1l of gas in 1 l of water
 
-        if (precip_rate > 1e-5) then 
+        if (precip_rate > 1e-5) then
           !See notebook R1 p35. bottom
           ! Flight_time / Droplet_equilibration_time
-          tauf_over_RdCd =  1.5* cell_zsize * efficiency/(1000.* r%drop_size *water_capacitance_factor) 
-                                                       ! water density 
-          ! 1.-exp(-tauf_over_RdCd) -- rain-air equilibration factor 
+          tauf_over_RdCd =  1.5* cell_zsize * efficiency/(1000.* r%drop_size *water_capacitance_factor)
+                                                       ! water density
+          ! 1.-exp(-tauf_over_RdCd) -- rain-air equilibration factor
           if (tauf_over_RdCd > 0.01) then  ! drop approaches saturation, exp is needed
             scav_coef_sc = (1.0 - exp(-tauf_over_RdCd)) * &
                                             & precip_rate * water_capacitance_factor / cell_zsize
           elseif  (tauf_over_RdCd >= 0.) then ! drop is far from saturation -- linear scavenging
-            scav_coef_sc = 3. / (2.*1000) * precip_rate / r%drop_size * efficiency 
+            scav_coef_sc = 3. / (2.*1000) * precip_rate / r%drop_size * efficiency
           else ! too bad....
             call msg_warning("Non-positive scavenging coefficient...", "scavenging")
             call msg("tauf_over_RdCd", tauf_over_RdCd)
@@ -3512,7 +3487,7 @@ end function fu_settling_vel
           call msg("tauf_over_RdCd", tauf_over_RdCd )
           call msg("Precipitation rate", r%rain_rate_in*3600.)
           call msg("CwC rate", r%cwcColumnLayer )
-          call msg("Water timestep equiv column", r%rain_rate_in*water_capacitance_factor *timestep_sec)
+          call msg("Water timestep equiv column", r%rain_rate_in*water_capacitance_factor * abs(timestep_sec))
           call set_error("NaN scavenging coefficient...", "scavenging")
         endif
 
@@ -3529,26 +3504,26 @@ end function fu_settling_vel
           case default
         end select
 
-        scav_coef_tau = scav_coef * timestep_sec
+        scav_coef_tau = scav_coef * abs(timestep_sec)
         if (scav_coef_tau > 0.01) scav_coef_tau = 1. - exp(-scav_coef_tau) ! equilibration factor to incoming precipitation
 
-        ! scavenge from all sources       
-        ! p36 
+        ! scavenge from all sources
+        ! p36
         ! in-air mass that would equilibrate the precipitation content
         !
         if (scav_coef_sc > 0) then
-          A = cell_zsize * scav_coef_sc / (scav_coef * precip_rate * timestep_sec * water_capacitance_factor)
+          A = cell_zsize * scav_coef_sc / (scav_coef * precip_rate * abs(timestep_sec) * water_capacitance_factor)
           unscav_mass_in_scav_zone = mass_in_water(iSpTr, iSrc) * A
-        else 
+        else
           A = 0
           unscav_mass_in_scav_zone = 0
         endif
 
-        ! stuff to be transferred  air -> water (happens only in cloudy part) 
+        ! stuff to be transferred  air -> water (happens only in cloudy part)
         ! Yes. It makes the whole thing timestep-dependent....
         !
         scav_amt = ( mass_in_air(iSpTr,iSrc) * r%fCloudCover - unscav_mass_in_scav_zone) * scav_coef_tau
-        
+
         !
         ! Deposit!!!
 
@@ -3557,6 +3532,7 @@ end function fu_settling_vel
 
         ! Check if it is still reasonable. Should trigger NaNs alert as well..
         !
+        if (timestep_sec < 0) return  ! no checks here, neither need to save anything
         if ( .not. ((mass_in_water(iSpTr,iSrc) >= 0.) .and. &
                                               &  (mass_in_air(iSpTr,iSrc) >= 0.))  ) then
           !
@@ -3572,7 +3548,7 @@ end function fu_settling_vel
             mass_in_air(iSpTr,iSrc) = 0.
             mass_in_water(iSpTr,iSrc) = mass_in_air(iSpTr,iSrc) + mass_in_water(iSpTr,iSrc)
           else ! too bad...
-            call set_error("**Scav forward**  Wrong mass scavenged..", "scavenge_puff_2011")
+            call set_error("**Scav forward**  Wrong mass scavenged..", sub_name)
           endif
           !
           ! More reporting in case of problem
@@ -3590,7 +3566,7 @@ end function fu_settling_vel
             call msg("mass in water after", mass_in_water(iSpTr,iSrc) )
           endif
         endif  ! potentially mass problem
- 
+
         !
         ! If the internal coefficients are needed, make them available
         ! See notebook mas 10a, pp.27-36. From these formulas, we get the needed variables
@@ -3598,40 +3574,41 @@ end function fu_settling_vel
         if(present(coefs))then
           coefs%scav_coef_ic(iSpTr) = scav_coef_ic
           coefs%scav_coef_sc(iSpTr) = scav_coef_sc
-          coefs%scav_coef_tau(iSpTr) = scav_coef_tau 
+          coefs%scav_coef_tau(iSpTr) = scav_coef_tau
           coefs%A(iSpTr) = A               ! factor for non-scavenging mass, notebook mas 10a p.27-28
           coefs%tauf_over_RdCd(iSpTr) = tauf_over_RdCd   ! rest is needed for SO2, n. mas 10a, pp.34-36
-          if(iSpTr == indSO2)then
-            coefs%fB = fB  ! coef from quadratic equation
-            coefs%fC = fC  ! coef from quadratic equation
-            coefs%Ceq = equilibrium_aq_SIV  ! solution of quadratic equation
-            coefs%dLsc_dWc = precip_rate / cell_zsize * &           ! d lambda_subcloud / d WC, p.35
-                           & (1. - exp(-scav_coef_tau) * (1. + scav_coef_tau))
-            coefs%dLic_dWc = r%deltarain * cell_zsize /  &          ! d lambda_incloud / d WC, p.35
-                           & (r%cwcColumnLayer * water_capacitance_factor + cell_zsize) ** 2
-            coefs%dCeq_dMs = -1. / (scav_zone_volume * (2 * coefs%Ceq + fB)) ! d Ceq / d M_SO2, p.37
-            coefs%dWC_dMs = scav_zone_volume * &                  ! d Wc / d M_SO2, p.37
-                          & (total_SIV_in_scav_zone * coefs%dCeq_dMs - coefs%Ceq) / &
-                          & (total_SIV_in_scav_zone - total_water_in_scav_zone * coefs%Ceq) ** 2
-            coefs%dCeq_dMa = - coefs%Ceq / (2. * coefs%Ceq  + fB)  ! d Ceq / d Ma - non-SO2 acids, p.37
-            coefs%dWC_dMa = scav_zone_volume * &                  ! d Wc / d M_a, p.37
-                          & total_SIV_in_scav_zone * coefs%dCeq_dMa / &
-                          & (total_SIV_in_scav_zone - total_water_in_scav_zone * coefs%Ceq) ** 2
-          endif  ! if SO2
+!! FIXME These lost their meanings due to the change of equilibrium_aq_SIV -> equilibrium_aq_SIVfrac
+!!!          if(iSpTr == indSO2)then
+!!!            coefs%fB = fB  ! coef from quadratic equation
+!!!            coefs%fC = fC  ! coef from quadratic equation
+!!!            coefs%Ceq = equilibrium_aq_SIV  ! solution of quadratic equation
+!!!            coefs%dLsc_dWc = precip_rate / cell_zsize * &           ! d lambda_subcloud / d WC, p.35
+!!!                           & (1. - exp(-scav_coef_tau) * (1. + scav_coef_tau))
+!!!            coefs%dLic_dWc = r%deltarain * cell_zsize /  &          ! d lambda_incloud / d WC, p.35
+!!!                           & (r%cwcColumnLayer * water_capacitance_factor + cell_zsize) ** 2
+!!!            coefs%dCeq_dMs = -1. / (scav_zone_volume * (2 * coefs%Ceq + fB)) ! d Ceq / d M_SO2, p.37
+!!!            coefs%dWC_dMs = scav_zone_volume * &                  ! d Wc / d M_SO2, p.37
+!!!                          & (total_SIV_in_scav_zone * coefs%dCeq_dMs - coefs%Ceq) / &
+!!!                          & (total_SIV_in_scav_zone - total_water_in_scav_zone * coefs%Ceq) ** 2
+!!!            coefs%dCeq_dMa = - coefs%Ceq / (2. * coefs%Ceq  + fB)  ! d Ceq / d Ma - non-SO2 acids, p.37
+!!!            coefs%dWC_dMa = scav_zone_volume * &                  ! d Wc / d M_a, p.37
+!!!                          & total_SIV_in_scav_zone * coefs%dCeq_dMa / &
+!!!                          & (total_SIV_in_scav_zone - total_water_in_scav_zone * coefs%Ceq) ** 2
+!!!          endif  ! if SO2
         endif   ! if internal coefs are requested
-        
-      enddo !species-wise scavenging 
+
+      enddo !species-wise scavenging
     enddo  ! sources
-              
+
   end subroutine scavenge_puff_2011
 
 
   !**************************************************************************************
 
-  subroutine scavenge_column_2011_adjoint(sens_mass_in_air, &    ! sensitivity in the air   (nSpecies, nSrc, n3d)
-                                        & sens_mass_in_water, &  ! sensit mass in precipitation (sSpecies, nSrc, nz)
-                                        & sens_arLowMassThreshold, &  ! for sensitivity 
-                                        & TL_store_mass_in_air, &   ! mass in air, from TL storage (nSpecies,1,n3d)
+  subroutine scavenge_column_2011_adjoint(sens_mass_in_air, &    ! sensitivity in air   (nSpecies, nSrc, n3d)
+                                        & sens_mass_in_water, &  ! sensit mass in precip (sSpecies, nSrc, nz)
+                                        & tla_column, &
+                                        & sens_arLowMassThreshold, &  ! for sensitivity
                                         & species, &
                                         & Nspecies, Nsources, n3d, &
                                         & timestep_sec_abs, &
@@ -3647,19 +3624,19 @@ end function fu_settling_vel
     ! Since the upper levels affect the saturation and scavenging efficiency of lower layers,
     ! the problem is non-local and tranformation matrix has a dimension (nSpecies*nLayers) x (nSpecies*nLayers)
     ! It consists mostly of zeroes but storing and computing even zeroes is expensive.
-    ! However: (i) lower layers do not affect saturation of the upper ones => 
+    ! However: (i) lower layers do not affect saturation of the upper ones =>
     !                     run top-down with accumulation (forwards)
-    !         (ii) in adjoint, the transposed matrix has no propagation from uppwer levels down => 
+    !         (ii) in adjoint, the transposed matrix has no propagation from uppwer levels down =>
     !                     bottom-up run with accumulation
     !        (iii) TL matrix consists of two parts: L(m0) and dL/dm, to be multiplied with (m-m0)
     !                     but differential adjoint has only dL/dm. m0 is mass stored as TLA point
     !         (iv) non-scavengeable, linearly scavengeable and perfectly scavengeable species are trivial
     ! See notebook 10a, pp.22-35 and notebook 11a pp. 51-59
     ! mas
-  
+
     ! Imported parameters
-    real, dimension(:,:), intent(in) :: TL_store_mass_in_air   ! (nSpecies, n3d)
     real, dimension(:,:,:), intent(inout) :: sens_mass_in_air, sens_mass_in_water ! (nSpecies, nSrc, n3d)
+    real, dimension(:,:), pointer :: TLA_column
     type (Train_in_cell), dimension(n3d),  intent(in) :: r1d                 ! rain info for the whole column
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, dimension(:), intent(in) :: sens_arLowMassThreshold
@@ -3670,32 +3647,38 @@ end function fu_settling_vel
 
     ! Local parameters
     real, dimension(max_species), parameter :: TL_arLowMassThreshold = 0.0  ! cannot skip cells
-    
+
 !    ! Local variables
     integer :: iLev, iSp, iTmp, jTmp, iAAS, iSign, iSrc
     real :: fTmp
-    real, dimension(Nspecies, 1, n3d) :: TL_mass_in_water
-    real, dimension(Nspecies, 1) :: TL_store_mass_in_air_local   ! (nSpecies, nSrc=1)
+    real, dimension(Nspecies, 1) :: TL_mass_in_water, TL_mass_in_air
     type(Tscav_coefs_1d) :: c1d  ! internal coefficients stored from forward model
-    real, dimension(:,:), pointer :: pTL_L0, pTL_dLdm, pAdj
+    real, dimension(:,:), pointer :: pTL_L0, pTL_dLdm, pAdj, tla_cell
     logical :: ifBusy_pTL_L0 , ifBusy_pTL_dLdm, ifBusy_pAdj  !!
 
+
     !
-    ! Get the coefficients that depend on the system state. Essentially, we run the 
+    ! Get the coefficients that depend on the system state. Essentially, we run the
     ! forward non-linear model with TL- stored masses extracting the needed parameters.
     ! For TL, we need only the main mass, i.e. nSrc=1 in the TL-store. Note top-down scanning
     !
-    TL_mass_in_water(1:nSpecies,1,1:n3d) = 0.
-    do iLev = n3d, 1, -1
+    do iLev = 1,n3d !! Any order here
       ! nullify the internal coefficients, hide and reformat input array
       c1d%c(iLev) = coefs_zero
-      TL_store_mass_in_air_local(1:nSpecies, 1) = TL_store_mass_in_air(1:nSpecies, iLev)
+      TL_mass_in_air(1:nSpecies, 1) = 0.
+      TL_mass_in_water(1:nSpecies, 1) = 0.
+      !All neeed stuff is already in tla_column for a given level, coeffs do not care if SIV came from above or was here
+      !! Make a surrogate with same strong acids and same SO2
+      if (indSO2 > 0) TL_mass_in_air(indSO2,1) = tla_column(1,iLev)
+      if (indSomeStrongAcid > 0) TL_mass_in_air(indSomeStrongAcid,1) = tla_column(2,iLev)
+
       !
       ! run full forward model storing its coefficients
       if (r1d(iLev)%ifRainyCell) then
-        call scavenge_puff_2011(TL_store_mass_in_air_local, &    ! stuff in the air, need (nSpecies,nSrc=1)
-                              & TL_mass_in_water(:,:,iLev), & ! stuff in precipitation, need (nSpecies, nSrc=1)
+        call scavenge_puff_2011(TL_mass_in_air(:,:), &    ! stuff in the air, need (nSpecies,nSrc=1)
+                              & TL_mass_in_water(:,:), & ! stuff in precipitation, need (nSpecies, nSrc=1)
                               & TL_arLowMassThreshold, &  ! what to do if forward model did not have mass ???
+                              & null(), & !! get coefficients, no need la point here
                               & species, &
                               & Nspecies, &
                               & Nsources, &
@@ -3704,17 +3687,16 @@ end function fu_settling_vel
                               & r1d(iLev), r1d(iLev)%cell_volume, r1d(iLev)%cell_zsize, &
                               & c1d%c(iLev))     ! internal coefficients
       endif
-      if(iLev>1)TL_mass_in_water(:,:,iLev-1) = TL_mass_in_water(:,:,iLev)
     end do  ! iLev, inverse order
     !
     ! Having the basic coefficients stored, can compute the TL matrix. For each species but SO2 it is
     ! a squared matrix n3d x n3d with above-diagonal and diagonal elemnents non-zero (notebook 10a, p.28)
-    ! We shall process species one by one, which allows for processing nAcidityAffectingSpecies matrices 
+    ! We shall process species one by one, which allows for processing nAcidityAffectingSpecies matrices
     ! sized n3d x n3d instead of one huge nSpecies*n3d x nSpecies*n3d.
     ! Note that for non-SO2 species the scavenging problem is linear, i.e. this very triangle matrix is
     ! both the exact solution and the tangent-linear.
     ! Exception is SO2, which is affected by all acidity affecting species. Its TL matrix is then
-    ! rectangular n3d x nAcidityAffectingSpecies*n3d. 
+    ! rectangular n3d x nAcidityAffectingSpecies*n3d.
     !
     do iSp = 1, nSpecies
       !
@@ -3746,7 +3728,7 @@ end function fu_settling_vel
         do iAAS = 1, nAcidityAffectingSpecies  ! non-zero matrices are only for acidity-affecting species
           iSign = sign(1, indAcidityAffectingSp(iAAS))  ! if alcaline, it will help SO2 solubility
           !
-          ! L(m0) the same as n3d x n3d (all info is stored in scav_coeff) but Ldiff is 
+          ! L(m0) the same as n3d x n3d (all info is stored in scav_coeff) but Ldiff is
           ! is sensitive to the above-cumulated amount of other acidity-affecting species
           !
           if (indAcidityAffectingSp(iAAS) == indSO2)then
@@ -3758,13 +3740,13 @@ end function fu_settling_vel
           !!!
           !!if(indAcidityAffectingSp(iAAS) == indSO2)then
           !!  do iTmp = 1, n3d
-          !!    pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) = pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) * &   ! dMs / dmSO2, non-local 
+          !!    pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) = pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) * &   ! dMs / dmSO2, non-local
           !!                   & (c1d%c(iTmp)%dLsc_dWc + c1d%c(iTmp)%dLic_dWc) * &  ! d lambda / d Wc
           !!                   & c1d%c(iTmp)%dWC_dMs         ! d Wc / dMs  - sensitivity to itself
           !!  end do
           !!else
           !!  do iTmp = 1, n3d
-          !!    pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) = pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) * &   ! dMs / dmSO2, non-local 
+          !!    pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) = pTL_dLdm(iTmp,1+iAAS:n3d+iAAS) * &   ! dMs / dmSO2, non-local
           !!                   & (c1d%c(iTmp)%dLsc_dWc + c1d%c(iTmp)%dLic_dWc) * &  ! d lambda / d Wc
           !!                   & c1d%c(iTmp)%dWC_dMa * iSign       ! d Wc / dMa - sensitivity to others
           !!  end do
@@ -3823,11 +3805,12 @@ end function fu_settling_vel
 !          sens_mass_in_air(iSp, iSrc, ilev) = sens_mass_in_air(iSp, iSrc, ilev) + &
 !                                            & pAdj(iLev,iLev) * sens_mass_in_air(iSp, iSrc, ilev)
 !        end do
-        
+
           fTmp = 0.0
-          if(iSp == indSO2)then  
+          if(iSp == indSO2)then
             ! SO2 depends on several species
             do iAAS = 1, nAcidityAffectingSpecies
+!              for testing purposes, can have SO2 TL matrix diagonal
 !              call msg('SO2 Diagonal only')
 !              fTmp = fTmp + pTL_dLdm(iSp)%pp(iLev, iLev+(iAAS-1)*n3d) * &
 !                          & sens_mass_in_air(abs(indAcidityAffectingSp(iAAS)), 1, iLev)
@@ -3856,7 +3839,7 @@ end function fu_settling_vel
     end do  ! iSp=1:nSpecoes
 
     contains
-    
+
       !================================================================================
 
       subroutine fill_triangle_L0(pTL, iShift, iSp, n3d, r1d, c1d)
@@ -3893,9 +3876,9 @@ end function fu_settling_vel
         enddo  ! iTmp=1:n3d-2
         pTL(1:n3d,1+iShift:n3d+iShift) = pTL(1:n3d,1+iShift:n3d+iShift) * r1d(1)%fCloudCover
       end subroutine fill_triangle_L0
-      
+
       !====================================================================
-      
+
       subroutine fill_triangle_dLdm(pTL_diff, iShift, iSp, n3d, r1d, c1d)
         !
         ! Triagonal matrix of this type (p.28 notebook 10a mas) is presented in several incarnations
@@ -3919,29 +3902,29 @@ end function fu_settling_vel
         call set_error('Does not work yet','fill_triangle_dLdm')
 
       end subroutine fill_triangle_dLdm
-      
+
   end subroutine scavenge_column_2011_adjoint
 
-  
-  !****************************************************************************************      
-      
+
+  !****************************************************************************************
+
   subroutine material_properties(species, r, water_capacitance_factor, efficiency)
     !
     ! Material properties with respect to rain properties
     !
     implicit none
-    
+
     ! Imported paramters
     type(silam_species), intent(in) :: species
     real, intent(out) :: water_capacitance_factor, efficiency
     type (Train_in_cell), intent(in) :: r
-    
+
     ! Local variables
     type(Tgas_deposition_param) :: DepData
     type(TwetParticle) :: wetParticle
     real :: fSc, fWetDiam, fKn, fCun, fDiffusivity, HenryConst
     real :: f_omegainv, f_phi, f_StEff, fTau
-    
+
     water_capacitance_factor = real_missing
     if ( species%mode == in_gas_phase) then
 
@@ -3951,8 +3934,8 @@ end function fu_settling_vel
 
         ! Should be some more inteligent way to figure out that the stuff does not deposit....
 
-        fSc = r%nu_air / DepData%gas_molecular_diffus_in_air 
-        ! drop  collection efficiency 
+        fSc = r%nu_air / DepData%gas_molecular_diffus_in_air
+        ! drop  collection efficiency
         efficiency =  4/(r%drop_Re*fSc) * &
              & (2 + 0.5657*sqrt(r%drop_Re)*(fSc**0.33333+0.4*sqrt(fSc)))*r%is_liquid
                                ! no gas scavenging by snow
@@ -3961,7 +3944,7 @@ end function fu_settling_vel
 
       else ! particles
         ! debug temperature!!!
-        wetParticle = fu_wet_particle_features(species%material, 1.03) 
+        wetParticle = fu_wet_particle_features(species%material, 1.03)
                                               !As high as it can be
         fWetDiam = wetParticle%fGrowthFactor * fu_massmean_D(species%mode)
           !         if(fWetDiam > 25e-6 .and. wetParticle%fGrowthFactor > 5)then
@@ -3969,22 +3952,22 @@ end function fu_settling_vel
           !         endif
         fKn = 2*r%lambda_air / fWetDiam
         fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
-                      
+
         fDiffusivity = boltzmann_const * r%fTemperature * fCun / (3. * Pi * r%mu_air * fWetDiam)
-        fSc = r%nu_air / fDiffusivity 
+        fSc = r%nu_air / fDiffusivity
         fTau =  fWetDiam * fWetDiam * wetParticle%fWetParticleDensity * &
                                     & fCun / (18. * r%mu_air)
         f_phi=fWetDiam/r%drop_size
-        f_omegainv = 0.012 ! omega = mu_w/mu_air 
+        f_omegainv = 0.012 ! omega = mu_w/mu_air
                                  !   mu_water(0C) = 1.8 mPa s
                                  ! mu_water(25C)  = 0.9 mPa s
-                                 ! mu_air  = 1.8e-5 Pa s 
+                                 ! mu_air  = 1.8e-5 Pa s
 
         ! Effective Stokes minus critical stokes
         f_StEff = 2. * fTau * r%drop_vel / r%drop_size - 1./sqrt(r%drop_Re) - 0.08
-        f_StEff = max(f_StEff, 1e-5) ! always positive 
+        f_StEff = max(f_StEff, 1e-5) ! always positive
 
-            ! fraction of drop frontal area 
+            ! fraction of drop frontal area
             ! As in SP98, Note that Re there is based on drop radius
             ! Here Re is based on drop diameter
         efficiency = 4. / (r%drop_Re*fSc) * &
@@ -3995,11 +3978,11 @@ end function fu_settling_vel
 
         HenryConst = 1e10 ! As much as you can imagine
 
-    endif !gas/particle 
-                   
+    endif !gas/particle
+
       ! see  notebook R1 p. 34.
       ! (equivalent m^3 air)/(kg water):
-             
+
     water_capacitance_factor =  gas_constant_uni * r%fTemperature * HenryConst ! According to Henry const
 
   end subroutine material_properties
@@ -4012,25 +3995,25 @@ end function fu_settling_vel
        & rain_rate_scf, tcc, cape_met, abl_height, max_scav_rate_wind_scaling, max_scav_rate_cape_scaling)
     ! Prepares precipitation parameters for a dispersion cell,
     ! for which there is ready-made columnar meteo data
-                                                
+
     implicit none
 
-    ! Imported parameters             
+    ! Imported parameters
     integer, intent(in) :: iLev, nLevels  ! Dispersion indices
     integer, intent(in) :: scavType, max_scav_rate_depends_on
     real, dimension(:,:), intent(in) :: metdat_col
     real, intent(in) :: rain_rate_scf, tcc, cape_met, abl_height, landfrac
     real, intent(in) :: pwcColumnLayer, pwcColumn, pwcAboveT, pwcAboveB, cwcColumnLayer, cwcColumn, cwcAbove
     real, intent(in) :: max_scav_rate_wind_scaling, max_scav_rate_cape_scaling
-    
+
     type (Train_in_cell), intent(out) :: r
 
-    ! Local variables 
+    ! Local variables
     real  :: fTmp, fTmp1, precip_rate, u, v, wCld, dxDisp, fEntrain, Phi
     real :: cwcAboveBottom, cwcAboveTop, pwcAboveTop, pwcAboveBottom
     !Integer :: iDisp, iMeteo
 
-    R%ifRealCloud = .TRUE.  ! Use meteo clouds by default                                                                                                                                   
+    R%ifRealCloud = .TRUE.  ! Use meteo clouds by default
     r%ifRainSfc = .TRUE.
     r%ifRainyCell = .TRUE.
     r%ifValid = .True.
@@ -4040,7 +4023,7 @@ end function fu_settling_vel
     r%fCloudCover = min(0.999,max(tcc, 1e-2)) !tcc
     r%fPressure = metdat_col(imet_press, iLev)
     r%fTemperature = metdat_col(imet_temp, iLev)
-    r%pwcColumn = 0. !!! Not sure if it is right choice, but if scavType is not in scav2018, scav2020, 
+    r%pwcColumn = 0. !!! Not sure if it is right choice, but if scavType is not in scav2018, scav2020,
                      !! it stays undefined and is used in if, which is wrong in any case
 
     select case(scavType)
@@ -4063,7 +4046,7 @@ end function fu_settling_vel
           ! 1.0 for global 0.5 x 0.5 deg run with ERA5
           ! 0.3 for European run with ECMWF operational meteodata
           u = metdat_col(imet_u, iLev)
-          v = metdat_col(imet_v, iLev) 
+          v = metdat_col(imet_v, iLev)
           r%max_scav_rate = max_scav_rate_cape_scaling * 0.01 * (1. + sqrt(cape_met))/max(500.0, abl_height)
           r%max_scav_rate = landfrac * r%max_scav_rate + &
                 & (1.0-landfrac) * max_scav_rate_wind_scaling * sqrt(u*u+v*v+1.)/10000.0
@@ -4077,25 +4060,25 @@ end function fu_settling_vel
 
       case(scav2018entr)
         r%pwcColumn = metdat_col(imet_pwc3d, 1)
-        !                                                                                                              
-        ! Entrainment is considered as a function of the cloud updraft velocity. See notebook 11a, pp.63-69            
-        !                                                                                                              
-        wCld = 3.0                ! m/s, quite stable but depends on condensation rate, range 1-10 m/s                 
-        dxDisp = 0.5 * metdat_col(imet_dx_size,1)  + metdat_col(imet_dy_size,1)  ! m, S_entrain / V_cell                    
-        fEntrain = 0.1            ! unitless, u_entr_horiz / wCld, 0.1 from observations, subject for tuning           
+        !
+        ! Entrainment is considered as a function of the cloud updraft velocity. See notebook 11a, pp.63-69
+        !
+        wCld = 3.0                ! m/s, quite stable but depends on condensation rate, range 1-10 m/s
+        dxDisp = 0.5 * metdat_col(imet_dx_size,1)  + metdat_col(imet_dy_size,1)  ! m, S_entrain / V_cell
+        fEntrain = 0.1            ! unitless, u_entr_horiz / wCld, 0.1 from observations, subject for tuning
         Phi = wCld * fEntrain / dxDisp
         r%max_scav_rate = Phi / max(1e-3, r%fCloudCover * (1.- r%fCloudCover))
 
       case default
-        !                                                                                                              
-        ! No limitation due to entrainment                                                                             
-        !                                                                                                              
-        r%max_scav_rate = 1e3  ! pretty much infinity for this quantity                                                
+        !
+        ! No limitation due to entrainment
+        !
+        r%max_scav_rate = 1e3  ! pretty much infinity for this quantity
      end select
 
     if (r%pwcColumn > 1e-25) then ! this may be put to a higher value, but not before testing that
                                   ! the global species budgets are not altered
-      
+
       r%cwcColumnLayer = cwcColumnLayer
       cwcAboveBottom = cwcAbove
       r%cwcColumn = cwcColumn
@@ -4114,7 +4097,7 @@ end function fu_settling_vel
         pwcAboveTop = pwcAboveT
       end if
     else
-      r%cwcColumn = r%fRainRateSfc * 3600. ! hourly rain                                                                                                                                                          
+      r%cwcColumn = r%fRainRateSfc * 3600. ! hourly rain
       r%ifRealCloud = .False.
       cwcAboveBottom =  r%cwcColumn * fu_frac_cwc_above(r%fPressure)
       if (cwcAboveBottom < 1e-20 * r%cwcColumn) then
@@ -4125,13 +4108,13 @@ end function fu_settling_vel
         ftmp = metdat_col(imet_press, iLev+1)
       else   ! last level
         ftmp = metdat_col(imet_press, iLev-1)
-        fTmp = 2*r%fPressure - fTmp  !!extrapolate pressure                 
+        fTmp = 2*r%fPressure - fTmp  !!extrapolate pressure
       endif
       cwcAboveTop =  r%cwcColumn * fu_frac_cwc_above(fTmp)
       r%cwcColumnLayer = cwcAboveBottom - cwcAboveTop
 
       pwcAboveTop = cwcAboveTop
-      r%pwcColumnLayer = r%cwcColumnLayer !!This is fake cloud -- copy stuff   
+      r%pwcColumnLayer = r%cwcColumnLayer !!This is fake cloud -- copy stuff
       r%pwcColumn = r%cwcColumn
       pwcAboveBottom = cwcAboveBottom
    end if
@@ -4144,9 +4127,9 @@ end function fu_settling_vel
       return
    endif
 
-    ! how much rain get formed in the cell?                                                                            
+    ! how much rain get formed in the cell?
     fTmp = r%fRainRateSfc / r%pwcColumn
-    r%deltarain = fTmp * r%pwcColumnLayer  ! rain int. for in-cloud scavenging                                         
+    r%deltarain = fTmp * r%pwcColumnLayer  ! rain int. for in-cloud scavenging
     r%rain_rate_in = fTmp * pwcAboveTop ! how much rain comes from above?
 
     r%cell_zsize = metdat_col(imet_dz_size, iLev) !fu_layer_thickness_m(fu_level(dispersion_vertical, ilev))
@@ -4156,14 +4139,14 @@ end function fu_settling_vel
     r%rho_air = r%fPressure / (gas_constant_dryair * r%fTemperature)
     r%nu_air  =  r%mu_air / r%rho_air
 
-    ! Precipitation properties                                                                                                
-    precip_rate = r%rain_rate_in / r%fCloudCover ! actual rain intensity where it rains                                       
+    ! Precipitation properties
+    precip_rate = r%rain_rate_in / r%fCloudCover ! actual rain intensity where it rains
 
-    if(r%fTemperature > freezing_point_of_water)then ! rain                                                                   
+    if(r%fTemperature > freezing_point_of_water)then ! rain
       r%is_liquid = 1.
 
-      r%drop_size = max(1e-5, min(1e-2, 7e-4 * sqrt(sqrt(precip_rate*3600.))))  ! Slinn 1977 Eq. 14 for steady fronal rain    
-      ! limits added to allow for very strong / small rain                                                                    
+      r%drop_size = max(1e-5, min(1e-2, 7e-4 * sqrt(sqrt(precip_rate*3600.))))  ! Slinn 1977 Eq. 14 for steady fronal rain
+      ! limits added to allow for very strong / small rain
 
       if (r%drop_size - r%drop_size .ne. 0.) then
         call msg("Drop size", r%drop_size)
@@ -4173,36 +4156,36 @@ end function fu_settling_vel
         call set_error("NaN scavenging coefficient...", "scavenging")
       endif
 
-      r%drop_mass =1000.*0.166667*3.1415936*r%drop_size*r%drop_size*r%drop_size  ! 1/6 rho_w * Pi *d^3                        
+      r%drop_mass =1000.*0.166667*3.1415936*r%drop_size*r%drop_size*r%drop_size  ! 1/6 rho_w * Pi *d^3
 
-      ! Gossard (1992, JTECH) Saturation due to drop shape change Density correction could be                                 
-      ! power 0.4 (Foote, 1969,JAM)                                                                                           
-      r%drop_vel  = 10. * (1.-exp(-5e2*r%drop_size))*sqrt(1.2/r%rho_air) ! m/s                                                
+      ! Gossard (1992, JTECH) Saturation due to drop shape change Density correction could be
+      ! power 0.4 (Foote, 1969,JAM)
+      r%drop_vel  = 10. * (1.-exp(-5e2*r%drop_size))*sqrt(1.2/r%rho_air) ! m/s
     else
-      r%is_liquid = 0. ! melted_size = 1.4e-3 * sqrt(precip_rate*3600.)  median volume MELTED diameter                        
-                       ! Power 0.45 in Cekhon&Srivastava                                                                      
-    !drop_mass = 1000.*0.166667*3.1415926*melted_size*melted_size*melted_size                                                 
+      r%is_liquid = 0. ! melted_size = 1.4e-3 * sqrt(precip_rate*3600.)  median volume MELTED diameter
+                       ! Power 0.45 in Cekhon&Srivastava
+    !drop_mass = 1000.*0.166667*3.1415926*melted_size*melted_size*melted_size
 
-      r%drop_size = 1e-3 ! m                                                                                                  
-      r%drop_mass = 3e-8 ! kg                                                                                                 
-      r%drop_vel  = 0.8  ! m/s   As done in ECHHAM-5. (Croft 2009, ACP) Looks ugly, but...                                    
-                    ! Some dependencies from Matrosov 2007, Gossard 1992 and other radar papers could be better               
+      r%drop_size = 1e-3 ! m
+      r%drop_mass = 3e-8 ! kg
+      r%drop_vel  = 0.8  ! m/s   As done in ECHHAM-5. (Croft 2009, ACP) Looks ugly, but...
+                    ! Some dependencies from Matrosov 2007, Gossard 1992 and other radar papers could be better
     endif
 
     r%drop_Re = r%drop_vel*r%drop_size/r%nu_air
 
-    ! Scavenging rate in cloud for particles                                                                                  
+    ! Scavenging rate in cloud for particles
     r%lambda_air = 2.37e-5 * r%fTemperature / r%fPressure
 
     contains
-      real function fu_frac_cwc_above(pressure)   
+      real function fu_frac_cwc_above(pressure)
         real, intent(in) :: pressure
 
-        !fake cloud  structure: constant density cloud,    
-        if (pressure>9e4) then ! subcloud       
+        !fake cloud  structure: constant density cloud,
+        if (pressure>9e4) then ! subcloud
           fu_frac_cwc_above = 1
-        elseif (pressure > 7e4) then !incloud          
-          fu_frac_cwc_above =  (pressure-7e4)/2e4 ! 900hPa-700hPa   
+        elseif (pressure > 7e4) then !incloud
+          fu_frac_cwc_above =  (pressure-7e4)/2e4 ! 900hPa-700hPa
         else
           fu_frac_cwc_above = 0.
         endif
@@ -4218,11 +4201,11 @@ end function fu_settling_vel
                              & ifHorizInterp, ifVertInterp, scavType)
 
     ! Used only for Lagrangian runs!!!!!!
-    ! Prepares parameters of precipitation within a dispersion cell: fills Train_in_cell structure               
+    ! Prepares parameters of precipitation within a dispersion cell: fills Train_in_cell structure
     implicit none
 
-    ! Imported parameters                                                                                        
-    integer, intent(in) :: iX, iY, iLev, nLevels  ! Dispersion indices                                           
+    ! Imported parameters
+    integer, intent(in) :: iX, iY, iLev, nLevels  ! Dispersion indices
     type (Train_in_cell), intent(out) :: r
     real, intent(in) ::  weight_past
     type(THorizInterpStruct), intent(in) :: pHorizInterpStruct
@@ -4231,45 +4214,45 @@ end function fu_settling_vel
     integer, intent(in) :: scavType
     real, dimension(:), pointer :: xSizePtr, ySizePtr
 
-    ! Local variables                                                                                            
+    ! Local variables
     real ::  cwcAboveBottom, cwcAboveTop, pwcAboveBottom, pwcAboveTop
     real  :: fTmp, fTmp1, precip_rate, u, v, wCld, dxDisp, fEntrain, Phi
     integer :: iDisp, iMeteo
 
-    r%ifRealCloud = .TRUE.  ! Use meteo clouds by default                                                        
+    r%ifRealCloud = .TRUE.  ! Use meteo clouds by default
     r%ifRainSfc = .TRUE.
     r%ifRainyCell = .TRUE.
     r%ifValid = .TRUE.
-    !                                                                                                            
-    ! Meteo                                                                                                      
-    !                                                                                                            
+    !
+    ! Meteo
+    !
     iMeteo = fu_grid_index(nx_meteo, iX, iY, pHorizInterpStruct)
 
     r%fRainRateSfc = pMetPrecTot(iMeteo)
 
-    if (r%fRainRateSfc < 1e-7/3600.) then  ! <1e-7 mm/h is not a rain                                            
+    if (r%fRainRateSfc < 1e-7/3600.) then  ! <1e-7 mm/h is not a rain
       r%ifRainSfc = .FALSE.
       r%ifRainyCell = .FALSE.
       return
    endif
 
-    r%fCloudCover = min(0.999,max(pMetTotCloud(iMeteo), 1e-2))  ! No rain without clouds ->                      
-                                                                ! Force 1% cloud cover                           
-    r%fPressure  = fu_get_value(fldPressure, &   ! field_ptr_4d                                                  
-                              & nx_meteo, &     ! nxFrom                                                         
+    r%fCloudCover = min(0.999,max(pMetTotCloud(iMeteo), 1e-2))  ! No rain without clouds ->
+                                                                ! Force 1% cloud cover
+    r%fPressure  = fu_get_value(fldPressure, &   ! field_ptr_4d
+                              & nx_meteo, &     ! nxFrom
                               & ix, iy, iLev, &
                               & weight_past, &
                               & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-    r%fTemperature  = fu_get_value(fldTempr, &   ! field_ptr_4d                                                  
-                                 & nx_meteo, &     ! nxFrom                                                      
+    r%fTemperature  = fu_get_value(fldTempr, &   ! field_ptr_4d
+                                 & nx_meteo, &     ! nxFrom
                                  & ix, iy, iLev, &
                                  & weight_past, &
                                  & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-    
+
     r%max_scav_rate = 1e3
 
-    ! Cloud water content                                                                                        
-    !                                                                                                            
+    ! Cloud water content
+    !
     if (scavType == scav2011) then
       r%cwcColumn =  fu_get_value(fldCwcabove, nx_meteo, ix, iy, 1 , 0.0, &
            & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, .false.)
@@ -4279,7 +4262,7 @@ end function fu_settling_vel
        r%pwcColumn = real_missing
     endif
 
-    if (r%pwcColumn > 1e-4) then ! 0.1 mm cloud water ...                                                        
+    if (r%pwcColumn > 1e-4) then ! 0.1 mm cloud water ...
 
       cwcAboveBottom =  fu_get_value(fldCwcabove, nx_meteo, ix, iy, iLev , 0.0, &
                                    & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
@@ -4303,9 +4286,9 @@ end function fu_settling_vel
         return
       endif
 
-    else  ! Some cloud structure to be invented                                                                  
+    else  ! Some cloud structure to be invented
 
-      r%cwcColumn = r%fRainRateSfc * 3600. ! hourly rain                                                         
+      r%cwcColumn = r%fRainRateSfc * 3600. ! hourly rain
       r%ifRealCloud = .False.
       cwcAboveBottom =  r%cwcColumn * fu_frac_cwc_above(r%fPressure)
       if (cwcAboveBottom < 1e-10 * r%cwcColumn) then
@@ -4313,31 +4296,31 @@ end function fu_settling_vel
         return
       endif
       if (iLev < nLevels) then
-        fTmp = fu_get_value(fldPressure, &   ! Pressure above                                                    
+        fTmp = fu_get_value(fldPressure, &   ! Pressure above
                           & nx_meteo, ix, iy, iLev + 1, weight_past, &
                           & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-      else   ! last level                                                                                        
-        fTmp = fu_get_value(fldPressure, &   ! Pressure below                                                    
+      else   ! last level
+        fTmp = fu_get_value(fldPressure, &   ! Pressure below
                           & nx_meteo, ix, iy, iLev - 1, weight_past, &
                           & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp)
-        fTmp = 2*r%fPressure - fTmp  !!extrapolate pressure                                                      
+        fTmp = 2*r%fPressure - fTmp  !!extrapolate pressure
       endif
       cwcAboveTop =  r%cwcColumn * fu_frac_cwc_above(fTmp)
       r%cwcColumnLayer = cwcAboveBottom - cwcAboveTop
 
       pwcAboveTop = cwcAboveTop
-      r%pwcColumnLayer = r%cwcColumnLayer !!This is fake cloud -- copy stuff                                     
+      r%pwcColumnLayer = r%cwcColumnLayer !!This is fake cloud -- copy stuff
       r%pwcColumn = r%cwcColumn
       pwcAboveBottom = cwcAboveBottom
     endif
 
-    if (r%cwcColumnLayer < 1e-6 * cwcAboveBottom) r%cwcColumnLayer = 0.  !! Avoid numerics                       
-    if (r%pwcColumnLayer < 1e-6 * pwcAboveBottom) r%pwcColumnLayer = 0.  !! Avoid numerics                       
+    if (r%cwcColumnLayer < 1e-6 * cwcAboveBottom) r%cwcColumnLayer = 0.  !! Avoid numerics
+    if (r%pwcColumnLayer < 1e-6 * pwcAboveBottom) r%pwcColumnLayer = 0.  !! Avoid numerics
 
-    ! how much rain get formed in the cell?                                                                      
+    ! how much rain get formed in the cell?
     fTmp = r%fRainRateSfc / r%pwcColumn
-    r%deltarain = fTmp * r%pwcColumnLayer  ! rain int. for in-cloud scavenging                                   
-    r%rain_rate_in = fTmp * pwcAboveTop ! how much rain comes from above?                                        
+    r%deltarain = fTmp * r%pwcColumnLayer  ! rain int. for in-cloud scavenging
+    r%rain_rate_in = fTmp * pwcAboveTop ! how much rain comes from above?
 
 #ifdef DEBUG
     if (.not. (r%deltarain < 1. .and. r%deltarain >= 0.)) call ooops("Strange r%deltarain")
@@ -4346,13 +4329,13 @@ end function fu_settling_vel
     if (.not. (r%pwcColumnLayer >= 0.)) call ooops("Strange r%pwcColumnLayer")
 #endif
 
-    if (pwcAboveBottom < 1e-10*r%pwcColumn) then ! could be done earlier...                                      
-      ! less than 5% of cloud above the bottom of this cell all rain is below                                    
+    if (pwcAboveBottom < 1e-10*r%pwcColumn) then ! could be done earlier...
+      ! less than 5% of cloud above the bottom of this cell all rain is below
       r%ifRainyCell = .FALSE.
       return
     endif
 
-    ! cell parameters                                                                                            
+    ! cell parameters
 
     iDisp = ix+(iy-1)*nx_dispersion
     xSizePtr => fu_grid_data(dispersion_cell_x_size_fld)
@@ -4365,14 +4348,14 @@ end function fu_settling_vel
     r%rho_air = r%fPressure / (gas_constant_dryair * r%fTemperature)
     r%nu_air  =  r%mu_air / r%rho_air
 
-    ! Precipitation properties                                                                                   
-    precip_rate = r%rain_rate_in / r%fCloudCover ! actual rain intensity where it rains                          
+    ! Precipitation properties
+    precip_rate = r%rain_rate_in / r%fCloudCover ! actual rain intensity where it rains
 
-    if(r%fTemperature > freezing_point_of_water)then ! rain                                                      
+    if(r%fTemperature > freezing_point_of_water)then ! rain
       r%is_liquid = 1.
 
-      r%drop_size = max(1e-5, min(1e-2, 7e-4 * sqrt(sqrt(precip_rate*3600.))))  ! Slinn 1977 Eq. 14 for steady fronal rain                                                                                                       
-      ! limits added to allow for very strong / small rain                                                       
+      r%drop_size = max(1e-5, min(1e-2, 7e-4 * sqrt(sqrt(precip_rate*3600.))))  ! Slinn 1977 Eq. 14 for steady fronal rain
+      ! limits added to allow for very strong / small rain
 
       if (r%drop_size - r%drop_size .ne. 0.) then
         call msg("Drop size", r%drop_size)
@@ -4382,38 +4365,38 @@ end function fu_settling_vel
         call set_error("NaN scavenging coefficient...", "scavenging")
       endif
 
-      r%drop_mass =1000.*0.166667*3.1415936*r%drop_size*r%drop_size*r%drop_size  ! 1/6 rho_w * Pi *d^3           
+      r%drop_mass =1000.*0.166667*3.1415936*r%drop_size*r%drop_size*r%drop_size  ! 1/6 rho_w * Pi *d^3
 
-      ! Gossard (1992, JTECH) Saturation due to drop shape change Density correction could be                    
-      ! power 0.4 (Foote, 1969,JAM)                                                                              
-      r%drop_vel  = 10. * (1.-exp(-5e2*r%drop_size))*sqrt(1.2/r%rho_air) ! m/s                                   
+      ! Gossard (1992, JTECH) Saturation due to drop shape change Density correction could be
+      ! power 0.4 (Foote, 1969,JAM)
+      r%drop_vel  = 10. * (1.-exp(-5e2*r%drop_size))*sqrt(1.2/r%rho_air) ! m/s
     else
-      r%is_liquid = 0. ! melted_size = 1.4e-3 * sqrt(precip_rate*3600.)  median volume MELTED diameter           
-                       ! Power 0.45 in Cekhon&Srivastava                                                         
-    !drop_mass = 1000.*0.166667*3.1415926*melted_size*melted_size*melted_size                                    
+      r%is_liquid = 0. ! melted_size = 1.4e-3 * sqrt(precip_rate*3600.)  median volume MELTED diameter
+                       ! Power 0.45 in Cekhon&Srivastava
+    !drop_mass = 1000.*0.166667*3.1415926*melted_size*melted_size*melted_size
 
-      r%drop_size = 1e-3 ! m                                                                                     
-      r%drop_mass = 3e-8 ! kg                                                                                    
-      r%drop_vel  = 0.8  ! m/s   As done in ECHHAM-5. (Croft 2009, ACP) Looks ugly, but...                       
-                    ! Some dependencies from Matrosov 2007, Gossard 1992 and other radar papers could be better  
+      r%drop_size = 1e-3 ! m
+      r%drop_mass = 3e-8 ! kg
+      r%drop_vel  = 0.8  ! m/s   As done in ECHHAM-5. (Croft 2009, ACP) Looks ugly, but...
+                    ! Some dependencies from Matrosov 2007, Gossard 1992 and other radar papers could be better
     endif
 
     r%drop_Re = r%drop_vel*r%drop_size/r%nu_air
 
-    ! Scavenging rate in cloud for particles                                                                     
+    ! Scavenging rate in cloud for particles
 
     r%lambda_air = 2.37e-5 * r%fTemperature / r%fPressure
 
     contains
 
-      real function fu_frac_cwc_above(pressure)   
+      real function fu_frac_cwc_above(pressure)
         real, intent(in) :: pressure
 
-        !fake cloud  structure: constant density cloud,                                                          
-        if (pressure>9e4) then ! subcloud                                                                        
+        !fake cloud  structure: constant density cloud,
+        if (pressure>9e4) then ! subcloud
           fu_frac_cwc_above = 1
-        elseif (pressure > 7e4) then !incloud                                                                    
-          fu_frac_cwc_above =  (pressure-7e4)/2e4 ! 900hPa-700hPa                                                
+        elseif (pressure > 7e4) then !incloud
+          fu_frac_cwc_above =  (pressure-7e4)/2e4 ! 900hPa-700hPa
         else
           fu_frac_cwc_above = 0.
         endif
@@ -4470,7 +4453,7 @@ end function fu_settling_vel
        indexMeteoVert = fu_vert_index(nint(p_dyn(lp_x)),nint(p_Dyn(lp_y)), &
                                 & nint(p_dyn(lp_z)), pMeteo2DispInterpVert, ifVertInterp)
        !
-       ! Standard 3D scavenging coefficient. Each material has own scaling applied as a 
+       ! Standard 3D scavenging coefficient. Each material has own scaling applied as a
        ! correction factor: material-wise for gases, size-wise for aerosols.
        !
        ! For aerosols, we will want to have a settling velocity as a scaling parameter
@@ -4478,7 +4461,7 @@ end function fu_settling_vel
        !
        scav_coef_std = fldScavStd%past%p2d(indexMeteoVert)%ptr(indexMeteoHoriz) * weight_past + &
                      & fldScavStd%future%p2d(indexMeteoVert)%ptr(indexMeteoHoriz) * (1. - weight_past) * &
-                     & timestep_sec
+                     & abs(timestep_sec)
 
        if(scav_coef_std .eps. 0.0)return  ! speedup
 
@@ -4506,7 +4489,7 @@ end function fu_settling_vel
        fTempr_1 = fldTempr%past%p2d(1)%ptr(indexMeteoHoriz) * weight_past + &
                 & fldScavStd%future%p2d(1)%ptr(indexMeteoHoriz) * (1. - weight_past)
        !
-       ! The scaling with regard to standard 3D coefficient depends on the phase. 
+       ! The scaling with regard to standard 3D coefficient depends on the phase.
        ! Gases keep their scaling in the chemical database
        !
        do iSpecies = 1, rulesDeposition%nGasesDepositing
@@ -4533,7 +4516,7 @@ end function fu_settling_vel
        end do  !  gases
 
        !
-       ! Aerosols scaling can be considered either via the settling velocity or via 
+       ! Aerosols scaling can be considered either via the settling velocity or via
        ! the material properties, just like gases. The default option is probably the size.
        !
        do iSpecies = 1, rulesDeposition%nAerosolsDepositing
@@ -4556,7 +4539,7 @@ end function fu_settling_vel
 
       case(scav2011,scav2011fc)
          !call msg('New 2011 scavenging scheme...',rulesDeposition%scavengingType)
-         
+
         call  make_rain_in_cell(nint(p_dyn(lp_x)), nint(p_Dyn(lp_y)), nint(p_dyn(lp_z)), &
                        & DispNevels, r,  weight_past, &
                        & pMeteo2DispInterpHoriz,  pMeteo2DispInterpVert, &
@@ -4571,7 +4554,8 @@ end function fu_settling_vel
         call  scavenge_puff_2011( src_masses, &    ! stuff in the air
                      &  tmpdepo, & ! stuff in precipitation
                      &  fptrTmp, &   !   arLowMassThreshold, &
-                     &  speciesTransport,      & 
+                     &  null(), &  !! No tla store here
+                     &  speciesTransport,      &
                      &  nSpecies,&
                      &  1, & ! nSources
                      &  timestep_sec,&
@@ -4579,7 +4563,7 @@ end function fu_settling_vel
                      &  r,  &
                      &  p_Dyn(lp_dx) * p_Dyn(lp_dy) * p_Dyn(lp_dz) , &  !puff volume
                      &  p_Dyn(lp_dz))
-             
+
          ! Finally deposit rain contents....
          dest_masses(1:nSpecies,1) = dest_masses(1:nSpecies,1) + tmpdepo(1:nSpecies,1)
 
@@ -4594,17 +4578,17 @@ end function fu_settling_vel
 
   subroutine allocate_scav_amount(mapTransport)
     implicit none
-    type(Tmass_map),  intent(in) :: mapTransport 
+    type(Tmass_map),  intent(in) :: mapTransport
     integer :: nthreads, istat
     character(len=*), parameter :: sub_name = 'allocate_scav_amount'
 
     nthreads = 1
-    !$OMP PARALLEL DEFAULT(NONE) &    
-    !$OMP SHARED(nthreads)     
-    !$OMP MASTER    
-    !$ nthreads = omp_get_num_threads()    
-    !$OMP END MASTER                
-    !$OMP END PARALLEL  
+    !$OMP PARALLEL DEFAULT(NONE) &
+    !$OMP SHARED(nthreads)
+    !$OMP MASTER
+    !$ nthreads = omp_get_num_threads()
+    !$OMP END MASTER
+    !$OMP END PARALLEL
 
     allocate(scavAmount(mapTransport%nSpecies, mapTransport%nSrc, mapTransport%n3D, 0:nthreads), stat=istat)
     if(fu_fails(istat == 0, 'Failed to allocate the scavenging amount array', sub_name))return
@@ -4617,15 +4601,15 @@ end function fu_settling_vel
   ! Ugly implementation of ugly parameterization
   real function  fu_vd_Zhang(tau,Sc,dp,ustar, Zref, RsIn, MOs, sfc_typ)
 !       tau particle        tau_p , seconds
-!       Schmidt number      Sc   = \nu / D  
+!       Schmidt number      Sc   = \nu / D
 !       particle size       dp, meters
 !       friction velocity   ustar, m/s
 !       reference height    Zref, m
 !       surface resistance  R_s, s/m
 !       Stability parameter MOs = 1/L_{MO}, 1/m
 !       reference height    Zref, m
-!       surface type        
-!       
+!       surface type
+!
 !       returns             v_d, m/s
         implicit none
         real, INTENT(IN) :: tau,Sc,dp,ustar, Zref, RsIn, MOs
@@ -4643,7 +4627,7 @@ end function fu_settling_vel
         real :: StZ ! Stokes number in Zhang interpretation
         real, parameter :: g = 9.8 !m/s -- gravity
         real, parameter :: nu = 1.5e-5 !m^2/s -- kinematic viscosity
-        
+
 
         select case (sfc_typ)
                 case (ZhangSmooth)
@@ -4657,12 +4641,12 @@ end function fu_settling_vel
                         z0 = 2e-4
                         gama =0.54
                         alpha = 1.2
-                        A = 5e-3 
+                        A = 5e-3
                         StZ = tau*ustar/A
                         Vint = 0.5*dp*dp/(A*A)
                 case (ZhangGrass)
                         z0 = 1e-2
-                        gama = 0.54 
+                        gama = 0.54
                         alpha = 1.2
                         A = 2e-3
                         StZ = tau*ustar/A
@@ -4678,10 +4662,10 @@ end function fu_settling_vel
                  fu_vd_Zhang = 0.
                  return
         end select
-        
+
         Rb = 1./(3.*ustar) / &
                & (Sc**(-gama) + (StZ/(StZ+alpha))**2 + Vint )
-        
+
 
         ra = 2.5*  (log(Zref/z0) + fu_Psi(Zref*MOs)) / ustar
         ra = 0.5 * (ra + abs(ra))
@@ -4694,7 +4678,7 @@ end function fu_settling_vel
 !            !   rb = 5*Sc**.6666667
                 rs = RsIn
         endif
-        
+
         fu_vd_Zhang = vs + 1./(ra+rb+rs)
         return
   end function fu_vd_Zhang
@@ -4710,7 +4694,7 @@ end function fu_settling_vel
         ! Note that different Rb are used there for gases and particles
         ! Particles are distinguished by non-zero taup or vsplus
         real ra,rb,rs
-        
+
         ra = 2.5 * (log(Zpmax) + fu_Psi(Zpmax*MOplus))
         ra = 0.5 * (ra + abs(ra))
 
@@ -4721,7 +4705,7 @@ end function fu_settling_vel
                rb = 5*Sc**.6666667
                rs = Rsplus
         endif
-        
+
         fu_vdplus_slinnSP98 = vsplus + 1./(ra+rb+rs)
         return
   end function fu_vdplus_slinnSP98
@@ -4729,221 +4713,226 @@ end function fu_settling_vel
   !************************************************************************************
 
   real function  fu_vdplus_DS(taup,Sc,vsplus, Rsplus, MOplus, Zpmax)
-        implicit none
-        real, INTENT(IN) :: taup ,Sc ,vsplus, Rsplus, MOplus, Zpmax
-       ! Simple vd for smooth surfaces with diffusion and settling.
-       ! Minimalistic deposition scheme that deposites any sizes.
-       ! Coefficient 0.1 chousen to fit smooth-surface diffusion at  Sc >> 1
-        fu_vdplus_DS = vsplus + 0.1*Sc**(-.666667)
-        return
+    implicit none
+    real, INTENT(IN) :: taup ,Sc ,vsplus, Rsplus, MOplus, Zpmax
+    ! Simple vd for smooth surfaces with diffusion and settling.
+    ! Minimalistic deposition scheme that deposites any sizes.
+    ! Coefficient 0.1 chousen to fit smooth-surface diffusion at  Sc >> 1
+    fu_vdplus_DS = vsplus + 0.1*Sc**(-.666667)
+    return
   end function fu_vdplus_DS
 
   !***************************************************************************
 
 
   real function fu_vdplus_smooth(taup,Sc,vsplus,rplus, Rsplus, MOplus, Zpmax)
-        implicit none 
-        real, INTENT(IN) :: taup ,Sc ,vsplus ,rplus ,Rsplus, MOplus, Zpmax
-        ! Copyleft Rostislav Kouznetsov, FMI (firstname.lastname@fmi.fi)
-        ! See: Kouznetsov, R., and M. Sofiev (2012), A methodology for evaluation of vertical dispersion and dry deposition
-        ! of atmospheric aerosols, J. Geophys. Res., 117, D01202, doi:10.1029/2011JD016366.
+    implicit none
+    real, INTENT(IN) :: taup ,Sc ,vsplus ,rplus ,Rsplus, MOplus, Zpmax
+    ! Copyleft Rostislav Kouznetsov, FMI (firstname.lastname@fmi.fi)
+    ! See: Kouznetsov, R., and M. Sofiev (2012), A methodology for evaluation of vertical dispersion and dry deposition
+    ! of atmospheric aerosols, J. Geophys. Res., 117, D01202, doi:10.1029/2011JD016366.
 
-!       tau plus            taup = tau_p  u_*^2 / \nu   
-!       Schmidt number      Sc   = \nu / D  
-!       settling velocity   vsplus = v_s / u_*; usually v_s = g * tau_p 
+!       tau plus            taup = tau_p  u_*^2 / \nu
+!       Schmidt number      Sc   = \nu / D
+!       settling velocity   vsplus = v_s / u_*; usually v_s = g * tau_p
 !       particle size       rplus = d_p u_* / (2\nu)
 !       surface resistance  Rsplus  = u_* R_s
 !       reference height    zpmax  = z u_* / \nu
 !       Stability parameter MOplus = \nu/(u_* L)?
-!       
+!
 !       returns            v_d / u_*
 !
 !	(Dimensionless) deposition velocity through split layer...
-!	Analytics for resistances, Lagrangian time is infinite except for 
-!       turbophoretic layer, where \tau_L=5, picewize fit for turbophoretic velocity. 
+!	Analytics for resistances, Lagrangian time is infinite except for
+!       turbophoretic layer, where \tau_L=5, picewize fit for turbophoretic velocity.
 !       Structure of the layers Bottom->top:
-!               zplus=rplus; particle radius  
+!               zplus=rplus; particle radius
 !	           laminar layer: Vs,  Full diffusivity
 !	        zplus=30*Sc^{-1/3}; top of laminar layer (\nu_t >> D)
 !	           buffer layer:  Vs, Eddy diff
 !	        zplus=4; 	
 !	            Turbophoretic layer  Vs+Vtf, Eddy diff
-!	        zplus=25; 
-!	             turbulent layer Vs, Eddy diff 
+!	        zplus=25;
+!	             turbulent layer Vs, Eddy diff
 !               zplus=Zpmax
 !	
-        !local parameters
-        real :: Zl, Ztf2
-        real, parameter :: Zbuf=3.
-        real, parameter :: Ztf = 18.   ! turbophoretic sublayer heights
-        real, parameter :: taultf = 5. ! Lagrangian time in turbophoretic layer
-        real :: V, R, R1, S,fTmp, fTmp1, fIvd, x ! Velocity, resistance, Sc**0.33333
-        real :: Il, It, Nutp                ! integrals (functions)
-        
-        Nutp(x)=.4*x*x*x/(x*x+200)
-        ! integrals
-        !\int (1+x^3)^{-1}dx
-        ! 3**(-0.5) = 0.57735; 
-        Il(x) = -0.16667 * log(x*x-x+1) + 0.57735 * atan((2*x-1)*0.57735) + 0.3333*log(x+1)
+    !local parameters
+    real :: Zl, Ztf2
+    real, parameter :: Zbuf=3.
+    real, parameter :: Ztf = 18.   ! turbophoretic sublayer heights
+    real, parameter :: taultf = 5. ! Lagrangian time in turbophoretic layer
+    real :: V, R, R1, S,fTmp, fTmp1, fIvd, x ! Velocity, resistance, Sc**0.33333
+    real :: Il, It, Nutp                ! integrals (functions)
 
-        ! \int (x^2+200)/(0.4*x^3) dx 
-        It(x) = 2.5*log(x) - 100./(x*x) 
+    Nutp(x)=.4*x*x*x/(x*x+200)
+    ! integrals
+    !\int (1+x^3)^{-1}dx
+    ! 3**(-0.5) = 0.57735;
+    Il(x) = -0.16667 * log(x*x-x+1) + 0.57735 * atan((2*x-1)*0.57735) + 0.3333*log(x+1)
+
+    ! \int (x^2+200)/(0.4*x^3) dx
+    It(x) = 2.5*log(x) - 100./(x*x)
 
 !	Laminar+buffer
-        S=Sc**0.3333
-        Zl=20. / S ! laminar layer height
+    S=Sc**0.3333
+    Zl=20. / S ! laminar layer height
 
-        if (Zl .gt. Zbuf) then ! Very diffusive thing -- no turbophoresis
-                               ! only diffusion and turbulent diffusion 
-                               ! stiched in ad-hoc manner.
+    if (Zl .gt. Zbuf) then ! Very diffusive thing -- no turbophoresis
+                           ! only diffusion and turbulent diffusion
+                           ! stiched in ad-hoc manner.
                                ! Regular velocity
                                ! (electricity, thermophoresis etc.)
                                !  is not accounted here
-                if (Zl .gt. Zpmax) then ! Whole layer is diffusive
-                                        !should never happen normally 
-                       fu_vdplus_smooth=1./(Rsplus + (Zpmax)*Sc)
-                       return
-                endif
-                !solving equation nu_t(Zl) = 0.4*Zl^3/(Zl^2+200) = 1/Sc
-                ! to find a point where the turbulent diffusion equals to molecular
-               fTmp= 2.5/Sc
-               fTmp1 = (fTmp*fTmp*fTmp/27. + &
-                        fTmp*(100. +5.*sqrt(8.*fTmp/27.+400.)) )** 0.3333333
-               Zl= fTmp1 + fTmp*fTmp/(9.*fTmp1) + 0.333333*fTmp
-               ! linear approximation of nu_t around Zl
-                !  (d nu / dz)(Zl)
-                fTmp = Zl*Zl/(Zl*Zl+200)
-                fTmp = 1.2* fTmp - 0.8*fTmp*fTmp;
-                ! half-width of transitional layer to calculate with Simpsons parabola
-                 fTmp1 = 1./(Sc*fTmp) 
-                 fTmp = 1./Sc;
-                
-                fIvd = Rsplus + (Zl-fTmp1)*Sc  &
+      if (Zl .gt. Zpmax) then ! Whole layer is diffusive
+                                        !should never happen normally
+        fu_vdplus_smooth=1./(Rsplus + (Zpmax)*Sc)
+        return
+      endif
+      !solving equation nu_t(Zl) = 0.4*Zl^3/(Zl^2+200) = 1/Sc
+      ! to find a point where the turbulent diffusion equals to molecular
+      fTmp= 2.5/Sc
+      fTmp1 = (fTmp*fTmp*fTmp/27. + &
+               fTmp*(100. +5.*sqrt(8.*fTmp/27.+400.)) )** 0.3333333
+      Zl= fTmp1 + fTmp*fTmp/(9.*fTmp1) + 0.333333*fTmp
+      ! linear approximation of nu_t around Zl
+      !  (d nu / dz)(Zl)
+      fTmp = Zl*Zl/(Zl*Zl+200)
+      fTmp = 1.2* fTmp - 0.8*fTmp*fTmp;
+      ! half-width of transitional layer to calculate with Simpsons parabola
+      fTmp1 = 1./(Sc*fTmp)
+      fTmp = 1./Sc;
+      fIvd = Rsplus + (Zl-fTmp1)*Sc  &
                         + 0.333333*fTmp1*( &
                           1./(fTmp + Nutp(Zl-fTmp1))+ 4./(fTmp + Nutp(Zl))+ 1./(fTmp + Nutp(Zl+fTmp1))&
                          ) ! up to the top of transitional layer
-                fTmp =  It(Zpmax) - It(Zl+fTmp1) + 2.5*fu_Psi(Zpmax*MOplus) !R_a
-                fIvd = fIvd + 0.5*(fTmp+abs(fTmp)) ! no negative R_a allowed
-               fu_vdplus_smooth=1./fIvd
-               return
-        endif
-        
+      fTmp =  It(Zpmax) - It(Zl+fTmp1) + 2.5*fu_Psi(Zpmax*MOplus) !R_a
+      fIvd = fIvd + 0.5*(fTmp+abs(fTmp)) ! no negative R_a allowed
+      fu_vdplus_smooth=1./fIvd
+      return
+    endif
 
+    ! 500^0.333 = 7.92
+    R = 7.92 * S*S * (  Il(Zl*S/7.92) - Il(rplus*S/7.92) ) !laminar resistance
+    R = 0.5*(R+abs(R))  ! should be zero if rplus>Zl;
+    ! Buffer layer
+    Zl = 0.5*(rplus+Zl + abs(rplus-Zl)) ! max(rplus,Zl) - lower limit of buffer layer
+    R1 = It(Zbuf) - It(Zl);             ! buffer resistance
+    R = R + 0.5*(R1+abs(R1));           ! total resistance
 
-        ! 500^0.333 = 7.92
-        R = 7.92 * S*S * (  Il(Zl*S/7.92) - Il(rplus*S/7.92) ) !laminar resistance
-        R = 0.5*(R+abs(R))  ! should be zero if rplus>Zl;
-        ! Buffer layer
-        Zl = 0.5*(rplus+Zl + abs(rplus-Zl)) ! max(rplus,Zl) - lower limit of buffer layer
-        R1 = It(Zbuf) - It(Zl);             ! buffer resistance
-        R = R + 0.5*(R1+abs(R1));           ! total resistance
-        
-        fTmp = vsplus*R
-        if (abs(fTmp) .gt. 0.001) then
-                if (fTmp < -30) then 
-                        !fIvd turns to infinity at large negative vsplus
-                        ! backward-time large particles
-                       fu_vdplus_smooth = 0
-                       return
-                endif
-                fTmp = exp(-fTmp)
-                fIvd = Rsplus*fTmp +  (1-fTmp)/vsplus
-        else
-                fIvd = Rsplus + R
-        endif
-        if (fIvd /= fIvd) then
-                call msg("Strange fu_vdplus_smooth after laminar",fu_vdplus_smooth)
-        endif
-        
+    fTmp = vsplus*R
+    if (abs(fTmp) .gt. 0.001) then
+      if (fTmp < -20) then
+        !fIvd turns to infinity at large negative vsplus
+        ! backward-time large particles
+        fu_vdplus_smooth = 0
+        return
+      endif
+      fTmp = exp(-fTmp)
+      fIvd = Rsplus*fTmp +  (1-fTmp)/vsplus
+    else
+      fIvd = Rsplus + R
+    endif
+    if (fIvd /= fIvd) then
+      call msg("Strange fu_vdplus_smooth after laminar",fu_vdplus_smooth)
+    endif
 
-        !turbophoretic layer
-        V = 0.81 * taup / (Ztf-Zbuf)/(1+taup/taultf)*sign(1.,vsplus) + vsplus
-        R = (It(Ztf) - It(Zbuf))*(1+taup/taultf);
-        fTmp = V*R
-        if (abs(fTmp) .gt. 0.001) then
-                if (fTmp < -30) then 
-                        !fIvd turns to infinity at large negative vsplus
-                        ! backward-time large particles
-                       fu_vdplus_smooth = 0
-                       return
-                endif
-                fTmp = exp(-fTmp)
-                fIvd = fIvd*fTmp +  (1-fTmp)/V
-        else
-                fIvd = fIvd + R
-        endif
+    !turbophoretic layer
+    V = 0.81 * taup / (Ztf-Zbuf)/(1+taup/taultf)*sign(1.,vsplus) + vsplus
+    R = (It(Ztf) - It(Zbuf))*(1+taup/taultf);
+    fTmp = V*R
+    if (abs(fTmp) .gt. 0.001) then
+      if (fTmp < -20) then
+        !fIvd turns to infinity at large negative vsplus
+        ! backward-time large particles
+        fu_vdplus_smooth = 0
+        return
+      endif
+      fTmp = exp(-fTmp)
+      fIvd = fIvd*fTmp +  (1-fTmp)/V
+    else
+      fIvd = fIvd + R
+    endif
 
-        ! Not exactly accurate but saves when the center of mass is at the
-        ! surface....               
-        if (Zpmax .lt. Ztf) then
-                fu_vdplus_smooth=1./fIvd
-                return
-        endif
-        
+    ! Not exactly accurate but saves when the center of mass is at the
+    ! surface....
+    if (Zpmax .lt. Ztf) then
+      fu_vdplus_smooth=1./fIvd
+      return
+    endif
 
-        ! Lagrangian turbophoretic layer 
-        Ztf2 = 2*taup
-        if (Ztf2 .gt. Zpmax) then !shold not really happen, 
-                                  !but just in case
-                Ztf2=Zpmax
-        endif
+    ! Lagrangian turbophoretic layer
+    Ztf2 = 2*taup
+    if (Ztf2 .gt. Zpmax) then !shold not really happen, just in case
+      Ztf2=Zpmax
+    endif
 
 !        if (1 .eq. 0) then
-        if (Ztf2 .gt. Ztf) then ! Lagrangian turbophoretic layer present
-                                ! tau_L = 0.5 zplus
-                V = 0.4 + vsplus
+    if (Ztf2 .gt. Ztf) then ! Lagrangian turbophoretic layer present
+                            ! tau_L = 0.5 zplus
+      V = 0.4 + vsplus
 
-                R =  0.16667 * ( &
-                            (1 + taup/(0.5*Ztf))        / Nutp(Ztf) + &
+      R =  0.16667 * ((1 + taup/(0.5*Ztf))        / Nutp(Ztf) + &
                        4. * (1 +taup/(0.25*(Ztf+Ztf2))) / Nutp((0.5*(Ztf+Ztf2)))+&
                             (1 + taup/(0.5*Ztf2))       / Nutp(Ztf2) &
                             ) * (Ztf2 - Ztf)
- !               write (*,*) "#Rtf2-parabolic", R
-!                R = -5.*taup*(1./Ztf2 - 1./Ztf)
- !               write (*,*) "#Rtf2-quad", R
-                fTmp = V*R
-                if (abs(fTmp) .gt. 0.001) then
-                        fTmp = exp(-fTmp)
-                        fIvd = fIvd*fTmp +  (1-fTmp)/V
-                else
-                        fIvd = fIvd + R
-                endif
-        else
-                
-                Ztf2 = Ztf
+      fTmp = V*R
+      if (abs(fTmp) .gt. 0.001) then
+        if (fTmp < -20) then
+          !fIvd turns to infinity at large negative vsplus
+          ! backward-time large particles
+          fu_vdplus_smooth = 0
+          return
         endif
-        if (fIvd /= fIvd) then
-          call msg('taup,Sc',taup,Sc)
-          call msg('vsplus,rplus',vsplus,rplus)
-          call msg('Rsplus, MOplus', Rsplus, MOplus)
-          call msg('Zpmax', Zpmax)
-          call msg("Strange fu_vdplus_smooth1",fu_vdplus_smooth)
-        endif
-        !aerodynamic layer
+        fTmp = exp(-fTmp)
+        fIvd = fIvd*fTmp +  (1-fTmp)/V
+      else
+        fIvd = fIvd + R
+      endif
+    else
+      Ztf2 = Ztf
+    endif
+    if (fIvd /= fIvd) then
+      call msg('taup,Sc',taup,Sc)
+      call msg('vsplus,rplus',vsplus,rplus)
+      call msg('Rsplus, MOplus', Rsplus, MOplus)
+      call msg('Zpmax', Zpmax)
+      call msg("Strange fu_vdplus_smooth1",fu_vdplus_smooth)
+    endif
+    !aerodynamic layer
 
-        R = It(Zpmax) - It(Ztf2) + 2.5*fu_Psi(Zpmax*MOplus) 
+    R = It(Zpmax) - It(Ztf2) + 2.5*fu_Psi(Zpmax*MOplus)
                                 ! Stability correction applied to
                                 ! the upper limit of integration
-        R = 0.5* (R + abs(R)) ! Could happen to be negative
+    R = 0.5* (R + abs(R)) ! Could happen to be negative
                               ! in very unstable case
-        fTmp = vsplus*R
-        if (abs(fTmp) .gt. 0.001) then
-                fTmp = exp(-fTmp)
-                fIvd = fIvd*fTmp +  (1-fTmp)/vsplus
-        else
-                fIvd = fIvd + R
-        endif
-
-        fu_vdplus_smooth=1./fIvd
-        if (fIvd /= fIvd) then
-          call msg('taup,Sc',taup,Sc)
-          call msg('vsplus,rplus',vsplus,rplus)
-          call msg('Rsplus, MOplus', Rsplus, MOplus)
-          call msg('Zpmax', Zpmax)
-          call msg("Strange fu_vdplus_smooth2",fu_vdplus_smooth)
-        endif
-
+    fTmp = vsplus*R
+    if (abs(fTmp) .gt. 0.001) then
+      if (fTmp < -20) then
+        !fIvd turns to infinity at large negative vsplus
+        ! backward-time large particles
+        fu_vdplus_smooth = 0
         return
+      endif
+!      if(fIvd > 1e10)then
+!        call msg('fIvd, fTmp, vsplus, R', (/fIvd, fTmp, vsplus, R/))
+!        call msg_warning('large fIvd','fu_vdplus_smooth')
+!      endif
+      fTmp = exp(-fTmp)
+      fIvd = fIvd*fTmp +  (1-fTmp)/vsplus
+    else
+      fIvd = fIvd + R
+    endif
+
+    fu_vdplus_smooth=1./fIvd
+    if (fIvd /= fIvd) then
+      call msg('taup,Sc',taup,Sc)
+      call msg('vsplus,rplus',vsplus,rplus)
+      call msg('Rsplus, MOplus', Rsplus, MOplus)
+      call msg('Zpmax', Zpmax)
+      call msg("Strange fu_vdplus_smooth2",fu_vdplus_smooth)
+    endif
+
+    return
   end function fu_vdplus_smooth
 
 
@@ -4951,44 +4940,44 @@ end function fu_settling_vel
 
 
   ! adaptive step runge-kutta for smooth surface
-  ! Not to be actually used. Just to check the 
+  ! Not to be actually used. Just to check the
   ! approximation used in fu_vdplus_smooth
   real function fu_vdplus_smooth_rkad(taup,Sc,vsplus,rplus, Rsplus, Zpmax,tol)
-        implicit none 
+        implicit none
         real, INTENT(IN) :: taup ,Sc ,vsplus ,rplus ,Rsplus ,Zpmax,tol
-!       tau plus           taup = tau_p  u_*^2 / \nu   
-!       Schmidt number     Sc   = \nu / D  
-!       settling velocity  vsplus = v_s / u_*; usually v_s = g * tau_p 
+!       tau plus           taup = tau_p  u_*^2 / \nu
+!       Schmidt number     Sc   = \nu / D
+!       settling velocity  vsplus = v_s / u_*; usually v_s = g * tau_p
 !       particle size      rplus = d_p u_* / (2\nu)
 !       surface resistance Rsplus  = u_* R_s
 !       reference height   zpmax  = z u_* / \nu
-!       
+!
 !       returns            v_d / u_*
 !	(Dimensionless) deposition velocity through constant flux layer...
         double precision  :: R,R1,R2,Rprev,z,zstep,dz, steperr
         integer :: ngood, nbad
         ngood=0
         nbad=0
-        z=rplus 
+        z=rplus
         zstep=0.5*rplus;
         R=Rsplus
         steperr = tol /(Zpmax-rplus)
-        do 
+        do
                 R1=R;
                 R2=R;
                 call iVrk4(z,R1,zstep,taup ,Sc ,vsplus)
                 call iVrk4(z,R2,0.5*zstep,taup ,Sc ,vsplus)
                 call iVrk4(z+0.5*zstep,R2,0.5*zstep,taup ,Sc ,vsplus)
-                
+
                 if ((abs(R1-R2) .gt. steperr*zstep) .and. (zstep .gt. 1e-4)) then
                                 zstep = 0.1*zstep
-                                nbad = nbad + 1 
+                                nbad = nbad + 1
 !                                write (*,*) z, zstep, R1, R2
                 else
                         ngood =ngood + 1
                         R=R1
                         zstep = zstep * 1.123456789
-                        z=z+zstep  
+                        z=z+zstep
                         if  ( z .gt. Zpmax) then ! almost finished
                                 if  ( z .gt. Zpmax + 0.999*zstep ) then
                                                exit
@@ -5000,7 +4989,7 @@ end function fu_settling_vel
         enddo
 !write (*,*) '# ngood=', ngood,  '# nbad=', nbad
                 fu_vdplus_smooth_rkad = 1./R
-! 
+!
         return
   end function fu_vdplus_smooth_rkad
 
@@ -5012,7 +5001,7 @@ end function fu_settling_vel
        double precision  ::  h, t, tstep, y, x
         real :: taup ,Sc ,vsplus
         double precision  ::  k1, k2,k3, k4, temp1, temp2, temp3
-        
+
         h=tstep/2.0
       k1 = tstep * DERIV(t, y,taup ,Sc ,vsplus)
       temp1 = y + 0.5*k1
@@ -5029,12 +5018,12 @@ end function fu_settling_vel
 
 
   double precision function DERIV(x,y,taup ,Sc ,vsplus)
-        implicit none 
+        implicit none
         double precision :: x,y
         real :: vsplus, Sc, taup
         real :: vtf, nu
- 
-! Translated with Maxima       
+
+! Translated with Maxima
 !        nu(x):=2/5 * x^3 /(x^2+200);
 !        w(x):=9/10 * x^2/ (x^2 + 90);
 !        tauL(x):=nu(x)/(w(x)^2);
@@ -5059,12 +5048,12 @@ end function fu_settling_vel
 !************************************************************************************
 
   double precision function DERIV2(x,y,taup ,Sc ,vsplus)
-        implicit none 
+        implicit none
         double precision :: x,y
         real :: vsplus, Sc, taup
         real :: vtf, nu
- 
-! Translated with Maxima from 
+
+! Translated with Maxima from
 !        nu(x):=2/5 * x^3 /(x^2+10*x+200);
 !        w(x):=9/10 * x^2/ (x^2+ 2*x + 91);
 !        tauL(x):=nu(x)/(w(x)^2);
@@ -5092,7 +5081,7 @@ end function fu_settling_vel
 
 
   real function fu_Psi(zL)
-        implicit none 
+        implicit none
              real :: zL
              !Stability correction to neutral resistance
              ! based on SP98, eq. (19.14) on p. 963
@@ -5102,7 +5091,7 @@ end function fu_settling_vel
              ! for unstable -- simpler approximation is used.
              ! Approximation agrees to original expressions
              ! within the range -10<z/L<0 (p.25 in Roux2009 notebook)
-             ! The correction should be added to log(z/z0) 
+             ! The correction should be added to log(z/z0)
              ! WARNING: the check should be made for negative resistances!
              real :: s, u ! stable and unstable part of correction
              s = 2.35 * (zL+abs(zL))  !2.35=4.7/2
@@ -5116,37 +5105,37 @@ end function fu_settling_vel
 !************************************************************************************
 
 
-  real function fu_vdplus_rough(St,Sc,vsplus,dpa, Rsplus, Restar, MOplus, Zz0) 
-        implicit none 
+  real function fu_vdplus_rough(St,Sc,vsplus,dpa, Rsplus, Restar, MOplus, Zz0)
+        implicit none
         real, INTENT(IN) :: St,Sc,vsplus,dpa, Rsplus, Restar, MOplus, Zz0
 !       Stokes number       St = 2 \tau_p u* / a
-!       Schmidt number     Sc   = \nu / D  
-!       settling velocity  vsplus = v_s / u_*; usually v_s = g * \tau_p 
+!       Schmidt number     Sc   = \nu / D
+!       settling velocity  vsplus = v_s / u_*; usually v_s = g * \tau_p
 !       particle size      dpa = d_p / a
 !       surface resistance Rsplus  = u_* R_s
 !       Reynolds* number   Restar = u_* a / \nu
 !       Stability parameter MOplus = z0 / L
 !       reference height   Zz0  = z / z_0
-!       
+!
 !       returns            v_d / u_*
-!	(Dimensionless) deposition velocity 
+!	(Dimensionless) deposition velocity
 
         real :: Vdif, Vint, Vimp, Impar, etaimp
-        real ::  Re12,  Ra, fIvd, fTmp ! 
-        
+        real ::  Re12,  Ra, fIvd, fTmp !
+
         real, parameter :: Stcr=0.15 ! critical stokes number
         real, parameter :: Utus=3.0 ! U_{top}/u_*
-        
+
         Re12 = sqrt(Restar)
 
         Vdif = 1. / (Rsplus + 0.5*Re12 * Sc**.6666667)
         Vint = 80. * dpa * dpa *Re12
         Vimp = 0;
         Impar = St - 1./(Utus * Re12) - Stcr ! Impaction parameter
-        if (Impar .gt. 0) then 
-                Vimp = 2./Utus * exp(-0.1/Impar- 1./sqrt(Impar)) 
+        if (Impar .gt. 0) then
+                Vimp = 2./Utus * exp(-0.1/Impar- 1./sqrt(Impar))
         endif
-        
+
         fTmp = Vdif+Vint+Vimp+vsplus
         if (fTmp .le. 0.) then !  no deposition
                 fu_vdplus_rough = 1e-6
@@ -5154,54 +5143,68 @@ end function fu_settling_vel
         endif
 
         fIvd = 1./fTmp
-       
+
 
         Ra  = 2.5 * (log(Zz0) + fu_Psi(Zz0*MOplus)) ! no stability correction
                                                       ! for lower limit
         Ra = 0.5*(Ra+abs(Ra))                   ! Could become negative in
                                                 !unstable
         fTmp = vsplus*Ra
+        !
+        ! beware of the problem:
+! vsplus, Ra, fTmp, fIvd  -7.29995891E-02   9.01703548     -0.658239901       159.378983
+! vsplus, Ra, fTmp, fIvd  -5.63225783E-02   7.48074293     -0.421334743       5.81111288
+! vsplus, Ra, fTmp, fIvd  -5.56182154E-02   10.9992123     -0.611756563       31.4153500
+! vsplus, Ra, fTmp, fIvd  -7.06278160E-02   1401.20667      -98.9641647       9.26647854
+! vsplus, Ra, fTmp, fIvd  -7.39969462E-02   9.07345200     -0.671407759       12.0338831
+! vsplus, Ra, fTmp, fIvd  -8.07521269E-02   9.28939629     -0.750138521       17.9154282
+! vsplus, Ra, fTmp, fIvd  -5.02178110E-02   10.9294395     -0.548852503       23.8618546
+
         if (abs(fTmp) .gt. 0.001) then
-                fTmp = exp(-fTmp)
-                fIvd = fIvd*fTmp +  (1-fTmp)/vsplus
+          if(fTmp > 10)then
+            fIvd = 1. / vsplus
+          elseif(fTmp < -10)then
+            fu_vdplus_rough = 1e-6  ! no deposition
+            return
+          else
+!            print *, 'vsplus, Ra, fTmp, fIvd', vsplus, Ra, fTmp, fIvd
+            fTmp = exp(-fTmp)
+            fIvd = fIvd*fTmp +  (1-fTmp)/vsplus
+          endif
         else
-                fIvd = fIvd + Ra
+          fIvd = fIvd + Ra
         endif
         fu_vdplus_rough = 1./fIvd
         return
   end function fu_vdplus_rough
 
-  
+
   !************************************************************************************
 
-  logical function fu_if_tla_required_scav(rules) result(required)
+  integer function fu_tla_size_scav(rules) result(n)
     !
     ! Collect transformations' requests for tangent linearization. If tangent linear
-    ! is not allowed, corresponding subroutine sets error. 
+    ! is not allowed, corresponding subroutine sets error.
     !
     implicit none
     type(Tdeposition_rules), intent(in) :: rules
-    
-    integer :: iType
-    
-    ! call set_error('TLA not available for cbm4', 'fu_if_tla_required_cbm4')
-    required = .false.
-    do iType = 1, rules%nDepositionTypes
-      select case(rules%iDepositionType(iType))
-        case(scav2011, scav2011fc)
-          required = .true.
-          return
-        case default
-      end select
-    end do
-    
-  end function fu_if_tla_required_scav
 
-  
+    select case(rules%scavengingType)
+      case(scav2011, scav2011fc, scav2018, scav2018entr, scav2020)
+        n = 3 !! Strong acids, ammonia+ammonium, SO2
+      case(scavStandard, scavNoScav)
+        n = 0
+      case default
+        call set_error('Unknown scwavenging type:' + fu_str(rules%scavengingType),'fu_if_tla_required_scav')
+    end select
+
+  end function fu_tla_size_scav
+
+
   !************************************************************************************
-  
+
   subroutine test_TL_ADJ(mass_in_air, &  ! sensit mass in precipitation (sSpecies, nSrc, nz)
-                       & arLowMassThreshold, &  ! for sensitivity 
+                       & arLowMassThreshold, &  ! for sensitivity
                        & species, &
                        & Nspecies, Nsources, n3d, &
                        & timestep_sec_abs, &
@@ -5212,7 +5215,7 @@ end function fu_settling_vel
     ! repeating it with the TL. The Adjoint matrix is checked by transposition
     !
     implicit none
-    
+
     ! Imported parameters
     real, dimension(:,:), intent(in) :: mass_in_air ! (nSpecies, n3d)
     type (Train_in_cell), dimension(n3d), intent(in) :: r1d  ! rain info for the whole column
@@ -5229,13 +5232,17 @@ end function fu_settling_vel
                           & Full_mass_in_water, TL_mass_in_water   ! (nSpecies, nSrc, n3d, nTimes)
     type(Tscav_coefs_1d) :: c1d  ! internal coefficients stored from forward model
     type(silja_rp_2d), dimension(:), pointer :: pTL_L0, pTL_dLdm, pAdj
+    real, dimension(2,n3d), target :: tla_store
+    real, dimension(:,:), pointer :: tla_column_ptr
+    real, dimension(:), pointer :: tla_cell_ptr
     real :: fTmp
     real, dimension(Nspecies) :: mass_factor
 
     mass_factor(:) = 1
+    tla_column_ptr => tla_store
     !
     ! Get the vectors of species and masses, then compute its forward non-linear scavenging
-    ! over several time steps, then do the same with tangent linear matrix, which is made only 
+    ! over several time steps, then do the same with tangent linear matrix, which is made only
     ! once, of course. The first time step must show identical results, then they can deviate
     !
     !
@@ -5258,7 +5265,7 @@ end function fu_settling_vel
 !                            & c1d%c(iLev))     ! internal coefficients
 !    end do
 !    ! (re)store intial masses
-    
+
     !
     ! Make the matrices - the only thing needed now from the adjoint sub
     !
@@ -5273,10 +5280,41 @@ end function fu_settling_vel
       call set_error('Failed some of work array sets','test_TL_ADJ')
       return
     endif
+    
+    !!! Just to fill TLA storage
+    Full_mass_in_air(1:Nspecies,1,1:n3d,1) = mass_in_air
+    Full_mass_in_water(1:Nspecies,1,1:n3d,1) = 0
+    do iLev = n3d, 1, -1
+      if (r1d(iLev)%ifRainyCell)then  ! there is rain at this level
+!         call msg('Repository scavenging')
+!        call scavenge_puff_2011_repo(mass_in_air_local(1:Nspecies,:,iLev,iTime), &    ! stuff in the air, need (nSpecies,nSrc=1)
+        call msg('Adjusted scavenging')
+        tla_cell_ptr => tla_column_ptr(:,iLev)
+        call scavenge_puff_2011(Full_mass_in_air(1:Nspecies,:,iLev,1), &    ! stuff in the air, need (nSpecies,nSrc=1)
+                              & Full_mass_in_water(1:Nspecies,:,iLev,1), & ! stuff in precipitation, need (nSpecies, nSrc=1)
+                              & arLowMassThreshold, &  ! what to do if forward model did not have mass ???
+                              & tla_cell_ptr, &
+                              & species, &
+                              & Nspecies, &
+                              & Nsources, &
+                              & timestep_sec_abs, &  ! positive
+                              & rulesDeposition, &
+                              & r1d(iLev), r1d(iLev)%cell_volume, r1d(iLev)%cell_zsize)
+      endif  ! if there is rain in the cell
+      ! Cumulate the scavenged amount
+      if(iLev> 1) Full_mass_in_water(1:Nspecies,:,iLev-1,iTime) = &
+                                       & Full_mass_in_water(1:Nspecies,:,iLev,iTime)
+    end do  ! iLev, inverse order
+
+
+    !!!!! TLA filled 
+
+
+
     call scavenge_column_2011_adjoint(TL_mass_in_air(1:Nspecies,:,1:n3d,1), &    ! mass in the air   (nSpecies, nSrc, n3d)
                                     & TL_mass_in_water(1:Nspecies,:,1:n3d,1), &  !  mass in precipitation (sSpecies, nSrc, nz)
-                                    & arLowMassThreshold, &  ! for sensitivity 
-                                    & mass_in_air, &   ! mass in air, from full-model storage (nSpecies,1,n3d)
+                                    & tla_column_ptr, &
+                                    & arLowMassThreshold, &  ! for sensitivity
                                     & species, &
                                     & Nspecies, Nsources, n3d, &
                                     & timestep_sec_abs, &
@@ -5297,7 +5335,7 @@ end function fu_settling_vel
     end do
     Full_mass_in_water(1:Nspecies,1,1:n3d, 1:nTimes) = 0.0
     TL_mass_in_water(1:Nspecies,1,1:n3d, 1:nTimes) = 0.0
-    
+
     !
     ! run full forward model
     !
@@ -5310,6 +5348,7 @@ end function fu_settling_vel
           call scavenge_puff_2011(Full_mass_in_air(1:Nspecies,:,iLev,iTime), &    ! stuff in the air, need (nSpecies,nSrc=1)
                                 & Full_mass_in_water(1:Nspecies,:,iLev,iTime), & ! stuff in precipitation, need (nSpecies, nSrc=1)
                                 & arLowMassThreshold, &  ! what to do if forward model did not have mass ???
+                                & null(), &
                                 & species, &
                                 & Nspecies, &
                                 & Nsources, &
@@ -5335,7 +5374,7 @@ end function fu_settling_vel
       do iSp = 1, nSpecies
         do iLev = n3d, 1, -1
           fTmp = 0.0
-          if(iSp == indSO2)then  
+          if(iSp == indSO2)then
             ! SO2 depends on several species
             do iAAS = 1, nAcidityAffectingSpecies
 !              call msg('SO2 Diagonal only')
@@ -5347,11 +5386,11 @@ end function fu_settling_vel
                             & TL_mass_in_air(abs(indAcidityAffectingSp(iAAS)), 1, iTmp, iTime)
               end do  ! iTmp 1:n3d
             end do
-          else              
+          else
             ! non-SO2, squared TL matrix
 !            call msg('All Diagonal only')
 !            fTmp = fTmp + pTL(iSp)%pp(iLev,iLev) * TL_mass_in_air(iSp,1,iLev,iTime)
-            call msg('All Triangle full')
+            call msg('All Triangle full 2')
             do iTmp = 1, n3d
               fTmp = fTmp + pTL_L0(iSp)%pp(iLev,iTmp) * TL_mass_in_air(iSp,1,iTmp,iTime)
             end do  ! iTmp 1:n3d
@@ -5377,7 +5416,7 @@ end function fu_settling_vel
     call msg('')
     call msg('>>>>>>>>>>>>>>>>>>>>>>>>>> TEST TL SCAVENGING <<<<<<<<<<<<<<<<<<<<<<<<<<')
     call msg('')
-    
+
     call msg('Rain parameters for iMeteo=', r1d(1)%iMeteo)
     call msg('iLev fCloudCover  fPressure  fTemperature  fRainRateSfc  cwcColumn    mu_air     rho_air     nu_air     lambda_air   rain_rate_in   deltarain   cwcColumnLayer   is_liquid    drop_size    drop_mass    drop_vel   drop_Re   cell_zsize  cell_volume')
     do iLev = 1, n3d
@@ -5445,12 +5484,12 @@ end function fu_settling_vel
     call msg('')
     call msg('>>>>>>>>>>>>>>>>>>>>>>>>>> END TEST TL SCAVENGING <<<<<<<<<<<<<<<<<<<<<<<<<<')
     call msg('')
- 
+
     call free_work_array(pTL_L0)
     call free_work_array(pTL_dLdm)
     call free_work_array(pAdj)
 
-    
+
   end subroutine test_TL_ADJ
 
 end module depositions

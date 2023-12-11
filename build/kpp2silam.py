@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# 
+
 """
 This script creates a SILAM interface to a KPP generated chemistry solver. This includes
 substituting a number of flags into the _template files included in silam v5.3
@@ -43,7 +46,7 @@ kpp_global_template = path.join(silam_src_dir, 'kpp_global_template')
 
 if not 'KPP_HOME' in os.environ or os.environ['KPP_HOME'].isspace():
     os.environ['KPP_HOME'] = path.join(kpp_dir, '..')
-print os.environ['KPP_HOME']
+print(os.environ['KPP_HOME'])
 
 substitutions = {'$KPP_ROOT' : [kpp_root], '$TRANSF_ID' : [args.transf_id]}
 
@@ -62,8 +65,8 @@ def parse_kpp_parameters():
     for line in reader:
         if 'Index declaration' in line:
             break
-    reader.next()
-    reader.next()
+    next(reader)
+    next(reader)
     # variable species
     pattern_var = ':: +ind_(.+) = (.+)'
     for line in reader:
@@ -73,11 +76,11 @@ def parse_kpp_parameters():
         ind = int(ind)
         subst_var[ind] = subst
     while not 'Index declaration for fixed species in FIX' in line:
-        line = reader.next()
+        line = next(reader)
 
     pattern_fix = ':: +indf_(.+) = (.+)'
-    reader.next()
-    reader.next()
+    next(reader)
+    next(reader)
     for line in reader:
         if line.isspace():
             break
@@ -96,7 +99,7 @@ def get_set_rates():
     lines = []
     indent = '    '
     while not 'Update_RCONST' in line:
-        line = reader.next()
+        line = next(reader)
     for line in reader:
         if line.startswith('END'):
             break
@@ -137,7 +140,7 @@ def get_subst_names(subst_name_list):
         lines.append([])
         for count_col in range(num_cols):
             try:
-                elem = fmt % iter_subst.next()
+                elem = fmt % next(iter_subst)
                 lines[-1].append(elem)
             except StopIteration:
                 out_of_values = True
@@ -194,7 +197,7 @@ def cp_insrt_threadprivate(path_in, path_out, variables_thr_priv, var_type='real
             for var in var_declrs:
                 varname = re.match(pattern_varname, var.replace(' ', '')).groups()[0]
                 if varname in variables_thr_priv:
-                    print 'Flagged threadprivate: %s in %s' % (varname, path_in)
+                    print('Flagged threadprivate: %s in %s' % (varname, path_in))
                     varnames.append(varname)
         if varnames:
             write_out.write('%s, save :: %s\n' % (declr, var_list))

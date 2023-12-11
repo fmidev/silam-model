@@ -48,15 +48,12 @@ MODULE shopping_lists
   PUBLIC fu_quantity_in_list
   PUBLIC fu_start_time
   PUBLIC fu_end_time
-  PUBLIC fu_quantities
+  public all_quantities_from_list
   PUBLIC fu_nbr_of_quantities
-  PUBLIC fu_requests
   public fu_quantity
-  public fu_request
   public fu_if2D
   public fu_if2Ds
   public fu_mlev_quantity_in_list
-  public set_request ! Changes the request value
   public set_list_time_indicator
   public fu_list_time_indicator
   public replace_quantity
@@ -89,12 +86,8 @@ MODULE shopping_lists
   private report_shopping_variable
   private fu_nbr_of_quantities_in_list
   private fu_quantity_from_shopping_list
-  private fu_all_quantities_from_list
-  private fu_request_from_shopping_list
-  private fu_all_requests_from_list
   private fu_if2D_of_shopping_quantity
   private fu_all_if2D_from_shopping_list
-  private set_request_in_shopping_list
 
   private fu_compare_variables_eq ! Interface for ==
   private add_shopping_var_by_params
@@ -149,28 +142,12 @@ MODULE shopping_lists
     module procedure fu_quantity_of_shopping_var
   end interface
 
-  interface fu_quantities
-    module procedure fu_all_quantities_from_list
-  end interface
-
-  interface  fu_request
-    module procedure fu_request_from_shopping_list
-  end interface
-
-  interface  fu_requests
-    module procedure fu_all_requests_from_list
-  end interface
-
   interface  fu_if2D
     module procedure fu_if2D_of_shopping_quantity
   end interface
 
   interface  fu_if2Ds
     module procedure fu_all_if2D_from_shopping_list
-  end interface
-
-  interface  set_request
-    module procedure set_request_in_shopping_list
   end interface
 
   interface replace_quantity
@@ -208,7 +185,7 @@ MODULE shopping_lists
 
   type silam_shopping_variable
     private
-    integer :: quantity, request, vertLevNbr
+    integer :: quantity, vertLevNbr
     type(silam_species) :: species
     character(len=substNmLen) :: chCocktailNm ! single subst or mixture
     type(silam_vertical) :: vertical
@@ -230,7 +207,7 @@ MODULE shopping_lists
     TYPE(silja_level) :: floor_level !boundaries in vertical
     TYPE(silja_level) :: ceiling_level
     type(silja_grid) :: grid
-    INTEGER, DIMENSION(max_quantities) :: quantities, request
+    INTEGER, DIMENSION(max_quantities) :: quantities
     type(silja_logical), DIMENSION(max_quantities) :: if2D
     integer :: nVars
     type(silam_shopping_variable), dimension(max_quantities) :: vars
@@ -261,7 +238,7 @@ MODULE shopping_lists
 
 
   type(silam_shopping_variable), parameter, public :: variable_missing = &
-      & silam_shopping_variable(int_missing,  0,  int_missing, &
+      & silam_shopping_variable(int_missing,  0, &
                              & species_missing, '',&
                              &  vertical_missing, &
                              &  grid_missing, &
@@ -277,7 +254,7 @@ MODULE shopping_lists
 
   TYPE (silja_shopping_list),  parameter, public :: shopping_list_missing = &
                &  silja_shopping_list(met_src_missing, int_missing, time_missing,  time_missing, &
-               & int_missing, level_missing,  level_missing, grid_missing, int_missing, int_missing, &
+               & int_missing, level_missing,  level_missing, grid_missing, int_missing, &
                & silja_undefined, int_missing, variable_missing,  silja_false)
 
                
@@ -307,7 +284,6 @@ CONTAINS
     shList%ceiling_level = level_missing
     shList%grid = grid_missing
     shList%quantities = int_missing
-    shList%request = int_missing
     shList%if2D = silja_undefined
     shList%nVars = 0
     do i=1, size(shlist%vars)
@@ -330,7 +306,6 @@ CONTAINS
     type(silam_shopping_variable), intent(out) :: var
 
     var%quantity=int_missing
-    var%request=int_missing
     var%vertLevNbr=int_missing
     call set_missing(var%vertical, .true.)
     var%grid = grid_missing
@@ -351,7 +326,6 @@ CONTAINS
                                & floor_level,&
                                & ceiling_level, &
                                & grid, &
-                               & requests, &
                                & if2D) result(list)
     ! Sets a shopping list. 
     ! 
@@ -386,7 +360,6 @@ CONTAINS
     TYPE(silja_time), INTENT(in) :: first_time_boundary,  second_time_boundary
     TYPE(silja_level), INTENT(in) :: floor_level, ceiling_level
     INTEGER, DIMENSION(:), INTENT(in) :: quantities
-    INTEGER, DIMENSION(:), INTENT(in), optional :: requests
     type(silja_grid), intent(in), optional :: grid
     type(silja_logical), dimension(:), intent(in), optional :: if2D
 
@@ -449,8 +422,7 @@ CONTAINS
 
     !----------------------------------------
     !
-    ! 4. Set quantites and their request types.
-    !    If there is no quantities - issue warning but do not set error
+    ! 4. Set quantites. If there is no quantities - issue warning but do not set error
     !
 
     IF (.NOT.(fu_known_quantity(quantities(1)).or.&
@@ -462,15 +434,6 @@ CONTAINS
       do i=1, size(quantities)
         if(quantities(i) == int_missing)exit
           list%quantities(i) = quantities(i)
-          if(present(requests))then
-            list%request(i) = requests(i)
-          else
-            if(fu_known_quantity(list%quantities(i)))then
-              list%request(i) = 2
-            else
-              list%request(i) = 0
-            endif
-          endif
           if(present(if2D))list%if2D(i) = if2D(i)
       end do
 
@@ -532,7 +495,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE fix_shopping_quantities(shList, new_quantities, requests, if2D)
+  SUBROUTINE fix_shopping_quantities(shList, new_quantities, if2D)
 
     ! Description:
     ! Sets new values for quantities of shopping shList.
@@ -542,7 +505,6 @@ CONTAINS
 
     ! Imported parameters with intent IN:
     INTEGER, DIMENSION(:), INTENT(in) :: new_quantities
-    INTEGER, DIMENSION(:), INTENT(in), optional :: requests
     type(silja_logical), DIMENSION(:), INTENT(in), optional :: if2D
 
     ! Imported parameters with intent INOUT or POINTER:
@@ -560,31 +522,15 @@ CONTAINS
 
     DO i = 1, SIZE(new_quantities)
       IF (fu_known_quantity(new_quantities(i))) THEN
-        if(present(requests))then
-          if(requests(i) > 0)then
-            shList%quantities(qc) = new_quantities(i)
-            shList%request(qc) = requests(i)
-            if(present(if2D))then
-              if(i > size(if2D))then
-                call set_error('Too few if2D flags','fix_shopping_quantities')
-                return
-              endif
-              shList%if2D(qc) = if2D(i)
-            endif
-            qc = qc + 1
+        shList%quantities(qc) = new_quantities(i)
+        if(present(if2D))then
+          if(i > size(if2D))then
+            call set_error('Too few if2D flags','fix_shopping_quantities')
+            return
           endif
-        else
-          shList%quantities(qc) = new_quantities(i)
-          shList%request(qc) = 2 ! mandatory
-          if(present(if2D))then
-            if(i > size(if2D))then
-              call set_error('Too few if2D flags','fix_shopping_quantities')
-              return
-            endif
-            shList%if2D(qc) = if2D(i)
-          endif
-          qc = qc + 1
+          shList%if2D(qc) = if2D(i)
         endif
+        qc = qc + 1
       END IF
     END DO
 
@@ -634,80 +580,61 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE add_shopping_quantities(shList, new_quantities, requests, if2D)
+  SUBROUTINE add_shopping_quantities(shList, new_quantities, if2D, ifVerbose)
     ! 
-    ! Adds new values for quantities of shopping shList, including, if present,
-    ! their request types
+    ! Adds new values for quantities of shopping shList
     !
     IMPLICIT NONE
 
     ! Imported parameters with intent IN:
     INTEGER, DIMENSION(:), INTENT(in) :: new_quantities
-    INTEGER, DIMENSION(:), INTENT(in), optional :: requests
     type(silja_logical), DIMENSION(:), INTENT(in), optional :: if2D
+    logical, intent(in), optional :: ifVerbose
 
     ! Imported parameters with intent INOUT
     TYPE(silja_shopping_list), INTENT(inout) :: shList
 
     INTEGER :: i, qc, iListSize
 
-    IF (.NOT.defined(shList)) THEN
-      CALL set_error('undefined shList given','add_shopping_quantities')
-      RETURN
-    END IF
+    IF(fu_fails(defined(shList),'undefined shList given','add_shopping_quantities'))RETURN
 
     iListSize =SIZE(shList%quantities)
 
-    !--------- Find the first empty quantity in original shList
+    ! Find the first empty quantity in original shList
+    !
+    DO qc = 1, iListSize
+      IF(shList%quantities(qc) == int_missing) exit
+    END DO
 
-    FindEndOfList: DO qc = 1, iListSize
-      IF(shList%quantities(qc) == int_missing) exit FindEndOfList
-    END DO FindEndOfList
-
-    !--------- Now - go through the new shList and add what is new and known
-
+    ! Go through the new shList and add what is new and known
+    !
     DO i = 1, SIZE(new_quantities)
       if (new_quantities(i) == int_missing) exit
       IF (fu_known_quantity(new_quantities(i))) THEN
         IF(ALL(shList%quantities(1:qc) /= new_quantities(i))) THEN
-!          print *, 'added ', new_quantities(i)
-          if(present(requests))then
-            if(requests(i) > 0)then
-              shList%quantities(qc) = new_quantities(i)
-              shList%request(qc) = requests(i)
-              if(present(if2D))then
-                if(i > size(if2D))then
-                  call set_error('Too few if2D flags','add_shopping_quantities')
-                  return
-                endif
-                shList%if2D(qc) = if2D(i)
-              endif
-              qc = qc + 1
-            endif
-          else
-            shList%quantities(qc) = new_quantities(i)
-            shList%request(qc)=2 ! Mandatory one
-            if(present(if2D))then
-              if(i > size(if2D))then
-                call set_error('Too few if2D flags','add_shopping_quantities')
-                return
-              endif
-              shList%if2D(qc) = if2D(i)
-            endif
-            qc = qc + 1
+          if(present(ifVerbose))then
+            if(ifVerbose)call msg('Add shopping quantity:' + fu_quantity_string(new_quantities(i)))
           endif
+          shList%quantities(qc) = new_quantities(i)
+          if(present(if2D))then
+            if(i > size(if2D))then
+              call set_error('Too few if2D flags','add_shopping_quantities')
+              return
+            endif
+            shList%if2D(qc) = if2D(i)
+          endif
+          qc = qc + 1
           IF(qc > iListSize)THEN
             CALL set_error('Too many quantities','add_shopping_quantities')
             RETURN
           END IF
         END IF
       else
-         call msg_warning("Unknown quantity","add_shopping_quantities")
-         call msg("Quantities so far:",new_quantities(1:i))
-         call msg("Requests   so far:",requests(1:i))
-         call set_error("","add_shopping_quantities")
+        call msg_warning("Unknown quantity" + fu_str(new_quantities(i)),"add_shopping_quantities")
+        call msg("Quantities so far:",new_quantities(1:i-1))
+        call set_error("Unknown quantity","add_shopping_quantities")
       END IF
-    END DO
+    END DO   ! new quantities
 
   END SUBROUTINE add_shopping_quantities
 
@@ -715,7 +642,7 @@ CONTAINS
   !*****************************************************************
 
   subroutine add_shopping_var_by_params(shList,quantity,species,grid,vert,vertLevNbr,&
-                                      & mds,request,mapping, chCocktail)
+                                      & mds, mapping, chCocktail)
     !
     ! Adds one more shopping variable to the shopping shList.
     !
@@ -724,7 +651,6 @@ CONTAINS
     ! Imported variables with intent IN
     integer, intent(in) :: quantity, vertLevNbr
     type(silam_species), intent(in) :: species
-    integer, intent(in), optional :: request
     type(silja_grid), intent (in) :: grid
     type(silam_vertical), intent(in) :: vert
     type(meteo_data_source), intent(in) :: mds
@@ -790,11 +716,6 @@ CONTAINS
       nullify(shList%vars(shList%nVars)%mapping) 
     endif
     shList%vars(shList%nVars)%defined = silja_true
-    if(present(request))then
-      shList%vars(shList%nVars)%request = request
-    else
-      shList%vars(shList%nVars)%request = 2  ! Mandatory
-    endif
     if(present(chCocktail))then
       shList%vars(shList%nVars)%chCocktailNm = chCocktail
     else
@@ -870,7 +791,6 @@ CONTAINS
     shList%vars(shList%nVars)%mapping = varNew%mapping 
     shList%vars(shList%nVars)%chCocktailNm = varNew%chCocktailNm
     shList%vars(shList%nVars)%defined = silja_true
-    shList%vars(shList%nVars)%request = varNew%request
 
     call msg_test('Added to shopping shList (by var):' + fu_quantity_string(shList%vars(i)%quantity))
 
@@ -879,7 +799,7 @@ CONTAINS
 
   !***********************************************************************
 
-  subroutine add_shopping_var_by_fieldID(shList, fieldID, request, mapping)
+  subroutine add_shopping_var_by_fieldID(shList, fieldID, mapping)
     !
     ! Adds a new shopping variable using given field ID as a template
     !
@@ -888,7 +808,6 @@ CONTAINS
     ! Imported parameters
     type(silja_shopping_list), intent(inout), target :: shList
     type(silja_field_id), intent(in) :: fieldID
-    integer, intent(in) :: request
     type(inVar2modVarsMap), pointer, optional :: mapping
 
     ! Local variables
@@ -911,7 +830,6 @@ CONTAINS
                                   & vertTmp, &
                                   & 1, &  ! level number in the above vertical
                                   & fu_met_src(fieldID), &  
-                                  & request, &
                                   & mapping, &
                                   & fu_cocktail_name(fieldID))
     else
@@ -922,7 +840,6 @@ CONTAINS
                                   & vertTmp, &
                                   & 1, &  ! level number in the above vertical
                                   & fu_met_src(fieldID), &  
-                                  & request, &
                                   & chCocktail = fu_cocktail_name(fieldID)) 
     endif
 
@@ -998,7 +915,7 @@ CONTAINS
 !
 !  type silam_shopping_variable
 !    private
-!    integer :: quantity, request, vertLevNbr
+!    integer :: quantity, vertLevNbr
 !    character(len=substNmLen) :: chSubstNm, chCocktailNm ! single subst or mixture
 !    real :: fModeVal
 !    type(silam_vertical) :: vertical
@@ -1171,7 +1088,6 @@ CONTAINS
         list%vars(indexVar)%grid = list%vars(list%nVars)%grid
         list%vars(indexVar)%mds  = list%vars(list%nVars)%mds
         list%vars(indexVar)%defined = list%vars(list%nVars)%defined
-        list%vars(indexVar)%request = list%vars(list%nVars)%request
       endif
 
       list%vars(list%nVars)%quantity = int_missing
@@ -1183,7 +1099,6 @@ CONTAINS
       list%vars(list%nVars)%mds = met_src_missing
       call set_missing(list%vars(list%nVars)%mapping)
       list%vars(list%nVars)%defined = silja_false
-      list%vars(list%nVars)%request = int_missing
 
     else
       call set_error('Index is bigger than the number of vars','clean_shop_var')
@@ -1470,6 +1385,13 @@ CONTAINS
 !    else
 !      accept_field = fu_field_id_in_list_of_vars(id, list)
 !    endif
+    if(error)then
+      call msg_warning('Failed check of id:','fu_field_id_in_list')
+      call report(id)
+      call set_error('Failed check of id','fu_field_id_in_list')
+      return
+    endif
+    
 
 !call msg('Accept 2')
 
@@ -1827,6 +1749,7 @@ CONTAINS
     ! So, get the grid and reposition it if needed
     !
     gridTmp = fu_grid(id)
+    if(fu_fails(defined(gridTmp),'Undefined grid','fu_field_id_in_list_of_vars'))return
     if(.not.fu_stdSilamGrid(gridTmp))then
       if(fu_ifLonGlobal(gridTmp))then
         if(.not.fu_stdSilamGrid(gridTmp)) call reposition_global_grid_lon(gridTmp)
@@ -2172,7 +2095,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  FUNCTION fu_all_quantities_from_list(list, ifVarsToo) result(Qs)
+  subroutine all_quantities_from_list(list, ifVarsToo, Qs)
     !
     ! Returns the complete list of quantities mentioned in the list. 
     ! If ifVarsToo == .true. then this list also includes all quantities
@@ -2184,109 +2107,41 @@ CONTAINS
     IMPLICIT NONE
     !
     ! The return value of this function:
-    INTEGER, DIMENSION(max_quantities) :: Qs
+    INTEGER, DIMENSION(:), intent(out) :: Qs
     
     ! Imported parameters with intent(in):
     TYPE(silja_shopping_list), INTENT(in) :: list
-    logical, intent(in), optional :: ifVarsToo
+    logical, intent(in) :: ifVarsToo
 
     ! Local variables
     integer :: i, iCount
   
-    Qs = int_missing
+    Qs(1) = int_missing
     IF (defined(list)) THEN
       iCount=1
       do i=1,size(list%quantities)
-        if(list%quantities(i) == int_missing)cycle
+        if(list%quantities(i) == int_missing)exit
         Qs(iCount) = list%quantities(i)
         iCount = iCount + 1
+        Qs(iCount) = int_missing  ! for the case is this is the end
       end do
     ELSE
       return
     END IF
 
-    if(present(ifVarsToo))then
-      if(ifVarsToo)then
-        do i=1,size(list%vars)
-          if(list%vars(i)%defined == silja_true)then
-            Qs(iCount) = list%vars(i)%quantity
-            iCount = iCount + 1
-          endif  ! if vars(i)%defined
-        end do ! cycle through list%vars
-      endif  ! ifVarsToo
-    endif
+    if(ifVarsToo)then
+      do i=1,size(list%vars)
+        if(list%vars(i)%defined == silja_true)then
+          Qs(iCount) = list%vars(i)%quantity
+          iCount = iCount + 1
+          Qs(iCount) = int_missing  ! for the case is this is the end
+        else
+          return
+        endif  ! if vars(i)%defined
+      end do ! cycle through list%vars
+    endif  ! ifVarsToo
 
-  END FUNCTION fu_all_quantities_from_list
-
-
-  ! ***************************************************************
-
-  integer FUNCTION fu_request_from_shopping_list(shopping_list, indexQ)
-    
-    IMPLICIT NONE
-    
-    ! Imported parameters with intent(in):
-    TYPE(silja_shopping_list), INTENT(in) :: shopping_list
-    integer, intent(in) :: indexQ
-    
-    if(indexQ < 0 .or. indexQ > size(shopping_list%quantities))then
-      call set_error('Strange idnex','fu_quantity_from_shopping_list')
-      fu_request_from_shopping_list = 0
-      return
-    endif
-    fu_request_from_shopping_list = shopping_list%request(indexQ)
-
-  END FUNCTION fu_request_from_shopping_list
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_all_requests_from_list(list, ifVarsToo) result(RQs)
-    !
-    ! Returns the complete list of quantities mentioned in the list. 
-    ! If ifVarsToo == .true. then this list also includes all quantities
-    ! mentioned in list%vars.
-    ! This is not exactly correct procedure because list%vars are more limited
-    ! than general list%quantities. But sometimes we need to know what in 
-    ! principle we can get from the list
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    INTEGER, DIMENSION(max_quantities) :: Rqs
-    
-    ! Imported parameters with intent(in):
-    TYPE(silja_shopping_list), INTENT(in) :: list
-    logical, intent(in), optional :: ifVarsToo
-
-    ! Local variables
-    integer :: i, iCount
-  
-    RQs = 0
-    IF (defined(list)) THEN
-      iCount=1
-      do i=1,size(list%request)
-!        if(list%request(i) == 0)cycle
-        if(list%quantities(i) == int_missing)cycle ! synchronization with quantities
-        Rqs(iCount) = list%request(i)
-        iCount = iCount + 1
-      end do
-    ELSE
-      return
-    END IF
-
-    if(present(ifVarsToo))then
-      if(ifVarsToo)then
-        do i=1,size(list%vars)
-          if(list%vars(i)%defined == silja_true)then
-            RQs(iCount) = list%vars(i)%request
-            iCount = iCount + 1
-          endif  ! if vars(i)%defined
-        end do ! cycle through list%vars
-      endif  ! ifVarsToo
-    endif
-
-  END FUNCTION fu_all_requests_from_list
+  END subroutine all_quantities_from_list
 
 
   !*****************************************************************
@@ -2338,9 +2193,8 @@ CONTAINS
     if2Ds = silja_undefined
     IF (defined(list)) THEN
       iCount=1
-      do i=1,size(list%request)
-        if(list%quantities(i) == int_missing)cycle ! Synchronize with quantities
-!        if(list%request(i) == 0)cycle
+      do i=1,size(list%quantities)
+        if(list%quantities(i) == int_missing)exit
         if2Ds(iCount) = list%if2D(i)
         iCount = iCount + 1
       end do
@@ -2365,33 +2219,7 @@ CONTAINS
 
   END FUNCTION fu_all_if2D_from_shopping_list
 
-
-  ! ***************************************************************
-
-  subroutine set_request_in_shopping_list(shopping_list, qIndex, new_value)
-    
-    IMPLICIT NONE
-    
-    ! Imported parameters with intent(in):
-    TYPE(silja_shopping_list), INTENT(inout) :: shopping_list
-    integer, intent(in) :: qIndex, new_value
-
-    
-    if(qIndex < 0 .or. qIndex > size(shopping_list%quantities))then
-      call set_error('Strange idnex','fu_quantity_from_shopping_list')
-      return
-    endif
-    if(new_value < 0 .or. new_value > 2)then
-      print *, 'New request value: ', new_value
-      call set_error('Strange new request value','set_request_in_shopping_list')
-      return
-    endif
-
-    shopping_list%request(qIndex) = new_value
-
-  END subroutine set_request_in_shopping_list
-
-
+  
   ! ***************************************************************
 
   subroutine set_list_time_indicator(shopping_list, fValue)
@@ -2482,8 +2310,6 @@ CONTAINS
 
     if(var1%quantity /= var2%quantity) return
 
-    if(var1%request /= var2%request) return
-
     if(.not. fu_cmp_verts_eq(var1%vertical, var2%vertical)) return
 
     if(.not. var1%grid == var2%grid) return
@@ -2524,15 +2350,7 @@ CONTAINS
       return
     end if
 
-    if(var%request == 0)then
-      call msg(fu_connect_strings('Quantity (not needed)',fu_quantity_string(var%quantity)))
-    elseif(var%request == 1)then
-      call msg(fu_connect_strings('Quantity (desirable)',fu_quantity_string(var%quantity)))
-    elseif(var%request == 2)then
-      call msg(fu_connect_strings('Quantity (mandatory)',fu_quantity_string(var%quantity)))
-    else
-      call msg(fu_connect_strings('Quantity (necessity unknown)',fu_quantity_string(var%quantity)))
-    endif
+    call msg('Quantity (mandatory)' + fu_quantity_string(var%quantity))
 
     call msg('Species:' + fu_str(var%species))
 
@@ -2578,15 +2396,8 @@ CONTAINS
     call msg('************************shopping list ******')
     call msg('Variables in the list:')
 
-
-   
-
     do i = 1, size(list%vars)
-      if(defined(list%vars(i))) then 
-         call report(list%vars(i))
-!        PRINT *, fu_quantity_string(list%vars(i)%quantity), 'Necessity: ',list%vars(i)%request
-!        write(run_log_funit,*) fu_quantity_string(list%vars(i)%quantity), 'Necessity: ',list%vars(i)%request
-      endif
+      if(defined(list%vars(i))) call report(list%vars(i))
     end do
 
 
@@ -2621,14 +2432,13 @@ CONTAINS
        DO i = 1, SIZE(list%quantities)
          IF (fu_known_quantity(list%quantities(i))) THEN
           do iUnit = 1,2
-             if (smpi_global_rank /= 0 .and. iUnit==1) cycle !Be quiet at stdut
-           write(funits(iUnit),'(A,X,A,X,I2)')fu_quantity_string(list%quantities(i)), 'Necessity:',list%request(i)
-          enddo !iUnit loop
+            if (smpi_global_rank /= 0 .and. iUnit==1) cycle !Be quiet at stdut
+            write(funits(iUnit),'(A)') fu_quantity_string(list%quantities(i))
+          enddo
          ELSE
            EXIT
          END IF
        END DO
-
 
     call msg('*************************************')
 

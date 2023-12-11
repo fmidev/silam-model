@@ -87,7 +87,7 @@ contains
     type(observationPointers), intent(inout) :: obs_ptrs
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, &
                                           & BCMarketPtr, outputMarketPtr
-    type(t_tla_trajectory), intent(inout), optional :: tla_traj
+    type(t_tla_trajectory), intent(inout) :: tla_traj
     type(t_perturbation), dimension(:), pointer, optional :: perturbations
 
     ! Local variables
@@ -97,33 +97,26 @@ contains
     real, dimension(max_species) ::  fInjectedMassTotal 
     real(r8k), dimension(max_species) :: fInjectedMass 
     CHARACTER (LEN=fnlen) :: command_string = ' '
-    integer :: nParticlesToReset, iTmp, jTmp, num_steps, ind_step, step_count, number_of_times
-    logical :: first_step,  ifGotNewMeteoData, have_tla_traj, have_perturbs, ifCalculate,&
+    integer :: nParticlesToReset, iTmp, jTmp, num_steps, ind_step, step_count, number_of_times, ind_pert
+    logical :: first_step,  ifNeedNewData,  have_perturbs, ifCalculate,&
          & first_output_step
     type(silja_shopping_list), pointer :: pShpLst, pOutput_dyn_shopping_list, pOutput_stat_shopping_list
     type(Tmass_map), pointer :: pOptDepth, pTranspMass, pTranspXm,  pTranspYm,  pTranspZm
-!    type(silja_time), save :: nwp_lim1, nwp_lim2, nwp_lim1_prev, nwp_lim2_prev, &
-!         & bc_lim1, bc_lim2, bc_lim1_prev, bc_lim2_prev
     type(silja_time) :: reftime
-    type(silja_time), dimension(max_times) :: valid_times
     type(silja_interval) :: periodTmp
     type(silam_species), dimension(:), pointer :: pSpecies
     integer, save :: call_counter = 0
     logical, save :: have_done_output = .false.
     type(Tmoment_mapping) :: cm_to_moment
-    type(t_tla_step) :: tla_step
-    type(Tmass_map), pointer :: null_pointer
     type(silam_trajectory_set), pointer :: traj_set
+    type(TboundaryStructPtr), dimension(:), pointer :: bndStrPtr
+    real, dimension(:), pointer :: storage_pert
     character (len=*), parameter :: sub_name = "run_dispersion"
 
-    nullify(null_pointer)
+    integer (kind=8), dimension(40):: time_counters
+
     call_counter = call_counter + 1
 
-    if (present(tla_traj)) then
-      have_tla_traj = defined(tla_traj)
-    else
-      have_tla_traj = .false.
-    end if
     if (present(perturbations)) then
       have_perturbs = associated(perturbations)
       if(have_perturbs) have_perturbs = size(perturbations) > 0
@@ -167,7 +160,21 @@ contains
       if(error)call unset_error(sub_name)
     endif
 
+    if(simRules%ifRunDispersion)then
+      if (fu_sec(simRules%timestep) > 0) then
+        call msg("In run_dispersion, before loop forward")
+      else
+        call msg("In run_dispersion, before loop backward")
+      endif
+      call collect_total_masses(cloud)
+      call report_total_masses(cloud, step_count)
+    endif
+
     loop_over_time: DO step_count = 1,num_steps
+
+      time_counters(:) = -1
+      CALL SYSTEM_CLOCK(time_counters(1))  !! Reset time counters
+
       now = simrules%startTime + simRules%timestep * (step_count - 1)
 
 
@@ -180,7 +187,7 @@ contains
     if(simRules%ifRunDispersion)then
       call msg("In run_dispersion1")
       call collect_total_masses(cloud)
-      call report_total_masses(cloud, step_count, .false.)
+      call report_total_masses(cloud, step_count)
 
       if (simrules%ifRunDispersion .and. fu_interval_positive(simrules%timestep) &
           & .and. fu_if_eulerian_present(simRules%dynamicsRules%simulation_type) &
@@ -213,6 +220,7 @@ contains
       !
       ! Collection of the data for output should be done every time step
       !
+      CALL SYSTEM_CLOCK(time_counters(2))  !! Count time
       command_string = 'Output'
       call start_count(chCounterNm = command_string)
       if (simrules%if_make_output) then 
@@ -229,6 +237,7 @@ contains
       !call da_debug_output()
 
       if(error) exit loop_over_time 
+      CALL SYSTEM_CLOCK(time_counters(3))  !! Count time
 
 !call msg('Checking range after output')
 !call check_supermarket_fields_range(meteoMarketPtr)
@@ -237,30 +246,26 @@ contains
 
       ! Handle tangent linearization if needed
       ! 
-      if (have_tla_traj) then
+      if (defined(tla_traj)) then
         if (fu_interval_positive(simrules%timestep)) then
           ind_step = step_count
         else
           ind_step = num_steps - step_count + 1
         end if
-        call get_tla_step(tla_traj, tla_step, ind_step)
-        call msg('Set TLA step, ind_step:', ind_step)
+        call msg('Prepare TLA step, ind_step:', ind_step)
+        call prepare_tla_step(tla_traj, ind_step)
         if (error) return
       end if
       
+      CALL SYSTEM_CLOCK(time_counters(4))  !! Count time
       ! Handle perturbations, if any:
       if (have_perturbs) then
-        call apply_perturbations(cloud, disp_buf_ptr, perturbations, simrules%darules%assim_interval, wdr, OutDef)
+        call apply_perturbations(cloud, disp_buf_ptr, perturbations, simrules%darules%interval_btwn_assim, wdr, OutDef)
         if (error) return
         have_perturbs = .false.
       end if
 
-      !
-      ! Decide if we need new meteo or boundary data: check the available times in the supermarket
-      ! and request more if needed
-      !
-      call supermarket_times(meteoMarketPtr, met_src_missing, valid_times, number_of_times)  !, analysis_time)
-      if(error)return
+      CALL SYSTEM_CLOCK(time_counters(5))  !! Count time
       !
       ! Reftime refers to the middle of the timestep in the normal run but the whole run can be shifted
       ! if EnKF perturbs meteodata by shifting them
@@ -268,22 +273,23 @@ contains
       reftime = now + simrules%timestep / 2. + fu_meteo_time_shift(wdr)
 
       ! check if should read meteo
-      ifGotNewMeteoData = (.not. fu_between_times(reftime , &
-                               & fu_earliest_time(valid_times), &
-                               & fu_latest_time(valid_times), accept_boundaries_too = .true.))
+      ifNeedNewData = .not. fu_if_time_covered_by_maket(meteoMarketPtr, reftime)
+      if(error)return
 
-        call  prepare_meteo( wdr, simrules%iComputationAccuracy, simRules%diagnosticRules, &
-                          & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
-                          & disp_dyn_shopping_list, disp_stat_shopping_list, &
-                          & fu_output_dyn_shopping_list(OutDef, now),&
-                          & fu_output_st_shopping_list(OutDef, now), & 
-                          & meteo_ptr, disp_buf_ptr, output_buf_ptr, &
-                          & now, simrules%timestep, &
-                          & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, ifGotNewMeteoData)
+      CALL SYSTEM_CLOCK(time_counters(6))  !! Count time
+
+      call prepare_meteo(wdr, simrules%iComputationAccuracy, simRules%diagnosticRules, &
+                       & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
+                       & disp_dyn_shopping_list, disp_stat_shopping_list, &
+                       & fu_output_dyn_shopping_list(OutDef, now),&
+                       & fu_output_st_shopping_list(OutDef, now), & 
+                       & meteo_ptr, disp_buf_ptr, output_buf_ptr, &
+                       & now, simrules%timestep, &
+                       & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, ifNeedNewData, &
+                       & simrules%ifRunDispersion)
 
         
-         if(error)EXIT loop_over_time
-!      endif
+      if(error)EXIT loop_over_time
 
 !!
 !! DEBUG only: a massive dump of the meteofield features
@@ -311,6 +317,9 @@ contains
         ! We shall do it via injecting all discrepancies into a just-nullified mass map, then collect 
         ! totals and call low_mass threshold setting sub.
         !
+
+        CALL SYSTEM_CLOCK(time_counters(7))  !! Count time
+        call set_cloud_valid_time(cloud, time_missing) !! Emission breaks time coherence
         ifCalculate = .not. fu_low_mass_thres_defined(simrules%chemicalRules, &
                                                     & ifforward=.not. simrules%if_invert_substeps)
         if(ifCalculate)then
@@ -319,29 +328,25 @@ contains
               !
               ! Adjoint from mdl-meas discrepancy
               !
-              !              call reset_map_to_val(fu_concMM_ptr(cloud), 0.0)
-              call reset_map_to_val(pTranspMass, 0.0)
-
-              call injectAll(obs_ptrs, cloud, meteo_ptr, &            ! Inject all observations at once
+              call injectAll(obs_ptrs, cloud, meteo_ptr, disp_buf_ptr, &            ! Inject all observations at once
                            & simRules%chemicalRules, simRules%dynamicsRules, &
                            ! the whole assimilation window, negative period length
                            & simrules%periodToCompute, now)  
               call reset_all(obs_ptrs, .false.)  ! reset the counters but not nullify model data
+              CALL SYSTEM_CLOCK(time_counters(8))  !! Count time
               call collect_total_masses(cloud, fInjectedMassTotal)
               call msg('===> Making the low-mass threshold for adjoint simulations. Initial RMSE:')
-              call report_total_masses(cloud, step_count, .true.)
+              call report_total_masses(cloud, step_count)
 
               iTmp= fu_nbr_of_species_transport(cloud)
               fInjectedMassTotal(1:iTmp) = abs(fInjectedMassTotal(1:iTmp))
 
-              call reset_map_to_val(pTranspMass, 0.0)
-              call reset_map_to_val(pTranspXm, 0.0)
-              call reset_map_to_val(pTranspYm, 0.0)
-              call reset_map_to_val(pTranspZm, 0.0)
+              !
 
+               CALL SYSTEM_CLOCK(time_counters(9))  !! Count time
 !              if (debug_level > 0) then
                 call msg('Total discrepances over the whole assimilation window.')
-                call report_total_masses(cloud, step_count, .false.)
+                call report_total_masses(cloud, step_count)
 !              endif
             endif  ! adjoint inject observation discrepancy
             reftime = now
@@ -351,6 +356,7 @@ contains
             periodTmp = fu_period_to_compute(wdr)
           endif   ! if invert timesteps
 
+          CALL SYSTEM_CLOCK(time_counters(10))  !! Count time
           call set_low_mass_threshold(simRules%chemicalRules, &
                                     & em_source, &
                                     & fu_species_transport(cloud), fu_species_emission(cloud), &
@@ -373,6 +379,7 @@ contains
         
         ! Point the thresholds either to forward or adjoint ones, calculated now or not.
         ! 
+        CALL SYSTEM_CLOCK(time_counters(11))  !! Count time
         call point_low_mass_thresholds(simrules%chemicalRules, ifforward=.not.simrules%if_invert_substeps)
         if(error)return
 
@@ -386,49 +393,57 @@ contains
         !
         if(fu_ifReadBoundaries(simRules%IniBoundaryRules))then
           
-          call supermarket_times(BCMarketPtr, met_src_missing, valid_times, number_of_times)  !, analysis_time)
-          if(error)return
+          CALL SYSTEM_CLOCK(time_counters(12))  !! Count time
           !
           ! Reftime refers to the middle of the timestep in the normal run but the whole run can be shifted
           ! if EnKF perturbs meteodata by shifting them
           !
           reftime = now + simrules%timestep / 2. + fu_meteo_time_shift(wdr)
-          if(now == simrules%startTime .or. &    ! start of the run, read no matter what
-           & (.not. fu_between_times(reftime , &
-                                   & fu_earliest_time(valid_times), &
-                                   & fu_latest_time(valid_times), accept_boundaries_too = .true.)))then
+          ifNeedNewData = .not. fu_if_time_covered_by_maket(BCMarketPtr, reftime)
+          ifNeedNewData = (now == simrules%startTime .or. ifNeedNewData) !! start of the run, read no matter what
+
+          if (ifNeedNewData) then
+            CALL SYSTEM_CLOCK(time_counters(13))  !! Count time
             command_string = 'Boundary_condition_acquisition'
             call msg(command_string)
             call start_count(chCounterNm = command_string)
             do iTmp = 1, fu_nr_boundary_inFiles(simRules%IniBoundaryRules)
               pShpLst => fu_shplst(simRules%IniBoundaryRules, iTmp)
-              CALL fix_shopping_time_boundaries(pShpLst, now, (now + simRules%timestep))
+              CALL fix_shopping_time_boundaries(pShpLst, now + fu_meteo_time_shift(wdr), &
+                    & (now + fu_meteo_time_shift(wdr) + simRules%timestep))
 !call msg('')
 !call msg('BC Shopping list:')
 !call report(fu_shplst(simRules%IniBoundaryRules, iTmp))
 !call msg('')
             enddo
+            CALL SYSTEM_CLOCK(time_counters(14))  !! Count time
             CALL fill_boundary_market(BCMarketPtr, simRules%IniBoundaryRules, first_step)
             IF (error) EXIT loop_over_time
             call stop_count(chCounterNm = command_string)
-          
-          
-
-            command_string = 'Boundary_condition_processing'
-            call msg(command_string)
-            call start_count(chCounterNm = command_string)
-
-            CALL fillBoundaryStruct(simRules%IniBoundaryRules, BCMarketPtr, &
-                                  & reftime, fu_boundaryStructures(cloud), meteo_ptr, first_step)
-            IF (error) EXIT loop_over_time
-
-            !command_string = 'Boundary_condition_processing'
-            call stop_count(chCounterNm = command_string)
-
           endif  ! if time to read boundary conditions
 
-!          bc_lim2_prev = bc_lim2
-!          bc_lim1_prev = bc_lim1
+          !!! We might still need to update BoundaryStruct with fields from  BCMarketPtr
+          command_string = 'Boundary_condition_processing'
+          call msg(command_string)
+          call start_count(chCounterNm = command_string)
+
+          bndStrPtr => fu_boundaryStructures(cloud) !! workaround for old compiler 
+          !!that can't pass the pointer directly to intent inout 
+          CALL SYSTEM_CLOCK(time_counters(15))  !! Count time
+          CALL fillBoundaryStruct(simRules%IniBoundaryRules, BCMarketPtr,  &
+                                & reftime, bndStrPtr, meteo_ptr)
+          IF (error) EXIT loop_over_time
+          if (have_perturbs) then
+            do ind_pert = 1, size(perturbations)
+              if (fu_perturb_type(perturbations(ind_pert)) == perturb_boundary) then
+                call get_storage_perturbation(perturbations(ind_pert), storage_pert)
+                call set_boundary_scaling(cloud, storage_pert)
+              end if
+            end do
+          end if
+
+          !command_string = 'Boundary_condition_processing'
+          call stop_count(chCounterNm = command_string)
 
         endif  ! if boundaries are needed at all
         ! kludge pt. 2
@@ -443,24 +458,17 @@ contains
         !call msg('after_boundaries')
         if (simrules%ifRunDispersion .and. fu_interval_positive(simrules%timestep) &
           & .and. fu_if_eulerian_present(simRules%dynamicsRules%simulation_type)) then
-!PAR-OLE tweaks are now applied: no need for the following
-!          if(any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_strato_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4)) &
-!           &   call check_species(cloud,'Before transformation', fu_low_mass_threshold(simrules%chemicalRules), &
-!                                & 'OLE_gas', 'PAR_gas')
         end if
 
         !        call msg_test('Prepare advection-tranformation')
         !
         ! Prepare to the advection-diffusion-transformation-deposition computations
         !
+        CALL SYSTEM_CLOCK(time_counters(16))  !! Count time
         call prepare_deposition(meteo_ptr, disp_buf_ptr, simRules%chemicalRules%rulesDeposition)
         if(error)return
 
+        CALL SYSTEM_CLOCK(time_counters(17))  !! Count time
         call pick_meteo_pointers(pMeteo_input, meteo_ptr, disp_buf_ptr)
         if(error) exit loop_over_time
 
@@ -486,6 +494,7 @@ contains
         !
         
         
+        CALL SYSTEM_CLOCK(time_counters(18))  !! Count time
         if (debug_level > 0 .and. fu_interval_positive(simrules%timestep)) then
           call check_masses(cloud,'before dynamic emission', &
                           & fu_low_mass_threshold(simRules%chemicalRules))
@@ -500,7 +509,9 @@ contains
         ! to their moments: coordinates of centres of masses and aerosol particle sizes.
         ! So far, there is only aerosol stuff
         !
+        CALL SYSTEM_CLOCK(time_counters(19))  !! Count time
         if(associated(simRules%chemicalRules%ChemRunSetup%mapVolume2NumberCnc))then
+          call msg("Flipping flip_moment_and_basic_var_*")
           if(fu_if_eulerian_present(simRules%dynamicsRules%simulation_type))then
             call flip_moment_and_basic_var_Euler( &
                                  & simRules%chemicalRules%ChemRunSetup%mapVolume2NumberCnc, &
@@ -517,6 +528,7 @@ contains
                                  & to_moment)
           endif
         endif
+        CALL SYSTEM_CLOCK(time_counters(20))  !! Count time
         if(error)return 
 
         fInjectedMass(:) = 0.0
@@ -528,15 +540,6 @@ contains
             & .and. fu_if_eulerian_present(simRules%dynamicsRules%simulation_type)) then
             call check_masses(cloud,'before emission', fu_low_mass_threshold(simrules%chemicalRules))
             call check_mass_centres(cloud, 'before emission',0.9999)
-!PAR-OLE tweaks are now applied: no need for the following
-!            if(any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_strato_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4)) &
-!             &   call check_species(cloud,'before emission', fu_low_mass_threshold(simrules%chemicalRules), &
-!                                  & 'OLE_gas', 'PAR_gas')
           end if
 #endif
           if (smpi_global_tasks > 1) then
@@ -549,18 +552,20 @@ contains
           command_string = 'now_time_emission'
           call start_count(chCounterNm = command_string)
 
+          CALL SYSTEM_CLOCK(time_counters(21))  !! Count time
           call msg_test('Computing now-time emission (dispersion supplementary)')
           call set_dynamic_emission(cloud, &
                                   & em_source, &
-                                  & meteo_ptr, &
-                                  & disp_buf_ptr, &
+                                  & meteo_ptr, disp_buf_ptr, &
                                   & simRules%chemicalRules, simRules%dynamicsRules, &
                                   & now, &
                                   & simRules%timestep, simRules%residenceInterval, &
                                   & fInjectedMass, &
-                                  & dispersionMarketPtr)
+                                  & dispersionMarketPtr, &
+                                  & tla_traj)
                                   
         call stop_count(chCounterNm = command_string)
+         CALL SYSTEM_CLOCK(time_counters(22))  !! Count time
       !Another estimate of load imbalance
           if (smpi_global_tasks > 1) then
             command_string = 'After-emission barrier'
@@ -570,27 +575,19 @@ contains
           endif
 !        call msg('Reporting emission mass after set_dynamic_emission')
 !        call report_emission_mass()
+         CALL SYSTEM_CLOCK(time_counters(23))  !! Count time
 #ifdef DEBUG           
           if (simrules%ifRunDispersion .and. fu_interval_positive(simrules%timestep) &
             & .and. fu_if_eulerian_present(simRules%dynamicsRules%simulation_type)) then
             call check_masses(cloud,'after emission', fu_low_mass_threshold(simrules%chemicalRules))
             call check_mass_centres(cloud, 'after emission',0.9999)
-!PAR-OLE tweaks are now applied: no need for the following
-!            if(any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_strato_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_SOA) .or. &
-!             & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4)) then
-!              call check_species(cloud,'after emission', fu_low_mass_threshold(simrules%chemicalRules), &
-!                               & 'OLE_gas', 'PAR_gas')
-!            end if
           end if
 #endif
 !         call msg('Reporting emission mass after checks')
 !        call report_emission_mass()
 
           !   call msg_warning('Skip emission')
+          CALL SYSTEM_CLOCK(time_counters(24))  !! Count time
           if(fu_if_dump_emission_flux(em_source) .and. simrules%if_make_output) then
             !
             ! Each time the emission mass map is filled-in, we check whether it should be dumped
@@ -598,7 +595,6 @@ contains
             call dump_emission_mass_map(em_source, now, &
                                       & simRules%chCaseNm, fu_output_template(OutDef), &
                                       & fu_emisMM_ptr(cloud), &
-                                      ! & null_pointer, null_pointer, null_pointer
                                       & fu_emission_moment_X_MM_ptr(cloud), &
                                       & fu_emission_moment_Y_MM_ptr(cloud), &
                                       & fu_emission_moment_Z_MM_ptr(cloud), &
@@ -608,10 +604,11 @@ contains
 !          call msg('Reporting emission mass after dump')
           call report_emission_mass()
           
-        endif
+        endif !!invert_timesteps
 
 
         IF (error) EXIT loop_over_time
+        CALL SYSTEM_CLOCK(time_counters(25))  !! Count time
 
         !
         !  Trajectories positions must be saved after emission to get first point at the source
@@ -623,13 +620,14 @@ contains
         
         ! In adjoint runs for DA, we inject the discrepancy between measurement and model.
         
+        CALL SYSTEM_CLOCK(time_counters(26))  !! Count time
         if (obs_ptrs%hasObservations .and. simrules%if_invert_substeps) then
           command_string = 'da_observations'
           call start_count(chCounterNm = command_string)
-          call injectAll(obs_ptrs, cloud, meteo_ptr,&
+          call injectAll(obs_ptrs, cloud, meteo_ptr, disp_buf_ptr,&
                        & simRules%chemicalRules, simRules%dynamicsRules, simRules%timestep, now)
           if (debug_level > 0) then
-            call report_total_masses(cloud, step_count, .false.)
+            call report_total_masses(cloud, step_count)
           end if
           !            call msg('low mass thr', fu_low_mass_threshold(simRules%chemicalRules))
           call stop_count(chCounterNm = command_string)
@@ -643,47 +641,35 @@ contains
         ! Now it is in advections and random_walk modules
         !
         !call msg_test('SKIP advection****************')
+        CALL SYSTEM_CLOCK(time_counters(27))  !! Count time
         if (simrules%if_invert_substeps) then
           call transform_pollution_cloud_v5(cloud, now, simRules%timestep, &
-                                          & tla_step, &
+                                          & tla_traj, &
                                           & meteo_ptr, disp_buf_ptr, &
                                           & pMeteo_input, & 
                                           & wdr, &
                                           & simRules%chemicalRules, simRules%dynamicsRules, &
                                           & fu_ifDryDep_cumulative(OutDef), fu_ifWetDep_cumulative(OutDef))
-          !call flip_moment_and_basic_var(cm_to_moment, fu_advection_moment_X_MM_ptr(cloud), &
-          !                             & fu_concMM_ptr(cloud), to_moment)
-          !call flip_moment_and_basic_var(cm_to_moment, fu_advection_moment_Y_MM_ptr(cloud), &
-          !                             & fu_concMM_ptr(cloud), to_moment)
-          !call flip_moment_and_basic_var(cm_to_moment, fu_advection_moment_Z_MM_ptr(cloud), &
-          !                             & fu_concMM_ptr(cloud), to_moment)
           if (error) return
           if (debug_level > 0) then
             call msg('')
             call msg('After adjoint chemistry:')
             call collect_total_masses(cloud)
-            call report_total_masses(cloud, step_count, .true.) 
+            call report_total_masses(cloud, step_count) 
             call msg('')
           end if
         end if    ! invert steps
+        CALL SYSTEM_CLOCK(time_counters(28))  !! Count time
 
 #ifdef DEBUG
         if (simrules%ifRunDispersion .and. fu_interval_positive(simrules%timestep) &
           & .and. fu_if_eulerian_present(simRules%dynamicsRules%simulation_type)) then
           call check_masses(cloud,'before advection', fu_low_mass_threshold(simrules%chemicalRules))
           call check_mass_centres(cloud, 'before advection',0.9999)
-!PAR-OLE tweaks are now applied: no need for the following
-!          if(any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_strato_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4)) &
-!           &   call check_species(cloud,'before advection', fu_low_mass_threshold(simrules%chemicalRules), &
-!                                & 'OLE_gas', 'PAR_gas')
         end if
 #endif
 
+        CALL SYSTEM_CLOCK(time_counters(29))  !! Count time
         command_string = 'Advection'
         call start_count(chCounterNm = command_string)
 
@@ -702,24 +688,16 @@ contains
           call msg('')
           call msg('After advection:')
           call collect_total_masses(cloud)
-          call report_total_masses(cloud, step_count, .true.) 
+          call report_total_masses(cloud, step_count) 
           call msg('')
         end if
+        CALL SYSTEM_CLOCK(time_counters(30))  !! Count time
 
 #ifdef DEBUG
         if (simrules%ifRunDispersion .and. fu_interval_positive(simrules%timestep) &
           & .and. fu_if_eulerian_present(simRules%dynamicsRules%simulation_type)) then
           call check_masses(cloud,'after advection', fu_low_mass_threshold(simrules%chemicalRules))
           call check_mass_centres(cloud, 'after advection',0.9999)
-!PAR-OLE tweaks are now applied: no need for the following
-!          if(any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm42_strato_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_strato_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm5_SOA) .or. &
-!           & any(simrules%chemicalRules%iTransformTypes(:) == transformation_cbm4)) &
-!           &   call check_species(cloud,'after advection', fu_low_mass_threshold(simrules%chemicalRules), &
-!                                & 'OLE_gas', 'PAR_gas')
         end if
 #endif
 
@@ -737,13 +715,14 @@ contains
             call smpi_advection_barrier()
             call stop_count(chCounterNm = command_string)
           endif
+        CALL SYSTEM_CLOCK(time_counters(31))  !! Count time
         call msg_test('Transformation')
 
         command_string = 'Transformation'
         call start_count(chCounterNm = command_string)
 
         if (.not. simrules%if_invert_substeps) then
-          call transform_pollution_cloud_v5(cloud, now, simRules%timestep, tla_step, &
+          call transform_pollution_cloud_v5(cloud, now, simRules%timestep, tla_traj, &
                                           & meteo_ptr, disp_buf_ptr, &
                                           & pMeteo_input, & 
                                           & wdr, simRules%chemicalRules, simRules%dynamicsRules, &
@@ -752,6 +731,7 @@ contains
 
 
         call stop_count(chCounterNm = command_string)
+        CALL SYSTEM_CLOCK(time_counters(32))  !! Count time
 
           if (smpi_global_tasks > 1) then
             command_string = 'After-transformation barrier'
@@ -770,19 +750,23 @@ contains
           ! parameter, which can be assimilated directly. A formal solution is here, to be
           ! removed asap.
           !
+        CALL SYSTEM_CLOCK(time_counters(33))  !! Count time
           call observeAll(obs_ptrs, cloud, meteo_ptr, disp_buf_ptr, simRules%chemicalRules, &
+                        & simRules%dynamicsRules, &
                         & simRules%timestep, now, fu_eruption_height(perturbations))
 
+        CALL SYSTEM_CLOCK(time_counters(34))  !! Count time
           !call observeAll(obs_ptrs, cloud, meteo_ptr, &
           !              & simRules%chemicalRules, simRules%timestep, now )
           if (debug_level > 0) then
             call collect_total_masses(cloud)
-            call report_total_masses(cloud, step_count, .false.)
+            call report_total_masses(cloud, step_count)
             !            call msg('low mass thr', fu_low_mass_threshold(simRules%chemicalRules))
           end if
           call stop_count(chCounterNm = command_string)
         end if
         
+        CALL SYSTEM_CLOCK(time_counters(35))  !! Count time
         if (simrules%if_invert_substeps) then
           command_string = 'now_time_emission'
           call start_count(chCounterNm = command_string)
@@ -795,12 +779,15 @@ contains
                                   & now, &
                                   & simRules%timestep, simRules%residenceInterval, &
                                   & fInjectedMass, &
-                                  & dispersionMarketPtr)
+                                  & dispersionMarketPtr, &
+                                  & tla_traj)
           !   call msg_warning('Skip emission')
           call stop_count(chCounterNm = command_string)
           call report_emission_mass()
 
         end if
+        CALL SYSTEM_CLOCK(time_counters(36))  !! Count time
+        call set_cloud_valid_time(cloud,  now + simRules%timestep ) !! Dispersion done 
 
       endif ! if run dispersion
 
@@ -827,8 +814,36 @@ contains
       if(simrules%ifwriteprogressfile)then
         call write_progress_file(simrules%chprogressfnmtemplate, step_count*100/num_steps)
       endif
+      CALL SYSTEM_CLOCK(time_counters(37))  !! Count time
+      
+      do iTmp=2,37
+         if (time_counters(iTmp) > 0) then
+             time_counters(40) = time_counters(iTmp) !! Save it
+             time_counters(iTmp) = time_counters(40) - time_counters(1) !! passed from ref
+             time_counters(1) = time_counters(40) !! new ref
+         endif
+      enddo
+      time_counters(1) = 0 !! drop the ref
+
+      CALL SYSTEM_CLOCK(time_counters(38), time_counters(39), time_counters(40)) !!!SYSTEM_CLOCK([COUNT, COUNT_RATE, COUNT_MAX])
+      call msg("Dispersion loop timers (us):", int(time_counters(1:37) / (time_counters(39)/1000000)) )
+      iTmp = maxloc(time_counters(1:37),1)
+      call msg("maxcounter val, loc", int(time_counters(iTmp)/(time_counters(39)/1000000)), iTmp )
+      call msg("total_loop (us)", int(sum(time_counters(1:37))/(time_counters(39)/1000000)))
       
     END DO loop_over_time !************* TIME LOOP
+
+    if(simRules%ifRunDispersion)then
+      if (fu_sec(simRules%timestep) > 0) then
+        call msg("In run_dispersion, after loop forward")
+      else
+        call msg("In run_dispersion, after loop backward")
+      endif
+      call collect_total_masses(cloud)
+      call report_total_masses(cloud, step_count)
+      call report_inout_mass_cld(cloud,outgoing)
+      call report_inout_mass_cld(cloud,incoming)
+    endif
     command_string = 'Dispersion loop'
     call stop_count(chCounterNm = command_string)
 
@@ -862,6 +877,7 @@ contains
       integer :: iTmp, jTmp
       real, dimension(:), pointer :: work, mass_src, mass_cloud, mass_cum
       type(silam_species), dimension(:), pointer :: pSpecies
+      character(len=fnlen) :: timestr, timestr_cum
       logical :: ifOk
 
       iTmp = fu_nbr_of_species_emission(cloud)
@@ -874,20 +890,21 @@ contains
       mass_src(1:iTmp) = fInjectedMass(1:iTmp) !Type conversion
       mass_cum(1:iTmp) = fInjectedMassTotal(1:iTmp) !Type conversion
 
-
+      timestr = fu_str(now + simRules%timestep * 0.5) !! mid-step to be the same for back and forth
+      timestr_cum = fu_str(now + simRules%timestep)   !! Cumulative emission by this time
 
       if (smpi_global_tasks > 1) then 
         call emis_mass_report('Total subdomain injected emission mass as counted from sources', &
-                    & fu_species_emission(cloud), mass_src, '__src_my '//fu_str(now))
+                    & fu_species_emission(cloud), mass_src, '__src_my '//trim(timestr))
 
         if (debug_level > 0) then
           call get_cloud_inventory(cloud, .true., species_emission, pSpecies, iTmp, fInjectedMass)
           mass_cloud(1:iTmp) = fInjectedMass(1:iTmp)
           call emis_mass_report('Total subdomain injected emission mass as counted from map', &
-                   &  pSpecies, mass_cloud, '__mp_my '//fu_str(now) )
+                   &  pSpecies, mass_cloud, '__mp_my '//trim(timestr) )
 
           call emis_mass_report('Cumulative subdomain injected emission mass', &
-               & fu_species_emission(cloud), mass_cum, '__cum_my '//fu_str(now))
+               & fu_species_emission(cloud), mass_cum, '__cum_my '//trim(timestr_cum))
         end if
 
         !Exchange and reset pointers to WHOLE_MPI
@@ -903,16 +920,16 @@ contains
       if (smpi_global_rank == 0) then
         call msg("")
         call emis_mass_report('Total injected emission mass as counted from sources', &
-                      & fu_species_emission(cloud), mass_src, '__src '//fu_str(now))
+                      & fu_species_emission(cloud), mass_src, '__src '//trim(timestr))
 
         if (debug_level > 0) then
           call get_cloud_inventory(cloud, .true., species_emission, pSpecies, iTmp, fInjectedMass)
           mass_cloud(1:iTmp) = fInjectedMass(1:iTmp)
           call emis_mass_report('Total emission mass as counted from map', &
-                     &  pSpecies, mass_cloud, '__mp '//fu_str(now) )
+                     &  pSpecies, mass_cloud, '__mp '//trim(timestr) )
 
           call emis_mass_report('Cumulative emission mass', &
-                 & fu_species_emission(cloud), mass_cum, '__cum '//fu_str(now))
+                 & fu_species_emission(cloud), mass_cum, '__cum '//trim(timestr_cum))
         end if
       endif
       call free_work_array(work)

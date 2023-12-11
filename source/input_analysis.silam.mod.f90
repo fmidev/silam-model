@@ -287,8 +287,8 @@ end subroutine read_input_content
 
 
 #ifdef DEBUG
-call msg('ID from file:', iID)
-call report(IDlist(iID))
+call msg('Quantity and ID from file:' + fu_quantity_string(fu_quantity(IDlist(iID))), iID)
+!call report(IDlist(iID))
 #endif
 
       if (.not. defined(IDlist(iID))) cycle
@@ -978,12 +978,11 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
   ! Imported parameter
   type(Tinput_content), intent(inout) :: IC
   type(silja_grid), intent(in) :: out_grid
-  type(silja_shopping_list), intent(inout) :: input_list
+  type(silja_shopping_list), intent(in) :: input_list
   type(silja_wdr), intent(in) :: wdr
 
   ! Local variables
-  integer :: i, j, k, l, nx, ny, grid_type, iSrc, iBadId, n_cons, &
-                & varPtr, n_grids_ini, iQtmp
+  integer :: i, j, k, l, nx, ny, grid_type, iSrc, iBadId, n_cons, varPtr, n_grids_ini
   real :: best_resolution, fTmp
   logical :: found, OK, hasStagU, hasStagV
   real, dimension(max_quantities) :: gridCellSz  !Should be max_grids
@@ -991,18 +990,14 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
                                             & geopotential_flag, ground_pressure_flag/)
   logical, dimension(max_quantities) :: dataUsed, QCovered
   integer, dimension(max_quantities):: q_avail, & ! Available quantities from the file
-                        &q_avail_st   !To-be the same for static files, Not yet..
+                        & q_avail_st, q_input   !To-be the same for static files, Not yet..
   integer, dimension(max_quantities) :: q_shop,  q_shop_static
   type(silja_grid) :: gridTmp
   type(silja_level) :: levelTmp
   type(silam_vertical) :: vertTmp
 
-
-  !-----------------------------------------------------------------
   !
   ! 1. If GRIB content is defined - let's hope that all priors are OK
-  !
-  !-----------------------------------------------------------------
   !
   if(.not.IC%defined == silja_true)then
     call set_error('Undefined content given','analyse_input_content')
@@ -1012,8 +1007,6 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
   call set_missing(IC%shopping_list)
   q_shop=int_missing
   q_shop_static=int_missing
-
-
 
   !------------------------------------------------------------------
   !
@@ -1036,7 +1029,6 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
       call msg(fu_quantity_string(q_avail(i)), q_avail(i))
     end do
   end if
-
 
   call count_grids(IC) ! Make a list of grids
   if(error)return
@@ -1067,7 +1059,6 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
     call set_error('No grid covers the requested area','analyse_input_content')
     return
   endif
-
 
   !-------------------------------------------------------------------
   !
@@ -1124,35 +1115,21 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
     ! grids. Then, either set error, or exclude variable, if it is not mandatory for
     ! the output.
     !
-    mdl_q: do j=1, size(fu_quantities(input_list))
-      if(fu_request(input_list,j) < 1) cycle ! There may be holes
-
+    call all_quantities_from_list(input_list, .false., q_input)
+    mdl_q: do j=1, size(q_input)
+      if(q_input(j) == int_missing)exit
       found = .false.
       do while(.not.found)
-call msg('checking:' + fu_quantity_short_string(fu_quantity(input_list,j)))
-
-          iQtmp = fu_quantity(input_list,j)
-          call check_input_quantity(iQtmp,& 
-                                  & fu_realtime_quantity(iQtmp), &
-                                & q_avail, q_avail_st, q_shop, q_shop_static, &
-                                  & found, wdr)
-call msg('Done:' + fu_quantity_short_string(fu_quantity(input_list,j)))
-
-
+        call msg('Input analysis Checking:' + fu_quantity_short_string(q_input(j)))
+        call check_input_quantity(q_input(j), fu_realtime_quantity(q_input(j)), &
+                                  & q_avail, q_avail_st, q_shop, q_shop_static, found, wdr)
+        call msg('Done:' + fu_quantity_short_string(q_input(j)))
         if(.not.found)then
           i=i+1       ! Take the next grid
           if(i>IC%NbrGrids)then ! If the list of grids is expired
-            if(fu_request(input_list,j) == 2)then ! mandatory
-              call set_error('Not all quantities found in data files','analyse_input_content')
-              call msg(fu_connect_strings(' *** FAILED *** ', &
-                             & fu_quantity_string(fu_quantity(input_list,j))))
-              return
-            else
-              call set_request(input_list,j, 0)  ! Exclude this variable from the list
-              call msg_warning(fu_connect_strings('Variable excluded from output:', &
-                 &   fu_quantity_string(fu_quantity(input_list,j))),'analyse_input_content')
-              exit mdl_q
-            endif
+            call set_error('Not all quantities found in data files','analyse_input_content')
+            call msg(' *** FAILED *** ' + fu_quantity_string(q_input(j)))
+            return
           end if
           do l=1, IC%grids(i)%NFlds_grd
             k=fu_merge_integer_to_array(fu_quantity(IC%ids(IC%grids(i)%flds(l))), q_avail)
@@ -1234,25 +1211,20 @@ call msg('Done:' + fu_quantity_short_string(fu_quantity(input_list,j)))
         k=fu_merge_integer_to_array(fu_quantity(IC%ids(IC%MetSrcs(i)%flds(j))), q_avail)
       end do
 
-      do j = 1, size(fu_quantities(input_list))
-        if(fu_request(input_list,j) < 1) then
-          QCovered(i) = .true.  ! force it !
-        else
-          iQtmp = fu_quantity(input_list,j)
-          call check_input_quantity(iQtmp,& 
-                & fu_realtime_quantity(iQtmp), &
-                        & q_avail, q_avail_st, q_shop, q_shop_static, &
-                        & found, wdr)
+      do j = 1, size(q_input)
+          if(q_input(j) == int_missing)exit
+          call check_input_quantity(q_input(j), fu_realtime_quantity(q_input(j)), &
+                                  & q_avail, q_avail_st, q_shop, q_shop_static, &
+                                  & found, wdr)
           if(found) then  ! Model quantity is available or can be derived
             QCovered(i) = .true.
           end if
-        endif
       end do  ! size(QHierarchy)
 
-      if(all(QCovered(1:size(fu_quantities(input_list)))))then
+      if(all(QCovered(1:j)))then
         dataUsed(i) = .true.
       end if
-    end do
+    end do  ! met srcs
 
     !--------------------------------------------------------------------
     !
@@ -1317,17 +1289,13 @@ call msg('Done:' + fu_quantity_short_string(fu_quantity(input_list,j)))
   !
   ! Actual checking starts
   !
-  do i=1, size(fu_quantities(input_list))
-    if(fu_request(input_list,i) < 1)cycle  ! If the quantity was excluded - just skip it
-    iQtmp = fu_quantity(input_list,i)
-    call check_input_quantity(iQtmp,& 
-                & fu_realtime_quantity(iQtmp), &
-                & q_avail, q_avail_st, q_shop, q_shop_static, &
+  do i=1, size(q_input)
+    if(q_input(i) == int_missing)exit    ! no holes
+    call msg('Checking again:' + fu_quantity_short_string(q_input(i)))
+    call check_input_quantity(q_input(i), fu_realtime_quantity(q_input(i)), &
+                            & q_avail, q_avail_st, q_shop, q_shop_static, &
                             & found, wdr)
-    if(.not.found)then
-      call set_error('Strange, missing model input quantity','analyse_input_content')
-      return
-    end if
+    if(fu_fails(found,'Strange, missing model input quantity','analyse_input_content'))return
     !
     ! Run through the q_shop, searching for each element the best available from the
     ! list of variables
@@ -1361,11 +1329,7 @@ call msg('Done:' + fu_quantity_short_string(fu_quantity(input_list,j)))
                                & IC%vars(varPtr)%vertLevNbr, &
                                & IC%MetSrcs(IC%vars(varPtr)%MetSrcPtr)%src)
       if(error)return
-
-
 !      call report(IC%shopping_list)
-
-
       dataUsed(varPtr) = .true.
 
     end do ! cycle through the q_shop

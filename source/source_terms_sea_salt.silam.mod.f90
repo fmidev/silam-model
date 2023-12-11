@@ -158,7 +158,7 @@ MODULE source_terms_sea_salt
     real, dimension(:), pointer :: levFractDispVert, fzDisp
     type(Tsilam_namelist), pointer :: nlInputFiles  ! namelist for names of supplementary files
     type(silam_species), dimension(:), pointer :: species
-    type(silja_field), pointer :: source_mask
+    type(silja_field) :: source_mask
     logical, dimension(:), pointer :: ifNumberFlux
     type(chemical_adaptor) :: adaptor
     type(silja_logical) :: defined
@@ -497,53 +497,60 @@ CONTAINS
 
     ! Local variables
     integer :: iTmp, indWaterTemp, indSalinity, iSpecies, iHalog
-    type(silam_sp) :: sp
+    character(len=fnlen) :: strTmp, fName
     real :: fNbrFlux, fMassFlux, fMassMeanDiam
-    type(silja_field_id) :: id, idOut
+    type(silja_field_id) :: id
+    type(silja_field_id), pointer :: idPtr
     real, dimension(:), pointer :: arPtr
-    real, dimension(:), pointer :: fPartDensity
+    real, dimension(max_species) :: fPartDensity
+    integer, dimension(2), parameter :: mask_quantities = (/fraction_of_water_flag, fraction_of_land_flag/)
 
     !
     ! First of all, read the source mask
     !
-    sp%sp => fu_work_string()
-    if(error)return
-    arPtr => fu_work_array()
-    if(error)return
-    sp%sp = adjustl(fu_content(srcSeaSalt%nlInputFiles, 'source_area_mask'))
-    if(error .or. len_trim(sp%sp) < 1)then
+    strTmp = adjustl(fu_content(srcSeaSalt%nlInputFiles, 'source_area_mask'))
+    if(error .or. len_trim(strTmp) < 1)then
       call set_error('Source area mask is absent','init_emission_sea_salt')
       return
     endif
-    id = fu_set_field_id_simple(met_src_missing, fraction_of_water_flag, time_missing, level_missing)
+    id = fu_set_field_id_simple(met_src_missing, int_missing, time_missing, level_missing)
     if(error)return
     call set_grid(id, dispersion_grid)
     if(error)return
+    call set_field(id, srcSeaSalt%source_mask, .true.)
+    if(error)return
 
-    call get_input_field(fu_process_filepath(sp%sp(index(sp%sp,' ')+1:),superdir=srcSeaSalt%dataDir), &  ! file name
-                       & fu_input_file_format(sp%sp), &          ! file format
+    arPtr => fu_grid_data(srcSeaSalt%source_mask)
+    idPtr => fu_id(srcSeaSalt%source_mask)
+
+    fname = fu_process_filepath(strTmp(index(strTmp,' ')+1:),superdir=srcSeaSalt%dataDir)
+    do iTmp = 1,2
+       call set_quantity(id, mask_quantities(iTmp))
+       call get_input_field(fname, &  ! file name
+                       & fu_input_file_format(strTmp), &          ! file format
                        & id, &                  ! The id to search
                        & arPtr, &               ! data array
-                       & dispersion_gridPtr, &  ! storage grid
+                       & dispersion_grid, &  ! storage grid
                        & iOutside = nearestPoint, &         ! out of grid interpolation
                        & iAccuracy = 5, &
                        & wdr = wdr_missing, & 
-!                       & iBinary, &           ! for NetCDF
                        & ifAcceptSameMonth = .false., &
-                       & idOut = idOut)  ! redefine the id
+                       & idOut = idPtr)  ! redefine the id
+        if(defined(idPtr)) exit
+    enddo
     if(error)return
 
-    if(defined(idOut)) then
-      allocate(srcSeaSalt%source_mask, stat=iTmp)
-      if(iTmp /= 0)then
-        call set_error('Failed to allocate sea salt source mask','init_emission_sea_salt')
-        return
-      endif
-      call set_field(idOut, arPtr, srcSeaSalt%source_mask, .true.)
-    else
+    if (iTmp > 2) then
       call set_error('Failed to get the source mask','init_emission_sea_salt')
+      return
     endif
-    if(error)return
+
+    !! Turn fraction_of_land_flag to fraction_of_water_flag if needed
+    if (fu_quantity(idPtr) == fraction_of_land_flag) then
+        arPtr(:) = 1. - arPtr(:)
+       call set_quantity(id, fraction_of_water_flag)
+    endif
+
 
     !
     ! Allocate proper size of the other arrays
@@ -562,9 +569,6 @@ CONTAINS
     !
     ! Particle masses for each size class: !!!! dry particle !!!!
     !
-    fPartDensity => fu_work_array()
-    if(error)return
-
     do iSpecies = 1, srcSeaSalt%nSpeciesSeaSalt !NOTE: Omit the halogens
        fPartDensity(iSpecies) = fu_dry_part_density(srcSeaSalt%species(iSpecies)%material) !RISTO NOTE: volume -> mass
     end do
@@ -598,11 +602,11 @@ CONTAINS
                                            & fPartDensity(iSpecies), &
                                            & iHalog)
 
-!                write(unit = sp%sp,fmt=*)'T_water, S_water, flux(all modes):', &
+!                write(unit = strTmp,fmt=*)'T_water, S_water, flux(all modes):', &
 !                                    & fMinWaterTemp + (indWaterTemp-1) * stepWaterTemp, & ! [K]
 !                                    & fMinSalinity + (indSalinity-1) * stepSalinity, &
 !                                    & (fluxArray(indWaterTemp,indSalinity)%fFluxPerMode(i), i=1,fu_n_modes(cocktail%aerosol))
-!                call msg(sp%sp)
+!                call msg(strTmp)
 
                end do  ! nWater temps
                !
@@ -648,14 +652,14 @@ CONTAINS
                                        & fMassFlux, &   ! volume flux !RISTO NOTE: volume -> mass
                                        & fMassMeanDiam, &
                                        & fPartDensity(iSpecies))
-          write(unit = sp%sp,fmt='(A48,1x,A,F6.1,2(1x,F5.2),A,3(1x,E15.7))') &
+          write(unit = strTmp,fmt='(A48,1x,A,F6.1,2(1x,F5.2),A,3(1x,E15.7))') &
                                  & 'T_water,S_water,#-flux, m-flux, m-flux-fake for', &
                                  & trim(fu_str(srcSeaSalt%species(iSpecies))), &
                                  & 288.0, 0.03, &
                                  & fMassMeanDiam*1.e6, ' mkm', &
 !                                 & fNbrFlux, fMassFlux, fPartDensity(iSpecies)*fNbrFlux*(Pi/6.)*fMassMeanDiam**3 !RISTO NOTE: volume -> mass
                                  & fNbrFlux, fMassFlux/fPartDensity(iSpecies), fNbrFlux*(Pi/6.)*fMassMeanDiam**3  !NOTE: Output as volume flux (as before)
-          call msg(sp%sp)
+          call msg(strTmp)
           !
           ! Store the results for this size mode. Note that we ignore spume mode altogether.
           ! Since wind-speed dependence is different for these mechanisms, the mean diameter 
@@ -680,14 +684,14 @@ CONTAINS
                                         & fMassFlux, & !RISTO NOTE: volume -> mass
                                         & fMassMeanDiam, &
                                         & fPartDensity(iSpecies))
-            write(unit = sp%sp,fmt='(A40,1x,A,2(1x,F5.2),A,3(1x,E15.7))') &
+            write(unit = strTmp,fmt='(A40,1x,A,2(1x,F5.2),A,3(1x,E15.7))') &
                                    & 'S_water,#-flux, m-flux, m-flux-fake for', &
                                    & trim(fu_str(srcSeaSalt%species(iSpecies))), &
                                    & 0.03, &
                                    & fMassMeanDiam*1.e6, ' mkm', &
 !                                   & fNbrFlux, fMassFlux, fPartDensity(iSpecies)*fNbrFlux*(Pi/6.)*fMassMeanDiam**3 !RISTO NOTE: volume -> mass
                                    & fNbrFlux, fMassFlux/fPartDensity(iSpecies), fNbrFlux*(Pi/6.)*fMassMeanDiam**3  !NOTE: Output as volume flux (as before)
-            call msg(sp%sp)
+            call msg(strTmp)
           end do    ! species
           call msg('')
         endif
@@ -698,11 +702,7 @@ CONTAINS
         return
     end select
 
-    call free_work_array(fPartDensity) !RISTO NOTE: volume -> mass
-    
     srcSeaSalt%defined = silja_true
-
-    call free_work_array(sp%sp)
 
   end subroutine init_emission_sea_salt
 

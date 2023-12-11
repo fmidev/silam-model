@@ -22,9 +22,6 @@ MODULE input_data_rules
   USE grads_templates
   USE silam_levels
   use grids_geo
-#ifdef VS2012
-  use ifport
-#endif
 
   IMPLICIT NONE
 
@@ -86,6 +83,7 @@ MODULE input_data_rules
 
   public FNm_from_single_template
   public FNm_from_template_array
+  public fu_input_file_format
   public fu_sample_file_name
 
   public fu_3d_leveltype
@@ -2242,11 +2240,7 @@ CONTAINS
           call msg("Last tried file: "//trim(strFNm))
         else
           do j = 1, 60
-#ifdef VS2012
-            call sleepqq(5)                         ! waiting
-#else
             call sleep(5)                         ! waiting
-#endif
             if(error)return
           enddo
           iProceed = iProceed + 1

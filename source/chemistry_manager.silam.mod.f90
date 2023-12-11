@@ -22,13 +22,8 @@ module chemistry_manager
   use depositions
   use chem_dep_passive
   use chem_dep_pollen
-  use chem_dep_pm_general
   use chem_dep_sulphur_dmat
   use chem_dep_acid_basic
-  use chem_dep_cbm4
-  use chem_dep_cbm4_SOA
-  use chem_dep_cbm42_strato
-  use chem_dep_cbm42_strato_SOA
   use chem_dep_cbm5_SOA
   use chem_dep_cbm5_strato_SOA
   use chem_dep_radioactive
@@ -50,9 +45,10 @@ module chemistry_manager
 !!#define FORCING_TOP
 
 #ifdef DEBUG_TRANSFORMATIONS
-  logical, parameter :: if_OMP_chemistry = .false.
+  logical, private :: if_OMP_chemistry = .false.
+#warning "'if_OMP_chemistry = .false. " 
 #else
-  logical, parameter :: if_OMP_chemistry = .true.
+  logical, private :: if_OMP_chemistry = .true.
 #endif
 
   
@@ -127,17 +123,12 @@ module chemistry_manager
     real :: photoAODwavelength = real_missing    ! Wavelength to use for photolysis attenuation by AOD
     logical :: ifOnesAdjust  = .false.             ! Use ONES tracer to adjust concentrations
     type(Tchem_rules_passive) :: rulesPassive    ! Passive self-degrading substance
-    type(Tchem_rules_pm_general) :: rulesPM      ! inert particulate matter
     type(Tchem_rules_radioactive) :: rulesRadioactive
     type(Tchem_rules_pollen) :: rulesPollen
     type(Tchem_rules_DMAT_S) :: rulesSulphurDMAT
     type(Tchem_rules_acidBasic) :: rulesAcidBasic
 !    !type(Tchem_rules_sea_salt) :: rulesSeaSalt
 !    !type(Tchem_rules_POP) :: rulesPOP
-    type(Tchem_rules_cbm4) :: rulesCBM4
-    type(Tchem_rules_cbm4_SOA) :: rulesCBM4_SOA
-    type(Tchem_rules_cbm42_strato) :: rulesCBM42_strato
-    type(Tchem_rules_cbm42_strato_SOA) :: rulesCBM42_strato_SOA
     type(Tchem_rules_cbm5_SOA) :: rulesCBM5_SOA
     type(Tchem_rules_cbm5_strato_SOA) :: rulesCBM5_strato_SOA
     type(Tchem_rules_AerDynBasic) :: rulesAerDynBasic
@@ -149,12 +140,13 @@ module chemistry_manager
     type(Toptical_density_rules), pointer :: rulesOpticDens  => null()
     type(TchemicalRunSetup), pointer :: ChemRunSetup  => null()
     type(Tdeposition_rules), pointer :: rulesDeposition  => null()
-    ! The below must be nullified, if not here then in set_chem_rules.
+    ! The below must be nullified
     real, dimension(:), pointer :: low_cnc_trsh => null(), low_mass_trsh => null(), &
                                  & mass_lagr_particle => null(), &
                                  & low_cnc_trsh_frw => null(), low_mass_trsh_frw => null(), &
                                  & low_cnc_trsh_adj => null(), low_mass_trsh_adj => null()
     integer :: LowMassThresh  = LowMassThreshUseEmission
+    logical :: ifLowMassThreshAllocated = .false.
     character(len=clen), dimension(max_aux_cocktails) :: auxCocktName = ''
     integer :: nAuxCocktails=int_missing
     type(silja_logical) :: defined = silja_false
@@ -172,14 +164,9 @@ module chemistry_manager
   public transformation_passive
   !public species_radioactive
   !public species_pollen
-  public transformation_inert_PM
   public transformation_sulphur_dmat
   public transformation_acid_basic
-  public transformation_cbm4
-  public transformation_cbm4_SOA
   public transformation_radioactive
-  public transformation_cbm42_strato
-  public transformation_cbm42_strato_SOA
   public transformation_cbm5_SOA
   public transformation_cbm5_strato_SOA
 
@@ -189,28 +176,17 @@ module chemistry_manager
   public aerosol_dynamics_VBS
   
   public transform_passive
-  public transform_cbm4
-  public transform_cbm4_SOA
-  public transform_cbm4_adj
   public transform_aerdynbasic
   public transform_acid_basic
   public transform_dmat
   public transform_radioactive
   public transform_aerdynsimple
-  public transform_cbm42_strato
-  public transform_cbm42_strato_adj
-  public transform_cbm42_strato_SOA
-  public transform_cbm42_strato_SOA_adj
   public transform_cbm5_SOA
   public transform_cbm5_SOA_adj
   public transform_cbm5_strato_SOA
   public transform_cbm5_strato_SOA_adj
   public transform_AerDynMidAtm
   public transform_AerDynVBS
-  public prepare_step_cbm4
-  public prepare_step_cbm4_SOA
-  public prepare_step_cbm42_strato
-  public prepare_step_cbm42_strato_SOA
   public prepare_step_cbm5_SOA
   public prepare_step_cbm5_strato_SOA
   !--------------------------------------------------------------------
@@ -229,13 +205,14 @@ module chemistry_manager
     real, dimension(:),  allocatable :: cncAer ! 1:mapAerosol%nSpecies
     real, dimension(:),  allocatable :: cncSL  ! 1:mapShortLived%nSpecies
     real, dimension(:,:),  allocatable :: photorates ! 1:num_react, 1:nz_dispersion
-    real, dimension(:),  allocatable :: aodext ! 1:nz_disperson
+    real, dimension(:),  allocatable :: aodext ! 1:nz_disperson  !!!Only first source here
     real, dimension(:),  allocatable :: aodscat ! 1:nz_disperson
-    real, dimension(:,:),  allocatable :: o3column ! 1:nz_disperson, 1:nSrc     !Ozone column above
+    real, dimension(:),  allocatable :: o3column ! 1:nz_disperson,     !Ozone column above
+    real, dimension(:),  allocatable :: numconc ! 1:nz_disperson     !number concentration 
     real, dimension(:),  allocatable :: soot_col ! 1:nz_disperson
     real, dimension(:),  allocatable :: pwc_col ! 1:nz_disperson
     real, dimension(:),  allocatable :: tau_above_bott ! 1:nz_disperson
-    real, dimension(:,:),  allocatable :: metdat ! meteo_input%nQuantities
+    real, dimension(:,:),  allocatable :: metdat ! meteo_input%nQuantities  1:nz_disperson
     real, dimension(:,:),  allocatable :: reactRates ! 1:nSrc, 1:nRates
   end type Tchemical_thread_stuff
 
@@ -292,13 +269,15 @@ CONTAINS
 
     type(Tchem_rules), intent(inout) :: chemRules
     type(silja_interval), intent(in) :: timestep, timestep_output
-    type(silam_species), dimension(:),  pointer :: speciesEmission                     ! input
+    type(silam_species), dimension(:),  pointer :: speciesEmission      ! input
     type(silam_species), dimension(:),  pointer :: speciesTransport, speciesShortlived, &
                                                  & speciesAerosol ! output
     integer, intent(in) :: nspeciesEmission
     integer, intent(out) :: nspeciesTransport, nspeciesShortlived, nSpeciesAerosol, nReactRates
-    integer, dimension(max_species) :: indDepositionType
     integer, dimension(max_species) :: iClaimedSpecies
+
+    integer :: nspeciesEmisAux
+    type(silam_species), dimension(:),  pointer :: speciesEmisAux      
 
     ! Local declarations
     integer :: iTmp, stat, nspecies_aux
@@ -315,7 +294,8 @@ CONTAINS
     nSpeciesShortlived = 0
     nSpeciesAerosol = 0
     nReactRates = 0
-    nullify(speciesTransport, speciesShortlived, speciesAerosol)
+    nSpeciesEmisAux = 0
+    nullify(speciesTransport, speciesShortlived, speciesAerosol, speciesEmisAux )
     !
     ! This array allows the transformation procedures to claim specific emission species
     ! to their ownership. This means that the corresponding transformation knows this
@@ -327,14 +307,36 @@ CONTAINS
     ! in the chemical database.
     !
     if(error)return
-    iClaimedSpecies(1:nSpeciesEmission) = -1
 
 #ifdef DEBUG 
         call msg("global_chemical_init got species emission", nSpeciesEmission)
-        call report(speciesEmission)
+        if (nSpeciesEmission > 0) call report(speciesEmission)
         call msg("END species emission")
 #endif
 
+
+    !!!! 
+    !!!! Copy emission list to local temporary 
+    call addSpecies(speciesEmisAux, nspeciesEmisAux , speciesEmission, nspeciesEmission)      
+
+    ! 
+    ! Include auxiliary species to local temporary
+    do iTmp=1,chemRules%nAuxCocktails
+      call msg("Adding AUX cocktail: "//trim(chemRules%auxCocktName(iTmp)))
+      call set_cocktail_description(chemRules%auxCocktName(iTmp), descr_aux_cockt, ifSpecies)
+      if (error) return
+      call get_inventory(descr_aux_cockt, species_aux, nspecies_aux)
+      if (error) return
+      if (fu_fails(nspecies_aux > 0, 'Aux Cocktail given but no species found', 'global_chemical_init')) return 
+      call addSpecies(speciesEmisAux, nspeciesEmisAux,  species_aux, nspecies_aux)
+      if (error) return
+      deallocate(species_aux)
+    enddo
+
+    !! Now feed speciesEmisAux instead of speciesEmission to all the claiming magic
+
+
+    iClaimedSpecies(1:nspeciesEmisAux) = -1
 
 
     !
@@ -349,53 +351,11 @@ CONTAINS
 !!$        call addSpecies(speciesTmp2, speciesTmpShortlived)
 !!$        exit
 
-      case(transformation_cbm4)
-        call init_chemicals_cbm4()
-        call register_reaction_rates_cbm4(chemRules%rulesCBM4, nReactRates)
-        call inventory_cbm4(chemRules%rulesCBM4, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
-                     & iClaimedSpecies)
-!        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
-        call registerSpecies(chemRules%rulesCBM4, &
-                           & speciesTransport, speciesShortlived, speciesAerosol, &
-                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
-      case(transformation_cbm4_SOA)
-        call init_chemicals_cbm4_SOA()
-        call inventory_cbm4_SOA(chemRules%rulesCBM4_SOA, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
-                     & iClaimedSpecies)
-!        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
-        call registerSpeciescbm4_SOA(chemRules%rulesCBM4_SOA, &
-                           & speciesTransport, speciesShortlived, speciesAerosol, &
-                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)                     
-
-      case(transformation_cbm42_strato)
-        call init_chemicals_cbm42_strato()
-        call inventory_cbm42_strato(chemRules%rulesCBM42_strato, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
-                     & iClaimedSpecies)
-!        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
-        call registerSpeciescbm42_strato(chemRules%rulesCBM42_strato, &
-                           & speciesTransport, speciesShortlived, speciesAerosol, &
-                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
-      case(transformation_cbm42_strato_SOA)
-        call init_chemicals_cbm42_strato_SOA()
-        call inventory_cbm42_strato_SOA(chemRules%rulesCBM42_strato_SOA, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
-                     & iClaimedSpecies)
-!        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
-        call registerSpeciescbm42_strato_SOA(chemRules%rulesCBM42_strato_SOA, &
-                           & speciesTransport, speciesShortlived, speciesAerosol, &
-                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
       case(transformation_cbm5_SOA)
         call init_chemicals_cbm5_SOA()
         call inventory_cbm5_SOA(chemRules%rulesCBM5_SOA, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                      & iClaimedSpecies)
 !        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
         call registerSpeciescbm5_SOA(chemRules%rulesCBM5_SOA, &
@@ -404,8 +364,8 @@ CONTAINS
       case(transformation_cbm5_strato_SOA)
         call init_chemicals_cbm5_strato_SOA()
         call inventory_cbm5_strato_SOA(chemRules%rulesCBM5_strato_SOA, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                      & iClaimedSpecies)
 !        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
         call registerSpeciescbm5_strato_SOA(chemRules%rulesCBM5_strato_SOA, &
@@ -418,6 +378,8 @@ CONTAINS
       end select
   
     end do
+
+
     !
     ! 2. Then all the rest.
     !
@@ -428,8 +390,8 @@ CONTAINS
 
       case(transformation_passive)
         call inventoryPassive(chemRules%rulesPassive, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                      & iClaimedSpecies)
 !        call addSpecies(speciesTransport, nspeciesTransport, speciesTmp, nspeciesTmpTransp)
         call registerSpeciesPassive(chemRules%rulesPassive, &
@@ -438,27 +400,18 @@ CONTAINS
       
       case(transformation_pollen)
         call inventoryPollen(chemRules%rulesPollen, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                      & iClaimedSpecies)
         call registerSpeciesPollen(chemRules%rulesPollen, &
-                           & speciesTransport, speciesShortlived, speciesAerosol, &
-                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
-
-      case(transformation_inert_PM)
-        call inventoryPM(chemRules%rulesPM, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
-                     & iClaimedSpecies)
-        call registerSpeciesPM(chemRules%rulesPM, &
                            & speciesTransport, speciesShortlived, speciesAerosol, &
                            & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
 
       case(transformation_sulphur_dmat)
         call init_chemicals_dmat()
         call inventory_dmat(chemRules%rulesSulphurDMAT, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                      & iClaimedSpecies, ifActive)
         call register_species_dmat(chemRules%rulesSulphurDMAT, &
                             & speciesTransport, speciesShortlived, speciesAerosol, &
@@ -467,22 +420,21 @@ CONTAINS
       case(transformation_acid_basic)
         call init_chemicals_acid_basic()
         call inventory_acid_basic(chemRules%rulesAcidBasic, &
-                     & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                     & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                      & iClaimedSpecies)
         call registerSpeciesAcidBasic(chemRules%rulesAcidBasic, &
                            & speciesTransport, speciesShortlived, speciesAerosol, &
                            & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
 
-      case(transformation_cbm4, transformation_cbm4_SOA, transformation_cbm42_strato, transformation_cbm42_strato_SOA, &
-         & transformation_cbm5_SOA, transformation_cbm5_strato_SOA)
+      case(transformation_cbm5_SOA, transformation_cbm5_strato_SOA)
         ! Handled above.
         continue
 
       case(transformation_radioactive)
         call init_radioactive(chemRules%rulesRadioactive, &
-                     & speciesEmission, speciesTransport,&
-                     & nSpeciesEmission, nSpeciesTransport, &
+                     & speciesEmisAux, speciesTransport,&
+                     & nspeciesEmisAux, nSpeciesTransport, &
                      & iClaimedSpecies, ifActive, timestep, timestep_output)
       case(int_missing)
         exit
@@ -499,18 +451,31 @@ CONTAINS
       !
       if(.not. ifActive) chemRules%iTransformTypes(iTmp) = int_missing
 #ifdef DEBUG
-call msg('Transport species after chemistry: ',nSpeciesTransport, chemRules%iTransformTypes(iTmp))
-call report(speciesTransport)
-call msg('End transport species')
+if (nSpeciesTransport > 0) then
+  call msg('Transport species after chemistry: ',nSpeciesTransport, chemRules%iTransformTypes(iTmp))
+  call report(speciesTransport)
+  call msg('End transport species')
+else
+  call msg('No transport species so far (after chemistry)')
+endif
 #endif
     end do  ! iTransformations
 
-!    !
-!    ! If for whatever reasons the chemical transformation modules decide that they cannot do anything
-!    ! they can switch themselves off.
-!    !
-!    call compress_int_array(chemRules%iTransformTypes, int_missing)
-!    if(error)return
+    ! 
+    ! 3b. Include auxiliary species requested by user via 'auxiliary_cocktail'
+    ! Has to be done before aerosol dynamics: it checkes for some species
+    !
+    do iTmp=1,chemRules%nAuxCocktails
+      call msg("Adding AUX cocktail: "//trim(chemRules%auxCocktName(iTmp)))
+      call set_cocktail_description(chemRules%auxCocktName(iTmp), descr_aux_cockt, ifSpecies)
+      if (error) return
+      call get_inventory(descr_aux_cockt, species_aux, nspecies_aux)
+      if (error) return
+      if (fu_fails(nspecies_aux > 0, 'Aux Cocktail given but no species found', 'global_chemical_init')) return 
+      call addSpecies(speciesTransport, nSpeciesTransport, species_aux, nspecies_aux)
+      if (error) return
+      deallocate(species_aux)
+    enddo
 
     !
     ! Finally, the aerosol dynamics
@@ -520,20 +485,20 @@ call msg('End transport species')
       select case(chemRules%iAerosolDynTypes(iTmp))
         case(aerosol_dynamics_basic)
           call full_species_lst_4_ADB(chemRules%rulesAerDynBasic, &
-                       & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                       & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                       & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                       & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                        & iClaimedSpecies)
 !          call addSpecies(speciesTransport, nSpeciesTransport,  speciesTmp, nspeciesTmpTransp)
 !          call addSpecies(speciesAerosol, nSpeciesAerosol, speciesTmp3, nspeciesTmpAero)
 !          call registerSpecies(chemRules%rulesAerDynBasic, &
-!                             & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-!                             & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+!                             & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+!                             & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
 !                             & iClaimedSpecies)
 
         case(aerosol_dynamics_simple)
           call full_spec_lst_4_AerDynSimple(chemRules%rulesAerDynSimple, &
-                       & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                       & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                       & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                       & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                        & iClaimedSpecies)
 !          call addSpecies(speciesTransport, nSpeciesTransport,  speciesTmp, nspeciesTmpTransp)
           call registerSpecies_4_AerDynSimple(chemRules%rulesAerDynSimple, &
@@ -542,8 +507,8 @@ call msg('End transport species')
 
         case(aerosol_dynamics_Mid_Atmosph)
           call full_spec_lst_4_AerDynMidAtm(chemRules%rulesAerDynMidAtmosph, &
-                        & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                        & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                        & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                        & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                         & iClaimedSpecies)
           call registerSpecies(chemRules%rulesAerDynMidAtmosph, &
                              & speciesTransport, speciesShortlived, speciesAerosol, &
@@ -552,8 +517,8 @@ call msg('End transport species')
         
         case (aerosol_dynamics_VBS)
           call full_spec_lst_4_AerDynVBS(chemRules%rulesAerDynVBS, &
-                        & speciesEmission, speciesTransport, speciesShortlived, speciesAerosol, &
-                        & nSpeciesEmission, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                        & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                        & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
                         & iClaimedSpecies)
           call registerSpecies_4_AerDynVBS(chemRules%rulesAerDynVBS, &
                              & speciesTransport, speciesShortlived, &
@@ -579,13 +544,9 @@ end do
     end do   ! aerosol dynamics
 
     !
-    ! 3. Include emitted species not required by any transformation.
-    !
-    do iTmp = 1, nSpeciesEmission
-      if(iClaimedSpecies(iTmp) < 0) &
-           & call addSpecies(speciesTransport, nSpeciesTransport, (/speciesEmission(iTmp)/), 1)
-      if(error)return
-    end do
+    ! 3. Include remainingspecies not required by any transformation.
+    call addSpecies(speciesTransport, nSpeciesTransport, speciesEmisAux, nspeciesEmisAux)
+
 !!#ifdef DEBUG
 !!call msg('Transport species after inclusion emission species: ',nSpeciesTransport, chemRules%iAerosolDynTypes(iTmp))
 !!do stat = 1, nSpeciesTransport
@@ -593,19 +554,11 @@ end do
 !!end do
 !!#endif
 
-    ! 
-    ! 3b. Include auxiliary species after user input
-    do iTmp=1,chemRules%nAuxCocktails
-      call msg("Adding AUX cocktail: "//trim(chemRules%auxCocktName(iTmp)))
-      call set_cocktail_description(chemRules%auxCocktName(iTmp), descr_aux_cockt, ifSpecies)
-      if (error) return
-      call get_inventory(descr_aux_cockt, species_aux, nspecies_aux)
-      if (error) return
-      if (fu_fails(nspecies_aux > 0, 'Aux Cocktail given but no species found', 'global_chemical_init')) return 
-      call addSpecies(speciesTransport, nSpeciesTransport, species_aux, nspecies_aux)
-      if (error) return
-      deallocate(species_aux)
-    enddo
+    !!! Cleanup the temporary
+    deallocate(speciesEmisAux)
+    nullify(speciesEmisAux)
+    nspeciesEmisAux = 0
+
 
     ! 4. We now know the final number of transport and shortlived
     ! species and we can allocate the lists.
@@ -651,40 +604,14 @@ end do
 
     if (chemRules%ifPhotoAOD) &
       call init_photoatt_lut(speciesTransport, nSpeciesTransport, chemRules%photoAODwavelength)
+    if(error)return
 
-
-
-
-    !----------------------------------------------------------------------------------
     !
     ! Upon creating the transformation structures, we can initialise the deposition ones
     !
-    indDepositionType(1:nSpeciesTransport+1) = int_missing
+    call init_deposition(speciesTransport, nSpeciesTransport, chemRules%rulesDeposition)
     if(error)return
 
-    do iTmp = 1, chemRules%rulesDeposition%nDepositionTypes
-    
-      select case(chemRules%rulesDeposition%iDepositionType(iTmp))
-
-        case(transformation_passive, transformation_inert_PM, transformation_sulphur_dmat)
-!          call init_deposition_<whatever>(speciesTransport, indDepositionType, nSpeciesTransport, &
-!                                     & chemRules%rulesPassive)
-
-
-        case(aerosol_dynamics_basic, aerosol_dynamics_simple, aerosol_dynamics_VBS)
-          call set_error('Aerosol dynamics does not have own deposition','global_chemical_init')
-
-        case(deposition_standard)
-          call init_standard_deposition(speciesTransport, indDepositionType, nSpeciesTransport, &
-                                      & chemRules%rulesDeposition)
-
-        case default
-          call msg('Transformation not supported:',chemRules%rulesDeposition%iDepositionType(iTmp))
-          call set_error('Transformation not supported','global_chemical_init')
-      end select
-      if(error)return
-    end do  ! nDepositions
-    
   end subroutine global_chemical_init
 
 
@@ -741,27 +668,11 @@ end do
         case(transformation_pollen)
           call pollen_proc_input_needs(chemRules%rulesPollen, pMeteo_input_local(iType))
 
-        case(transformation_inert_PM)
-          call pm_proc_input_needs(chemRules%rulesPM, pMeteo_input_local(iType))
-
         case(transformation_sulphur_dmat)
           call sulphur_dmat_input_needs(chemrules%rulesSulphurDMAT, pMeteo_input_local(iType))
 
         case(transformation_acid_basic)
           call acidBasic_input_needs(chemRules%rulesAcidBasic, pMeteo_input_local(iType))
-
-        case(transformation_cbm4)
-          call cbm4_input_needs(chemRules%rulesCBM4, pMeteo_input_local(iType))
-          
-        case(transformation_cbm4_SOA)
-          call cbm4_SOA_input_needs(chemRules%rulesCBM4_SOA, pMeteo_input_local(iType))
- 
-
-        case(transformation_cbm42_strato)
-          call cbm42_strato_input_needs(chemRules%rulesCBM42_strato, pMeteo_input_local(iType))
-
-        case(transformation_cbm42_strato_SOA)
-          call cbm42_strato_SOA_input_needs(chemRules%rulesCBM42_strato_SOA, pMeteo_input_local(iType))
 
         case(transformation_cbm5_SOA)
           call cbm5_SOA_input_needs(chemRules%rulesCBM5_SOA, pMeteo_input_local(iType))
@@ -879,90 +790,83 @@ end do
     type(Tchem_rules), intent(in) :: chemrules
     type(t_tla_trajectory), intent(inout) :: traj
 
-    integer :: iType
-    logical :: required, need_hstart
-
-    need_hstart = .false.
+    integer :: iType, iTrans, n
     !
     ! Scan transformation types - some of them need TLA and other stuff stored
     !
     do iType = 1, chemrules%nTransformations
-      select case(chemrules%iTransformTypes(iType))
+      iTrans = chemrules%iTransformTypes(iType)
+      select case(iTrans)
         case(transformation_passive)
-          required = fu_if_tla_required(chemrules%rulesPassive)
-        case(transformation_inert_pm)
-          required = fu_if_tla_required(chemrules%rulesPM)
+          n = fu_tla_size_passive(chemrules%rulesPassive)
+          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_sulphur_dmat)
-          required = fu_if_tla_required(chemrules%rulesSulphurDMAT)
+          n = fu_tla_size_dmat(chemrules%rulesSulphurDMAT)
+          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_acid_basic)
-          required = fu_if_tla_required(chemrules%rulesAcidBasic)
-        case(transformation_cbm4)
-          required = fu_if_tla_required(chemrules%rulesCbm4)
-          need_hstart = .true.
-        case(transformation_cbm4_SOA)
-          required = fu_if_tla_required(chemrules%rulesCbm4_SOA)
-          need_hstart = .true.
-        case(transformation_cbm42_strato)
-          required = fu_if_tla_required(chemrules%rulesCbm42_strato)
-          need_hstart = .true.
-        case(transformation_cbm42_strato_SOA)
-          required = fu_if_tla_required(chemrules%rulesCBM42_strato_SOA)
-          need_hstart = .true.
+!          n = fu_tla_size_acid_basic(chemrules%rulesAcidBasic)
+!          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_cbm5_SOA)
-          required = fu_if_tla_required(chemrules%rulesCBM5_SOA)
-          need_hstart = .true.
+          n = fu_tla_size_cbm5_SOA(chemrules%rulesCBM5_SOA)
+          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_cbm5_strato_SOA)
-          required = fu_if_tla_required(chemrules%rulesCBM5_strato_SOA)
-          need_hstart = .true.
+!          n = fu_tla_size_cbm5_strato_SOA(chemrules%rulesCBM5_strato_SOA)
+!          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_radioactive)
-          required = fu_if_tla_required(chemrules%rulesRadioactive)
+!          n = fu_tla_size_radioactive(chemrules%rulesRadioactive)
+!          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(int_missing)
           exit ! no more transformations
         case default
           call set_error('Unsupported transformation', 'get_tladj_chemistry')
       end select      ! transform type
       if (error) return
-      if (required) call add_tla_traj(chemrules%iTransformTypes(iType), traj)
-      ! the storage for the h_start array
-      if (need_hstart) call add_tla_traj(-chemrules%iTransformTypes(iType), traj, dimensions=3)
     end do  ! transformation types
     !
     ! The same for aerosol dynamics
     !
-    required = .false.
     do iType = 1, chemRules%nAerosolDynamics
       select case(chemrules%iAerosolDynTypes(iType))
         case(aerosol_dynamics_basic)
 !          required = fu_if_tla_required(chemRules%rulesAerDynBasic)
         case(aerosol_dynamics_simple)
-          required = fu_if_tla_required(chemRules%rulesAerDynSimple)
+          n = fu_tla_size_ADS(chemRules%rulesAerDynSimple)
+          if (n>0)  call add_tla_traj(aerosol_dynamics_simple, traj, n) 
         case(aerosol_dynamics_Mid_Atmosph)
 !          required = fu_if_tla_required(chemRules%rulesAerDynMAAD)
         case(aerosol_dynamics_VBS)
-!          required = fu_if_tla_required(chemRules%rulesAerDynVBS)
+          n = fu_tla_size_VBS(chemRules%rulesAerDynVBS)
+          if (n>0)  call add_tla_traj(aerosol_dynamics_VBS, traj, n) 
         case default
           call msg('Unknown aerosol dynamics type:',iType)
           call set_error('Unknown aerosol dynamics type','get_tla_chemistry')
           return
       end select
       if (error) return
-      if (required) call add_tla_traj(chemrules%iAerosolDynTypes(iType), traj)
     end do  ! Active aerosol dynamics
     !
     ! Same for deposition: need TLA to store?
+    ! Note that TLA may be needed for scavenging but not for dry deposition
     !
-    required = fu_if_TLA_required(chemrules%rulesDeposition)
+    n = fu_tla_size_scav(chemrules%rulesDeposition)
     if (error) return
-    if (required) call add_tla_traj(chemrules%iTransformTypes(iType), traj)
+    ! FIXME no TLA for scav: both forward
+    !!! if (n>0) call add_tla_traj(scavAny, traj, n)
+
+    if (chemRules%need_photo_lut .or. chemRules%rulesDeposition%scavengingType == scav2020) then
+       !aodext, aodscat soot_col numconc o3column
+      call add_tla_traj(photoAny, traj, 5)
+    endif
 
   end subroutine get_tla_chemistry
+
 
   !************************************************************************************
 
   subroutine transform_maps(mapTransport, mapShortLived, mapAerosol, mapDryDep, mapWetDep, &
                           & mapReactRates, &
                           & pBoundaryBuffer, &
-                          & garbage, tla_step, &
+                          & garbage, tla_traj, &
                           & met_buf, disp_buf, meteo_input, &
                           & pHorizInterpStruct, pVertInterpStruct, &
                           & ifHorizInterp, ifVertInterp, &
@@ -975,7 +879,7 @@ end do
     type(Tmass_map), intent(inout) :: mapTransport, mapShortlived, mapAerosol, mapDryDep, mapWetDep, mapReactRates
     type(TboundaryBuffer), pointer :: pBoundaryBuffer
     real, dimension(:,:), intent(inout) :: garbage
-    type(t_tla_step), intent(inout) :: tla_step
+    type(t_tla_trajectory), target, intent(in) :: tla_traj
     type(Tfield_buffer), pointer :: met_buf, disp_buf
     type(Tmeteo_input), intent(in) :: meteo_input
     type(THorizInterpStruct), intent(in) :: pHorizInterpStruct
@@ -989,15 +893,16 @@ end do
     integer :: ix, iy, i3d, iSrc, iTransf, iSpecies, status, ind_dz, i1d, cbm_type, itransf_cbm, &
              & nReact
     real, dimension(:,:), pointer :: cncTrn
-    real, dimension(:,:), pointer :: garb_array, photorates, reactRates, metdat_col, o3column
-    real, dimension(:), pointer :: soot_col, pwc_col, tau_above_bott
+    real, dimension(:,:), pointer :: garb_array, photorates, reactRates, metdat_col
+    real, dimension(:), pointer :: soot_col, pwc_col, tau_above_bott, o3column
     real :: cell_volume, zenith_cos, lat, lon, dz
     real, dimension(:), pointer :: cell_size_x, cell_size_y, dz_past, dz_future, cncAer, cncSL, &
-         & aodext,  aodscat, metdat, cell_mass_past, cell_mass_future
-    logical :: have_cb4, have_tla, print_it, ifNeeded
-    real, dimension(:,:,:,:), pointer :: tla_point_cb4 => null(), tla_point_hstart => null()
+         & aodext,  aodscat, metdat, cell_mass_past, cell_mass_future, numconc
+    logical :: have_cb4,  print_it
+    real, dimension(:), pointer :: tla_point
+    real, dimension(:,:), pointer :: tla_column
     integer :: ithread, iLev, iSoot, istat
-    real :: fixed_albedo, ssa 
+    real :: fixed_albedo, ssa !, tcc_photo, tcc_scav
     logical, save :: if_first = .true.
     character(len=*), parameter :: sub_name = 'transform_maps'
     integer, save :: indO3, n_soot
@@ -1067,15 +972,7 @@ end do
     cell_size_x => fu_grid_data(dispersion_cell_x_size_fld)
     cell_size_y => fu_grid_data(dispersion_cell_y_size_fld)
 
-    if (fu_index(transformation_cbm4, chemrules%iTransformTypes) > 0) then
-      cbm_type = transformation_cbm4
-    elseif (fu_index(transformation_cbm4_SOA, chemrules%iTransformTypes) > 0) then
-      cbm_type = transformation_cbm4_SOA
-    else if (fu_index(transformation_cbm42_strato, chemrules%iTransformTypes) > 0) then
-      cbm_type = transformation_cbm42_strato
-    else if (fu_index(transformation_cbm42_strato_SOA, chemrules%iTransformTypes) > 0) then
-      cbm_type = transformation_cbm42_strato_SOA
-    else if (fu_index(transformation_cbm5_SOA, chemrules%iTransformTypes) > 0) then
+    if (fu_index(transformation_cbm5_SOA, chemrules%iTransformTypes) > 0) then
       cbm_type = transformation_cbm5_SOA
     else if (fu_index(transformation_cbm5_strato_SOA, chemrules%iTransformTypes) > 0) then
       cbm_type = transformation_cbm5_strato_SOA
@@ -1091,20 +988,10 @@ end do
       allocate(cb4_h_start_array(mapTransport%n3d, mapTransport%nx, mapTransport%ny), &
              & stat=status)
       if(fu_fails(status == 0, 'Allocate failed', sub_name))return
-      cb4_h_start_array(:,:,:) = -1.0
+      cb4_h_start_array(:,:,:) = abs(seconds)
     end if
 
-    if (have_cb4 .and. defined(tla_step)) then
-      call msg('Have tla step')
-      ! More speedup: instead of requiesting the linearization point inside the loop,
-      ! store it here if needed.
-      tla_point_cb4 => fu_get_tla_point(tla_step, cbm_type)
-      tla_point_hstart => fu_get_tla_point(tla_step, -cbm_type)
-    else
-      nullify(tla_point_cb4)
-    end if
-    have_tla = associated(tla_point_cb4) .and. associated(tla_point_hstart)
-    if (seconds < 0 .and. have_cb4 .and. .not. have_tla) then
+    if (seconds < 0 .and. have_cb4 .and. .not. defined(tla_traj)) then
       call set_error('Have cb4, timestep < 0 but no linearization trajectory', sub_name)
       return
     end if
@@ -1122,10 +1009,10 @@ end do
     !
 
     !call msg('Total N before transformation:', get_total_n(mapTransport))
-
     !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, metdat_col, reactRates, ix, iy, i3d, itransf, isrc, print_it, &
-    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, mass_air, mass_ones, &
-    !$OMP & photorates, aodext, aodscat, o3column, cncAer, cncSL, ithread, soot_col, pwc_col, tau_above_bott, ssa, iSoot)
+    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, & !tcc_photo, tcc_scav, mass_air, mass_ones, &
+    !$OMP & photorates, aodext, aodscat, o3column, cncAer, cncSL, ithread, soot_col, pwc_col, tau_above_bott, ssa, iSoot, &
+    !$OMP &  tla_point, tla_column, numconc)
 
     iThread = 0
     !$ iThread = OMP_GET_THREAD_NUM()
@@ -1138,19 +1025,16 @@ end do
     photorates   => ChemStuff%arrStuff(iThread)%photorates(:,:)
     aodext       => ChemStuff%arrStuff(iThread)%aodext(:)
     aodscat      => ChemStuff%arrStuff(iThread)%aodscat(:)
-    o3column     => ChemStuff%arrStuff(iThread)%o3column(:,:)
+    o3column     => ChemStuff%arrStuff(iThread)%o3column(:)
+    numconc      => ChemStuff%arrStuff(iThread)%numconc(:)
     soot_col     => ChemStuff%arrStuff(iThread)%soot_col(:)
     pwc_col      => ChemStuff%arrStuff(iThread)%pwc_col(:)
     tau_above_bott      => ChemStuff%arrStuff(iThread)%tau_above_bott(:)
     reactRates   => ChemStuff%arrStuff(iThread)%reactRates(:,:)
     
     garb_array(1:mapTransport%nSrc, 1:mapTransport%nSpecies) = 0.0
-    o3column(:,:) = real_missing !! (1:nLev,1:nSrc) should not be used uninitialized
+    o3column(:) = real_missing !! (1:nLev,1:nSrc) should not be used uninitialized
     
-    if (cbm_type == transformation_cbm4) call prepare_step_cbm4()
-    if (cbm_type == transformation_cbm4_SOA) call prepare_step_cbm4_SOA()
-    if (cbm_type == transformation_cbm42_strato) call prepare_step_cbm42_strato()
-    if (cbm_type == transformation_cbm42_strato_SOA) call prepare_step_cbm42_strato_SOA()
     if (cbm_type == transformation_cbm5_SOA) call prepare_step_cbm5_SOA()
     if (cbm_type == transformation_cbm5_strato_SOA) call prepare_step_cbm5_strato_SOA()
 
@@ -1169,55 +1053,87 @@ end do
 
         lat = fu_lat_geographical_from_grid(real(ix), real(iy), dispersion_grid)
         lon = fu_lon_geographical_from_grid(real(ix), real(iy), dispersion_grid)
+        zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
+        if (error) cycle
+
         if (chemRules%need_photo_lut .or. chemRules%rulesDeposition%scavengingType == scav2020) then
+           tla_column => null()
+           if (defined(tla_traj)) then
+             tla_column => fu_get_tla_column(tla_traj, photoAny, ix, iy)
+           end if
 
           if (chemRules%ifPhotoAOD) then
-            call get_photoatt_aod(metdat_col, & 
+            if (seconds > 0) then
+               call get_photoatt_aod(metdat_col, & 
                     & mapTransport%arM(1:mapTransport%nSpecies,1:mapTransport%nSrc,1:mapTransport%n3d,ix,iy),&
                     & aodext, aodscat)
-            if (error) cycle
+               if (error) cycle
+               if (associated(tla_column)) then !! Store TL  aodext, aodscat
+                  tla_column(1,:) = aodext(:)
+                  tla_column(2,:) = aodscat(:)
+               endif
+            else !!restore TL
+                  aodext(:)  = tla_column(1,:)
+                  aodscat(:) = tla_column(2,:)
+            endif
+
           endif
 
           if (chemRules%cloud_model_for_photolysis == detailed_cloud) then
-            soot_col = 0.0
-            do iSoot = 1, n_soot
-              soot_col = soot_col + frac_soot(iSoot)*mapTransport%arM(ind_soot(iSoot), 1, 1:mapTransport%n3d, ix,iy) &
-                   & / (cell_size_x(i1d)*cell_size_y(i1d))
-            end do
+            if (seconds > 0) then
+              soot_col = 0.0
+              do iSoot = 1, n_soot
+                soot_col = soot_col + frac_soot(iSoot)*mapTransport%arM(ind_soot(iSoot), 1, 1:mapTransport%n3d, ix,iy) &
+                     & / (cell_size_x(i1d)*cell_size_y(i1d))
+              end do
+              if (associated(tla_column)) tla_column(3,:) = soot_col(:) !! Store TL  soot_col
+            else
+              soot_col(:) = tla_column(3,:)
+            endif
           end if
 
+
           if (chemRules%cloud_model_for_photolysis == detailed_cloud .or. chemRules%rulesDeposition%scavengingType == scav2020) then
-            call compute_water_cloud_properties(mapTransport%arM(1:mapTransport%nSpecies, 1:mapTransport%nSrc, 1:mapTransport%n3d, ix,iy), &
-                 & metdat_col, aodext, aodscat, density, diam, soot_col, ix, iy, pwc_col, tau_above_bott, ssa)
+            if (seconds > 0) then
+              call aerosol_number_conc(mapTransport%arM(1:mapTransport%nSpecies, 1:mapTransport%nSrc, 1:mapTransport%n3d, ix,iy), &
+                                                       & metdat_col, density, diam, numconc)
+              if (associated(tla_column)) tla_column(4,:) = numconc(:) !! Store TL  numconc
+            else
+              numconc(:) = tla_column(4,:)
+            endif
+            call compute_water_cloud_properties(numconc, & 
+                 & metdat_col, aodext, aodscat, soot_col, pwc_col, tau_above_bott, ssa)
           end if
 
           if (chemRules%need_photo_lut) then 
             !calculate the ozone column above (in Dobson units)
             if (chemRules%PhotoO3col == mass_map) then
-              call get_o3column(metdat_col, mapTransport%arM(indO3,1:mapTransport%nSrc,1:mapTransport%n3d,ix,iy), o3column)
+              if (seconds > 0) then
+                call get_o3column(metdat_col, mapTransport%arM(indO3,1:mapTransport%nSrc,1:mapTransport%n3d,ix,iy), o3column)
+                if (associated(tla_column)) tla_column(5,:) = o3column(:) !! Store TL  o3column
+              else
+                o3column(:) = tla_column(5,:)
+              endif
+
               !call msg('RISTO TEST O3: ix,iy,Ozone column: ', (/real(ix), real(iy), o3column(1,1) /) )
             endif
-            if (error) cycle
-            zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
             if (error) cycle
 
             !NOTE: Only the first source is used for o3column when calculating the photorates!!!!
             call get_photorates_column(metdat_col, zenith_cos, fixed_albedo, now, aodext, &
-                 & aodscat, o3column(1:mapTransport%n3d,1), photorates, chemRules%ifPhotoAOD, &
+                 & aodscat, o3column, photorates, chemRules%ifPhotoAOD, &
                  & chemRules%PhotoO3col, tau_above_bott, ssa, chemRules%cloud_model_for_photolysis)
           end if
           if (error) cycle
         end if
 
         if (seconds < 0) then
-          ! WARNING! adjoint scavenging makes some noncense. Check for pollen leads to substantially
-          ! different mass in air with the below hack and without. Unless the check passes
-          ! the hack should be kept...
-          !  HACK here: 
-          ! Apply forward scavenging here (just flip he sign of "seconds")
-          ! Should be fine for particles and very soluble gases, and for non-soluble gases
-          ! Medium-solubility gasas and SO2 did not work anyway...
-           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_step, -seconds, &
+           tla_column => null()
+           !if (defined(tla_traj)) then
+           !  tla_column => fu_get_tla_column(tla_traj, scavAny, ix, iy)
+           !end if
+           !! Same for forwatd and adjoint FIXME pretend we are forward
+           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_column, seconds, &
                 & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col, &
                 & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)                                                                                                                                                                                                                 
            if(error)call set_error('Trouble with scavenging', sub_name)
@@ -1316,14 +1232,13 @@ endif
 !                                                          & cncAer(1:mapAerosol%nSpecies) * cell_volume
 !
                 case(aerosol_dynamics_simple)
-                  call set_error('aerosol_dynamics_simple is not available for adjoint', sub_name)
-                  
-                  !zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
-                  !call transform_AerDynSimple(cncTrn(1:mapTransport%nSpecies,isrc), &
-                  !                          & cncSL(1:mapShortLived%nSpecies), &
-                  !                          & garb_array(isrc,:), &
-                  !                          & chemRules%rulesAerDynSimple, chemRules%low_cnc_trsh, &
-                  !                          & metdat, seconds, zenith_cos, print_it)
+                  tla_point => fu_get_tla_point(tla_traj, aerosol_dynamics_simple, i3d, ix, iy)
+                  !! Adjoint
+                  call transform_AerDynSimple(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                            & cncSL(1:mapShortLived%nSpecies), &
+                                            & tla_point, &
+                                            & chemRules%rulesAerDynSimple, &
+                                            & metdat, seconds, zenith_cos)
 
                 case(aerosol_dynamics_Mid_Atmosph)
                   call set_error('aerosol_dynamics_Mid_Atmosph is not available for adjoint', sub_name)
@@ -1341,13 +1256,11 @@ endif
                   !                          & print_it)                         
 
                 case(aerosol_dynamics_VBS)
-                  call set_error('aerosol_dynamics_VBS is not available for adjoint', sub_name)
+                  ! Adjoint does not work without TLA
+                  tla_point => fu_get_tla_point(tla_traj, aerosol_dynamics_VBS, i3d, ix, iy)
+                  call transform_AerDynVBS(cncTrn(1:mapTransport%nSpecies,isrc), chemRules%rulesAerDynVBS, &
+                                             & metdat, seconds, tla_point)
                   
-                  !call transform_AerDynVBS(cncTrn(1:mapTransport%nSpecies,isrc), &
-                  !                       & cncSL(1:mapShortLived%nSpecies), &
-                  !                       & garb_array(isrc,:), &
-                  !                       & chemRules%rulesAerDynVBS, chemRules%low_cnc_trsh, &
-                  !                       & metdat, seconds, print_it)
                 case(int_missing)
                   continue
 
@@ -1397,8 +1310,10 @@ end do
                                        & print_it)
 
                 case (transformation_sulphur_dmat)
-                  
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
+                  tla_point => null()
+                  if (defined(tla_traj)) then
+                    tla_point => fu_get_tla_point(tla_traj, transformation_sulphur_dmat, i3d, ix, iy)
+                  end if
                   call transform_dmat(cncTrn(1:mapTransport%nSpecies,isrc), &  ! handles also adjoint
                                     & cncSL(1:mapShortLived%nSpecies), &
                                     & chemRules%rulesSulphurDMAT, &
@@ -1407,13 +1322,9 @@ end do
                                     & now, &
                                     & lat, &
                                     & lon, &
-                                    & seconds, &
-                                    & chemRules%low_cnc_trsh, &
-                                    & garb_array(isrc,:), &
-                                    & print_it)
+                                    & seconds, tla_point)
 
                 case (transformation_acid_basic)
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
                   call transform_acid_Basic(cncTrn(1:mapTransport%nSpecies,isrc), &  ! no adjoint
                                           & cncSL(1:mapShortLived%nSpecies), &
                                           & chemRules%rulesAcidBasic, &
@@ -1428,239 +1339,16 @@ end do
                                           & lat, lon, now, &
                                           & print_it)
 
-                case (transformation_cbm4)
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
-                  if (seconds > 0) then
-                    !
-                    ! forward and adjoint are different subroutines
-                    ! Forward
-                    !
-                    if (have_tla) then
-                      tla_point_cb4(:,i3d,ix,iy) = mapTransport%arM(:, isrc, i3d, ix, iy) / cell_volume
-                      tla_point_hstart(1,i3d,ix,iy) = cb4_h_start_array(i3d,ix,iy)
-                    end if
-
-#ifdef DEBUG_MORE
-call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
-                     & garb_array(iSrc,:), &
-                     & mapTransport%species, 'chem manager, before transform_cbm4', &
-                     & chemRules%low_cnc_trsh, &
-                     & mapTransport%nSpecies, ix, iy, i3d, print_it)
-if (error) cycle
-#endif
-                    ! commented arguments to be included when chemistry regenerated...
-
-                    call transform_cbm4(cncTrn(1:mapTransport%nSpecies,isrc), &
-!                                      & photorates(:, i3d), &
-                                      & chemRules%rulesCBM4, &
-                                      & metdat, &
-                                      & seconds, &
-                                      & garb_array(isrc,:), &
-                                      & zenith_cos, &
-                                      & cb4_h_start_array(i3d,ix,iy), &
-!                                      & now, &
-                                      & print_it, & 
-                                      & reactrates = reactRates(:,iSrc))
-#ifdef DEBUG_MORE
-call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
-                     & garb_array(iSrc,:), &
-                     & mapTransport%species, 'chem manager, after transform_cbm4', &
-                     & chemRules%low_cnc_trsh, &
-                     & mapTransport%nSpecies, ix, iy, i3d, print_it)
-if (error) cycle
-#endif
-
-                  else
-                    !
-                    ! Adjoint
-#ifdef DEBUG_MORE
-                     cnctrn_tmp(1:mapTransport%nSpecies) = cncTrn(1:mapTransport%nSpecies,isrc)
-                     cnctrn_tmp1(1:mapTransport%nSpecies) = tla_point_cb4(1:mapTransport%nSpecies,i3d,ix,iy)
-                     cnctrn_tmp2(1:mapTransport%nSpecies) = garb_array(isrc,1:mapTransport%nSpecies)
-                     fTmp = tla_point_hstart(1,i3d,ix,iy)
-#endif
-                    call transform_cbm4_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                          & tla_point_cb4(:,i3d,ix,iy), &
-!                                          & photorates(:, i3d), &
-                                          & chemRules%rulesCBM4, &
-                                          & metdat, &
-                                          & seconds, &
-                                          & garb_array(isrc,:), &
-                                          & zenith_cos, &
-                                          & tla_point_hstart(1,i3d,ix,iy), &
-!                                          & now, &
-                                          & print_it)
-#ifdef DEBUG
-                  if (.not. sum(abs(cncTrn(1:mapTransport%nSpecies,isrc))) >=0. ) then
-#ifdef DEBUG_MORE
-                     call msg("Before:")
-                     call msg("cnctrn_tmp", cnctrn_tmp(1:mapTransport%nSpecies))
-                     call msg("tla_point_cb4(:,i3d,ix,iy)", cnctrn_tmp1(1:mapTransport%nSpecies))
-                     call msg(" garb_array(isrc,1:mapTransport%nSpecies)", cnctrn_tmp2(1:mapTransport%nSpecies))
-                     call msg("hstart: before, after", fTmp, tla_point_hstart(1,i3d,ix,iy))
-#endif
-                     call msg("After:")
-                     call msg(" garb_array(isrc,1:mapTransport%nSpecies)",garb_array(isrc,1:mapTransport%nSpecies))
-                     call msg("tla_point_cb4(:,i3d,ix,iy)", tla_point_cb4(1:mapTransport%nSpecies,i3d,ix,iy))
-                     call msg("cncTrn(1:mapTransport%nSpecies,isrc)", cncTrn(1:mapTransport%nSpecies,isrc))
-                     call set_error("Gotcha cb4 adj", "Here")
-                  endif
-#endif
-                  end if
-
-                  
-                  
-                case (transformation_cbm4_SOA)
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
-                  if (seconds > 0) then
-                    if (have_tla) then
-                      tla_point_cb4(:,i3d,ix,iy) = mapTransport%arM(:, isrc, i3d, ix, iy) / cell_volume
-                      tla_point_hstart(1,i3d,ix,iy) = cb4_h_start_array(i3d,ix,iy)
-                    end if
-
-                    call transform_cbm4_SOA(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                              & photorates(:, i3d), &
-                                              & chemRules%rulesCBM4_SOA, &
-                                              & metdat, &
-                                              & seconds, &
-                                              & garb_array(isrc,:), &
-                                              & zenith_cos, lat, &
-                                              & cb4_h_start_array(i3d,ix,iy), &
-                                              & now, &
-                                              & print_it)
-                  else
-                    call transform_cbm4_SOA_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                                  & tla_point_cb4(:,i3d,ix,iy), &
-                                                  & photorates(:, i3d), &
-                                                  & chemRules%rulesCBM4_SOA, &
-                                                  & metdat, &
-                                                  & seconds, &
-                                                  & garb_array(isrc,:), &
-                                                  & zenith_cos, lat, &
-                                                  & tla_point_hstart(1,i3d,ix,iy), &
-                                                  & now, &
-                                                  & print_it)
-
-                  end if
-
-                  
-                case (transformation_cbm42_strato)
-                  if (seconds > 0) then
-                    !
-                    ! forward and adjoint are different subroutines
-                    ! Forward
-                    !
-                    if (have_tla) then
-                      tla_point_cb4(:,i3d,ix,iy) = mapTransport%arM(:, isrc, i3d, ix, iy) / cell_volume
-                      tla_point_hstart(1,i3d,ix,iy) = cb4_h_start_array(i3d,ix,iy)
-                    end if
-
-                    call transform_cbm42_strato(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                              & photorates(:, i3d), &
-                                              & chemRules%rulesCBM42_strato, &
-                                              & metdat, &
-                                              & seconds, &
-                                              & garb_array(isrc,:), &
-                                              & zenith_cos, lat, &
-                                              & cb4_h_start_array(i3d,ix,iy), &
-                                              & now, &
-                                              & print_it)
-#ifdef DEBUG_MORE
-call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
-                     & garb_array(iSrc,:), &
-                     & mapTransport%species, 'chem manager, after transform_cbm42_strato', &
-                     & chemRules%low_cnc_trsh, &
-                     & mapTransport%nSpecies, ix, iy, i3d, print_it)
-#endif
-
-                  else
-                    !
-                    ! adjoint
-                    !
-                    call transform_cbm42_strato_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                                  & tla_point_cb4(:,i3d,ix,iy), &
-                                                  & photorates(:, i3d), &
-                                                  & chemRules%rulesCBM42_strato, &
-                                                  & metdat, &
-                                                  & seconds, &
-                                                  & garb_array(isrc,:), &
-                                                  & zenith_cos, lat, &
-                                                  & tla_point_hstart(1,i3d,ix,iy), &
-                                                  & now, &
-                                                  & print_it)
-
-                  end if
-
-                case (transformation_cbm42_strato_SOA)
-                  if (seconds > 0) then
-                    !
-                    ! forward and adjoint are different subroutines
-                    ! Forward
-                    !
-                    if (have_tla) then
-                      tla_point_cb4(:,i3d,ix,iy) = mapTransport%arM(:, isrc, i3d, ix, iy) / cell_volume
-                      tla_point_hstart(1,i3d,ix,iy) = cb4_h_start_array(i3d,ix,iy)
-                    end if
-
-                    call transform_cbm42_strato_SOA(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                              & photorates(:, i3d), &
-                                              & chemRules%rulesCBM42_strato_SOA, &
-                                              & metdat, &
-                                              & seconds, &
-                                              & garb_array(isrc,:), &
-                                              & zenith_cos, lat, &
-                                              & cb4_h_start_array(i3d,ix,iy), &
-                                              & now, &
-                                              & print_it)
-#ifdef FORCING_TOP
-if(i3d == mapTransport%n3d)then
-if(ix == 1 .and. iy == 1) call msg_warning('Forcing top O3 to ~0.1ppm', sub_name)
-! Concentration at 62km is around 2e-10 mole/m3, roughly corresponds to 0.1ppm.
-! Note that daytime it is essentially zero, night-time is fine. But it looks like MOZART also has problems with this
-
-if(indOzoneToForce /= int_missing) cncTrn(indOzoneToForce,isrc) = 2e-10 + (1.-zenith_cos) * 3e-10
-
-endif
-#endif
-
-
-
-
-#ifdef DEBUG_MORE
-call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
-                     & garb_array(iSrc,:), &
-                     & mapTransport%species, 'chem manager, after transform_cbm42_strato_SOA', &
-                     & chemRules%low_cnc_trsh, &
-                     & mapTransport%nSpecies, ix, iy, i3d, print_it)
-#endif
-
-                  else
-                    !
-                    ! adjoint
-                    !
-                    call transform_cbm42_strato_SOA_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                                  & tla_point_cb4(:,i3d,ix,iy), &
-                                                  & photorates(:, i3d), &
-                                                  & chemRules%rulesCBM42_strato_SOA, &
-                                                  & metdat, &
-                                                  & seconds, &
-                                                  & garb_array(isrc,:), &
-                                                  & zenith_cos, lat, &
-                                                  & tla_point_hstart(1,i3d,ix,iy), &
-                                                  & now, &
-                                                  & print_it)
-
-                  end if
 
                 case (transformation_cbm5_SOA)
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
+                  tla_point => null()
+                  if (defined(tla_traj)) then
+                    tla_point => fu_get_tla_point(tla_traj, cbm_type, i3d, ix, iy)
+                  end if
                   if (seconds > 0) then
-                    if (have_tla) then
-                      tla_point_cb4(:,i3d,ix,iy) = mapTransport%arM(:, isrc, i3d, ix, iy) / cell_volume
-                      tla_point_hstart(1,i3d,ix,iy) = cb4_h_start_array(i3d,ix,iy)
-                    end if
 
                     call transform_cbm5_SOA(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                              & tla_point, &
                                               & photorates(:, i3d), &
                                               & chemRules%rulesCBM5_SOA, &
                                               & metdat, &
@@ -1672,14 +1360,13 @@ call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
                                               & print_it)
                   else
                     call transform_cbm5_SOA_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                                  & tla_point_cb4(:,i3d,ix,iy), &
+                                                  & tla_point, &
                                                   & photorates(:, i3d), &
                                                   & chemRules%rulesCBM5_SOA, &
                                                   & metdat, &
                                                   & seconds, &
                                                   & garb_array(isrc,:), &
                                                   & zenith_cos, lat, &
-                                                  & tla_point_hstart(1,i3d,ix,iy), &
                                                   & now, &
                                                   & print_it)
 
@@ -1687,14 +1374,14 @@ call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
 
                   
                 case (transformation_cbm5_strato_SOA)
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
-                  if (seconds > 0) then
-                    if (have_tla) then
-                      tla_point_cb4(:,i3d,ix,iy) = mapTransport%arM(:, isrc, i3d, ix, iy) / cell_volume
-                      tla_point_hstart(1,i3d,ix,iy) = cb4_h_start_array(i3d,ix,iy)
-                    end if
+                  tla_point => null()
+                  if (defined(tla_traj)) then
+                    tla_point => fu_get_tla_point(tla_traj, cbm_type, i3d, ix, iy)
+                  end if
 
+                  if (seconds > 0) then
                     call transform_cbm5_strato_SOA(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                              & tla_point, &
                                               & photorates(:, i3d), &
                                               & chemRules%rulesCBM5_strato_SOA, &
                                               & metdat, &
@@ -1706,14 +1393,13 @@ call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
                                               & print_it)
                   else
                     call transform_cbm5_strato_SOA_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                                  & tla_point_cb4(:,i3d,ix,iy), &
+                                                  & tla_point, &
                                                   & photorates(:, i3d), &
                                                   & chemRules%rulesCBM5_strato_SOA, &
                                                   & metdat, &
                                                   & seconds, &
                                                   & garb_array(isrc,:), &
                                                   & zenith_cos, lat, &
-                                                  & tla_point_hstart(1,i3d,ix,iy), &
                                                   & now, &
                                                   & print_it)
 
@@ -1759,7 +1445,7 @@ call check_mass_vector(cncTrn(1:mapTransport%nSpecies,isrc), &
                       cycle
                     endif
                   endif  ! i3d ==1
-                case(int_missing, transformation_inert_PM)
+                case(int_missing)
                   continue
                 case default
                   call msg('Unknown transformation:',chemrules%iTransformTypes(itransf))
@@ -1813,17 +1499,17 @@ end do
 !                       & mapAerosol%arM(1:mapAerosol%nSpecies,isrc,i3d,ix,iy) * cell_volume
 
                 case(aerosol_dynamics_simple)
-                  zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
+                  tla_point => null()
+                  if (defined(tla_traj)) then 
+                    tla_point => fu_get_tla_point(tla_traj, aerosol_dynamics_simple, i3d, ix, iy)
+                  end if
                   call transform_AerDynSimple(cncTrn(1:mapTransport%nSpecies,isrc), &
                                             & cncSL(1:mapShortLived%nSpecies), &
-!                                            & mapTransport%arM(:,isrc,i3d,ix,iy), &
-!                                            & mapShortLived%arM(:,isrc,i3d,ix,iy), &
-                                            & garb_array(isrc,:), &
-                                            & chemRules%rulesAerDynSimple, chemRules%low_cnc_trsh, &
-                                            & metdat, seconds, zenith_cos, print_it)
+                                            & tla_point, &
+                                            & chemRules%rulesAerDynSimple, &
+                                            & metdat, seconds, zenith_cos)
 
                 case(aerosol_dynamics_Mid_Atmosph)
-!$OMP CRITICAL(aerdyn)  !This is only to order the error etc messages. Can be removed if one this slows the code too much!
                   call transform_AerDynMidAtm(cncTrn(1:mapTransport%nSpecies,isrc), &
                                             & cncSL(1:mapShortLived%nSpecies), &
                                             & cncAer(1:mapAerosol%nSpecies), &
@@ -1835,15 +1521,16 @@ end do
                                             & mapTransport%nSpecies, &
                                             & mapTransport%Species, ix, iy, i3d, &
                                             & print_it)
-!$OMP END CRITICAL(aerdyn)
                                 
-                case(aerosol_dynamics_VBS)
-                  call transform_AerDynVBS(cncTrn(1:mapTransport%nSpecies,isrc), &
-                                         & cncSL(1:mapShortLived%nSpecies), &
-                                         & garb_array(isrc,:), &
-                                         & chemRules%rulesAerDynVBS, chemRules%low_cnc_trsh, &
-                                         & metdat, seconds, print_it)
-
+                case(aerosol_dynamics_VBS) !!FORWARD
+                  tla_point => null()
+                  if (defined(tla_traj)) then 
+                    tla_point => fu_get_tla_point(tla_traj, aerosol_dynamics_VBS, i3d, ix, iy)
+                  end if
+!!$OMP CRITICAL(aerdyn)  !This is only to order the error etc messages. Can be removed if one this slows the code too much!
+                  call transform_AerDynVBS(cncTrn(1:mapTransport%nSpecies,isrc), chemRules%rulesAerDynVBS, &
+                                             & metdat, seconds, tla_point)
+!!$OMP END CRITICAL(aerdyn)
                 case(int_missing)
                   continue
 
@@ -1940,7 +1627,12 @@ end do
         end do     !n3d
         
         if (seconds > 0) then
-           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_step, seconds, &
+           tla_column => null()
+           if (defined(tla_traj)) then
+             tla_column => fu_get_tla_column(tla_traj, scavAny, ix, iy)
+           end if
+
+           call scavenge_column(mapTransport, mapWetDep, garb_array, tla_column, seconds, &
                 & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col, &
                 & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)
            if(error)call set_error('Trouble with scavenging', sub_name)
@@ -1966,7 +1658,7 @@ end do
   !**************************************************************************************
 
   subroutine transform_lagrangian_part(lpSet, mapDryDep, mapWetDep, &
-                                     & garbage, tla_step, &
+                                     & garbage, &
                                      & met_buf, disp_buf, meteo_input, &
                                      & pHorizInterpStruct, pVertInterpStruct, &
                                      & ifHorizInterp, ifVertInterp,&
@@ -1980,7 +1672,6 @@ end do
     type(Tlagrange_particles_set), intent(inout) :: lpSet
     type(Tmass_map), intent(inout) :: mapDryDep, mapWetDep
     real, dimension(:,:), intent(inout) :: garbage
-    type(t_tla_step), intent(inout) :: tla_step
     type(Tfield_buffer), pointer :: met_buf, disp_buf
     type(Tmeteo_input), pointer :: meteo_input
     type(THorizInterpStruct), pointer :: pHorizInterpStruct
@@ -1992,7 +1683,7 @@ end do
 
     ! Local variables
     integer :: iTransf, iP, iSrc, iSpecies
-    real :: cell_volume, lon, lat, zenith_cos
+    real :: cell_volume, lon, lat, zenith_cos, fTmp
     real, dimension(:), pointer :: metdat, cncTrn, cncAer, cncSL
     real, dimension(:,:), pointer :: garb_array
     logical :: print_it
@@ -2065,11 +1756,9 @@ end do
               zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
               call transform_AerDynSimple(cncTrn(1:lpSet%nSpeciesTrn), &
                                         & cncSL(1:lpSet%nSpeciesSL), &
-!                                        &lpSet%lpMassTrn(:,iP), &
-!                                        & lpSet%lpMassSL(:,iP), &
-                                        & garb_array(iSrc,:), &
-                                        & chemRules%rulesAerDynSimple, chemRules%low_cnc_trsh, &
-                                        & metdat, seconds,zenith_cos, print_it)
+                                        & null(), &! TL
+                                        & chemRules%rulesAerDynSimple, &
+                                        & metdat, seconds,zenith_cos)
             case(aerosol_dynamics_Mid_Atmosph)
               call transform_AerDynMidAtm(cncTrn(1:lpSet%nSpeciesTrn), &
                                         & cncSL(1:lpSet%nSpeciesSL), &
@@ -2082,12 +1771,9 @@ end do
                                         & lpSet%nSpeciesTrn, &
                                         & lpSet%spTransp, iP, int_missing, int_missing, &
                                         & print_it)
-            case(aerosol_dynamics_VBS)
-              call transform_AerDynVBS(cncTrn(1:lpSet%nSpeciesTrn), &
-                                         & cncSL(1:lpSet%nSpeciesSL), &
-                                         & garb_array(isrc,:), &
-                                         & chemRules%rulesAerDynVBS, chemRules%low_cnc_trsh, &
-                                         & metdat, seconds, print_it)
+            case(aerosol_dynamics_VBS) !! No adjoint for lagrange
+              call transform_AerDynVBS(cncTrn(1:lpSet%nSpeciesTrn), chemRules%rulesAerDynVBS, &
+                                         & metdat, seconds, null())
             case(int_missing)
 
               continue
@@ -2134,18 +1820,13 @@ end do
               zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
               call transform_dmat(cncTrn(1:lpSet%nSpeciesTrn), &
                                 & cncSL(1:lpSet%nSpeciesSL), &
-!                                        &lpSet%lpMassTrn(:,iP), &
-!                                & lpSet%lpMassSL(:,iP), &
                                 & chemRules%rulesSulphurDMAT, &
                                 & metdat,&
                                 & zenith_cos, &
                                 & now, &
                                 & lat, &
                                 & lon, &
-                                & seconds, &
-                                & chemRules%low_cnc_trsh, &
-                                & garb_array(isrc,:), &
-                                & print_it)
+                                & seconds, null())
 
             case (transformation_acid_basic)
               lat = fu_lat_geographical_from_grid(lpSet%lpDyn(lp_x,iP), lpSet%lpDyn(lp_y,iP), &
@@ -2170,8 +1851,6 @@ end do
                                       & lat, lon, now, &
                                       & print_it)
 
-            case (transformation_cbm4)
-              call set_error('CB4 is not applicable in Lagrangian environment','')
                   
             case (transformation_radioactive)
               call transform_radioactive(cncTrn(1:lpSet%nSpeciesTrn), &
@@ -2179,7 +1858,7 @@ end do
                                        & chemRules%rulesRadioactive, &
                                        & metdat,&
                                        & seconds, print_it)
-            case(int_missing, transformation_inert_PM)
+            case(int_missing)
               continue
             case default
               call msg('Unknown transformation:',chemrules%iTransformTypes(itransf))
@@ -2225,11 +1904,9 @@ end do
               zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
               call transform_AerDynSimple(cncTrn(1:lpSet%nSpeciesTrn), &
                                         & cncSL(1:lpSet%nSpeciesSL), &
-!                                        & lpSet%lpMassTrn(:,iP), &
-!                                        & lpSet%lpMassSL(:,iP), &
-                                        & garb_array(isrc,:), &
-                                        & chemRules%rulesAerDynSimple, chemRules%low_cnc_trsh, &
-                                        & metdat, seconds, zenith_cos, print_it)
+                                        & null(), & 
+                                        & chemRules%rulesAerDynSimple,  &
+                                        & metdat, seconds, zenith_cos)
 
             case(aerosol_dynamics_Mid_Atmosph)
               call transform_AerDynMidAtm(cncTrn(1:lpSet%nSpeciesTrn), &
@@ -2245,11 +1922,8 @@ end do
                                         & print_it)
                           
             case(aerosol_dynamics_VBS)
-              call transform_AerDynVBS(cncTrn(1:lpSet%nSpeciesTrn), &
-                                         & cncSL(1:lpSet%nSpeciesTrn), &
-                                         & garb_array(isrc,:), &
-                                         & chemRules%rulesAerDynVBS, chemRules%low_cnc_trsh, &
-                                         & metdat, seconds, print_it)
+              call transform_AerDynVBS(cncTrn(1:lpSet%nSpeciesTrn), chemRules%rulesAerDynVBS, &
+                                         & metdat, seconds, null())
 
             case(int_missing)
               continue
@@ -2395,8 +2069,7 @@ end do
               case(transformation_pollen)
               case (transformation_sulphur_dmat)
               case (transformation_acid_basic)
-              case (transformation_cbm4)
-              case(int_missing, transformation_inert_PM)
+              case(int_missing)
                   
               case (transformation_radioactive)
                 !
@@ -2514,10 +2187,6 @@ end do
         rulesChemistry%iTransformTypes(iTmp) = transformation_pollen
         call set_chem_rules_pollen(nlTransf, rulesChemistry%rulesPollen)
 
-      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'PM_GENERAL') == 1)then
-        rulesChemistry%iTransformTypes(iTmp) = transformation_inert_PM
-        call set_chemRules_PM_general(nlTransf, rulesChemistry%rulesPM)
-
       elseif(index(fu_str_u_case(fu_content(items(iTmp))),'DMAT_SULPHUR') == 1)then
         rulesChemistry%iTransformTypes(iTmp) = transformation_sulphur_dmat
         call set_chem_rules_sulphur_dmat(nlTransf, nlStdSetup, rulesChemistry%rulesSulphurDMAT)
@@ -2527,26 +2196,12 @@ end do
         call set_chem_rules_acidBasic(nlTransf, nlStdSetup, rulesChemistry%rulesAcidBasic)
 
      ! Should be checked before CB4 
-      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB4_STRATO_SOA') == 1)then
-        rulesChemistry%iTransformTypes(iTmp) = transformation_cbm42_strato_SOA
-        call set_chem_rules_CBM42_strato_SOA(nlTransf, rulesChemistry%rulesCBM42_strato_SOA)
-      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB4_STRATO') == 1)then
-        rulesChemistry%iTransformTypes(iTmp) = transformation_cbm42_strato
-        call set_chem_rules_CBM42_strato(nlTransf, rulesChemistry%rulesCBM42_strato)
-      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB4_SOA') == 1)then
-        rulesChemistry%iTransformTypes(iTmp) = transformation_cbm4_SOA
-        call set_chem_rules_CBM4_SOA(nlTransf, rulesChemistry%rulesCBM4_SOA)
       elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB5_SOA') == 1)then
         rulesChemistry%iTransformTypes(iTmp) = transformation_cbm5_SOA
         call set_chem_rules_CBM5_SOA(nlTransf, rulesChemistry%rulesCBM5_SOA)
       elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB5_STRATO_SOA') == 1)then
         rulesChemistry%iTransformTypes(iTmp) = transformation_cbm5_strato_SOA
         call set_chem_rules_CBM5_strato_SOA(nlTransf, rulesChemistry%rulesCBM5_strato_SOA)
-
-      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB4') == 1)then
-        rulesChemistry%iTransformTypes(iTmp) = transformation_cbm4
-        call set_chem_rules_CBM4(nlTransf, rulesChemistry%rulesCBM4)
-        
 
       elseif(index(fu_str_u_case(fu_content(items(iTmp))),'RADIOACTIVE') == 1)then
         rulesChemistry%iTransformTypes(iTmp) = transformation_radioactive
@@ -2685,122 +2340,8 @@ end do
     !
     ! Deposition rules are set as part of chemical ones
     !
-    ! The standard deposition will be applied only for those species, which are not covered by the 
-    ! specific chemistry-related procedures
-    !
-    allocate(rulesChemistry%rulesDeposition%iDepositionType(rulesChemistry%nTransformations+1), &
-           & stat = iTmp)
-    if(iTmp /= 0)then
-      call set_error('Failed to allocate memory for deposition types',sub_name)
-      return
-    endif
-    rulesChemistry%rulesDeposition%iDepositionType = int_missing
-    rulesChemistry%rulesDeposition%nDepositionTypes = 0
-
-    do iTmp = 1, rulesChemistry%nTransformations
-      select case(rulesChemistry%iTransformTypes(iTmp))
-
-        case(transformation_passive)
-          if(fu_if_specific_deposition(rulesChemistry%rulesPassive))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_passive, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-          
-        case(transformation_pollen)
-          if(fu_if_specific_deposition(rulesChemistry%rulesPollen))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_pollen, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case(transformation_inert_PM)
-          if(fu_if_specific_deposition(rulesChemistry%rulesPM))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_inert_PM, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case (transformation_sulphur_dmat)
-          if(fu_if_specific_deposition(rulesChemistry%rulesSulphurDMAT))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_sulphur_dmat, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case (transformation_acid_basic)
-          if(fu_if_specific_deposition(rulesChemistry%rulesAcidBasic))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_acid_basic, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case (transformation_radioactive)
-          if(fu_if_specific_deposition(rulesChemistry%rulesRadioactive))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_radioactive, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case (transformation_cbm4)
-          if(fu_if_specific_deposition(rulesChemistry%rulesCBM4))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_cbm4, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-                  
-        case (transformation_cbm4_SOA)
-          if(fu_if_specific_deposition(rulesChemistry%rulesCBM4_SOA))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_cbm4_SOA, &
-                                                   & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-          
-
-        case (transformation_cbm42_strato)
-          if(fu_if_specific_deposition(rulesChemistry%rulesCBM42_strato))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_cbm42_strato, &
-                                                           & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-         
-        case (transformation_cbm42_strato_SOA)
-          if(fu_if_specific_deposition(rulesChemistry%rulesCBM42_strato_SOA))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_cbm42_strato_SOA, &
-                                                           & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case (transformation_cbm5_SOA)
-          if(fu_if_specific_deposition(rulesChemistry%rulesCBM5_SOA))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_cbm5_SOA, &
-                                                           & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case (transformation_cbm5_strato_SOA)
-          if(fu_if_specific_deposition(rulesChemistry%rulesCBM5_strato_SOA))then
-            rulesChemistry%rulesDeposition%nDepositionTypes = &
-                                 & fu_merge_integer_to_array(transformation_cbm5_strato_SOA, &
-                                                           & rulesChemistry%rulesDeposition%iDepositionType)
-          endif
-
-        case default
-          call msg('Transfomation not supported:',rulesChemistry%iTransformTypes(iTmp))
-          call set_error('Transfomation not supported',sub_name)
-      end select
-      !if(error)return
-    end do  ! transformation types
-!    call unset_error(sub_name)
-    !
-    ! Standard deposition is always computed
-    !
-    rulesChemistry%rulesDeposition%nDepositionTypes = &
-                     & fu_merge_integer_to_array(deposition_standard, &
-                               & rulesChemistry%rulesDeposition%iDepositionType)
     call set_deposition_rules(nlTransf, rulesChemistry%rulesDeposition, if_lagr_present)
     if(error)return
-
 
     ! Extra species. If not defined, no species added.
     call get_items(nlTransf, 'auxiliary_cocktail', items, rulesChemistry%nAuxCocktails)
@@ -2833,12 +2374,7 @@ end do
 
     ! For CB4 strato, initialize photolysis
     !
-!!$    if (fu_index(transformation_cbm42_strato, chemRules%iTransformTypes) > 0 &
-!!$      & .or. fu_index(transformation_cbm4, chemRules%iTransformTypes) > 0 ) then
-    if (fu_index(transformation_cbm42_strato, rulesChemistry%iTransformTypes) > 0 &
-      & .or. fu_index(transformation_cbm42_strato_SOA, rulesChemistry%iTransformTypes) > 0 &        
-      & .or. fu_index(transformation_cbm4_SOA, rulesChemistry%iTransformTypes) > 0 &
-      & .or. fu_index(transformation_cbm5_SOA, rulesChemistry%iTransformTypes) > 0 &
+    if (fu_index(transformation_cbm5_SOA, rulesChemistry%iTransformTypes) > 0 &
       & .or. fu_index(transformation_cbm5_strato_SOA, rulesChemistry%iTransformTypes) > 0) then
       rulesChemistry%need_photo_lut = .true.
 
@@ -2951,6 +2487,7 @@ end do
     call set_missing(chemrules%rulesAerosol)
     nullify(chemrules%rulesOpticDens, chemrules%chemRunSetup, chemrules%rulesDeposition,&
           & chemrules%low_mass_trsh)
+    chemrules%ifLowMassThreshAllocated = .false.
     chemrules%defined = silja_false
 
   end subroutine set_chemrules_missing
@@ -2985,13 +2522,12 @@ end do
     real :: fTmp
     real(8), dimension(max_species) :: amounts_r8
     real, dimension(max_species) :: amounts_my, amounts_all
-    logical, save :: ifFirst = .true.
     !
     ! Attention! 
     ! The sub can be called several times in case of data assimilation. Careful with memory
     ! allocation and unnecesary repeating of some calculations.
     !
-    if(ifFirst)then
+    if(.not. chemrules%ifLowMassThreshAllocated)then
       !
       ! Allocate memory, calculate thresholds, store them to thresholds_saved array.
       !
@@ -3003,6 +2539,7 @@ end do
              & chemrules%low_cnc_trsh_adj(nspecies_transport), &
              & stat=istat)
       if(fu_fails(istat == 0, 'Allocate failed', 'set_low_mass_threshold'))return
+      chemrules%ifLowMassThreshAllocated = .true.
       chemrules%low_cnc_trsh_frw = -1.0
       chemrules%low_mass_trsh_frw = -1.0
       chemrules%low_cnc_trsh_adj = -1.0
@@ -3019,8 +2556,7 @@ end do
         if(fu_fails(istat == 0, 'Lagrangian allocation failed', 'set_low_mass_threshold'))return
         chemrules%mass_lagr_particle = -1.0
       end if
-      ifFirst = .false.
-    endif  ! ifFirst
+    endif  ! .not. ifLowMassThreshAllocated
 
     !
     ! Having space allocated, get the required threshold
@@ -3069,49 +2605,6 @@ end do
         return
       endif
     end do
-    !
-    ! Some species must exist if another one exists, so we will ensure that by reducing its threshold
-    !
-    call msg('Checking the consistency of the low-mass thresholds')
-    do i = 1, chemrules%nTransformations
-      select case(chemrules%iTransformTypes(i))
-        case(transformation_cbm4)
-          call check_low_mass_threshold_cb4(chemrules%rulesCBM4, transport_species, &
-                                          & nSpecies_transport, ifForwardRun, &
-                                          & chemrules%low_cnc_trsh, chemrules%low_mass_trsh)
-!The following is not needed after PAR-OLE tweaks:
-!        case(transformation_cbm4_SOA)
-!          call check_low_mass_threshold_cbm4_SOA(chemrules%rulesCBM4_SOA, transport_species, &
-!                                          & nSpecies_transport, ifForwardRun, &
-!                                          & chemrules%low_cnc_trsh, chemrules%low_mass_trsh)          
-!        case(transformation_cbm42_strato)
-!          call check_low_mass_threshold_cbm42_strato(chemrules%rulesCBM42_strato, transport_species, &
-!                                             & nSpecies_transport, ifForwardRun, &
-!                                             & chemrules%low_cnc_trsh, chemrules%low_mass_trsh)
-!        case(transformation_cbm42_strato_SOA)
-!          call check_low_mass_threshold_cbm42_strato_SOA(chemrules%rulesCBM42_strato_SOA, transport_species, &
-!                                             & nSpecies_transport, ifForwardRun, &
-!                                             & chemrules%low_cnc_trsh, chemrules%low_mass_trsh)
-!        case(transformation_cbm5_SOA)
-!          call check_low_mass_threshold_cbm5_SOA(chemrules%rulesCBM5_SOA, transport_species, &
-!                                             & nSpecies_transport, ifForwardRun, &
-!                                             & chemrules%low_cnc_trsh, chemrules%low_mass_trsh)
-!        case(transformation_cbm5_strato_SOA)
-!          call check_low_mass_threshold_cbm5_strato_SOA(chemrules%rulesCBM5_strato_SOA, transport_species, &
-!                                             & nSpecies_transport, ifForwardRun, &
-!                                             & chemrules%low_cnc_trsh, chemrules%low_mass_trsh)
-        case(transformation_cbm4_SOA,transformation_cbm42_strato,transformation_cbm42_strato_SOA, &
-           & transformation_cbm5_SOA, transformation_cbm5_strato_SOA, &
-           & transformation_passive, transformation_pollen, &
-           & transformation_inert_PM, transformation_sulphur_dmat, &
-           & transformation_acid_basic, transformation_radioactive, &
-           & int_missing ) !int_missing is perfectly valid here, as global_chemical_init might set it
-          ! Do nothing - these folks are fine with any combinations of any thresholds
-        case default
-          call set_error('Unknown transformation type:'+fu_str(chemrules%iTransformTypes(i)),&
-                       & 'set_low_mass_threshold')
-      end select
-    end do   ! iTrn
     !
     ! Report the thresholds
     !
@@ -3323,21 +2816,16 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     logical, intent(in) :: ifForward
     character(len=*), parameter :: subname = 'point_low_mass_thresholds'
 
-    if (.not. (chemrules%defined == silja_true)) then
-      call set_error('Chemistry rules not defined', subname)
-      return
-    end if
+    if(fu_fails(fu_true(chemrules%defined),'Chemistry rules not defined', subname))return
 
     if (ifforward) then
-      if (fu_fails(associated(chemrules%low_cnc_trsh_frw), 'low_cnc_trsh_frw not associated', subname)) return
-      if (fu_fails(associated(chemrules%low_mass_trsh_frw), 'low_mass_trsh_frw not associated', subname)) return
+      if (fu_fails(chemrules%ifLowMassThreshAllocated, 'low_cnc_trsh_<all> not associated', subname)) return
       if (fu_fails(all(chemrules%low_cnc_trsh_frw > 0), 'low_cnc_trsh_frw < 0', subname)) return
       if (fu_fails(all(chemrules%low_mass_trsh_frw > 0), 'low_mass_trsh_frw < 0', subname)) return
       chemrules%low_cnc_trsh => chemrules%low_cnc_trsh_frw
       chemrules%low_mass_trsh => chemrules%low_mass_trsh_frw
     else
-      if (fu_fails(associated(chemrules%low_cnc_trsh_adj), 'low_cnc_trsh_adj not associated', subname)) return
-      if (fu_fails(associated(chemrules%low_mass_trsh_adj), 'low_mass_trsh_adj not associated', subname)) return
+      if (fu_fails(chemrules%ifLowMassThreshAllocated, 'low_cnc_trsh_<all> not associated', subname)) return
       if (fu_fails(all(chemrules%low_cnc_trsh_adj > 0), 'low_cnc_trsh_adj < 0', subname)) return
       if (fu_fails(all(chemrules%low_mass_trsh_adj > 0), 'low_cnc_trsh_adj < 0', subname)) return
       chemrules%low_cnc_trsh => chemrules%low_cnc_trsh_adj
@@ -3355,19 +2843,16 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     logical, intent(in) :: ifForward
     character(len=*), parameter :: subname = 'point_low_mass_thresholds'
 
-    if (.not. (chemrules%defined == silja_true)) then
-      call set_error('Chemistry rules not defined', subname)
-      return
-    end if
+    if (fu_fails(fu_true(chemrules%defined),'Chemistry rules not defined', subname))return
 
     if (ifforward) then
-      if (.not. associated(chemrules%low_mass_trsh_frw)) then
+      if (.not. chemrules%ifLowMassThreshAllocated)then
         defined = .false.
       else
         defined = chemrules%low_mass_trsh_frw(1) > 0
       end if
     else
-      if (.not. associated(chemrules%low_mass_trsh_adj)) then
+      if (.not. chemrules%ifLowMassThreshAllocated) then
         defined = .false.
       else
         defined = chemrules%low_mass_trsh_adj(1) > 0
@@ -3442,7 +2927,8 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
          & ChemStuff%arrStuff(ithread)%photorates(1:maxPhotoIndex,1:nz), &
          & ChemStuff%arrStuff(ithread)%aodext(1:nz), &
          & ChemStuff%arrStuff(ithread)%aodscat(1:nz), &
-         & ChemStuff%arrStuff(ithread)%o3column(1:nz,1:nSrc) , &
+         & ChemStuff%arrStuff(ithread)%o3column(1:nz) , &
+         & ChemStuff%arrStuff(ithread)%numconc(1:nz) , & !! Only first source
          & ChemStuff%arrStuff(ithread)%pwc_col(1:nz) , &
          & ChemStuff%arrStuff(ithread)%soot_col(1:nz) , &
          & ChemStuff%arrStuff(ithread)%tau_above_bott(1:nz) , &

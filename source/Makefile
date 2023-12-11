@@ -151,8 +151,10 @@ grads2grib:
 	cd ../build/ && $(MAKE) grads2grib -j 8  SETUP=$(SE)
 
 is4fires :
-	echo $(MAKE)
 	cd ../build/ && $(MAKE) is4fires SETUP=$(SE)
 
 dot:
 	cd ../build/ && $(MAKE) dot  SETUP=$(SE)
+
+cbm% : 
+	cd ../build/ && $(MAKE) $@  SETUP=$(SE)

@@ -308,7 +308,7 @@ contains
 
     gridval => fu_work_array()
 
-    content = fu_content(nl, 'correlation_distance_x')
+    content = fu_expand_environment(fu_content(nl, 'correlation_distance_x'))
     if (fu_fails(content /= '', 'Missing correlation_distance_x', sub_name)) return
     read(unit=content, fmt=*, iostat=status) distance, unit
     if (fu_fails(status == 0, 'Failed to parse correlation distance: ' // trim(content), sub_name)) return
@@ -335,7 +335,7 @@ contains
            & (correlation%sqrt_eigval_x(correlation%nev_x) / correlation%sqrt_eigval_x(1))**2)
     call msg('nx, nev(x):', nx, real(correlation%nev_x))
 
-    content = fu_content(nl, 'correlation_distance_y')
+    content = fu_expand_environment(fu_content(nl, 'correlation_distance_y'))
     if (fu_fails(content /= '', 'Missing correlation_distance_y', sub_name)) return
     read(unit=content, fmt=*, iostat=status) distance, unit
     if (fu_fails(status == 0, 'Failed to parse correlation distance: ' // trim(content), sub_name)) return

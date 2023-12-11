@@ -503,7 +503,7 @@ CONTAINS
                                        & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                        & p_src%params, &                ! param array
                                        & p_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                       & point_source, &                 ! type of the source
+                                       & point_source_flag, &                 ! type of the source
                                        & p_src%nDescriptors, &          ! max nbr of descriptors in the source
                                        & indDescriptorOfParLine, nDescriptorInParLine, & 
                                        & chSubstNm, & 
@@ -515,7 +515,7 @@ CONTAINS
                                        & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                        & p_src%params, &
                                        & p_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                       & point_source, &   ! type of the source
+                                       & point_source_flag, &   ! type of the source
                                        & p_src%nDescriptors, &
                                        & indDescriptorOfParLine, nDescriptorInParLine, &
                                        & '', arTmp, ifSpecies)
@@ -812,7 +812,17 @@ CONTAINS
 
         case ('PLUME_RISE')
           p_src%vertDispType = plumeRise          
-          needStack = .True.
+          p_src%stackHeight = fu_set_named_value(fu_content(nlSrc,'stack_height'))
+          if (p_src%stackHeight .eps. real_missing) then
+          call set_error('stack_height needed in plume rise mode.', &
+                          & sub_name)
+          call set_missing(p_src%vertLevs, .true.)
+          nullify(p_src%levFraction)
+          nullify(p_src%dz_m)
+        endif
+
+        case ('')
+          call set_error('Empty vertical_distribution:', sub_name)
 
         case default
           p_src%vertDispType = singleLevelDynamic ! Default value
@@ -823,12 +833,12 @@ CONTAINS
       if (needStack) then
           p_src%stackHeight = fu_set_named_value(fu_content(nlSrc,'stack_height'))
           if (p_src%stackHeight == real_missing) then
-          call set_error('stack_height needed in plume rise mode.', &
-                          & sub_name)
-          call set_missing(p_src%vertLevs, .true.)
-          nullify(p_src%levFraction)
-          nullify(p_src%dz_m)
-        endif
+            call set_error('stack_height needed in plume rise mode.', &
+                            & sub_name)
+            call set_missing(p_src%vertLevs, .true.)
+            nullify(p_src%levFraction)
+            nullify(p_src%dz_m)
+          endif
       endif
 
       
@@ -967,7 +977,7 @@ CONTAINS
                                         & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                         & paramPtr, &                    ! receiving temporary
                                         & p_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                        & point_source, &                 ! type of the source
+                                        & point_source_flag, &                 ! type of the source
                                         & p_src%nDescriptors, &
                                         & indDescriptorOfParLine, &
                                         & nDescriptorInParLine, &
@@ -980,7 +990,7 @@ CONTAINS
                                         & fu_content(nlSrc,'release_rate_unit'), & ! source release rate unit
                                         & paramPtr, &                    ! receiving temporary
                                         & p_src%cocktail_descr_lst, &    ! list of source cocktail descriptors
-                                        & point_source, &                 ! type of the source
+                                        & point_source_flag, &                 ! type of the source
                                         & p_src%nDescriptors, &
                                         & indDescriptorOfParLine, &
                                         & nDescriptorInParLine, &
@@ -1739,7 +1749,8 @@ CONTAINS
     ! Time slot and variation parameters
     !
     do iTmp = 1, size(p_src%params)
-      call store_time_param_as_namelist(p_src%params(iTmp), p_src%cocktail_descr_lst, uOut, point_source)
+      call store_time_param_as_namelist(p_src%params(iTmp), p_src%cocktail_descr_lst, uOut, &
+                                      & point_source_flag)
     end do
     do iDescr = 1, p_src%nDescriptors
       write(uOut,fmt='(2A,1x,24(F10.6,1x))')'hour_in_day_index = ', &
@@ -2400,7 +2411,7 @@ CONTAINS
     
     ! Calculate potential temperature gradient
     potTempDif = bruntVaisalaFreq * potentialTemp / g   ! bruntVaisalaFreq in silam is already squared
-    
+
     
     !!  Eq 3.11 from "Lectures on air pollution modelling, 1988"
     buoyancyFlux = g * exhSpeed * stackSize * stackSize * &

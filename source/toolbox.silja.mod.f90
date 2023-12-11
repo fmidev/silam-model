@@ -72,7 +72,7 @@ MODULE toolbox
   public advect_Galperin_bulk_1d_abs
   public fu_process_filepath
   public split_string
-  public fu_trim_grads_hat   ! replaces a comon path with a hat "^" symbol
+  public fu_trim_grads_hat   ! replaces a common path with a hat "^" symbol
                              ! if dir_slash == '/' (i.e. UNIXes)
   public fu_extend_grads_hat ! extends a hat "^" symbol with ctl file path
   public fu_extend_grads_hat_dir ! extends a hat "^" symbol with given dir
@@ -89,15 +89,24 @@ MODULE toolbox
   public remapcon_1d
   public testremapcon_1d
   public set_coastal_value
-
   public trim_precision
   public fu_trim_cell_fcoord
-
   public test_sort
   public argMergeSort_char
   public argMergeSort_int
   public argMergeSort_real
-
+  public waxpy
+  public wscal
+  public ihash_char
+  public open_grads_binary_i
+  public open_grads_binary_o
+  public write_grads_field
+  public write_grads_fieldset
+  public mod_obs_stats
+  
+  public AMOEBA
+  public test_AMOEBA
+  
   ! The private functions and subroutines of this module:
   private fu_index_of_string
   private fu_index_of_int
@@ -116,12 +125,8 @@ MODULE toolbox
   private split_string_char
   private fu_next_non_sep
   private fu_next_sep
+  private fu_func_to_minimize  ! just for testing AMOEBA
 
-  public open_grads_binary_i
-  public open_grads_binary_o
-  public write_grads_field
-  public write_grads_fieldset
-  
   interface fu_index
     module procedure fu_index_of_string
     module procedure fu_index_of_int
@@ -153,10 +158,10 @@ MODULE toolbox
     MODULE PROCEDURE free_array_memory_realpointer
   END INTERFACE
 
-  interface fu_merge_integer_to_array
-    module procedure fu_merge_int_2_arr_with_slave
-    module procedure fu_merge_int_to_array
-  end interface
+!  interface fu_merge_integer_to_array
+!!    module procedure fu_merge_int_2_arr_with_slave
+!    module procedure fu_merge_int_to_array
+!  end interface
 
   interface fu_2d_interpolation
     module procedure fu_2d_interp_to_coord 
@@ -181,6 +186,11 @@ MODULE toolbox
      end function setenv
   end interface
 
+  abstract interface
+    real function fu_func_AMOEBA_interface(PR, arExtra)
+      real, dimension(:), intent(in) :: PR, arExtra
+    end function fu_func_AMOEBA_interface
+  end interface
 
   REAL, SAVE, PRIVATE :: total_memory_usage = 0
 
@@ -215,6 +225,17 @@ MODULE toolbox
     character(len=fnlen) :: s
   end type fnlen_str
 
+! KPP SP - Single precision kind
+#ifdef DOUBLE_PRECISION
+  INTEGER, PARAMETER, private :: sp = SELECTED_REAL_KIND(14,300)
+#else
+  INTEGER, PARAMETER, private :: sp = SELECTED_REAL_KIND(6,30)
+#endif   
+! KPP DP - Double precision kind
+  INTEGER, PARAMETER, private :: dp = SELECTED_REAL_KIND(14,300)
+! KPP QP - Quadruple precision kind
+  INTEGER, PARAMETER, private :: qp = SELECTED_REAL_KIND(18,400) 
+  
 CONTAINS
 
 
@@ -332,7 +353,6 @@ CONTAINS
   END FUNCTION fu_compare_single_to_double
 
 
-
   ! ****************************************************************
   
   REAL FUNCTION  fu_set_latitude(lat, sn_flag)
@@ -378,7 +398,6 @@ CONTAINS
   
   
   ! ***************************************************************
-  
   
   REAL FUNCTION fu_scale_latitude(lat)
     
@@ -1644,8 +1663,9 @@ CONTAINS
   DO iTmp=1,SIZE(ar_in)
     IF(ar_in(iTmp) /= int_missing)THEN
       IF(.not. ANY(ar_out(1:iCount-1) == ar_in(iTmp))) THEN
-        ar_out(iCount)=ar_in(iTmp)
+        ar_out(iCount) = ar_in(iTmp)
         iCount=iCount+1
+        ar_out(iCount) = int_missing  ! for the case this is the end
         IF(iCount > SIZE(ar_out))THEN
           CALL set_error('too small array size','merge_int_arrays')
           RETURN
@@ -1662,99 +1682,93 @@ CONTAINS
 
   !***************************************************************
 
-  integer function fu_merge_int_to_array(int, ar)
+  integer function fu_merge_integer_to_array(insert, ar)
     ! 
-    ! Checks if this integer is new and adds at the end if it is.
-    ! Returns the new size of the array
+    ! Checks if this integer is before int_missing, otherwise adds at the end 
+    ! and puts int_missing after it.
+    ! Returns the index of last non- int_missing element 
+    ! or the size of the array if no int_missing
     !
     implicit none
 
     ! Imported parameters
-    integer, intent(in) :: int
+    integer, intent(in) :: insert
     integer, dimension(:), intent(inout) :: ar
 
     ! Local variables
     integer :: i
-    logical :: ifUnique
 
-    if(int == int_missing) return
-    !
-    ! Find free place in the array
-    !
-    fu_merge_int_to_array = -1
-    ifUnique = .true.
-    do i=1, size(ar)
-      if(ar(i) == int_missing) then
-        fu_merge_int_to_array = i-1
-        exit
-      else
-        if(ar(i) == int) ifUnique = .false.
+    fu_merge_integer_to_array = int_missing
+    if(insert == int_missing) return
+    
+    ! go until int_missing or the insert found
+    do i=1, size(ar)  
+      if(ar(i) == int_missing) then !! stop mark
+        ar(i) = insert
+        fu_merge_integer_to_array = i !! Here is the answer, yet to put end mark
+        if (i < size(ar))  ar(i+1) = int_missing
+        return
+      elseif(ar(i) == insert)then
+        fu_merge_integer_to_array = i
+        return
       endif
     end do
-    if(fu_merge_int_to_array == -1)then ! Array is full
-      call msg("Array size:",  size(ar))
-      call set_error('Too small receptor array','fu_merge_int_to_array')
-      return
-    endif
-    !
-    ! Add the integer in case it is unique.
-    !
-    if(ifUnique) then
-      ar(i) = int
-      fu_merge_int_to_array = i
-    end if
 
-  end function fu_merge_int_to_array
+    ! If we are here, array is full
+    call msg("Array size:",  size(ar))
+    call set_error('Too small receptor array','fu_merge_integer_to_array')
+
+  end function fu_merge_integer_to_array
 
 
-  !***************************************************************
-
-  integer function fu_merge_int_2_arr_with_slave(int, ar, int_slave, ar_slave)
-    ! 
-    ! Checks if this integer is new and adds at the end if it is.
-    ! Returns the new size of the array
-    !
-    implicit none
-
-    ! Imported parameters
-    integer, intent(in) :: int, int_slave
-    integer, dimension(:), intent(inout) :: ar, ar_slave
-
-    ! Local variables
-    integer :: i
-    logical :: ifUnique
-
-    if(int == int_missing) return
-    !
-    ! Find free place in the array
-    !
-    fu_merge_int_2_arr_with_slave = -1
-    ifUnique = .true.
-    do i=1, size(ar)
-      if(ar(i) == int_missing) then
-        fu_merge_int_2_arr_with_slave = i-1 ! found the place
-        exit
-      else
-        if(ar(i) == int)then   ! the value is already in array
-          ar_slave(i) = max(ar_slave(i), int_slave)
-          ifUnique = .false.
-        endif
-      endif
-    end do
-    if(fu_merge_int_2_arr_with_slave == -1)then ! Array is full
-      call set_error('Too small receptor array','fu_merge_int_2_arr_with_slave')
-      return
-    endif
-    !
-    ! Add the integer in case it is unique.
-    !
-    if(ifUnique) then
-      ar(i) = int
-      fu_merge_int_2_arr_with_slave = i
-      ar_slave(i) = int_slave
-    end if
-
-  end function fu_merge_int_2_arr_with_slave
+!  !***************************************************************
+!
+!  integer function fu_merge_int_2_arr_with_slave(int, ar, int_slave, ar_slave)
+!    ! 
+!    ! Checks if this integer is new and adds at the end if it is.
+!    ! Returns the new size of the array
+!    !
+!    implicit none
+!
+!    ! Imported parameters
+!    integer, intent(in) :: int, int_slave
+!    integer, dimension(:), intent(inout) :: ar, ar_slave
+!
+!    ! Local variables
+!    integer :: i
+!    logical :: ifUnique
+!
+!    if(int == int_missing) return
+!    !
+!    ! Find free place in the array
+!    !
+!    fu_merge_int_2_arr_with_slave = -1
+!    ifUnique = .true.
+!    do i=1, size(ar)
+!      if(ar(i) == int_missing) then
+!        fu_merge_int_2_arr_with_slave = i-1 ! found the place
+!        exit
+!      else
+!        if(ar(i) == int)then   ! the value is already in array
+!          ar_slave(i) = max(ar_slave(i), int_slave)
+!          ifUnique = .false.
+!        endif
+!      endif
+!    end do
+!    if(fu_merge_int_2_arr_with_slave == -1)then ! Array is full
+!      call set_error('Too small receptor array','fu_merge_int_2_arr_with_slave')
+!      return
+!    endif
+!    !
+!    ! Add the integer in case it is unique.
+!    !
+!    if(ifUnique) then
+!      ar(i) = int
+!      fu_merge_int_2_arr_with_slave = i
+!      ar_slave(i) = int_slave
+!    end if
+!
+!  end function fu_merge_int_2_arr_with_slave
 
   !*************************************************************************
 
@@ -2299,62 +2313,12 @@ CONTAINS
     ! Imported parameter
     character, intent(in) :: chA
 
-    select case(chA)
-      case('a','A')
-        fu_u_case = 'A'
-      case('b','B')
-        fu_u_case = 'B'
-      case('c','C')
-        fu_u_case = 'C'
-      case('d','D')
-        fu_u_case = 'D'
-      case('e','E')
-        fu_u_case = 'E'
-      case('f','F')
-        fu_u_case = 'F'
-      case('g','G')
-        fu_u_case = 'G'
-      case('h','H')
-        fu_u_case = 'H'
-      case('i','I')
-        fu_u_case = 'I'
-      case('j','J')
-        fu_u_case = 'J'
-      case('k','K')
-        fu_u_case = 'K'
-      case('l','L')
-        fu_u_case = 'L'
-      case('m','M')
-        fu_u_case = 'M'
-      case('n','N')
-        fu_u_case = 'N'
-      case('o','O')
-        fu_u_case = 'O'
-      case('p','P')
-        fu_u_case = 'P'
-      case('q','Q')
-        fu_u_case = 'Q'
-      case('r','R')
-        fu_u_case = 'R'
-      case('s','S')
-        fu_u_case = 'S'
-      case('t','T')
-        fu_u_case = 'T'
-      case('u','U')
-        fu_u_case = 'U'
-      case('v','V')
-        fu_u_case = 'V'
-      case('w','W')
-        fu_u_case = 'W'
-      case('x','X')
-        fu_u_case = 'X'
-      case('y','Y')
-        fu_u_case = 'Y'
-      case('z','Z')
-        fu_u_case = 'Z'
-      case default
-        fu_u_case = chA
-    end select
+    if (chA >= 'a' .and. chA <='z' ) then
+       fu_u_case = achar(iachar(chA)-32)
+    else
+       fu_u_case = chA
+    endif
+
 
   end function fu_u_case
 
@@ -2370,62 +2334,11 @@ CONTAINS
     ! Imported parameter
     character, intent(in) :: chA
 
-    select case(chA)
-      case('a','A')
-        fu_l_case = 'a'
-      case('b','B')
-        fu_l_case = 'b'
-      case('c','C')
-        fu_l_case = 'c'
-      case('d','D')
-        fu_l_case = 'd'
-      case('e','E')
-        fu_l_case = 'e'
-      case('f','F')
-        fu_l_case = 'f'
-      case('g','G')
-        fu_l_case = 'g'
-      case('h','H')
-        fu_l_case = 'h'
-      case('i','I')
-        fu_l_case = 'i'
-      case('j','J')
-        fu_l_case = 'j'
-      case('k','K')
-        fu_l_case = 'k'
-      case('l','L')
-        fu_l_case = 'l'
-      case('m','M')
-        fu_l_case = 'm'
-      case('n','N')
-        fu_l_case = 'n'
-      case('o','O')
-        fu_l_case = 'o'
-      case('p','P')
-        fu_l_case = 'p'
-      case('q','Q')
-        fu_l_case = 'q'
-      case('r','R')
-        fu_l_case = 'r'
-      case('s','S')
-        fu_l_case = 's'
-      case('t','T')
-        fu_l_case = 't'
-      case('u','U')
-        fu_l_case = 'u'
-      case('v','V')
-        fu_l_case = 'v'
-      case('w','W')
-        fu_l_case = 'w'
-      case('x','X')
-        fu_l_case = 'x'
-      case('y','Y')
-        fu_l_case = 'y'
-      case('z','Z')
-        fu_l_case = 'z'
-      case default
-        fu_l_case = chA
-    end select
+    if (chA >= 'A' .and. chA <='Z' ) then
+        fu_l_case = achar(iachar(chA)+32)
+    else
+       fu_l_case = chA
+    endif
 
   end function fu_l_case
 
@@ -5365,7 +5278,107 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
   end subroutine argInsertionSort_real
 
 
+  
+  !**************************************************************
+!--------------------------------------------------------------
+      SUBROUTINE WAXPY(N,Alpha,X,incX,Y,incY)
+!--------------------------------------------------------------
+!     constant times a vector plus a vector: y <- y + Alpha*x
+!     only for incX=incY=1
+!     after BLAS
+!     replace this by the function from the optimized BLAS implementation:
+!         CALL SAXPY(N,Alpha,X,1,Y,1) or  CALL DAXPY(N,Alpha,X,1,Y,1)
+!--------------------------------------------------------------
 
+      INTEGER  :: i,incX,incY,M,MP1,N
+      REAL(kind=sp) :: X(N),Y(N),Alpha
+      REAL(kind=sp), PARAMETER :: ZERO = 0.0_dp
+
+      IF (Alpha .EQ. ZERO) RETURN
+      IF (N .LE. 0) RETURN
+
+      M = MOD(N,4)
+      IF( M .NE. 0 ) THEN
+        DO i = 1,M
+          Y(i) = Y(i) + Alpha*X(i)
+        END DO
+        IF( N .LT. 4 ) RETURN
+      END IF
+      MP1 = M + 1
+      DO i = MP1,N,4
+        Y(i) = Y(i) + Alpha*X(i)
+        Y(i + 1) = Y(i + 1) + Alpha*X(i + 1)
+        Y(i + 2) = Y(i + 2) + Alpha*X(i + 2)
+        Y(i + 3) = Y(i + 3) + Alpha*X(i + 3)
+      END DO
+      
+      END SUBROUTINE WAXPY
+
+
+
+!--------------------------------------------------------------
+      SUBROUTINE WSCAL(N,Alpha,X,incX)
+!--------------------------------------------------------------
+!     constant times a vector: x(1:N) <- Alpha*x(1:N) 
+!     only for incX=incY=1
+!     after BLAS
+!     replace this by the function from the optimized BLAS implementation:
+!         CALL SSCAL(N,Alpha,X,1) or  CALL DSCAL(N,Alpha,X,1)
+!--------------------------------------------------------------
+
+      INTEGER  :: i,incX,M,MP1,N
+      REAL(kind=sp)  :: X(N),Alpha
+      REAL(kind=sp), PARAMETER  :: ZERO=0.0_dp, ONE=1.0_dp
+
+      IF (Alpha .EQ. ONE) RETURN
+      IF (N .LE. 0) RETURN
+
+      M = MOD(N,5)
+      IF( M .NE. 0 ) THEN
+        IF (Alpha .EQ. (-ONE)) THEN
+          DO i = 1,M
+            X(i) = -X(i)
+          END DO
+        ELSEIF (Alpha .EQ. ZERO) THEN
+          DO i = 1,M
+            X(i) = ZERO
+          END DO
+        ELSE
+          DO i = 1,M
+            X(i) = Alpha*X(i)
+          END DO
+        END IF
+        IF( N .LT. 5 ) RETURN
+      END IF
+      MP1 = M + 1
+      IF (Alpha .EQ. (-ONE)) THEN
+        DO i = MP1,N,5
+          X(i)     = -X(i)
+          X(i + 1) = -X(i + 1)
+          X(i + 2) = -X(i + 2)
+          X(i + 3) = -X(i + 3)
+          X(i + 4) = -X(i + 4)
+        END DO
+      ELSEIF (Alpha .EQ. ZERO) THEN
+        DO i = MP1,N,5
+          X(i)     = ZERO
+          X(i + 1) = ZERO
+          X(i + 2) = ZERO
+          X(i + 3) = ZERO
+          X(i + 4) = ZERO
+        END DO
+      ELSE
+        DO i = MP1,N,5
+          X(i)     = Alpha*X(i)
+          X(i + 1) = Alpha*X(i + 1)
+          X(i + 2) = Alpha*X(i + 2)
+          X(i + 3) = Alpha*X(i + 3)
+          X(i + 4) = Alpha*X(i + 4)
+        END DO
+      END IF
+
+      END SUBROUTINE WSCAL
+ 
 
   !*************************************************************
 
@@ -5420,14 +5433,506 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
       call msg(strings(indices(i)),indices(i))
     enddo
 
-
-
-
   end subroutine test_sort
 
+  !***********************************************************************************
+
+  integer function ihash_char(arr, N)
+    !! Adler-32
+    !! https://stackoverflow.com/questions/49944038/calculating-a-checksum-of-a-real-array-in-fortran
+
+    implicit none
+
+    integer (kind=8), intent(in) :: N
+    character, dimension(N), intent(in) :: arr
+
+    integer :: a, b, i, iTmp
+    integer (kind=8) :: maxloop
+
+    integer, parameter :: mod_adler=65521
+    
+    a = 1
+    b = 0
+
+    maxloop = N - mod(N,2)
+
+    do i= 1, maxloop-1, 2
+      iTmp = ichar(arr(i))  + 256*ichar(arr(i+1))
+      a = MOD(a + iTmp, mod_adler)
+      b = MOD(b+a, mod_adler)
+    end do
+    if (maxloop < N) then
+      a = MOD(a + ichar(arr(N)), mod_adler)
+      b = MOD(b+a, mod_adler)
+    endif
+
+    ihash_char = ior(b * 65536, a)
+
+  end function ihash_char
+
+  
+!*********************************************************************************
+!***********************************************************
+!*   Multidimensional minimization of a function FUNC(X)   *
+!*  where X is an NDIM-dimensional vector, by the downhill *
+!*  simplex method of Nelder and Mead.                     *
+!* ------------------------------------------------------- *
+!* SAMPLE RUN: Find a minimum of function F(x,y):          *
+!*             F=Sin(R)/R, where R = Sqrt(x*x+y*y).        *
+!*                                                         *
+!*  Number of iterations:          22                      *
+!*                                                         *
+!*  Best NDIM+1 points:                                    *
+!*  0.41226859E+01  0.17869153E+01                         *
+!*  0.41664774E+01  0.16826982E+01                         *
+!*  0.41424544E+01  0.17411759E+01                         *
+!*                                                         *
+!*  Best NDIM+1 mimimum values:                            *
+!* -0.21723363E+00                                         *
+!* -0.21723363E+00                                         *
+!* -0.21723363E+00                                         *
+!*                                                         *
+!*
+!*********************************************************** 
+  subroutine test_AMOEBA()
+    implicit none
+    
+    integer, PARAMETER :: MP=21,NP=20
+
+    real, dimension(MP,NP) :: P
+    real, dimension(MP) :: Y, PT
+    integer :: nDim, i, j, iter
+    real :: fTol
+    real, dimension(1) :: arExtra = 0.0
+    
+    NDIM=2       ! 2 variables
+    FTOL=1.D-8   ! Required tolerance
+
+    !define NDIM+1 initial vertices (one by row)
+    P(1,1)=1.
+    P(1,2)=2.
+    P(2,1)=-2.
+    P(2,2)=-3.
+    P(3,1)=4.
+    P(3,2)=2.
+
+    !Initialize Y to the values of FUNC evaluated 
+    !at the NDIM+1 vertices (rows) of P
+    DO I=1, NDIM+1
+      PT(1)=P(I,1)
+      PT(2)=P(I,2)
+      Y(I)=fu_func_to_minimize(PT, arExtra)
+    END DO
+
+    !call main subroutine
+    CALL AMOEBA(fu_func_to_minimize, P,Y,NDIM,FTOL, arExtra, ITER, 2)
+
+    !print results
+    print *,' '
+    print *,' Number of iterations:', ITER
+    print *,' '
+    print *,' Best NDIM+1 points:'
+    write(*,'(2e16.8)') ((P(I,J),J=1,NDIM),I=1,NDIM+1)
+    print *,' '
+    print *,' Best NDIM+1 mimimum values:'
+    write(*,'(E16.8)') (Y(I),I=1,NDIM+1) 
+    print *,' '
+  END subroutine test_AMOEBA
+
+  !===================================================================
+  
+  subroutine test_2_AMOEBA()
+    ! A bit more realisitc test, from real minimization of 4D-VAR
+    implicit none
+    
+    integer, PARAMETER :: MP=3,NP=2
+
+    real, dimension(MP,NP) :: P
+    real, dimension(MP) :: Y, PT
+    integer :: nDim, i, j, iter
+    real :: fTol
+    real, dimension(23) :: arExtra = (/11.0, &
+      & 0.00000E+00, 0.16703E-04, 0.41758E-03, 0.73662E-02, 0.28468E+00, 0.44339E+00, &
+                     &  0.10000E+01,  0.56212E+00,  0.46808E+00,  0.44857E+00,  0.44448E+00,  &
+      & 0.00000E+00,  -.74898E-03, -.36734E-02, -.14178E-01,  -.54283E-01, -.64279E-01, &
+                     & -.81352E-01,  -.69870E-01,  -.65598E-01,  -.64563E-01,  -.64339E-01/)
+    
+    NDIM=2       ! 2 variables
+    FTOL=1.D-4   ! Required tolerance
+
+    !define NDIM+1 initial vertices (one by row)
+    P(:,1) = 0.5
+    P(:,2) = 10
+    P(2,1) = 0.6    ! 1  - too far
+    P(3,2) = 11     ! 5  - too far
+    !
+    ! Get RMSE for the vectors in P (each point of the simplex)
+    !
+    do i = 1, NDIM+1
+      Y(i) = fu_L_curve_log10_fit_RMSE(P(i,:), arExtra)
+    end do
+    !
+    ! Call the minimizing subroutine
+    !
+    print *,'Calling optimiser for the first time...'
+    CALL AMOEBA(fu_L_curve_log10_fit_RMSE, P,Y, NDIM, FTOL, arExtra, ITER, 2)
+    if(error)return
+   
+    !print results
+    print *,' '
+    print *,' Number of iterationsin minimization:', ITER
+    print *,' '
+    print *,' Best NDIM+1 points:'
+    write(*,'(2e16.8)') ((P(I,J),J=1,NDIM),I=1,NDIM+1)
+    print *,' '
+    print *,' Best NDIM+1 mimimum values:'
+    write(*,'(E16.8)') (Y(I),I=1,NDIM+1) 
+    print *,' '
+    
+    contains
+
+      real function fu_L_curve_log10_fit_RMSE(arParams, arExtraInput)result(RMSE)
+        !
+        ! A function to call from the minimization routine. It calculates RMSE of the fit:
+        ! obs_err = fu_L_curve_log10(bckgr_err)
+        !
+        implicit none
+    
+        ! Imported parameters
+        real, dimension(:), intent(in) :: arParams, arExtraInput  ! (/params/), (/nVals,bckgr_err,obs_err/)
+    
+        ! Local variables
+        integer :: nIter, iVal
+    
+        ! How many iterations to fit?
+        nIter = nint(arExtraInput(1))
+        !
+        ! Get the RMSE of the fit: sum( (obs_err - fit(bckg_err)) **2 )
+        !
+        RMSE = 0
+        do iVal = 1, nIter
+          RMSE = RMSE + (arExtraInput(nIter+1+iVal) - fu_L_curve_log10(arExtraInput(1+iVal), &
+                                                                 & arParams(1), arParams(2))) ** 2
+        end do
+        return
+      end function fu_L_curve_log10_fit_RMSE
+  
+      !===========================================================
+
+      real function fu_L_curve_log10(bckgr_err, a, b)
+        !
+        ! L-Curve itself, computes one value
+        ! Take care of the area of definition of log
+        !
+        implicit none
+    
+        ! Imported parameters
+        real, intent(in) :: bckgr_err
+        real, intent(in) :: a, b
+    
+        ! Local variables
+        real :: fTmp
+    
+        fTmp = a * exp(-b * bckgr_err) + (1.0 - a)
+        if(fTmp > 0)then
+          fu_L_curve_log10 = log10(fTmp)
+        else
+          fu_L_curve_log10 = -1e10  ! big enough and negative
+          print *, 'Out of area of definition, bckgr_err, a, b, log-argval:', bckgr_err, a, b, fTmp
+          print *, 'Out of area of definition', 'fu_L_curve_log10'
+        endif
+    
+      end function fu_L_curve_log10
+
+  END subroutine test_2_AMOEBA
+  
+  
+  
+  
+  
+  
+  !user defined function to minimize, just test
+  !
+  REAL FUNCTION fu_func_to_minimize(P, arExtra)
+    implicit none
+    REAL, dimension(:), intent(in) :: P, arExtra
+    real :: R
+    R=SQRT(P(1)*P(1)+P(2)*P(2))
+    IF (ABS(R).LT.1.e-12) THEN
+      fu_func_to_minimize=1.
+    ELSE
+      fu_func_to_minimize=SIN(R)/R
+    END IF
+    RETURN
+  END function fu_func_to_minimize
+
+  !*******************************************************************************
+  
+  subroutine report_AMOEBA(message, P, Y, nDim, FTOL, arExtra, ITER)
+    !
+    ! reports all stuff in AMOEBA
+    !
+    implicit none
+
+    ! Imported parameters
+    character(len=*), intent(in) :: message
+    real, dimension(:,:), intent(inout) :: P ! The simplex matrix (nDim+1, nDim) - argument vaectors
+    real, dimension(:), intent(inout) :: Y   ! Values at the P argument vectors, (nDim+1)
+    integer, intent(in) :: nDim              ! number of variables: the dimension of the problem
+    real, dimension(:), intent(in) :: arExtra  ! an array of whatever needs to be transferred to Func
+    real, intent(in) :: FTol              ! fractional tolerance, stop criterion
+    integer, intent(in) :: iter           ! iteration number
+    
+    ! Local variables
+    integer :: iTmp
+    
+    call msg('------------- reporting AMOEBA, ' + message + '-----------------')
+    call msg('nDims, ITER, FTOL:' + fu_str(nDim), ITER, FTOL)
+    call msg('P-vectors:')
+    do iTmp = 1, nDim+1
+      call msg('vector-' + fu_str(iTmp), P(iTmp,:))
+    end do
+    call msg('Y-values:', Y)
+    call msg('ExtraInput:', arExtra)
+    call msg('=========== end reporting AMOEBA ===============')
+    
+  end subroutine report_AMOEBA
 
 
+  subroutine report_AMOEBA_test(message, P, Y, nDim, FTOL, arExtra, ITER)
+    !
+    ! reports all stuff in AMOEBA
+    !
+    implicit none
+
+    ! Imported parameters
+    character(len=*), intent(in) :: message
+    real, dimension(:,:), intent(inout) :: P ! The simplex matrix (nDim+1, nDim) - argument vaectors
+    real, dimension(:), intent(inout) :: Y   ! Values at the P argument vectors, (nDim+1)
+    integer, intent(in) :: nDim              ! number of variables: the dimension of the problem
+    real, dimension(:), intent(in) :: arExtra  ! an array of whatever needs to be transferred to Func
+    real, intent(in) :: FTol              ! fractional tolerance, stop criterion
+    integer, intent(in) :: iter           ! iteration number
     
+    ! Local variables
+    integer :: iTmp
     
+    print *,'------------- reporting AMOEBA, ' + message + '-----------------'
+    print *,'nDims, ITER, FTOL:' + fu_str(nDim), ITER, FTOL
+    print *,'P-vectors:'
+    do iTmp = 1, nDim+1
+      print *,'vector-' + fu_str(iTmp), P(iTmp,:)
+    end do
+    print *,'Y-values:', Y
+    print *,'ExtraInput:', arExtra
+    print *,'=========== end reporting AMOEBA ==============='
+    
+  end subroutine report_AMOEBA_test
+
+
+  !*******************************************************************************
+
+  SUBROUTINE AMOEBA(Func, P, Y, nDim, FTOL, arExtra, ITER, iVerbose)
+    !
+    ! Multidimensional minimization of the function FUNC(X) where X is
+    ! an NDIM-dimensional vector, by the downhill simplex method of
+    ! Nelder and Mead. Input is a matrix P whose NDIM+1 rows are NDIM-
+    ! dimensional vectors which are the vertices of the starting simplex
+    ! (Logical dimensions of P are P(NDIM+1,NDIM); physical dimensions
+    ! are input as P(NP,NP)). Also input is the vector Y of length NDIM
+    ! +1, whose components must be pre-initialized to the values of FUNC
+    ! evaluated at the NDIM+1 vertices (rows) of P; and FTOL the fractio-
+    ! nal convergence tolerance to be achieved in the function value. On
+    ! output, P and Y will have been reset to NDIM+1 new points all within
+    ! FTOL of a minimum function value, and ITER gives the number of ite-
+    ! rations taken.
+    !
+    !* REFERENCE: "Numerical Recipes, The Art of Scientific    *
+    !*             Computing by W.H. Press, B.P. Flannery,     *
+    !*             S.A. Teukolsky and W.T. Vetterling,         *
+    !*             Cambridge University Press, 1986"           *
+    !*             [BIBLI 08].                                 *
+    !*                                                         *
+    !*               Fortran 90 Release By J-P Moreau, Paris.  *
+    !*                           (www.jpmoreau.fr)             *
+    !*
+    !* Converted to a better Fortran code by M.Sofiev
+
+    implicit none
+
+    ! Imported parameters
+    procedure(fu_func_AMOEBA_interface) :: Func     ! The function name to be minimized.
+    real, dimension(:,:), intent(inout) :: P ! The simplex matrix (nDim+1, nDim) - argument vaectors
+    real, dimension(:), intent(inout) :: Y   ! Values at the P argument vectors, (nDim+1)
+    integer, intent(in) :: nDim              ! number of variables: the dimension of the problem
+    real, dimension(:), intent(in) :: arExtra  ! an array of whatever needs to be transferred to Func
+    real, intent(in) :: FTol              ! fractional tolerance, stop criterion
+    integer, intent(out) :: iter          ! number of iterations actually made
+    integer, intent(in) :: iVerbose
+
+    ! Local parameters
+    integer, PARAMETER :: nMax=20, ITMax=500  ! max number of dimensions and iterations
+    real, parameter :: ALPHA=1., BETA=0.5, GAMMA=2.  ! rate of expansion and contraction of the simplex
+    ! Local variables
+    real, dimension(nMax) :: PR, PRR, PBAR   ! temporary variables, (nDim) vectors
+    integer :: MPTS, ILO, I, j, IHI, INHI
+    real :: RTOL, YPR, YPRR
+  
+    if(iVerbose == 0)then
+    elseif(iVerbose == 1)then
+      call report_AMOEBA('Entering...', P, Y, nDim, FTOL, arExtra, ITER)
+    elseif(iVerbose == 2)then
+      call report_AMOEBA_test('Entering...', P, Y, nDim, FTOL, arExtra, ITER)
+    endif
+    
+    MPTS=NDIM+1
+    do iter = 1, ITMax
+      ILO=1
+      IF(Y(1) > Y(2)) THEN
+        IHI=1
+        INHI=2
+      ELSE
+        IHI=2
+        INHI=1
+      ENDIF
+      DO I=1, MPTS
+        IF(Y(I) < Y(ILO)) ILO=I
+        IF(Y(I) > Y(IHI)) THEN
+          INHI=IHI
+          IHI=I
+        ELSE IF (Y(I) > Y(INHI)) THEN
+          IF(I /= IHI) INHI=I
+        END IF
+      END DO
+      ! Compute the fractional range from highest to lowest and return if
+      ! satisfactory.
+      RTOL=2.*ABS(Y(IHI)-Y(ILO))/(ABS(Y(IHI))+ABS(Y(ILO)))
+
+      if(iVerbose == 0)then
+      elseif(iVerbose == 1)then
+        call report_AMOEBA('Checking for exit', P, Y, nDim, FTOL, arExtra, ITER)
+        call msg('Relative difference in simplex:', RTOL)
+        call msg('AMOEBA Y(IHI),Y(ILO):', Y(IHI),Y(ILO))
+      elseif(iVerbose == 2)then
+        call report_AMOEBA_test('Checking for exit', P, Y, nDim, FTOL, arExtra, ITER)
+        print *,'AMOEBA Y(IHI),Y(ILO):', Y(IHI),Y(ILO)
+        print *, 'Relative difference in simplex:', RTOL
+      endif
+      
+      IF(RTOL < FTOL) RETURN    ! normal exit
+
+      PBAR(1:nDim)=0.
+      DO I=1, MPTS
+        IF(I /= IHI) THEN
+          PBAR(1:nDim)=PBAR(1:nDim) + P(I,1:nDim)
+        END IF   
+      END DO
+      DO J=1, NDIM
+        PBAR(J)=PBAR(J) / NDIM
+        PR(J)=(1.+ALPHA) * PBAR(J) - ALPHA * P(IHI,J)
+      END DO
+      YPR=Func(PR, arExtra)
+      IF(YPR <= Y(ILO)) THEN
+        DO J=1,NDIM
+          PRR(J)=GAMMA * PR(J) + (1.-GAMMA)*PBAR(J)
+        END DO
+        YPRR=Func(PRR, arExtra)
+        IF(YPRR < Y(ILO)) THEN
+          P(IHI,1:nDim)=PRR(1:nDim)
+          Y(IHI)=YPRR
+        ELSE
+          P(IHI,1:nDim)=PR(1:nDim)
+          Y(IHI)=YPR	  
+        END IF
+      ELSE IF(YPR >= Y(INHI)) THEN
+        IF(YPR < Y(IHI)) THEN
+          P(IHI,1:nDim)=PR(1:nDim)
+          Y(IHI)=YPR
+        END IF
+        DO J=1, NDIM
+          PRR(J)=BETA*P(IHI,J) + (1.-BETA) * PBAR(J)
+        END DO
+        YPRR=Func(PRR, arExtra)
+        IF(YPRR < Y(IHI)) THEN
+          P(IHI,1:nDim)=PRR(1:nDim)
+          Y(IHI)=YPRR
+        ELSE
+          DO I=1, MPTS
+            IF(I /= ILO) THEN
+              DO J=1,NDIM
+                PR(J) = 0.5*(P(I,J) + P(ILO,J))
+                P(I,J) = PR(J)
+              END DO
+              Y(I) = Func(PR, arExtra)
+            END IF
+          END DO
+        END IF
+      ELSE
+        P(IHI, 1:nDim) = PR(1:nDIm)
+        Y(IHI)=YPR
+      END IF
+    end do  ! iter
+
+    ! iVerbose ==2 means test regime, msg will not work since there is no log
+    if(iVerbose == 2)then
+      call report_AMOEBA_test('Exit with max-iter exceeded', P, Y, nDim, FTOL, arExtra, ITER)
+      print *,'AMOEBA Y(IHI),Y(ILO):', Y(IHI),Y(ILO)
+    else
+      call report_AMOEBA('Exit with max-iter exceeded', P, Y, nDim, FTOL, arExtra, ITER)
+      call msg('AMOEBA Y(IHI),Y(ILO):', Y(IHI),Y(ILO))
+    endif
+    call set_error(' Amoeba exceeded maximum number of iterations.','AMOEBA')
+
+  END SUBROUTINE AMOEBA
+
+   !*******************************************************
+  
+   subroutine mod_obs_stats(title, mdl, obs, obsvar, ifHead)
+      implicit none
+      character (len=*) , intent(in) :: title
+      logical , intent(in) :: ifHead
+      real, dimension(:), intent(in) :: mdl, obs, obsvar
+  
+      integer :: N
+      real(kind=8) :: modmean, obsmean, modstd, obsstd, bias, fracb, fgerr, corr, fac2, rmse, cost
+      character(len=fnlen) :: strTmp
+
+      character(len = *), parameter :: sub_name = 'mod_obs_stats'
+
+      if ( size(obs) /= size(obsvar) .or. size(obs) /= size(mdl)) then
+        call msg("mod_obs_stats got sizes", (/size(mdl), size(obs), size(obsvar) /))
+        call set_error("Sizes mimatch", sub_name)
+      endif
+      if (ifHead) then
+        strTmp = "                   N     bias     rmse   corr  modmean  obsmean   modstd   obsstd  fgerr   fac2       cost"
+!                     Assim       242 -.14E-02 0.10E-04  1.000 0.98E-03 0.24E-02 0.98E-03 0.24E-02  0.561  0.711     1265.4
+
+        call msg(strTmp)
+      endif
+
+      N       = count(mdl/=real_missing)
+      if (N>0) then
+        modmean = sum(mdl,mdl/=real_missing) / N
+        obsmean = sum(obs, mdl/=real_missing) / N
+        modstd  = sqrt( sum((mdl - modmean)**2, mdl/=real_missing) / N)
+        obsstd  = sqrt( sum((obs - obsmean)**2, mdl/=real_missing) / N)
+        bias    = modmean - obsmean
+        fracb   = 2* sum( (mdl - obs) / (abs(mdl) + abs(obs) + sqrt(obsvar)), mdl/=real_missing) / N
+        fgerr   = 2* sum( abs(mdl - obs) / (abs(mdl) + abs(obs) + sqrt(obsvar)), mdl/=real_missing) / N 
+        corr    = sum((mdl - modmean)*(obs - obsmean), mdl/=real_missing) / (N * modstd * obsstd) 
+        fac2    = 1. * count((mdl < 2*(obs + sqrt(obsvar))) .and. (mdl > 0.5*(obs - sqrt(obsvar))) .and. mdl/=real_missing ) / N
+        rmse    = sqrt( sum((obs - mdl)**2, mdl/=real_missing) / N)
+        cost    = 0.5 * sum((obs - mdl)**2 / obsvar, mdl/=real_missing)
+
+        write (strTmp, '(A10,X,I9,X,E8.2,X,E8.2,X,F6.3,X,E8.2,X,E8.2,X,E8.2,X,E8.2,X,F6.3,X,F6.3,X,F12.2)') title,  N,  &
+           & bias, rmse, corr, modmean, obsmean, modstd, obsstd, fgerr, fac2, cost
+         call msg(strTmp)
+      else
+        call msg("No data, N=",N)
+      endif
+
+
+  end subroutine mod_obs_stats
+  
 END MODULE toolbox
 

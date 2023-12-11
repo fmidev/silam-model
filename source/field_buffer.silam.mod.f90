@@ -359,11 +359,13 @@ CONTAINS
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
 
     ! Local declarations:
-    INTEGER, DIMENSION(max_quantities) :: quantities, qTmp, qTmpStatic, requests, requests_st
-    INTEGER :: i, j, iLev, nQ, nQs, fs, iCount, iTempl, iTmp, q
+    INTEGER, DIMENSION(max_quantities) :: quantities, qTmp, qTmpStatic
+    INTEGER :: i, j, iLev, nQ, nQs, fs, iCount, iTempl, n_flds, n_flds3d, n_windflds, n_windflds3d
     type(silam_sp), dimension(:), pointer :: fnames
     type(Tinput_content) :: InputContent
     type(wdr_ptr), dimension(:), pointer :: wdrar
+    
+    logical, parameter :: ifVerbose = .true.
 
     InputContent = input_content_missing
 
@@ -387,16 +389,11 @@ CONTAINS
     call report(input_shopLst_st)
 !    met_buf%nbr_of_levels = 0
     input_quantities(:) = int_missing
-    requests = 0
-    !---------------------------------------------------
     !
     ! So far, input_shopping_list contains not really input quantities but
     ! rather what model and output required, so most of them are derived ones.
     ! Let's copy them to input_quantities - they will later be
     ! referred by the meteobuffer and by the model.
-    !
-
-    !----------------------------------------------------
     !
     ! Now let's create the full_shopping_list, which contains all imaginable
     ! quantities, potentially needed for creation of the input_quantities
@@ -405,42 +402,44 @@ CONTAINS
     !
     full_shopLst = input_shopLst
     full_static_shopLst = input_shopLst_st
-    iCount =   fu_nbr_of_quantities(full_shopLst)  &
-              &+ fu_nbr_of_quantities(full_static_shopLst)
-    DO WHILE (iCount > 0) ! Counter of added quantities
-      quantities = fu_quantities(full_shopLst) 
+    iCount = fu_nbr_of_quantities(full_shopLst) + fu_nbr_of_quantities(full_static_shopLst)
+    !
+    ! Cycle until all quantities are added
+    !
+    DO WHILE (iCount > 0)
+      ! Dynamic quantities
+      call all_quantities_from_list(full_shopLst, .false., quantities) 
       DO i=1,size(quantities)
         IF(quantities(i) == int_missing) EXIT
-        ! Check dynamic quantities
-        call quantities_for_derived_one(quantities(i),  fu_request(full_shopLst,i), .false., &
-                                      & qTmp, qTmpStatic, requests, requests_st, wdr)
-        call add_shopping_quantities(full_shopLst, qTmp, requests)
-        call add_shopping_quantities(full_static_shopLst, qTmpStatic, requests_st)
+        if(ifVerbose)call msg('Dynamic quantity:' + fu_quantity_string(quantities(i)))
+        call quantities_for_derived_one(quantities(i),  .false., qTmp, qTmpStatic, wdr)
+        call add_shopping_quantities(full_shopLst, qTmp, ifVerbose = ifVerbose)
+        call add_shopping_quantities(full_static_shopLst, qTmpStatic, ifVerbose = ifVerbose)
       END DO
-      quantities = fu_quantities(full_static_shopLst) 
+      ! Single-time quantities
+      call all_quantities_from_list(full_static_shopLst, .false., quantities) 
       DO i=1,size(quantities)
         IF(quantities(i) == int_missing) EXIT
-        ! Check only realtime quantities
         if (.not. fu_realtime_quantity(quantities(i))) cycle
-        call quantities_for_derived_one(quantities(i), fu_request(full_static_shopLst,i), .true., &
-                                      & qTmp, qTmpStatic, requests, requests_st, wdr)
-        call add_shopping_quantities(full_shopLst, qTmp, requests)
-        call add_shopping_quantities(full_static_shopLst, qTmpStatic, requests_st)
+        if(ifVerbose)call msg('Singletime quantity:' + fu_quantity_string(quantities(i)))
+        call quantities_for_derived_one(quantities(i), .true., qTmp, qTmpStatic, wdr)
+        call add_shopping_quantities(full_shopLst, qTmp, ifVerbose = ifVerbose)
+        call add_shopping_quantities(full_static_shopLst, qTmpStatic, ifVerbose = ifVerbose)
       END DO
       !
-      ! If the number of quantities has changed since the last run - reset it and repeat 
+      ! If the number of quantities has changed since the last run - repeat 
       ! the cycle. Otherwise, set the exit condition to true
       !
-      iTmp = fu_nbr_of_quantities(full_shopLst)  + fu_nbr_of_quantities(full_static_shopLst)
-      if(iCount /= iTmp)then
-        iCount = iTmp
-      else
+      i = fu_nbr_of_quantities(full_shopLst) + fu_nbr_of_quantities(full_static_shopLst)
+      if(iCount == i)then
         iCount = 0
+      else
+        iCount = i
       endif
     END DO
     if(error)return
 
-    quantities = fu_quantities(full_shopLst) ! restore for the sake of further potential use
+    call all_quantities_from_list(full_shopLst, .false., quantities) ! restore for the sake of further potential use
 
 !    call msg("Quantities to request from input")
 !    call report_list_of_quantities(quantities, "full_shopLst")
@@ -507,18 +506,19 @@ CONTAINS
     !
     !-------------------------------------------------------------------------
     !
+    call msg('')
     call msg("analyse_input_content got list for  shopping:")
     call report(input_shopLst)
    
    ! Somewhat hackish...
    ! Here we add dynamic quantities needed for real-time quantities to the input_shopLst
    ! Pretend that they were requested...
-    quantities = fu_quantities(full_static_shopLst) 
+    call all_quantities_from_list(full_static_shopLst, .false., quantities) 
     do i=1, size(quantities)
-      if((quantities(i) > 0)  .and. fu_realtime_quantity(quantities(i)))then
-        call quantities_for_derived_one(quantities(i), fu_request(full_static_shopLst,i), .true., &
-                                      & qTmp, qTmpStatic, requests, requests_st, wdr) 
-        call add_shopping_quantities(input_shopLst, qTmp, requests)
+      if(quantities(i) == int_missing)exit
+      if(fu_realtime_quantity(quantities(i)))then
+        call quantities_for_derived_one(quantities(i), .true., qTmp, qTmpStatic, wdr) 
+        call add_shopping_quantities(input_shopLst, qTmp, ifVerbose=ifVerbose)
       endif
     end do
    
@@ -535,7 +535,7 @@ CONTAINS
     ! contains exactly those variables, which enable the way from 
     ! available quantities in the Grib files to input_shopping_list
     !
-    ! Trick: check_quantity assumes truly static quantities available
+    ! Trick: check_quantity assumes truly static quantities are available
     !
 
   !call msg("analyse_input_content returned shopping list:")
@@ -553,18 +553,19 @@ CONTAINS
 !  call msg("set_deriving_way returned full_shopLst:")
 !  call report(full_static_shopLst)
 
+    call all_quantities_from_list(full_shopLst, .false., quantities) ! restore for the sake of further potential use
     iCount=1
-    do i=1, size(fu_quantities(full_shopLst))
-      q = fu_quantity(full_shopLst,i)
-      if( fu_request(full_shopLst, i) > 0  .and. all(input_quantities(1:iCount) /= q) )then
-        if (ifCanBeSkippedInDerivation(q)) then
-          if( .not. fu_quantity_in_list(q, input_shopLst)) cycle
+    do i=1, size(quantities)
+      if(quantities(i) == int_missing)exit
+      if(all(input_quantities(1:iCount) /= quantities(i)) )then
+        if (ifCanBeSkippedInDerivation(quantities(i))) then
+          if( .not. fu_quantity_in_list(quantities(i), input_shopLst)) cycle
         endif
-        input_quantities(iCount) = q
+        input_quantities(iCount) = quantities(i)
         iCount = iCount + 1
+        input_quantities(iCount) = int_missing
       endif
     end do
-    input_quantities(iCount) = int_missing
 !call report_list_of_quantities(input_quantities,"After full_shopLst")
 
     ! No Intelligent handling of derivation
@@ -581,31 +582,29 @@ CONTAINS
     ! Here we just add proper quantities to the input_quantities, so that the
     ! model gets what it needs from permanent fields as well.
     !
+    call all_quantities_from_list(input_shopLst_st, .false., quantities) ! restore for the sake of further potential use
+    if(error)return
 
-    do i=1,size(fu_quantities(input_shopLst_st))
-      if(fu_request(input_shopLst_st, i) > 0 .and. &
-       & .not. any(input_quantities(1:iCount) == fu_quantity(input_shopLst_st,i)))then
-        input_quantities(iCount) = fu_quantity(input_shopLst_st, i)
+    do i=1,size(quantities)
+      if(quantities(i) == int_missing)exit
+      if(.not. any(input_quantities(1:iCount) == quantities(i)))then
+        input_quantities(iCount) = quantities(i)
         iCount = iCount + 1
+        input_quantities(iCount) = int_missing
       endif
     end do
-    input_quantities(iCount) = int_missing
 !call report_list_of_quantities(input_quantities,"After full_shopLst_st")
-
 
    !
    ! Now let's expand the static shopping list to include all quantities that might be needed
    !
    iCount = 1
     DO WHILE (iCount > 0) ! Counter of added quantities
-      quantities = fu_quantities(input_shopLst_st) 
       DO i=1,size(quantities)
         IF(quantities(i) == int_missing) EXIT
-
-        call quantities_for_derived_one(quantities(i), fu_request(input_shopLst_st,i), .true., &
-                                      & qTmp, qTmpStatic, requests, requests_st, wdr) 
-        call add_shopping_quantities(full_shopLst, qTmp, requests)
-        call add_shopping_quantities(full_static_shopLst, qTmpStatic, requests_st)
+        call quantities_for_derived_one(quantities(i), .true., qTmp, qTmpStatic, wdr) 
+        call add_shopping_quantities(full_shopLst, qTmp)
+        call add_shopping_quantities(full_static_shopLst, qTmpStatic)
       END DO
       !
       ! If the number of quantities has changed since the last cycle - reset it and repeat 
@@ -696,7 +695,7 @@ CONTAINS
       case default
         call set_error('Unknown system_level type','meteo_init')
     call msg('------------------------------------------------------')
-    call msg('                  METEO VERTICAL: ')
+    call msg('                  METEO VERTICAL before cut: ')
     CALL report(meteo_vertical, .true.)
     call msg('------------------------------------------------------')
     call msg('')
@@ -708,7 +707,7 @@ CONTAINS
     IF (error) RETURN
 
     call msg('------------------------------------------------------')
-    call msg('                  METEO VERTICAL: ')
+    call msg('                  METEO VERTICAL final: ')
     CALL report(meteo_vertical, .true.)
     call msg('------------------------------------------------------')
     call msg('')
@@ -740,40 +739,72 @@ CONTAINS
     !
     ! Initialization has to be done separately for time dependent and permanent parts.
     !
-    ! Note: minimum number of time nodes is 3 in order to be able to handle the jumps from 
-    ! one forecast to another one. Without these three nodes we will be unable to handle the
-    ! cumulative quantities if the jump happens not to the start of the forecast
+    ! Note: minimum number of time nodes is 2 in order to be able to handle the jumps from 
+    ! one forecast to another one. 
     !
     allocate(wdrar(1))
     wdrar(1)%ptr => wdr
+    !
+    ! Multitime 
+    ! How many fields should we reserve in meteomarket?
+    !
+    n_windflds = fu_NbrOfLevels(meteo_vertical)
+    n_windflds3d = 1
+    ! non-wind quantities are trickier
+    call all_quantities_from_list(full_shopLst, .true., quantities) ! ifVarsToo
+    n_flds = 0
+    n_flds3d = 0
+    do iCount = 1, size(quantities)
+      if(quantities(iCount) == int_missing)exit
+      if(fu_multi_level_quantity(quantities(iCount)))then
+        n_flds3d = n_flds3d + 1
+        n_flds = n_flds + n_windflds  ! n_windflds == nlevs
+      else
+        n_flds = n_flds + 1
+      endif
+    end do
+    n_flds = n_flds + 10 !! for whatever reason som more felds needed (was +1)
+    call msg("Initializing meteo_market multitime  n_flds n_flds3d",n_flds, n_flds3d)
     CALL initialize_mini_market(meteoMarketPtr, &
                               & 'meteo_market', &
                               & fu_NbrOfMetSrcs(wdr), &  ! nbr of MDS
                               & max(2,nTimeNodesNeeded),&   ! timenodes in memory
-                              & 3000,& ! for each timenode - fields
-                              & 200,&  ! for each timenode - windfields
-                              & 50, &  ! for each timenode - 3d fields
-                              & 10, &  ! for each timenode  - 3d windfields
+                              & n_flds , &     !3000,& ! for each timenode - fields
+                              & n_flds3d, &     ! 50, &  ! for each timenode - 3d fields
                               & ifForward,& ! if replace oldest (true) or latest (false) when full
                               & wdrar, &
-                              &  .true. ,&
-                              & .true.) ! info to stdout <=> supermarket_info = .true.
+                              &  .true. )
+    !
+    ! Single-time market can contain a few fields that are just embedded by some strange routines. Need reserves
+    ! How many fields should we reserve in meteomarket?
+    !
+    call all_quantities_from_list(full_static_shopLst, .true., quantities) ! ifVarsToo
+    n_flds = 0
+    n_flds3d = 0
+    do iCount = 1, size(quantities)
+      if(quantities(iCount) == int_missing)exit
+      if(fu_multi_level_quantity(quantities(iCount)))then
+        n_flds3d = n_flds3d + 1
+      else
+        n_flds = n_flds + 1
+      endif
+    end do
+    n_flds = n_flds + 10 !!  Added by MAS after introducing field counting
+    call msg("Initializing meteo_market singletime  n_flds n_flds3d",n_flds, n_flds3d)
     CALL initialize_mini_market(meteoMarketPtr, &
                               & 'meteo_market', &
                               & 1, &  ! nbr of MDS
-                              & 0,&   ! timenodes in memory (assume: max 1 timenode per file)
-                              & 200,& ! for each timenode - fields
-                              & 0,&  ! for each timenode - windfields
-                              & 10, &  ! for each timenode - 3d fields
-                              & 0, &  ! for each timenode  - 3d windfields
+                              & 0,&   ! makes it a single-time stack
+                              & n_flds, &  ! 2d
+                              & n_flds3d, &  ! 3d fields
                               & ifForward,& ! if replace oldest (true) or latest (false) when full
                               & wdrar, &
-                              & .false., &
-                              & .true.) ! info to stdout <=> supermarket_info = .true.
+                              & .false.)
     call msg('meteo market is initialized')
     IF (error) RETURN
 
     deallocate(wdrar)
+    !
     ! Now set the met_src in the supermarket
     !
     call set_met_srcs_in_sm_single_wdr (meteoMarketPtr, .true. , .false., wdr)
@@ -801,7 +832,7 @@ CONTAINS
 
     ! Local variables
     type(wdr_ptr), dimension(:), pointer :: wdrPtr
-    integer :: nbr_of_fields, nbr_of_windfields, nbr_of_3d_fields, nbr_of_3d_windfields
+    integer :: nbr_of_fields,  nbr_of_3d_fields
 
     allocate(wdrPtr(1))
     allocate(wdrPtr(1)%ptr)
@@ -815,11 +846,9 @@ CONTAINS
     !
     ! Dynamic dispersion market
     !
-    call count_fields(q_dyn, nbr_of_fields, nbr_of_windfields, nbr_of_3d_fields, nbr_of_3d_windfields)
+    call count_fields(q_dyn, nbr_of_fields, nbr_of_3d_fields)
     call msg('Fields to mini_market:' + chMarketName + ':', nbr_of_fields)
-    call msg('windfields: ', nbr_of_windfields)
     call msg('3d_fields', nbr_of_3d_fields)
-    call msg('3d winds', nbr_of_3d_windfields)
 
     ! We seem to get various failures if no space is reserved for some
     ! type of field, even if there will be none. That's why the
@@ -836,23 +865,18 @@ CONTAINS
                                 & 1,&      ! first dimension of the stack arrays
                                 & nTimeNodesNeeded,& ! if>0, the second dimension in multiTime stack
                                 & max(nbr_of_fields, 1), &
-                                & max(nbr_of_windfields, 1), &
                                 & max(nbr_of_3d_fields, 1), &
-                                & max(nbr_of_3d_windfields, 1),&
                                 & .true.,& ! replace_earliest_when_full
                                 & wdrPtr, & 
-                                & .false., & ! ifSingleSrc
-                                & test_messages)
+                                & .false.) ! ifSingleSrc
       if(error)return
     endif
     
     ! Static stacks
     !
-    call count_fields(q_stat, nbr_of_fields, nbr_of_windfields, nbr_of_3d_fields, nbr_of_3d_windfields)
+    call count_fields(q_stat, nbr_of_fields,  nbr_of_3d_fields)
     call msg('Fields to static market:' + chMarketName + ':', nbr_of_fields)
-    call msg('windfields: ', nbr_of_windfields)
     call msg('3d_fields', nbr_of_3d_fields)
-    call msg('3d winds', nbr_of_3d_windfields)
     
     
     if (nbr_of_fields > 0) then
@@ -864,61 +888,43 @@ CONTAINS
                                 & 1,&      ! first dimension of the stack arrays
                                 & 0,& ! if>0, the second dimension in multiTime stack
                                 & max(nbr_of_fields+100, 70), & !q_disp_stat has only quantities, which might exist for more than one species (pollen)
-                                & max(nbr_of_windfields, 1), &
                                 & max(nbr_of_3d_fields, 1), &
-                                & max(nbr_of_3d_windfields, 1),& 
                                 & .false.,&
                                 & wdrPtr, &
-                                & .false., &
-                                & test_messages)
+                                & .false.)
     endif
     deallocate(wdrPtr)
 
   contains
     
-    subroutine count_fields(q_list, nbr_of_fields, nbr_of_windfields, nbr_of_3d_fields, nbr_of_3d_windfields)
+    subroutine count_fields(q_list, nbr_of_fields,  nbr_of_3d_fields)
       ! Decompose the quantity list into nbr of fields, windfields,
       ! etc. Tries to be general, but assumes that the winds have 3 components.
       implicit none
       integer, dimension(:), intent(in) :: q_list
-      integer, intent(out) :: nbr_of_fields, nbr_of_windfields, nbr_of_3d_fields, nbr_of_3d_windfields
+      integer, intent(out) :: nbr_of_fields, nbr_of_3d_fields
 
-      integer :: ind_q, quantity, nbr_of_2d_wind_components, nbr_of_3d_wind_components
+      integer :: ind_q, quantity
 
-      nbr_of_windfields = 0
       nbr_of_3d_fields = 0
-      nbr_of_3d_windfields = 0
       nbr_of_fields = 0
-      nbr_of_2d_wind_components = 0
-      nbr_of_3d_wind_components = 0
 
       do ind_q = 1, size(q_list)
         quantity = q_list(ind_q)
+!        call msg(fu_quantity_string(quantity))
         if (quantity == int_missing) exit
         if (fu_multi_level_quantity(quantity)) then
           nbr_of_3d_fields = nbr_of_3d_fields + 1
           ! we'll be in trouble if there's to be more than one 3d wind.
-          if (fu_wind_quantity(quantity)) nbr_of_3d_wind_components = nbr_of_3d_wind_components + 1
         else
           nbr_of_fields = nbr_of_fields + 1
-          if (fu_wind_quantity(quantity)) nbr_of_2d_wind_components = nbr_of_2d_wind_components + 1
         end if
       end do
 
-      if (mod(nbr_of_3d_wind_components, 3) > 0 .or. mod(nbr_of_2d_wind_components, 3) > 0) then
-        call set_error('Strange number of wind components (3d, 2d):' + &
-                     & fu_str(nbr_of_3d_wind_components) + ',' + &
-                     & fu_str(nbr_of_2d_wind_components), 'count_fields')
-        return
-      end if
-
-      nbr_of_3d_windfields = nbr_of_3d_wind_components / 3 + 1
-      nbr_of_windfields = nbr_of_3d_windfields*nz_dispersion + nbr_of_2d_wind_components / 3
-      !
       ! Some dq_ functions make several quantities not asking whether the full set is needed.
       ! So, we have to have a reserve for this case
       !
-      nbr_of_3d_fields = nbr_of_3d_fields + 2
+      nbr_of_3d_fields = nbr_of_3d_fields + 4
       nbr_of_fields = nbr_of_fields + 30 + nz_dispersion * nbr_of_3d_fields
 
     end subroutine count_fields
@@ -1077,36 +1083,28 @@ CONTAINS
     ! Local variables
     integer :: i, iLev, NbrQ, iStatus
 
-    if(.not.defined(meteo_grid))then
-      call set_error('Undefined meteo_grid','init_data_buffer')
-      return
-    endif
-
+    if(fu_fails(defined(meteo_grid),'Undefined meteo_grid','init_data_buffer'))return
+    if(fu_fails(.not.associated(dat_buf),'Buffer is already allocated','init_data_buffer'))return
+    allocate(dat_buf, stat=iStatus)
+    if(fu_fails(iStatus == 0,'Failed to allocate the buffer','init_data_buffer'))return
+    !
+    ! How many quantities we need?
     do NbrQ = 0,size(buffer_q)
       if(buffer_q(NbrQ+1) == int_missing)exit
     end do
     if(NbrQ < 1)then
-      call set_error('Undefined buffer_quantities','init_data_buffer')
+      call set_error('Undefined buffer_quantities. The buffer will be empty','init_data_buffer')
+      call unset_error('init_data_buffer')
+      nullify(dat_buf%p2d, dat_buf%p4d, dat_buf%buffer_quantities, dat_buf%buffer_species, &
+            & dat_buf%ifPointerSet)
       return
     endif
-
-    if(associated(dat_buf))then
-      call set_error('Buffer is already allocated','init_data_buffer')
-      return
-    endif
-
-    allocate(dat_buf, stat=iStatus)
-    if(iStatus /= 0)then
-      call set_error('Failed to allocate the buffer','init_data_buffer')
-      return
-    endif
-
+    !
+    ! Reasonable buffer is needed
+    !
     ALLOCATE(dat_buf%p2d(NbrQ), dat_buf%p4d(NbrQ), & ! dat_buf%grd_shift(NbrQ), &
            & dat_buf%buffer_quantities(NbrQ), dat_buf%ifPointerSet(NbrQ), stat=iStatus)
-    if(iStatus /= 0)then
-      call set_error('Failed to allocate the buffer pointers','init_data_buffer')
-      return
-    endif
+    if(fu_fails(iStatus == 0,'Failed to allocate the buffer pointers','init_data_buffer'))return
     
     if(present(buffer_sp))then
       allocate(dat_buf%buffer_species(NbrQ), stat=iStatus)
@@ -1202,19 +1200,25 @@ CONTAINS
     type(meteo_data_source), intent(in) :: met_src
     TYPE(silja_time), INTENT (in) :: now
     type(silja_interval), intent(in) :: model_time_step
-    TYPE(Tfield_buffer),POINTER::data_buffer
+    TYPE(Tfield_buffer),POINTER :: data_buffer
     type(mini_market_of_stacks), pointer :: miniMarketPtr
     type(silam_vertical), INTENT (in) :: vert
 !    type(silja_grid), pointer :: gridPtr
 
     ! Local variables
-    TYPE(silja_stack), POINTER :: stack_past, stack_future
+    TYPE(silja_stack), POINTER :: stack_past => NULL(), stack_future => NULL()
     logical :: ifAllFound
     integer :: i,iTmp, iLev
     REAL :: weight_past
     logical :: ifSTonly  ! Set only pointers from single-time stack
 
     type(mini_market_of_stacks), pointer :: mmPtr
+
+    !
+    ! The buffer can be empty: if we run a meteo-only run and do not request anything
+    ! from dispersion_market, here we only step in and out
+    !
+    if(.not. associated(data_buffer%buffer_quantities))return
 
     ifSTonly = (.not. defined(now))
 
@@ -1238,54 +1242,61 @@ CONTAINS
       ! of meteodata validity, the past and future stacks can be found easily.
       !
       stack_past => fu_closest_sm_met_src_time(miniMarketPtr, met_src, &
-                                                & now + model_time_step*0.5, backwards, .true.)
+                                             & now + model_time_step*0.5, backwards, .false.)
       stack_future => fu_closest_sm_met_src_time(miniMarketPtr, met_src, &
-                                                & now + model_time_step*0.5, forwards, .true.)
-      if(associated(stack_past, stack_future))then
-        call msg_warning('stack_past and stack_future are the same for nnow + model_time_step*0.5=' + &
-                       & fu_str(now + model_time_step*0.5), 'arrange_buffer')
+                                               & now + model_time_step*0.5, forwards, .false.)
+      if(error)then
+        call unset_error('arrange_buffer, just for printing minimarket content')
+        call report(miniMarketPtr)
+        call set_error('Problem with meteostacks','arrange_buffer')
+        RETURN
       endif
-      IF(fu_fails(.not.error,'Problem with meteostacks','arrange_buffer'))RETURN
       !
       ! If we found past and future stacks, set the dynamic pointers
       !
-      IF(defined(stack_past) .and. defined(stack_future))  THEN
-        data_buffer%time_past = fu_valid_time(stack_past)
-        data_buffer%time_future = fu_valid_time(stack_future)
-        data_buffer%time_present = now
-        !
-        ! weight_past should point at the centre of the current time step
-        !
-        if (data_buffer%time_future == data_buffer%time_past) then
-           weight_past = 0.                                ! if step mid-point hits the meteo time
-        else
-           weight_past = ((data_buffer%time_future - now) - model_time_step * 0.5) / &
-                    & (data_buffer%time_future - data_buffer%time_past)
-        endif
+      if(associated(stack_past) .and. associated(stack_future))then
+        IF(defined(stack_past) .and. defined(stack_future))  THEN
+          if(associated(stack_past, stack_future))then
+            call msg_warning('stack_past and stack_future are the same for nnow + model_time_step*0.5=' + &
+                           & fu_str(now + model_time_step*0.5), 'arrange_buffer')
+          endif
+          data_buffer%time_past = fu_valid_time(stack_past)
+          data_buffer%time_future = fu_valid_time(stack_future)
+          data_buffer%time_present = now
+          !
+          ! weight_past should point at the centre of the current time step
+          !
+          if (data_buffer%time_future == data_buffer%time_past) then
+             weight_past = 0.                                ! if step mid-point hits the meteo time
+          else
+             weight_past = ((data_buffer%time_future - now) - model_time_step * 0.5) / &
+                      & (data_buffer%time_future - data_buffer%time_past)
+          endif
 
 !        data_buffer%ifPointerSet(:) = .false.
 !call msg("Setting pointers for multi_time_stack")
 !call msg("Stack_past >"+fu_name(stack_past)+"< _"+fu_str(data_buffer%time_past))
 !call msg("Stack_future >"+fu_name(stack_future)+"< _"+fu_str(data_buffer%time_future))
 
-        call set_buffer_pointers(met_src,weight_past, &
-                               & data_buffer, &
-                               & data_buffer%time_past, data_buffer%time_future, &
-                               & now, model_time_step, &
-                               & stack_past, stack_future, &
-!                               & gridPtr, &
-                               & vert, &
-                               & .true., &  ! If compute present 2D vars
-                               & ifAllFound)
-        if(error)return
-        !
-        ! Now force weight_past back to its true value
-        !
-        data_buffer%weight_past = weight_past
-     else
-        ifAllFound = .false.
-      endif  ! dynamic stacks have been found
-    endif
+          call set_buffer_pointers(met_src,weight_past, &
+                                 & data_buffer, &
+                                 & data_buffer%time_past, data_buffer%time_future, &
+                                 & now, model_time_step, &
+                                 & stack_past, stack_future, &
+!                                 & gridPtr, &
+                                 & vert, &
+                                 & .true., &  ! If compute present 2D vars
+                                 & ifAllFound)
+          if(error)return
+          !
+          ! Now force weight_past back to its true value
+          !
+          data_buffer%weight_past = weight_past
+        else
+          ifAllFound = .false.
+        endif  ! dynamic stacks have been found, pointers defined
+      endif  ! dynamic stack pointers are associated
+    endif   ! ifSTonly
 
 !    call msg("weight_past",weight_past)
     !
@@ -1386,13 +1397,11 @@ CONTAINS
     integer, dimension(max_quantities) :: q2d, q3d
     type(silam_species), dimension(max_quantities) :: Species
     TYPE(Tfield_buffer),POINTER::db
-    TYPE(silja_stack), POINTER :: st
     type(silam_species) :: spTmp
     TYPE(silja_field_id), pointer :: idPtr
 
 
     db => data_buffer
-    st => stack_past
     !
     ! Now, get the complete list of stack 2D variables (variable=quantity+species)
     ! and 3D quantities
@@ -1676,7 +1685,7 @@ CONTAINS
           ! Set validity during the current timestep: this is when the values are to be used
           ! Cumulative viariables are of special kind, they are handled by those who use them.
           !
-          if (.not. fu_accumulated(data_buffer%p2d(iQ)%present%idPtr))then
+          if (.not. fu_accumulated_id(data_buffer%p2d(iQ)%present%idPtr))then
             if(fu_interval_positive(model_time_step))then
               call set_valid_time(data_buffer%p2d(iQ)%present%idPtr, now)
               call set_validity_length(data_buffer%p2d(iQ)%present%idPtr, model_time_step)
@@ -4048,7 +4057,6 @@ CONTAINS
     integer, dimension(4) :: indices
     logical :: ifVertsComparable
     type(silja_level) :: levFromTmp ! Level from the vertFrom but projected to VertTo 
-    integer, dimension(:), pointer :: quant_req
     real, dimension(:,:), pointer :: weightTmp, weight_Z_Tmp
 
     !
@@ -4581,7 +4589,7 @@ call msg('')
     type(silja_logical) :: ifMetVertFrom
     integer, dimension(:), pointer :: q_arr_ptr
     real, dimension(max_levels) :: interp_col_data_forward, interp_col_data
-    real, dimension(:,:), pointer :: weightTmp, weight_Z_tmp
+    real, dimension(:,:), pointer :: weightTmp, fZ_tmp
     type(silja_level) :: level, levFromTmp ! Level from the vertFrom but projected to VertTo 
     logical :: if_horiz_interp, if_vert_interp, if_vert_interp_forward, ifOK
     type(silja_grid) :: grid
@@ -4780,8 +4788,8 @@ call msg('')
                                                     & 'suppl_forward:'+ interpVertStruct%chName)
       endif
 
-      weightTmp => fu_work_array_2d()
-      weight_Z_Tmp => fu_work_array_2d()
+      weightTmp => fu_work_array_2d(nLevFrom,nLevTo)
+      fz_tmp => fu_work_array_2d(nLevFrom,nLevTo)
       if(error)return
       !
       ! Start the main cycle
@@ -4817,10 +4825,11 @@ call msg('')
             !
             call overlap_fraction_lyr_in_vert(interpVertStruct%vertFrom, &
                                             & interpVertStruct%vertTo, &
-                                            & weightTmp, weight_Z_tmp, &
+                                            & weightTmp, fz_tmp, &
                                             & interp_col_data_forward, interp_surf_data_forward, &
                                             & interp_col_data, interp_surf_data)
             if(error)return
+            !!fz_tmp is something in a range 0.5:1.5,  not a weight!!
             !
             ! Copy the non-zero weights checking that the number of coefs is not too large
             !
@@ -4830,7 +4839,7 @@ call msg('')
               interpVertStruct%weight_Z(1:interpVertStruct%nCoefs,ixInterp,iyInterp,iLevTo) = 0.0
               iCount = 1
               do iLevFrom = 1, nLevFrom
-                if(weightTmp(iLevFrom,iLevTo) .eps. 0.0)cycle
+                if(weightTmp(iLevFrom,iLevTo) < 1e-6 )cycle
                 if(iCount > interpVertStruct%nCoefs)then
                   call msg_warning('Have to increase the number of coefficients in:' + &
                                  & interpVertStruct%chName,'refine_interp_vert_coefs')
@@ -4849,14 +4858,15 @@ call msg('')
                 interpVertStruct%indLev(iCount,ixInterp,iyInterp,iLevTo) = iLevFrom
                 interpVertStruct%weight(iCount,ixInterp,iyInterp,iLevTo) = weightTmp(iLevFrom,iLevTo)
                 interpVertStruct%weight_Z(iCount,ixInterp,iyInterp,iLevTo) = &
-                                                                      & weight_Z_Tmp(iLevFrom,iLevTo)
+                       & ( fZ_Tmp(iLevFrom,iLevTo) - 1.) * weightTmp(iLevFrom,iLevTo)
                 iCount = iCount + 1
               enddo
             end do  ! iLevTo
           end do   ! ix
         end do  ! iy
       end do ifSufficientSize ! whlie ifOK
-
+      call free_work_array(weightTmp)
+      call free_work_array(fZ_Tmp)
 
     case(nearest_point)
       !
@@ -4916,6 +4926,21 @@ call msg('')
                                   & interp_col_data, &
                                   & p_interpHoriz4Meteo, p_InterpVert4Meteo, &
                                   & if_horiz_interp, if_vert_interp, weight_past)
+
+            ! The if clause below works for LES runs, but it ruins the reprojection of the vertical of the boundary
+            ! condition in European runs
+             !for layered vertical put layer's interfaces by converting central heights to interfaces
+             ! workaround for height levels
+            !if (any(fu_leveltype(interpVertStruct%vertFrom) == (/layer_btw_2_hybrid, layer_btw_2_sigma, layer_btw_2_pressure/))) then
+            !    interp_col_data(1) = 2*interp_col_data(1)
+            !    do iLev=2, nLevFrom
+            !         interp_col_data(iLev) = 2*interp_col_data(iLev) - interp_col_data(iLev-1)
+            !    enddo
+            !    do iLev=nLevFrom+1,2,-1
+            !        interp_col_data(iLev) = interp_col_data(iLev-1)
+            !    enddo
+            !    interp_col_data(1) = 0.
+            !endif
           end if
           if (ind_q_2d > 0) then
             call surf_from_buffer(data_buffer, ind_q_2d, ixInterp, iyInterp, nx_buffer, &
@@ -5147,16 +5172,16 @@ call msg('')
 
   function fu_vertFrom_from_interp_struct(interpStructVert)result(vertFrom)
     implicit none
-    type(silam_vertical) :: vertFrom
-    type(TVertInterpStruct), intent(in) :: interpStructVert
-    vertFrom = interpStructVert%vertFrom
+    type(silam_vertical), pointer :: vertFrom
+    type(TVertInterpStruct), target, intent(in) :: interpStructVert
+    vertFrom => interpStructVert%vertFrom
   end function fu_vertFrom_from_interp_struct
 
   function fu_vertTo_from_interp_struct(interpStructVert)result(vertTo)
     implicit none
-    type(silam_vertical) :: vertTo
-    type(TVertInterpStruct), intent(in) :: interpStructVert
-    vertTo = interpStructVert%vertTo
+    type(silam_vertical), pointer :: vertTo
+    type(TVertInterpStruct), target, intent(in) :: interpStructVert
+    vertTo => interpStructVert%vertTo
   end function fu_vertTo_from_interp_struct
 
   integer function fu_nCoefs_interp_str_vert(interpStructVert)

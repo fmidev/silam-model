@@ -30,6 +30,7 @@ MODULE silam_times ! times and time-intervals + toolbox
   PUBLIC fu_time_to_date_string ! silja_time to yyyymmdd
   PUBLIC fu_time_to_grads_string ! silja_time to  00:00Z10mar2001
   public fu_time_to_netcdf_string
+  public fu_netcdf_str_to_silam_time
   public fu_time_to_thredds_string
   PUBLIC fu_io_string_to_time ! yyyy mm dd hh min sec to silja_time
   public fu_time_to_io_string ! reverse to the above
@@ -82,6 +83,7 @@ MODULE silam_times ! times and time-intervals + toolbox
   PUBLIC fu_round_closest
   public update_timezone_offsets
   public fu_index
+  public parse_time_units_and_origin
 
   public real8_to_silja_time
   public silja_time_to_real8
@@ -786,6 +788,76 @@ CONTAINS
         & nint(time%sec), ' UTC'
 
   END FUNCTION fu_time_to_netcdf_string
+
+
+  !*****************************************************************
+
+  function fu_netcdf_str_to_silam_time(chTime) result(time)
+    !
+    ! Converts the netcdf-type string to the SILAM type structure
+    ! The input template is: yyyy-mm-dd hh:mm:ss
+    ! For example 0000-01-01 00:00:00
+    !
+    implicit none
+
+    ! Return value
+    type(silja_time) :: time
+
+    ! Imported parameter
+    character(len=*), intent(in) :: chTime
+    character :: chtmp
+
+    ! Local variables
+    integer :: year, month, day, hour, minute, iStatus
+    integer :: iywidth,imwidth,idwidth, i, ind
+    real :: second
+    character(len=80) :: chF
+    character(len=1), dimension(2) :: delimiters
+    year=int_missing; month=int_missing; day=int_missing 
+
+    second = 0.
+    minute = 0
+    hour = 0
+    time = time_missing
+
+    delimiters = (/'T', '_' /)
+
+    iywidth=index(chTime,'-')-1
+    imwidth=index(chTime(iywidth+2:),'-') -1
+    idwidth=index(chTime(iywidth+imwidth+3:),' ') -1
+    if (all(idwidth /= (/1,2/)) ) then !Try to look for T -- delimiter in thredds dates
+      do i=1, size(delimiters)
+        ind = index(chTime(iywidth+imwidth+3:), delimiters(i))
+        if (ind > 0) then
+          idwidth = ind - 1
+          exit
+        end if
+      end do
+        
+
+      if (idwidth /= 2) then
+        call set_error('Failed to get time from string1"'//trim(chTime)//'"' , &
+             & 'fu_netcdf_str_to_silam_time')
+        return
+      endif
+    endif
+    chF='(I'+fu_str(iywidth)+', A, I'+fu_str(imwidth)+', A, I'+fu_str(idwidth)+', A, I2, A, I2, A, F2.0)'
+
+
+
+      !
+    read(unit=chTime,fmt=chF, iostat=iStatus) &
+                       & year, chtmp, month, chtmp, day, chtmp, hour, chtmp, minute, chtmp, second
+    if (iStatus /= 0)then
+      call set_error('Failed to get time from netcdf  string "'//trim(chTime)//'"' , &
+                  & 'fu_netcdf_str_to_silam_time')
+      return
+    endif
+
+    time = fu_set_time_utc(year, month, day, hour, minute, second)
+    
+  end function fu_netcdf_str_to_silam_time
+
   !*****************************************************************
 
     FUNCTION fu_time_to_thredds_string(time)
@@ -1542,8 +1614,7 @@ CONTAINS
     IF (defined(time)) THEN
       fu_sec_time = time%sec
     ELSE
-      CALL set_error('undefined time given','fu_sec')
-      RETURN
+      fu_sec_time = int_missing
     END IF
     
   END FUNCTION fu_sec_time
@@ -1562,8 +1633,7 @@ CONTAINS
     IF (defined(time)) THEN
       fu_min = time%minute
     ELSE
-      CALL set_error('undefined time given','fu_time_min')
-      RETURN
+      fu_min = int_missing
     END IF
     
   END FUNCTION fu_min
@@ -1582,8 +1652,7 @@ CONTAINS
     IF (defined(time)) THEN
       fu_hour = time%hour
     ELSE
-      CALL set_error('undefined time given','fu_time_hour')
-      RETURN
+      fu_hour = int_missing
     END IF
     
   END FUNCTION fu_hour
@@ -1603,8 +1672,7 @@ CONTAINS
     IF (defined(time)) THEN
       fu_day = time%day
     ELSE
-      CALL set_error('undefined time given','fu_time_day')
-      RETURN
+      fu_day = int_missing
     END IF
     
   END FUNCTION fu_day
@@ -1623,8 +1691,7 @@ CONTAINS
     IF (defined(time)) THEN
       fu_mon = time%month
     ELSE
-      CALL set_error('undefined time given','fu_time_mon')
-      RETURN
+      fu_mon = int_missing
     END IF
     
   END FUNCTION fu_mon
@@ -1643,8 +1710,7 @@ CONTAINS
     IF (defined(time)) THEN
       fu_year = time%year
     ELSE
-      CALL set_error('undefined time given','fu_time_year')
-      RETURN
+      fu_year = int_missing
     END IF
     
   END FUNCTION fu_year
@@ -1817,6 +1883,9 @@ CONTAINS
       WRITE(string,fmt='(I3,A2)')ABS(NINT(interval%ii/3600.)), 'hr'
     ELSEIF (mod(interval%ii, d_seconds_in_min) .deps. d_zero) THEN
       WRITE(string,fmt='(I4,A2)')ABS(NINT(interval%ii/60.)), 'mn'
+    ELSEIF (mod(interval%ii, 1D0) .deps. d_zero) THEN
+      !! Not grads, but one might still want to write the file
+      WRITE(string,fmt='(I4,A2)')ABS(NINT(interval%ii)), 'sec' 
     ELSE
       CALL set_error('Strange time step','fu_interval_to_grads_string')
       RETURN
@@ -3262,7 +3331,7 @@ CONTAINS
         END DO inner
       END IF
 
-      ! If defined and not earlier onhte list, add it to new:
+      ! If defined and not earlier in the list, add it to new:
       IF (.NOT.found_earlier) THEN
         n = n+1
         newtime(n) = times(i)
@@ -4158,14 +4227,10 @@ CONTAINS
              ( ASHRAE_REV(i)%c - ASHRAE_REV(i-1)%c )*dayinc
       end if
 
- end subroutine SolarSetup
-
-
-
-
-
-
-
+  end subroutine SolarSetup
+  
+  
+!******************************************************************************
 
   function fu_daylength(lat, now) !returns hours
     implicit none
@@ -4697,6 +4762,142 @@ CONTAINS
  end subroutine update_timezone_offsets
 
 
+   !*******************************************************
+  
+  subroutine parse_time_units_and_origin(units, calendar_type, origin, interval)
+
+      implicit none
+      ! Interpret netcdf times
+
+      character(len = *), intent(in) :: units, calendar_type
+
+      TYPE(silja_time), intent(out) :: origin
+      TYPE(silja_interval), intent(out) :: interval
+
+      integer :: iT
+      character (len=clen) :: chTmp, unittime
+      character(len = *), parameter :: sub_name = 'parse_time_units_and_origin'
+
+
+            iT = index(units, 'since')
+            if(iT > 0)then
+              chTmp = units(iT+5:)
+              origin = fu_netcdf_str_to_silam_time(adjustl(trim(chTmp)))
+            else
+              call set_error('Cannot parse time unit string', sub_name)
+            endif
+            
+            read(unit=units, fmt=*) chTmp
+            call str_l_case(chTmp)
+            select case(chTmp)
+              case('day', 'days', 'd')
+                interval = one_day
+              case('hour', 'hours', 'h')
+                interval = one_hour
+              case('minute', 'minutes', 'm')
+                interval = one_minute
+              case('second', 'seconds', 's')
+                interval = one_second
+              case default
+                call set_error('Unsupported time unit: "'//trim(units)//"'" ,sub_name)
+                return
+            end select
+
+    ! code
+        select case(calendar_type)
+        case('standard','gregorian','proleptic_gregorian','proleptic')
+          
+        case('noleap', '365_day', 'all_leap', '366_day', '365_days')
+          call set_error("Unsupported calendar "//trim(calendar_type), sub_name)
+          return
+!!          !
+!!          ! All years are considered to have 365 or 366 days. Below julian dates are taken
+!!          ! wrt this. The algorithm is subject to roundoff errors, but using seconds
+!!          ! avoids this in most practical cases.
+!!          !
+!!          if (calendar_type == 'noleap' .or. calendar_type == '365_day' .or. calendar_type == '365_days') then 
+!!            days_year = 365
+!!            ref_year = 2007
+!!          else
+!!            days_year = 366
+!!            ref_year = 2008
+!!          end if
+!!          
+!!          tTmp = fu_set_time_utc(ref_year, &
+!!                           & fu_mon(time_start), fu_day(time_start), fu_hour(time_start), &
+!!                           & fu_min(time_start), fu_sec(time_start))
+!!          jul_date_start = fu_julian_date_real(tTmp)
+!!          incr_unit_sec = fu_conversion_factor(fu_str_l_case(incr_unit), 'sec')
+!!          
+!!          do iT = 1, nf%nDims(iTmp)%dimLen             
+!!            incr_sec = increments(iT) * real(incr_unit_sec, r8k)
+!!            incr_years = int((jul_date_start + incr_sec / (3600*24)) / days_year)
+!!            ! correct day and month, wrong year:
+!!            times_parsed(iT) = fu_julian_date_to_time(jul_date_start+(incr_sec/(24*3600)) &
+!!                                                    & - incr_years*days_year, ref_year)
+!!            times_parsed(iT) = fu_set_time_utc(fu_year(time_start) + incr_years, &
+!!                                         & fu_mon(times_parsed(iT)), &
+!!                                         & fu_day(times_parsed(iT)), &
+!!                                         & fu_hour(times_parsed(iT)), &
+!!                                         & fu_min(times_parsed(iT)), &
+!!                                         & fu_sec(times_parsed(iT)))
+!!          end do
+!!          if(error)return
+          
+        case ('360_day')
+          call set_error("Unsupported calendar "//trim(calendar_type), sub_name)
+!!          !
+!!          ! Stupid year with 30 days per month. CAREFUL
+!!          !
+!!          
+!!          incr_unit_days = fu_conversion_factor(fu_str_l_case(incr_unit), 'day')
+!!          days_year = 360
+!!          
+!!          incr_years = int(increments(iT) / days_year * incr_unit_days) ! years passed
+!!          incr_days = increments(iT) * incr_unit_days - incr_years * days_year  ! fraction of the year, [day]
+!!          nMon = int(incr_days / 30)
+!!          nDay = int(incr_days - nMon * 30)
+!!          nHr = int((incr_days - nMon * 30 - nDay) * 24)
+!!          nMin = int((incr_days - nMon * 30 - nDay - nHr/24) * 1440)
+!!          fSec = (incr_days - nMon * 30 - nDay - nHr/24 - nMin/1440) * 86400
+!!          nMon = fu_mon(time_start) + nMon
+!!          nDay = fu_day(time_start) + nDay
+!!          nHr = fu_hour(time_start) + nHr
+!!          nMin = fu_min(time_start) + nMin
+!!          fSec = fu_mon(time_start) + fSec
+!!          if(fSec >= 60)then 
+!!            fSec = fSec - 60
+!!            nMin = nMin + 1
+!!          endif
+!!          if(nMin >= 60)then
+!!            nMin = nMin - 60
+!!            nHr = nHr + 1
+!!          endif
+!!          if(nHr >= 24)then
+!!            nHr = nHr - 24
+!!            nDay = nDay + 1
+!!          endif
+!!          if(nDay > 30)then
+!!            nDay = nDay - 30
+!!            nMon = nMon + 1
+!!          endif
+!!          if(nMon > 12)then
+!!            nMon = nMon - 1
+!!            incr_years = incr_years + 1
+!!          endif
+!!          
+!!          times_parsed(iT) = fu_set_time_utc(fu_year(time_start) + incr_years, &
+!!                                       & nMon, &
+!!                                       & nDay, &
+!!                                       & nHr, &
+!!                                       & nMin, &
+!!                                       & fSec)
+          
+        case default
+          call set_error("Unsupported calendar "//trim(calendar_type), sub_name)
+        end select  ! type of calendar
+        
+  end subroutine parse_time_units_and_origin
 
   ! ***************************************************************
 

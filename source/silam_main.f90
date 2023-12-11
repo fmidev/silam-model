@@ -31,14 +31,12 @@ PROGRAM silam_main
   use silam_partitioning 
   use field_identifications
   use ascii_io
-#ifdef VS2012
-  use ifport
-#endif
 
   use, intrinsic :: iso_fortran_env, only: compiler_version, compiler_options
 !  use source_terms_wind_blown_dust
   
 !  use source_term_fires
+use tangent_linear
   
   
   IMPLICIT NONE
@@ -95,7 +93,6 @@ PROGRAM silam_main
 
   call smpi_init()
 
-
 !  call init_random_seed()
 !
 !  call msg('Allocating...')
@@ -126,15 +123,16 @@ PROGRAM silam_main
   !  and its number will be changed
   !
   MyPID = fu_pid()
+  if (smpi_global_rank == 0) then
+    call get_hostname(hostname) !!! Gotcha! PID is not unique among nodes in slurm
+    write(unit=chTmp,fmt='(I8.8,A)') MyPID, '_'//trim(hostname)
+  endif
+  call smpi_bcast_string(chTmp, MPI_COMM_WORLD) !!set it from master
+  !! Global variable
+  write(unit=proc_ID_string,fmt='(A,A1,I3.3)') trim(chTmp), '_', smpi_global_rank
+
+  tmpfile = "run_tmp_"// trim(proc_ID_string) // '.log'
   run_log_funit = fu_next_free_unit()
-  !call random_number(fTmp)
-  !if(fTmp < 0.1) fTmp = fTmp + 0.1
-  call smpi_allreduce_max_int(MyPID, iTmp, MPI_COMM_WORLD)
-
-  call get_hostname(hostname) !!! Gotcha! PID is not unique among nodes in slurm
-  write(unit=chTmp,fmt='(A8,I8.8,A1,I3.3)') 'run_tmp_', iTmp, '_', smpi_global_rank
-  tmpfile = trim(chTmp) // '_' //  trim(hostname) // '.log'
-
   open(run_log_funit, file=tmpfile, iostat = iStatus)
   if(iStatus /= 0)then
     call set_error(fu_connect_strings('Failed to open:',chTmp),'silam_main')
@@ -317,11 +315,7 @@ PROGRAM silam_main
      !$omp master
      if (smpi_global_tasks > 1) then 
        call msg(trim(reason)//", sleeping before setting error. rank=", smpi_global_rank)
-#ifdef VS2012
-       call sleepqq(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
-#else
        call sleep(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
-#endif
        ! Slurm waits up to 32 seconds on timeout after sighup before killing 
        write (6, '(a,x,i4)') "backtrace from rank",smpi_global_rank
        flush (6) !

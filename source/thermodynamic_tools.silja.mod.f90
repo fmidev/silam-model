@@ -414,36 +414,35 @@ CONTAINS
   REAL FUNCTION fu_relhum_from_dew_point(temperature,&
       & dewpoint_temperature) result(relative_humidity)
      
-    ! Description:
-    ! Returns the  relative humidity for a given dew point
-    ! temperature and ambient  air temperature
-    !
-    ! Method: Expression given by Babin 1995 
-    ! ( adopted from Bras, 1990 )
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Ilkka Valkama, FMI
 
     IMPLICIT NONE
 
     ! Imported parameters with intent(in):
     REAL, INTENT(in) :: temperature,  dewpoint_temperature
 
-    ! Local declarations
-    REAL :: ambient_relhum
+    real :: T, Dp
 
     !----------------------------------------
     !
     ! 1. NB the rel_hum is given as a fraction (not %)
     !    ------------------------------------
     
-    ambient_relhum = 112. - 0.1*temperature +  dewpoint_temperature
-    ambient_relhum = ambient_relhum/(112. + 0.9*temperature)
-    
-    relative_humidity = ambient_relhum**8.0
+    ! Iriginal code by Valkama, with reference to Babin 1995                                                                        |  --------------------------------------------------------------------------------------------------------------------
+    ! ( adopted from Bras, 1990 )
+    ! Seems to be wrong
+    !ambient_relhum = 112. - 0.1*temperature +  dewpoint_temperature
+    !ambient_relhum = ambient_relhum/(112. + 0.9*temperature)
+    !relative_humidity = ambient_relhum**8.0
+     
+    !Expression from 
+    ! https://www.omnicalculator.com/physics/relative-humidity
+    ! Who refers to  Alduchov and Eskridge, 1996
+    ! https://doi.org/10.1175/1520-0450(1996)035<0601:IMFAOS>2.0.CO;2
+
+     T = temperature + zero_celcius
+     Dp = dewpoint_temperature + zero_celcius
+
+      relative_humidity = exp(17.625 * Dp/(243.04 + Dp))/exp(17.625 * T/(243.04 + T)) 
     
   END FUNCTION fu_relhum_from_dew_point
 
@@ -2194,7 +2193,7 @@ CONTAINS
       zc2 = c2is + (zes * (c2es-c2is))
       zc4 = c4is + (zes * (c4es-c4is))
       e_sat = c1es * EXP(zc2 *(t(i) - c3es)/(t(i)-zc4))
-      rh(i) = q(i) * (p(i) - one_m_gas_const_ratio*e_sat) / (gas_constant_ratio*e_sat)
+      rh(i) = q(i) * (p(i) - one_m_gas_const_ratio * e_sat) / (gas_constant_ratio * e_sat)
     end do
     !rh(1:fs) = q(1:fs)* (p(1:fs) - (1.-gas_constant_ratio) *e_sat(1:fs))/ &
     !         & (gas_constant_ratio*e_sat(1:fs))

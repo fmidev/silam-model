@@ -17,7 +17,6 @@ MODULE stacks
   ! 
   ! Modules used:
   USE fields_3d
-  USE windfields_3d
 !  USE input_data_rules  !nwpm_administrations
 
   IMPLICIT NONE
@@ -34,9 +33,7 @@ MODULE stacks
   public prepare_new_averaging_period
   public update_stack_fields
   PUBLIC find_field_from_stack
-  PUBLIC find_wind_from_stack
   PUBLIC find_field_3d_from_stack
-  PUBLIC find_wind_3d_from_stack
   public fu_id_in_permanent_stack
   PUBLIC defined
   public set_defined
@@ -46,6 +43,7 @@ MODULE stacks
   public fu_name
   PUBLIC report
   public check_stack_fields_ranges
+  public clean_negatives
   PUBLIC fu_stack_full
   PUBLIC fu_stack_empty
   PUBLIC set_stack_empty ! make stack empty for refill
@@ -53,8 +51,6 @@ MODULE stacks
   PUBLIC fu_one_valid_time_stack
   PUBLIC fu_single_met_src_stack
   PUBLIC fu_number_of_3d_fields
-  PUBLIC fu_number_of_wind_3d_fields
-  PUBLIC fu_number_of_wind_2d_fields
   PUBLIC fu_number_of_2d_fields
   PUBLIC fu_first_field_from_stack
   PUBLIC fu_first_3d_field_from_stack
@@ -62,8 +58,6 @@ MODULE stacks
   PUBLIC stack_3d_quantities
   PUBLIC stack_variables
   PUBLIC fu_field_from_stack_by_quantity
-  PUBLIC fu_get_wind_3d_field
-  PUBLIC fu_get_wind_2d_field
   PUBLIC fu_get_3d_field
   PUBLIC fu_get_2d_field
   public fu_wdr
@@ -73,10 +67,7 @@ MODULE stacks
   PRIVATE fu_stack_valid_time
   PRIVATE fu_stacksize
   private fu_name_of_stack
-  PRIVATE arrange_uvw_to_windfields
-  PRIVATE arrange_uv_10m_to_windfields
   PRIVATE arrange_scalar_fields_to_3d
-  PRIVATE arrange_windfields_to_3d
   PRIVATE find_field_from_stack_by_id
   PRIVATE find_field_from_stack_direct
   PRIVATE print_stack_report
@@ -144,17 +135,13 @@ MODULE stacks
     !     levels to separate 2d fields (data are really copied to the stack)
     !     and then arranging these 2d fields (levels) to a 3d field.
     TYPE(silja_fieldpointer), DIMENSION(:), POINTER :: fields
-    TYPE(silja_windfieldpointer), DIMENSION(:), POINTER :: winds
     TYPE(silja_field_3d_pointer), DIMENSION(:), POINTER :: fields_3d
-    TYPE(silja_windfield_3d_pointer), DIMENSION(:), POINTER :: winds_3d
 
     INTEGER :: storepointer ! the index of the last (newest) field,
            ! that has been filled with data. If zero, then empty stack. When
            ! storepoiner reaches the upper limit of stack, then stack is
            ! emptied and storing is started from 1.
-    INTEGER :: windstorepointer ! like above
     INTEGER :: storepointer_3d
-    INTEGER :: windstorepointer_3d
 
     LOGICAL :: one_valid_time ! if true, then data from only
                            ! one valid-time is allowed in stack
@@ -163,7 +150,7 @@ MODULE stacks
                               ! (one nwp) is allowed in stack
     type(silja_wdr), pointer :: wdr_ptr  ! Pointer to weather_data_rules
     type(meteo_data_source) :: mds
-    LOGICAL :: full
+    LOGICAL :: full, arranged
     TYPE(silja_logical) :: defined != silja_false
   END TYPE silja_stack
     
@@ -171,7 +158,10 @@ MODULE stacks
     type(silja_stack), pointer :: ptr
   end type silam_stack_ptr
 
-
+  TYPE(silja_stack), public, parameter :: stack_missing = silja_stack( &
+     & 'stack_missing', null(), null(), &
+     & int_missing, int_missing, .false., & 
+     & time_missing, .false., null(), met_src_missing, .false., .false., silja_false)
 
 
 CONTAINS 
@@ -180,12 +170,10 @@ CONTAINS
 
 
   SUBROUTINE init_stack(number_of_fields,&
-                      & number_of_windfields,&
                       & name_of_stack,&
                       & one_valid_time, &
                       & single_met_src, &
                       & number_of_3d_fields,& 
-                      & number_of_3d_windfields, &
                       & wdr, & 
                       & stack)
  
@@ -201,7 +189,6 @@ CONTAINS
     !
     ! Imported parameters with intent(in):
     INTEGER, INTENT(in) :: number_of_fields
-    INTEGER, INTENT(in) :: number_of_windfields
     LOGICAL, INTENT(in) :: one_valid_time ! if true, then data from only
     ! one valid-time is allowed in stack. The first field inserted
     ! defined the time.
@@ -210,7 +197,6 @@ CONTAINS
     ! defined the met_src.
     CHARACTER (LEN=*), INTENT(in) :: name_of_stack
     INTEGER, INTENT(in) :: number_of_3d_fields
-    INTEGER, INTENT(in) :: number_of_3d_windfields
     type(silja_wdr), pointer :: wdr
 
     ! Imported parameters with intent(inout):
@@ -262,31 +248,6 @@ CONTAINS
     END DO
 
 
-    !---------------------------------------------------------------
-    !
-    !  3. Allocate space for the vectors containing the windfields.
-    !     --------------------------------------------------------
-
-    IF (number_of_windfields > 0) THEN
-      ALLOCATE (stack%winds(number_of_windfields), stat = status)
-      
-      IF (status /= 0) THEN
-        PRINT *, 'Allocation status: ', status
-        CALL set_error('Cannot ALLOCATE space for windfields',' init_stack ')
-        RETURN
-      END IF
-      
-      DO i = 1, SIZE(stack%winds)
-        allocate(stack%winds(i)%fp, stat=status)
-        if (status /= 0) then
-          call set_error('Failed to allocate winds',' init_stack ')
-          return
-        end if
-        CALL set_windfield_empty(stack%winds(i)%fp)
-      END DO
-    ELSE
-      NULLIFY(stack%winds)
-    END IF
 
 
     !---------------------------------------------------------------
@@ -318,34 +279,6 @@ CONTAINS
     END IF
 
 
-    !---------------------------------------------------------------
-    !
-    !  5. Allocate space for the vectors containing the 3d-windfields.
-    !     ----------------------------------------------------------
-
-    IF (number_of_3d_windfields > 0) THEN
-
-      ALLOCATE (stack%winds_3d(number_of_3d_windfields), stat=status)
-
-      IF (status /= 0) THEN
-        PRINT *, 'Allocation status: ', status
-        CALL set_error ( 'Cannot ALLOCATE space for 3d-windfields',' init_stack ')
-        RETURN
-      END IF
-
-      DO i = 1, SIZE(stack%winds_3d)
-        allocate(stack%winds_3d(i)%fp, stat=status)
-        if (status /= 0) then
-          call set_error('Failed to allocate 3D windfields',' init_stack ')
-          return
-        end if
-        CALL set_3d_windfield_empty(stack%winds_3d(i)%fp)
-      END DO
-
-    ELSE
-      NULLIFY(stack%winds_3d)
-    END IF
-
 
     !---------------------------------------------------------------
     !
@@ -353,9 +286,7 @@ CONTAINS
     !     -------------
 
     stack%storepointer = 0
-    stack%windstorepointer = 0
     stack%storepointer_3d = 0
-    stack%windstorepointer_3d = 0
     stack%one_valid_time = one_valid_time
     stack%single_met_src = single_met_src
     stack%wdr_ptr => wdr
@@ -365,6 +296,7 @@ CONTAINS
       stack%mds = met_src_missing
     end if
     stack%full = .false.
+    stack%arranged = .false.
     stack%name = TRIM(ADJUSTL(name_of_stack))
     stack%valid_time = time_missing ! if single-time, then the first
                            ! field sets valid time for the whole stack
@@ -385,8 +317,6 @@ CONTAINS
 
   ! ***************************************************************
 
-  
-
   subroutine set_stack_met_src(stackPtr, mdsPtr)
     !
     ! Sets the index referring to the wdr as a storage of all 
@@ -396,14 +326,13 @@ CONTAINS
 
     ! Imported pointers
     type(meteo_data_source), intent(in) :: mdsPtr
-    type(silja_stack), pointer :: stackPtr
+    type(silja_stack), intent(inout) :: stackPtr
 
     if(.not.defined(stackPtr))then
       call set_error('Undefined stack given','set_met_src')
     else
       stackPtr%mds = mdsPtr
     end if
-
 
   end subroutine set_stack_met_src
 
@@ -450,7 +379,7 @@ CONTAINS
     !   must be interpolated to the meteo one.
     integer, intent(in) :: iUpdateType  ! what to do if the field already exists in stack
 !    TYPE(silja_stack), INTENT(inout), TARGET :: stack
-    TYPE(silja_stack), pointer :: stack
+    TYPE(silja_stack), intent(inout) :: stack
     real, intent(in), optional  :: factor 
     logical, intent(in) :: ifRandomise
     logical, intent(in), optional :: ifForceMetSrcAcceptance
@@ -465,7 +394,7 @@ CONTAINS
     TYPE(silam_area) :: areaTmp           ! presence/absence  of storage grid/area
     REAL, DIMENSION(:), pointer :: selected_grid_data
     TYPE(silja_field_id) :: id_selected, idTmp
-    TYPE(silja_stack), POINTER :: stackpointer
+!    TYPE(silja_stack), POINTER :: stackpointer
     type(silja_wdr), pointer :: wdrPtr
     real, dimension(:), pointer :: dataTmpPtr
     real :: fMissingValue
@@ -478,7 +407,7 @@ CONTAINS
       fMissingValue = real_missing
     endif
 
-    stackpointer => stack
+!    stackpointer => stack
 
     !
     ! 1. Check input parameters.
@@ -490,18 +419,18 @@ CONTAINS
       RETURN
     END IF
 
-    if(associated(stack))then
+!    if(defined(stack))then
       IF (.NOT.fu_true(stack%defined)) THEN
         CALL set_error('Cannot put field into an undefined stack','put_field_to_stack')
         RETURN
       END IF
-    else
-      call set_error('The forced stack if not associated','put_field_to_stack')
-      return
-    endif
+!    else
+!      call set_error('The forced stack if not associated','put_field_to_stack')
+!      return
+!    endif
 
     IF (stack%full) THEN
-      CALL report(stackpointer, .false.)  ! (stackpointer, ifShort)
+      CALL report(stack, .false.)  ! (stackpointer, ifShort)
       CALL  set_error('cannot put data in full stack','put_field_to_stack')
       RETURN
     END IF
@@ -598,12 +527,12 @@ CONTAINS
       call find_field_from_stack_direct(fu_met_src(idTmp), &
                                         & fu_quantity(idTmp),&
                                         & time_missing,&
-                                        & stackpointer, &
+                                        & stack, &
                                         & old, &
                                         & already_in_stack, &
                                         & fu_species(idTmp))
     else
-      CALL find_field_from_stack_by_id(stackpointer, idTmp, old, already_in_stack)
+      CALL find_field_from_stack(stack, idTmp, old, already_in_stack)
     endif
 
     IF (already_in_stack) then
@@ -761,6 +690,8 @@ CONTAINS
       stack%storepointer = place
       
     endif  ! if present grid_data
+    
+    stack%arranged = .false.
 
   END SUBROUTINE put_field_to_stack
 
@@ -925,6 +856,7 @@ CONTAINS
     IF (place > SIZE(newstack%fields)) THEN
       PRINT *, 'Newstack ', TRIM(newstack%name), ' now full.'
       newstack%full = .true.
+      newstack%arranged = .false.
       RETURN
     END IF
 
@@ -980,6 +912,7 @@ CONTAINS
     IF (error) RETURN
 
     newstack%storepointer = place
+    newstack%arranged = .false.
 
   END SUBROUTINE put_field_to_new_stack
 
@@ -1073,6 +1006,8 @@ CONTAINS
     CALL set_field(id, pStack%fields(pStack%storepointer)%fp, .false., ifResetVals=.False.)       ! not necessarily new
     pField => pStack%fields(pStack%storepointer)%fp
 
+    pStack%arranged = .false.
+
   end subroutine get_field_place_in_stack
 
 
@@ -1094,7 +1029,7 @@ CONTAINS
     ! Imported parameters 
     type(silja_field_id), intent(in) :: idIn, targetId
     real, dimension(:), pointer :: dataOut, dataOut_internal
-    type(silja_stack), intent(in) :: stack
+    type(silja_stack), intent(inout) :: stack
     type(silja_field_id), pointer :: idOut, idOut_internal
     logical, intent(out) :: found, found_internal
     integer, intent(out) :: timeDirection
@@ -1222,8 +1157,9 @@ CONTAINS
       endif  ! forward vs inverse merging
     endif !instant fields
 
-  end subroutine find_receiving_fields_4_merge
+    stack%arranged = .false.
 
+  end subroutine find_receiving_fields_4_merge
 
 
   !**********************************************************************************
@@ -1236,7 +1172,8 @@ CONTAINS
     implicit none
 
     ! Imported parameters
-    type(silja_stack), pointer :: stackFrom, stackTo
+    type(silja_stack), intent(in) :: stackFrom
+    type(silja_stack), intent(inout) :: stackTo
     type(silja_grid), intent(in) :: gridNew
     logical, intent(in) :: ifCopyAll ! If not - skip internal met_src
     logical, intent(in) :: ifRandomise ! Smoothing the reprojection
@@ -1247,19 +1184,18 @@ CONTAINS
     type(silja_field), pointer :: fieldPtr
 
     !
-    ! Stupidity check, cleaning the space. Note that empty stack is OK - mass map can still handle
-    ! the output
+    ! Stupidity check, cleaning the space. Empty stack is OK - mass map or another stack 
+    ! can still handle the output
     !
-    if(.not.defined(stackFrom))then
-      call set_error('Undefined source stack','copy_stack_grid_interpolation')
+    if(defined(stackFrom))then
+      if(stackFrom%storepointer < 1) return
+    else
+      call msg_warning('Undefined source stack','copy_stack_grid_interpolation')
       return
     endif
+    ! If source stack is valid, destination better be available
     if(.not.defined(stackTo))then
       call set_error('Undefined destination stack','copy_stack_grid_interpolation')
-      return
-    endif
-    if(stackFrom%storepointer < 1)then
-!      call set_error('Empty source stack','copy_stack_grid_interpolation')
       return
     endif
     
@@ -1294,20 +1230,14 @@ CONTAINS
 
   ! ***************************************************************
 
-
   SUBROUTINE arrange_fields_in_stack(stack, ifLookForPressure)
     
     ! Description:
     ! This routine does three things:
-    ! 1. Arranges all wind-component fields (u,v,w) into windfields
-    ! of type silja_windfield. No data is duplicated, only pointers
-    ! are set.
     ! 2. Arranges scalar fields into 3d-scalar fields. A 3d-field
     ! contains all available fields for one quantity, met_src and
     ! valid time, but all levels. No data is duplicated, only pointers
     ! are set.
-    ! 3. Arranges the earlier arranged windfields into 3d-windfields,
-    ! just like scalar fields described above.
     !
     ! Language: ANSI Fortran 90
     ! 
@@ -1316,7 +1246,7 @@ CONTAINS
     IMPLICIT NONE
 
     ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(inout) :: stack
     logical, intent (in) :: ifLookForPressure
 
     !
@@ -1326,15 +1256,11 @@ CONTAINS
       CALL set_error('cannot arrange undefined stack','arrange_fields_in_stack')
       RETURN
     END IF
-    
     !
-    ! 2. Make windfields out of u,v and w.
+    ! Already done?
     !
-    CALL arrange_uvw_to_windfields(stack)
-    IF (error) RETURN
+    if(stack%arranged)return
     
-    CALL arrange_uv_10m_to_windfields(stack)
-    IF (error) RETURN
     !
     ! 3. Arrange scalar fields to stacked 3d fields.
     !
@@ -1342,10 +1268,8 @@ CONTAINS
       CALL arrange_scalar_fields_to_3d(stack, ifLookForPressure)
       IF (error) RETURN
     END IF
-    !
-    ! 4. Arrange windfields to stacked 3d windfields.
-    !
-    IF (ASSOCIATED(stack%winds_3d)) CALL arrange_windfields_to_3d(stack)
+    
+    stack%arranged = .true.
     
   END SUBROUTINE arrange_fields_in_stack
 
@@ -1380,12 +1304,6 @@ CONTAINS
       END DO
     END IF
 
-    IF (ASSOCIATED(stack%winds)) THEN
-      DO i = 1, SIZE(stack%winds)
-        CALL set_windfield_empty(stack%winds(i)%fp)
-        IF (error) RETURN
-      END DO
-    END IF
 
     IF (ASSOCIATED(stack%fields_3d)) THEN
       DO i = 1, SIZE(stack%fields_3d)
@@ -1394,21 +1312,14 @@ CONTAINS
       END DO
     END IF
 
-    IF (ASSOCIATED(stack%winds_3d)) THEN
-      DO i = 1, SIZE(stack%winds_3d)
-        CALL set_3d_windfield_empty(stack%winds_3d(i)%fp)
-        IF (error) RETURN
-      END DO
-    END IF
 
     stack%storepointer = 0
-    stack%windstorepointer = 0
     stack%storepointer_3d = 0
-    stack%windstorepointer_3d = 0
     stack%name  = ' '
     stack%valid_time = time_missing
     stack%mds = met_src_missing
     stack%full = .false.
+    stack%arranged = .false.
 
   END SUBROUTINE set_stack_empty
     
@@ -1438,16 +1349,6 @@ CONTAINS
     TYPE(silja_field), POINTER :: field
     TYPE(silja_stack), POINTER :: sp
 
-    IF (ASSOCIATED(stack%winds)) THEN
-      DEALLOCATE(stack%winds, stat= status)
-      IF (status /= 0) THEN
-        sp => stack
-        CALL report(sp)
-        CALL set_error('cannot deallocate windfields','set_stack_empty_free_memory')
-        RETURN    
-      END IF
-      NULLIFY(stack%winds)
-    END IF
 
     IF (ASSOCIATED(stack%fields_3d)) THEN
       DEALLOCATE(stack%fields_3d, stat= status)
@@ -1458,14 +1359,6 @@ CONTAINS
       NULLIFY(stack%fields_3d)
     END IF
 
-    IF (ASSOCIATED(stack%winds_3d)) THEN
-      DEALLOCATE(stack%winds_3d, stat= status)
-      IF (status /= 0) THEN
-        CALL set_error('cannot deallocate 3d-windfields','set_stack_empty_free_memory')
-        RETURN    
-      END IF
-      NULLIFY(stack%winds_3d)
-    END IF
 
     IF (ASSOCIATED(stack%fields)) THEN
       DO i = 1, SIZE(stack%fields)
@@ -1486,6 +1379,7 @@ CONTAINS
     
     stack%name  = ' '
     stack%defined = silja_undefined
+    stack%arranged = .false.
 
   END SUBROUTINE set_stack_empty_free_memory
     
@@ -1500,7 +1394,7 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(silja_stack), pointer :: stackPtr
+    type(silja_stack), intent(inout) :: stackPtr
 
     ! Local variables
     integer :: i
@@ -1521,6 +1415,8 @@ CONTAINS
       endif
     end do
 
+    stackPtr%arranged = .false.
+
   end subroutine prepare_new_averaging_period
 
 
@@ -1533,7 +1429,7 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    type(silja_stack), pointer :: stackPtr
+    type(silja_stack), intent(inout) :: stackPtr
     type(silja_time), optional, intent(in) :: new_reference_time
 
     ! Local variables
@@ -1554,6 +1450,8 @@ CONTAINS
         call set_valid_time(idPtr, new_reference_time + fcst_len)
       endif
     end do
+
+    stackPtr%arranged = .false.
 
   end subroutine update_stack_fields
 
@@ -1579,14 +1477,10 @@ CONTAINS
     !
     IMPLICIT NONE
     
-    ! Imported parameters with intent IN:
+    ! Imported parameters 
     TYPE(silja_field_id), INTENT(in) :: field_id
-    
-    ! Imported parameters with intent OUT:
     LOGICAL, INTENT(out) :: found
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     TYPE(silja_field), POINTER :: field
     type(silja_field_id), pointer :: idTmp
 
@@ -1595,7 +1489,7 @@ CONTAINS
 
     found = .false.
 
-    IF (.NOT.ASSOCIATED(stack)) RETURN
+    IF (.NOT.defined(stack)) RETURN
 
     DO i = 1, SIZE(stack%fields)
       field => stack%fields(i)%fp
@@ -1612,7 +1506,6 @@ CONTAINS
 
   ! ***************************************************************
 
-
   SUBROUTINE find_field_from_stack_direct(met_src, &
                                         & quantity,&
                                         & valid_time,&
@@ -1623,11 +1516,6 @@ CONTAINS
     !
     ! Returns a field from the stack
     !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mikhail Sofiev, FMI
-    ! Code is similar to find_field_3d_from_stack of M.Salonoja
-    ! 
     IMPLICIT NONE
 
     ! Returns value of this function:
@@ -1641,7 +1529,7 @@ CONTAINS
     LOGICAL, INTENT(out) :: found
 
     ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     TYPE(silja_field), POINTER :: field
 
     ! Local declarations:
@@ -1649,7 +1537,7 @@ CONTAINS
 
     found = .false.
 
-    IF (.NOT.ASSOCIATED(stack)) RETURN
+    IF (.NOT.defined(stack)) RETURN
 
     IF (.NOT.ASSOCIATED(stack%fields)) THEN
       CALL set_error('no fields in this stack','find_field_from_stack_direct')
@@ -1691,45 +1579,6 @@ CONTAINS
   ! ***************************************************************
 
 
-  SUBROUTINE find_wind_from_stack(stack, field_id, field, found)
-    
-    ! Description:
-    ! Finds a windfield from stack by its identification. If the
-    ! stack is not defined at all, no error occurs but found is of
-    ! course set to false.
-    !
-    IMPLICIT NONE
-    
-    ! Imported parameters with intent IN:
-    TYPE(silja_field_id), INTENT(in) :: field_id
-    
-    ! Imported parameters with intent OUT:
-    LOGICAL, INTENT(out) :: found
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
-    TYPE(silja_windfield), POINTER :: field
-
-    ! Local declarations:
-    INTEGER :: i, start_of_search
-
-    found = .false.
-
-    IF (.NOT.ASSOCIATED(stack)) RETURN
-
-    DO i = 1, SIZE(stack%winds)
-      field => stack%winds(i)%fp
-      IF (.NOT.defined(field)) EXIT
-      IF (field_id == fu_id(field)) THEN
-        found = .true.
-        RETURN
-      END IF
-    END DO
-  END SUBROUTINE find_wind_from_stack
-  
-
-  ! ***************************************************************
-
 
   SUBROUTINE find_field_3d_from_stack(met_src, &
                                     & quantity,&
@@ -1754,7 +1603,7 @@ CONTAINS
     LOGICAL, INTENT(out) :: found
 
     ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     TYPE(silja_3d_field), POINTER :: field_3d
 
     ! Local declarations:
@@ -1762,7 +1611,7 @@ CONTAINS
 
     found = .false.
 
-    IF (.NOT.ASSOCIATED(stack)) RETURN
+    IF (.NOT.defined(stack)) RETURN
 
     IF (.NOT.ASSOCIATED(stack%fields_3d)) THEN
       CALL set_error('no 3d-fields in this stack','find_field_3d_from_stack')
@@ -1803,61 +1652,6 @@ CONTAINS
   END SUBROUTINE find_field_3d_from_stack
 
 
-  ! ***************************************************************
-
-
-  SUBROUTINE find_wind_3d_from_stack(met_src, valid_time, stack, wind_3d, found)
-    !
-    ! Finds 3d wind field from the stack
-    ! 
-    IMPLICIT NONE
-
-    ! Returns value of this function:
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), INTENT(in) :: valid_time
-
-    ! Imported parameters with intent OUT:
-    LOGICAL, INTENT(out) :: found
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
-    TYPE(silja_3d_windfield), POINTER :: wind_3d
-
-    ! Local declarations:
-    INTEGER :: i
-
-    found = .false.
-
-    IF (.NOT.ASSOCIATED(stack)) RETURN
-
-    IF (.NOT.ASSOCIATED(stack%winds_3d)) THEN
-      CALL set_error('no 3d-winds in this stack'&
-     & ,'find_wind_3d_from_stack')
-      RETURN
-    END IF
-
-    DO i = 1, SIZE(stack%winds_3d)
-      
-      wind_3d => stack%winds_3d(i)%fp
-      
-      IF (.NOT.defined(wind_3d)) EXIT
-
-      if (fu_valid_time(wind_3d) /= valid_time) cycle
-      !IF (.not. (valid_time == time_missing) &
-      !    .and. fu_valid_time(wind_3d) /= valid_time) CYCLE
-
-!      IF (.not.fu_met_src(wind_3d) == met_src) CYCLE
-      IF (.not.(met_src == met_src_missing).and..not.(fu_met_src(wind_3d) == met_src)) CYCLE
-
-      found = .true.
-      RETURN
-    END DO
-
-    found = .false.
-
-  END SUBROUTINE find_wind_3d_from_stack
 
 
   !*****************************************************************
@@ -1918,7 +1712,7 @@ CONTAINS
     TYPE(silja_field), POINTER :: field
 
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     
     IF (defined(stack)) THEN
 
@@ -1947,7 +1741,7 @@ CONTAINS
     TYPE(silja_field), POINTER :: field
 
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     INTEGER, INTENT(in) :: quantity
     character(len=*),intent(in), optional :: chName
 
@@ -1994,7 +1788,7 @@ CONTAINS
     TYPE(silja_3d_field), POINTER :: field_3d
 
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     
     IF (defined(stack)) THEN
       field_3d => stack%fields_3d(1)%fp
@@ -2028,7 +1822,7 @@ CONTAINS
     INTEGER, INTENT(out) :: number_of_quantities
   
     ! Imported parameters with intent POINTER:
-    TYPE(silja_stack), POINTER  ::  stack
+    TYPE(silja_stack), intent(in)  ::  stack
     
     ! Local declarations:
     INTEGER :: i, j
@@ -2060,7 +1854,10 @@ CONTAINS
 
         found_earlier = .false.
         DO j = 1, number_of_quantities
-         IF (quantity == quantities(j)) found_earlier = .true.
+          IF (quantity == quantities(j))then
+            found_earlier = .true.
+            exit
+          endif
         END DO
 
         IF (found_earlier) CYCLE
@@ -2100,7 +1897,7 @@ CONTAINS
     INTEGER, INTENT(out) :: number_of_quantities
   
     ! Imported parameters with intent POINTER:
-    TYPE(silja_stack), POINTER  ::  stack
+    TYPE(silja_stack), intent(in)  ::  stack
     
     ! Local declarations:
     INTEGER :: i, j
@@ -2162,10 +1959,6 @@ CONTAINS
     ! Finds all possible quantities the  2D scalar fields
     ! are found for in stack. Used in v5d-conversion.
     !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
     IMPLICIT NONE
 
     ! Imported parameters with intent OUT:
@@ -2228,7 +2021,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     
     integer :: iTmp, fs, nx, n_out_of_range, npatched, n_failed, quantity
     TYPE(silja_field), POINTER :: field
@@ -2243,7 +2036,7 @@ CONTAINS
       if(.not. defined(field))exit
       grid_data => fu_grid_data(field)
       quantity = fu_quantity(field)
-      call msg('Checking:' + fu_quantity_string(quantity))
+      call msg('Stack Checking:' + fu_quantity_string(quantity))
       call check_quantity_range(quantity, grid_data, fs, nx, &
                               & .false., .false., &  ! ifRequireValidity, ifSilent
                               & n_out_of_range, npatched, n_failed)
@@ -2251,6 +2044,44 @@ CONTAINS
     call msg('')
     
   end subroutine  check_stack_fields_ranges
+
+  
+  ! ***************************************************************
+    
+  logical function clean_negatives(flag, stack)
+    !
+    ! Goes through the required field in the stack and cleans out the negative values
+    !
+    implicit none
+    
+    ! Imported parameters
+    integer, intent(in) :: flag
+    TYPE(silja_stack), intent(in) :: stack
+
+    logical :: ifOK
+    type(silja_field), pointer :: fieldPtr
+    real, dimension(:), pointer :: pTmp
+    integer :: iFlds
+
+    clean_negatives = .false.
+    call find_field_from_stack(met_src_missing, &
+                             & flag,&
+                             & time_missing,&
+                             & stack,&
+                             & fieldPtr, &
+                             & ifOK)
+    if(.not. ifOK)then
+      call set_error('Failed to find field in stack','init_emission_pollen')
+      call msg('quantity missing:', flag)
+      return
+    else
+      pTmp => fu_grid_data(fieldPtr)
+      do iFlds = 1, fs_dispersion
+        if(pTmp(iFlds) < 0.) pTmp(iFlds) = real_missing
+      end do
+    endif
+    clean_negatives = .true.
+  end function clean_negatives
 
   
   !*****************************************************************
@@ -2262,7 +2093,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
  
     IF (defined(stack)) THEN
       fu_stack_full = stack%full
@@ -2274,7 +2105,6 @@ CONTAINS
 
 
   ! ***************************************************************
-
 
   LOGICAL FUNCTION fu_stack_empty(stack)
     
@@ -2288,7 +2118,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
  
     IF (defined(stack)) THEN
       fu_stack_empty = (stack%storepointer ==0)
@@ -2301,7 +2131,6 @@ CONTAINS
 
   ! ***************************************************************
 
-
   LOGICAL FUNCTION fu_one_valid_time_stack(stack)
     ! 
     ! Returns true value if stack can only contain data for single
@@ -2310,7 +2139,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
  
     fu_one_valid_time_stack = stack%one_valid_time
 
@@ -2318,7 +2147,6 @@ CONTAINS
 
 
   ! ***************************************************************
-
 
   LOGICAL FUNCTION fu_single_met_src_stack(stack)
     ! 
@@ -2328,52 +2156,13 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
  
     fu_single_met_src_stack = stack%single_met_src
 
   END FUNCTION fu_single_met_src_stack
 
-
   ! ***************************************************************
-
-
-  INTEGER FUNCTION fu_number_of_wind_3d_fields(stack)
-
-    ! Returns the number of defined wind 3d fields in stack.
-    !
-    IMPLICIT NONE
-    !
-    ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
-    !
-    fu_number_of_wind_3d_fields = stack%windstorepointer_3d
-
-  END FUNCTION fu_number_of_wind_3d_fields
-
-
-
-  ! ***************************************************************
-
-
-  INTEGER FUNCTION fu_number_of_wind_2d_fields(stack)
-
-    ! Returns the number of defined wind 3d fields in stack.
-    !
-    IMPLICIT NONE
-    !
-    ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
-
-    fu_number_of_wind_2d_fields = stack%windstorepointer
-
-  END FUNCTION fu_number_of_wind_2d_fields
-
-
-
-
-  ! ***************************************************************
-
 
   INTEGER FUNCTION fu_number_of_3d_fields(stack)
 
@@ -2382,7 +2171,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
     !
     ! Local declarations:
     INTEGER :: i
@@ -2392,9 +2181,7 @@ CONTAINS
   END FUNCTION fu_number_of_3d_fields
 
 
-
   ! ***************************************************************
-
 
   INTEGER FUNCTION fu_number_of_2d_fields(stack)
 
@@ -2403,7 +2190,7 @@ CONTAINS
     IMPLICIT NONE
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
 
     fu_number_of_2d_fields = stack%storepointer
 
@@ -2471,7 +2258,7 @@ CONTAINS
     TYPE(silja_time) :: fu_stack_valid_time
     !
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
 
     IF (defined(stack)) THEN
       IF (stack%one_valid_time) THEN
@@ -2500,7 +2287,7 @@ CONTAINS
     type(meteo_data_source) :: met_src
 
     ! Imported parameters
-    TYPE(silja_stack), pointer :: stack
+    TYPE(silja_stack), intent(in) :: stack
 
     IF (defined(stack)) THEN
       IF (stack%single_met_src) THEN
@@ -2528,7 +2315,7 @@ CONTAINS
     !
     type(silja_wdr) :: wdr
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
 
     IF (defined(stack)) THEN
       wdr = stack%wdr_ptr
@@ -2537,8 +2324,9 @@ CONTAINS
     END IF
 
   END FUNCTION fu_stack_wdr
-  ! ***************************************************************
 
+  
+  ! ***************************************************************
 
   FUNCTION fu_name_of_stack(stack) result(name)
     
@@ -2546,7 +2334,7 @@ CONTAINS
     !
     character(len=clen) :: name
     ! Imported parameters with intent(in):
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(in) :: stack
 
     IF (defined(stack)) THEN
       name = stack%name
@@ -2557,521 +2345,7 @@ CONTAINS
   END FUNCTION fu_name_of_stack
 
 
-
   ! ***************************************************************
-
-  
-  SUBROUTINE arrange_uvw_to_windfields(stack)
-
-    ! Description:
-    ! Finds corresponding windfield-components, and makes 2d
-    ! -windfields out of them, and then stores them in the stack. No
-    ! data is duplicated, only pointers are set.
-    !
-    ! Method:
-    ! 
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
-
-    ! Local declarations:
-    INTEGER :: i
-    INTEGER :: v_index, w_index
-    LOGICAL :: v_found, w_found, wind_found
-    INTEGER :: place
-    TYPE(silja_field), POINTER :: u, v, w
-    TYPE(silja_windfield), POINTER :: wind
-
-    !----------------------------------------
-    !
-    ! 1. Loop over scalar fields.
-    !    -----------------------
-
-    loop_over_scalars: DO i = 1, SIZE(stack%fields)
-
-      u => stack%fields(i)%fp
-      IF (.NOT.defined(u)) then 
-        EXIT loop_over_scalars
-      end IF
-      u_check: IF (fu_quantity(u) == u_flag) THEN
-   !----------------------------------------
-   !
-   ! 2. Start check for one U.
-   !    ---------------------
-
-   ! 2.1. First check that the windfield, whose component this u
-   ! -field is (same met_src, level and time) isn't already among
-   ! the 2d-windfields of this stack:
-
-        CALL corresponding_wind_in_stack(u, place, wind_found)
-
-        !-------------------------------------------
-        ! 
-        ! 2.2. If windfield already contains w, do nothing
-
-        IF (wind_found) THEN
-          wind => stack%winds(place)%fp
-          IF (fu_w_available(wind)) CYCLE loop_over_scalars
-        END IF
-
-        !--------------------------------------------------------
-        !
-        ! 2.3. Find corresponding v and w:
-
-        CALL search_match()
-        IF (error) RETURN
-        !----------------------------------------------
-        !
-        ! 3. No existing windfield in stack
-        !    ------------------------------
-
-        new_windfield: IF (.NOT.wind_found) THEN
-
-          match_found: IF (v_found) THEN
-
-            v => stack%fields(v_index)%fp
-
-            ! -----------------------------------------
-            ! 
-            ! 3.2. Match found, search in winds a place where to store
-
-            place = stack%windstorepointer + 1
-            !    PRINT *, 'place :', place
-
-            IF (place > SIZE(stack%winds)) THEN
-              CALL report(stack)
-              CALL set_error('no more space for windfields','arrange_uvw_to_windfields')
-              RETURN
-            END IF
-
-
-            ! -----------------------------------------
-            ! 
-            ! 3.3. Place found, set field in.
-
-            w_or_no_w: IF (w_found) THEN
-              w => stack%fields(w_index)%fp
-              CALL set_windfield_from_uvw(u, v, stack%winds(place)%fp, w)
-              IF (error) RETURN
-
-!!!$              CALL set_windfield_from_uvw(&
-!!!$                  & u,&
-!!!$                  & v, &
-!!!$                  & stack%winds(place)%fp)
-!!!$              IF (error) RETURN
-              !call report(u)
-              stack%windstorepointer = stack%windstorepointer + 1
-
-            ELSE
-              CALL set_windfield_from_uvw(u, v, stack%winds(place)%fp)
-              IF (error) RETURN
-
-              stack%windstorepointer = stack%windstorepointer + 1
-
-            END IF w_or_no_w
-
-          ELSE ! match_found
-            call msg("")
-            call report(u)
-            CALL msg_warning('no matching v found for u')
-            call msg("")
-            CYCLE loop_over_scalars
-          END IF match_found
-
-        ELSE
-
-          !-------------------------------------------------
-          !
-          ! 4. Windfield exists already, so check it
-          !    ------------------------------------
-
-          ! --------------------------------------------------
-          !
-          ! 4.1. No W in winfield, check for scalar W
-
-          IF (.NOT. w_found) CYCLE loop_over_scalars
-
-          ! -----------------------------------------------
-          !
-          ! 4.3. Scalar W found, add it to windfield
-
-          w => stack%fields(w_index)%fp
-          wind => stack%winds(place)%fp
-!          call msg('Adding w to wind')
-        !  CALL report(w)
-        !  CALL report(wind)
-
-          CALL add_w_to_windfield(w,wind)
-          IF (error)THEN
-            CALL msg_warning('% No match found for w %')
-            RETURN
-          END IF
-
-          wind => stack%winds(place)%fp
-       !   CALL report(wind)
-       !   STOP
-        END IF new_windfield
-
-      ELSE
-   CYCLE loop_over_scalars
-      END IF u_check
-      
-    END DO loop_over_scalars
-    
-  CONTAINS
-    
-    ! *** private functions of arrange_uvw_to_windfields **
-
-
-    SUBROUTINE search_match()
-
-      ! Searches appropriate v, w fields for given u-field.
-      ! ATTENTION. There are many possible types of w-fields:
-      ! The routine checks them one-by-one
-      !
-      ! Language: ANSI Fortran 90
-      !
-      ! Original code : Mika Salonoja
-      ! Author: Mikhail Sofiev, FMI
-      ! 
-      IMPLICIT NONE
-      
-      ! Local declarations:
-      INTEGER :: j, w_q_tmp
-      TYPE(silja_time) :: u_valid
-      TYPE(silja_level) :: u_level
-      type(meteo_data_source) :: u_met_src
-      TYPE(silja_field), POINTER :: field
-
-      v_found = .false.
-      w_found = .false.
-      u_valid = fu_valid_time(u)
-      u_level = fu_level(u)
-      u_met_src = fu_met_src(u)
-
-      select case(fu_leveltype(u_level))
-        case(constant_altitude)
-          w_q_tmp = w_alt_msl_flag
-        case(constant_height)
-          w_q_tmp = w_height_srf_flag
-        case(constant_pressure, hybrid, sigma_level, layer_btw_2_hybrid)
-          w_q_tmp = omega_flag
-        case default
-          call msg_warning('Non-supported level','search_match@arrange_uvw_to_windfields')
-          call report(u_level)
-          call set_error('Non-supported level','search_match@arrange_uvw_to_windfields')
-          return
-      end select
-
-      DO j = 1, SIZE(stack%fields)
-      
-        IF (i==j) CYCLE
-
-        field => stack%fields(j)%fp
-
-        IF (.NOT.defined(field)) EXIT
-
-        ! V found?
-        IF (fu_quantity(field) == v_flag) THEN
-
-          IF (.NOT.fu_cmp_levs_eq(fu_level(field), u_level)) CYCLE
-          IF (.NOT.(fu_valid_time(field) == u_valid)) CYCLE
-          IF (.NOT.(fu_met_src(field) == u_met_src)) CYCLE
-
-          v_found = .true.
-          v_index = j
-        END IF
-
-        ! Verical velocity found?
-        IF (fu_quantity(field) == w_q_tmp) THEN
-
-          IF (.NOT.fu_cmp_levs_eq(fu_level(field), u_level)) CYCLE
-          IF (.NOT.(fu_valid_time(field) == u_valid)) CYCLE
-          IF (.NOT.(fu_met_src(field) == u_met_src)) CYCLE
-
-          w_found = .true.
-          w_index = j
-        END IF
-   
-        IF (v_found.and.w_found) EXIT
-      END DO
-
-!      if(.not.v_found) call set_error('Failed to find proper v-wind', &
-!                                    & 'search_match@arrange_uvw_to_windfields')
-!      if(.not.w_found) call set_error('Failed to find proper vertical wind', &
-!                                    & 'search_match@arrange_uvw_to_windfields')
-    END SUBROUTINE search_match
-
-
-    ! ***************************************************************
-
-
-    SUBROUTINE corresponding_wind_in_stack(u, place, wind_found)
-    
-      ! Description:
-      ! Returns true value if one of the given u-field is already a
-      ! component of one of the windfieds in stack.
-      !
-      ! Language: ANSI Fortran 90
-      !
-      ! Author: Mika Salonoja, FMI
-      ! 
-      IMPLICIT NONE
-      !
-      ! Imported parameters with intent(in):
-      TYPE(silja_field), POINTER :: u
-
-      ! Imported parameters with intent(out):
-      INTEGER, INTENT(out) :: place
-      LOGICAL, INTENT(out) :: wind_found
-
-      ! Local declarations:
-      INTEGER :: i
-      TYPE(silja_level) :: u_level
-      TYPE(silja_time) :: u_valid
-      type(meteo_data_source) :: u_met_src
-      TYPE(silja_windfield), POINTER :: windfield
-
-      wind_found = .false.
-      place = 0
-
-      u_level = fu_level(u)
-      u_valid = fu_valid_time(u)
-      u_met_src = fu_met_src(u)
-
-      DO i = 1, SIZE(stack%winds)
-
-        windfield => stack%winds(i)%fp
-        IF (.NOT.defined(windfield)) EXIT
-
-        IF (.NOT.fu_cmp_levs_eq(fu_level(windfield), u_level)) CYCLE
-
-        IF (.NOT.stack%one_valid_time) THEN
-          IF (.NOT.(fu_valid_time(windfield) == u_valid)) CYCLE
-        END IF
-
-        ! At the moment wind-components are not arranged:
-        IF (.NOT.fu_met_src(windfield) == u_met_src) CYCLE
-
-        place = i
-        wind_found = .true.
-        EXIT
-      END DO
-
-    END SUBROUTINE corresponding_wind_in_stack
-    
-  END SUBROUTINE arrange_uvw_to_windfields
-
-
-
-  ! ***************************************************************
-
-  
-  SUBROUTINE arrange_uv_10m_to_windfields(stack)
-
-    ! Description:
-    ! Finds corresponding 10m windfield-components, and makes 2d
-    ! -windfields out of them, and then stores them in the stack. No
-    ! data is duplicated, only pointers are set.
-    ! 
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Original code: Mika Salonoja, FMI
-    ! Corrected by M.Sofiev
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
-
-    ! Local declarations:
-    INTEGER :: i
-    INTEGER :: v_index
-    LOGICAL :: v_found
-    INTEGER :: place
-    TYPE(silja_field), POINTER :: u, v
-    TYPE(silja_windfield), POINTER :: wind
-
-    !----------------------------------------
-    !
-    ! 1. Loop over scalar fields.
-    !    -----------------------
-
-    loop_over_scalars: DO i = 1, SIZE(stack%fields)
-    
-      u => stack%fields(i)%fp
-      IF (.NOT.defined(u)) EXIT
-      
-      IF (fu_quantity(u) /= u_10m_flag) CYCLE
-     
-      !----------------------------------------
-      !
-      ! 2. Start check for one 10m U.
-      !    -------------------------
-      
-      ! 2.1. First check that the windfield, whose component this u
-      ! -field is (same met_src, level and time) isn't already among
-      ! the 2d-windfields of this stack:
-      IF (fu_corresp_wind_10m_in_stack(u)) CYCLE
-
-      ! 2.2. Find corresponding v:
-      CALL search_match()
-      IF (error) RETURN
-      
-      match_found: IF (v_found) THEN
-        
-        ! -----------------------------------------
-        ! 
-        ! 2.3. Match found, search in winds a place where to store
-        
-        place = stack%windstorepointer + 1
-        !    PRINT *, 'place :', place
-        
-        IF (place > SIZE(stack%winds)) THEN
-          CALL report(stack)
-          CALL set_error('no more space for windfields'&
-                & ,'arrange_uv_10m_to_windfields')
-          RETURN
-        END IF
-        
-        ! -----------------------------------------
-        ! 
-        ! 2.4. Place found, set field in.
-        
-        v => stack%fields(v_index)%fp
-        
-        CALL set_windfield_from_uvw(&
-             & u,&
-             & v, &
-             & stack%winds(place)%fp)
-        IF (error) RETURN
-        
-        stack%windstorepointer = stack%windstorepointer + 1
-        
-      ELSE ! match_found
-        CALL msg_warning('no matching v10 found for u10')
-        CYCLE
-      END IF match_found
-      
-    END DO loop_over_scalars
-
-    
-  CONTAINS
-    
-    ! *** private functions of arrange_uv_10m_to_windfields **
-
-
-    SUBROUTINE search_match()
-
-      ! Description:
-      !
-      ! Language: ANSI Fortran 90
-      !
-      ! Author: Mika Salonoja, FMI
-      ! 
-      IMPLICIT NONE
-      
-      ! Local declarations:
-      INTEGER :: j
-      TYPE(silja_time) :: u_valid
-      type(meteo_data_source) :: u_met_src
-      TYPE(silja_field), POINTER :: field
-
-      v_found = .false.
-      u_valid = fu_valid_time(u)
-      u_met_src = fu_met_src(u)
-
-      DO j = 1, SIZE(stack%fields)
-      
-        IF (i==j) CYCLE
-
-        field => stack%fields(j)%fp
-
-        IF (.NOT.defined(field)) EXIT
-
-        ! V found?
-        IF (fu_quantity(field) == v_10m_flag) THEN
-
-          IF (.NOT.(fu_valid_time(field) == u_valid)) CYCLE
-          IF (.NOT.(fu_met_src(field) == u_met_src)) CYCLE
-
-          v_found = .true.
-          v_index = j
-          EXIT ! found ok!!
-        END IF
-
-      END DO
-
-    END SUBROUTINE search_match
-
-
-    ! ***************************************************************
-
-
-    LOGICAL FUNCTION fu_corresp_wind_10m_in_stack(u)
-    
-      ! Description:
-      ! Returns true value if one of the given u-field is already a
-      ! component of one of the windfieds in stack.
-      !
-      ! Language: ANSI Fortran 90
-      !
-      ! Author: Mika Salonoja, FMI
-      ! 
-      IMPLICIT NONE
-      !
-      ! Imported parameters with intent(in):
-      TYPE(silja_field), POINTER :: u
-
-      ! Local declarations:
-      INTEGER :: i
-      TYPE(silja_level) :: u_level
-      TYPE(silja_time) :: u_valid
-      type(meteo_data_source) :: u_met_src
-      TYPE(silja_windfield), POINTER :: windfield
-
-      fu_corresp_wind_10m_in_stack = .false.
-
-      u_level = fu_level(u)
-      u_valid = fu_valid_time(u)
-      u_met_src = fu_met_src(u)
-
-      DO i = 1, SIZE(stack%winds)
-
-   windfield => stack%winds(i)%fp
-   IF (.NOT.defined(windfield)) EXIT
-
-   IF (.NOT.fu_cmp_levs_eq(fu_level(windfield), u_level)) CYCLE
-
-   IF (.NOT.stack%one_valid_time) THEN
-     IF (.NOT.(fu_valid_time(windfield) == u_valid)) CYCLE
-   END IF
-
-   IF (.NOT.fu_met_src(windfield) == u_met_src) CYCLE
-
-   fu_corresp_wind_10m_in_stack = .true.
-   EXIT
-
-      END DO
-     
-    END FUNCTION fu_corresp_wind_10m_in_stack
-    
-  END SUBROUTINE arrange_uv_10m_to_windfields
-
-
-
-
-  ! ***************************************************************
-
 
   SUBROUTINE arrange_scalar_fields_to_3d(stack, ifLookForPressure)
 
@@ -3084,7 +2358,7 @@ CONTAINS
     IMPLICIT NONE
 
     ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
+    TYPE(silja_stack), intent(inout) :: stack
     logical, intent (in) :: ifLookForPressure
 
     ! Local declarations:
@@ -3093,12 +2367,8 @@ CONTAINS
     INTEGER :: ind
     TYPE(silja_field), POINTER :: field
     TYPE(silja_3d_field), POINTER :: field_3d
-    TYPE(silja_stack), POINTER :: stack_
     character(len=*), parameter :: sub_name="arrange_scalar_fields_to_3d"
 
-    stack_ => stack
-
-    ! -------------------------------------------------------------
     ! 
     ! 1. Loop over 2d scalar fields in stack
     !
@@ -3109,10 +2379,8 @@ CONTAINS
       field => stack%fields(i)%fp
 
       IF (.NOT.defined(field)) EXIT
-
 !      CALL report(field)
 
-      ! -------------------------------------------------------------
       ! 
       ! 2. Check if this field should be added to 3d-fields
       !
@@ -3122,8 +2390,6 @@ CONTAINS
       ! take only stuff of current source's primary levels:
       IF (.NOT.fu_3d_leveltype(fu_leveltype(fu_level(field)))) CYCLE
 
-
-      ! -------------------------------------------------------------
       ! 
       ! 3. Find the 3d-field into which this field should be added to
       !
@@ -3137,7 +2403,6 @@ CONTAINS
           call set_error("Too many fields came", sub_name)
           CALL search_match()
 
-
           call msg("Problem fitting field " + fu_quantity_string(fu_quantity(field)) )
           CALL report(field)
           call msg('================================')
@@ -3149,8 +2414,6 @@ CONTAINS
         ind = stack%storepointer_3d
       END IF
 
-
-      ! -------------------------------------------------------------
       ! 
       ! 4. Add the current field to the suitable 3d-field.
       !
@@ -3158,8 +2421,6 @@ CONTAINS
 
     END DO loop_over_2d_fields
 
-
-    ! -------------------------------------------------------------
     ! 
     ! 5. In each 3d-field organize the fields vertically.
     !
@@ -3205,8 +2466,6 @@ CONTAINS
 
     END DO
 
-
-    ! -------------------------------------------------------------
     ! 
     ! 6. Add surface pressure fields to those 3d-fields that contain
     ! hybrid-level data
@@ -3291,7 +2550,7 @@ CONTAINS
 
       ! Imported parameters with intent INOUT or POINTER:
       TYPE(silja_3d_field), POINTER :: field_3d
-      TYPE(silja_stack), POINTER :: stack
+      TYPE(silja_stack), intent(inout) :: stack
 
       ! Local declarations:
       INTEGER :: i
@@ -3331,11 +2590,11 @@ CONTAINS
       RETURN
 
       END DO loop_over_2d_fields
-      call msg("Field: ")
-      call report(field_3d)
-      CALL msg_warning('no surface pressure found for hybrid 3D','find_matching_surface_pressure')
+     ! call msg("Field: ")
+     ! call report(field_3d)
+!      CALL msg_warning('no surface pressure found for hybrid 3D','find_matching_surface_pressure')
 !      stop
-      call msg("Stack: "+ fu_name(stack))
+!      call msg("Stack: "+ fu_name(stack))
 !      call report(stack)
 !      call msg("")
 !      call msg("")
@@ -3348,239 +2607,6 @@ CONTAINS
   END SUBROUTINE arrange_scalar_fields_to_3d
 
 
-  ! ***************************************************************
-
-
-  SUBROUTINE arrange_windfields_to_3d(stack)
-
-    ! Description:
-    ! Finds corresponding windfields (same met_src and
-    ! time, but different level) and makes 3d-fields out of them, and
-    ! then stores them in the stack. No
-    ! data is duplicated, only pointers are set.
-    ! 
-    ! Method:
-    ! 
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    IMPLICIT NONE
-
-    ! Imported parameters with intent INOUT or POINTER:
-    TYPE(silja_stack), POINTER :: stack
-
-    ! Local declarations:
-    INTEGER :: i, j, k
-    LOGICAL :: found
-    INTEGER :: ind
-    TYPE(silja_windfield), POINTER :: windfield
-    TYPE(silja_3d_windfield), POINTER :: wind_3d
-
-    type(silja_stack), pointer :: st
-
-    st => stack
-
-    ! -------------------------------------------------------------
-    ! 
-    ! 1. Loop over 2d scalar windfields in stack
-    !
-    loop_over_2d_windfields: DO i = 1, SIZE(stack%winds)
-
-      windfield => stack%winds(i)%fp
-
-      ! -------------------------------------------------------------
-      ! 
-      ! 2. Check if this field should be added to 3d-fields
-      !
-      IF (.NOT.defined(windfield)) EXIT
-
-
-      ! take only stuff of current cource's primary levels:
-      IF (.NOT.fu_3d_leveltype(fu_leveltype(fu_level(windfield)))) CYCLE
-
-
-      ! -------------------------------------------------------------
-      ! 
-      ! 3. Find the 3d-field into which this field should be added to
-      !
-      CALL search_match()
-
-      ! If a suitable 3d-field not found, then start filling a new one:
-      IF (.NOT.found) THEN
-        stack%windstorepointer_3d = stack%windstorepointer_3d + 1
-        IF (stack%windstorepointer_3d > SIZE(stack%winds_3d)) THEN
-           CALL set_error('no space for winds_3d in stack','arrange_windfields_to_3d')
-           RETURN
-        END IF
-        ind = stack%windstorepointer_3d
-      END IF
-
-
-      ! -------------------------------------------------------------
-      ! 
-      ! 4. Add the current field to the suitable 3d-field.
-      !
-      CALL add_windfield_to_3d_windfield(windfield,stack%winds_3d(ind)%fp)
-
-    END DO loop_over_2d_windfields
-
-
-    ! -------------------------------------------------------------
-    ! 
-    ! 5. In each 3d-windfield organize the fields vertically.
-    !
-    i = 1
-    DO while(i <= stack%windstorepointer_3d)
-
-      wind_3d => stack%winds_3d(i)%fp
-
-      !
-      ! We have to check if this very field_3d is really 3d, which
-      ! means that it contains more than one 2d field.
-      ! Reason - quantities are considered 3d if they can be defined
-      ! at several levels. But this is not necessary that in specific
-      ! case they are really 3d
-      !
-      if(fu_number_of_windfields(wind_3d) < 2)then
-        !
-        ! Squeeze the list of fields
-        !
-        if(i < stack%windstorepointer_3d)then
-          do j=i, stack%windstorepointer_3d-1
-
-            wind_3d => stack%winds_3d(j)%fp
-            call set_3d_windfield_empty(wind_3d) ! Kill j-th 3d field
-
-            wind_3d => stack%winds_3d(j+1)%fp
-            do k=1,fu_number_of_windfields(wind_3d)
-              call add_windfield_to_3d_windfield( &
-                        & fu_windfield_from_3d_wind(wind_3d,k,.true.), & ! skip order
-                        & stack%winds_3d(j)%fp)
-            end do
-
-          end do
-        end if
-        call set_3d_windfield_empty(stack%winds_3d(stack%windstorepointer_3d)%fp)
-        stack%windstorepointer_3d = stack%windstorepointer_3d - 1
-        if(i > stack%windstorepointer_3d)exit
-      endif
-
-      CALL organize_windfields_vertically(stack%winds_3d(i)%fp)
-      IF (error) RETURN
-
-      i=i+1
-
-    END DO
-
-
-    ! -------------------------------------------------------------
-    ! 
-    ! 6. Add surface pressure fields to those 3d-fields that contain hybrid-level data
-    !
-    DO i = 1, stack%windstorepointer_3d
-
-      wind_3d => stack%winds_3d(i)%fp
-      IF (fu_leveltype(wind_3d) == hybrid) THEN
-
-   CALL find_matching_surface_pre_wind(wind_3d, stack)
-
-   IF (error) RETURN
-      END IF
-    END DO
-
-
-  CONTAINS
-
-    SUBROUTINE search_match()
-
-      ! Description:
-      ! Finds fo a windfield the corresponding 3d-windfield from a set of 3d
-      ! windfields.
-      !
-      ! Method:
-      ! Check met_src, quantity an time
-
-      IMPLICIT NONE
-
-      ! Local declarations:
-      INTEGER :: i
-      type(meteo_data_source) :: met_src
-      TYPE(silja_time) :: time
-      TYPE(silja_3d_windfield), POINTER :: windfield_3d
-
-      found = .false.
-      met_src = fu_met_src(windfield)
-      time = fu_valid_time(windfield)
-      DO i = 1, SIZE(stack%winds_3d)
-        windfield_3d => stack%winds_3d(i)%fp
-        IF (.NOT.defined(windfield_3d)) EXIT
-        IF (time /= fu_valid_time(windfield_3d)) CYCLE
-        IF (.not.met_src == fu_met_src(windfield_3d)) CYCLE
-        found = .true.
-        ind = i
-        RETURN
-      END DO
-
-    END SUBROUTINE search_match
-
-    ! ***************************************************************
-
-
-    SUBROUTINE find_matching_surface_pre_wind(wind_3d, stack)
-
-      ! Description:
-      ! For the unfinished 3d-windfield finds its corresponding surface
-      ! pressure field. This is used for hybrid level data, where every
-      ! 3d-windfield  contains also a pointer to to matching surface
-      ! pressure field.
-      !
-      ! Language: ANSI Fortran 90
-      !
-      ! Author: Mika Salonoja, FMI
-      ! 
-      IMPLICIT NONE
-
-      ! Imported parameters with intent INOUT or POINTER:
-      TYPE(silja_3d_windfield), POINTER :: wind_3d
-      TYPE(silja_stack), POINTER :: stack
-
-      ! Local declarations:
-      INTEGER :: i
-      TYPE(silja_field), POINTER :: field
-  
-      loop_over_2d_scalar_fields: DO i = 1, SIZE(stack%fields)
-
-        field => stack%fields(i)%fp
-        IF (.NOT.defined(field)) EXIT
-        IF (fu_quantity(field) /= ground_pressure_flag) CYCLE
-!        IF (.NOT.(fu_level(field) == ground_level)) CYCLE  !ehto ei tayty ?!
-        IF (error) RETURN
-        ! --------------------------------------
-        !
-        ! Ground pressure found, check the rest: 
-        ! Time:
-        !
-        IF (.NOT.stack%one_valid_time) THEN
-          IF (.NOT.(fu_valid_time(field) == fu_valid_time(wind_3d))) CYCLE
-        END IF
-        ! met_src of data:
-!        IF (.NOT.(fu_met_src(field) == fu_met_src(wind_3d))) CYCLE
-
-        ! Correct field found:
-        CALL add_surf_pre_to_3d_wind(wind_3d, field)
-
-        RETURN
-
-
-      END DO loop_over_2d_scalar_fields
-
-      CALL msg_warning('no surface pressure found for hybrid 3D','find_matching_surface_pre_wind')    
-
-    END SUBROUTINE find_matching_surface_pre_wind
-
-  END SUBROUTINE arrange_windfields_to_3d
-
 
 
 
@@ -3589,15 +2615,8 @@ CONTAINS
 
 
   INTEGER FUNCTION fu_stacksize(stack)
-    
-    ! Description:
-    ! Returns the number of real numbers in a stack.
     ! 
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
+    ! Returns the number of real numbers in a stack.
     ! 
     IMPLICIT NONE
     !
@@ -3626,99 +2645,27 @@ CONTAINS
 
 
 
-  ! ***************************************************************
-
-
-  FUNCTION fu_get_wind_3d_field(stack, iFieldNbr) RESULT(wind_3d_field)
-  !
-  ! Just returns the wind_3d_field pointed by the iFieldNbr
-  !
-  ! Code owner Mikhail Sofiev, FMI
-  
-    IMPLICIT NONE
-
-    ! Imported parameters, intent IN
-    TYPE(silja_stack), INTENT(in), TARGET :: stack
-    INTEGER, INTENT(in) :: iFieldNbr
-
-    ! Result:
-    TYPE(silja_3d_windfield), POINTER :: wind_3d_field
-
-    ! Local declarations
-    TYPE(silja_stack), POINTER :: stackpointer
-
-    stackpointer => stack
-
-    IF(.not.defined(stackpointer))THEN
-       NULLIFY(wind_3d_field)
-    ELSE
-      wind_3d_field => stackpointer%winds_3d(iFieldNbr)%fp
-    END IF
-
-  END FUNCTION fu_get_wind_3d_field
-
-
-  ! ***************************************************************
-
-
-  FUNCTION fu_get_wind_2d_field(stack, iFieldNbr) RESULT(wind_2d_field)
-  !
-  ! Just returns the windfield pointed by the iFieldNbr
-  !
-  ! Code owner Mikhail Sofiev, FMI
-  
-    IMPLICIT NONE
-
-    ! Imported with intent IN
-    TYPE(silja_stack), INTENT(in), TARGET :: stack
-    INTEGER, INTENT(in) :: iFieldNbr
-
-    ! result
-    TYPE(silja_windfield), POINTER :: wind_2d_field
-
-    ! Local declarations
-    TYPE(silja_stack), POINTER :: stackpointer
-
-    stackpointer => stack
-
-    IF(.not.defined(stackpointer))THEN
-       NULLIFY(wind_2d_field)
-    ELSE
-      wind_2d_field => stackpointer%winds(iFieldNbr)%fp
-    END IF
-
-  END FUNCTION fu_get_wind_2d_field
-
-
 
   ! ***************************************************************
 
 
   FUNCTION fu_get_3d_field(stack, iFieldNbr) RESULT(field_3d)
-  !
-  ! Just returns the 3d_field pointed by the iFieldNbr
-  !
-  ! Code owner Mikhail Sofiev, FMI
-  
-  IMPLICIT NONE
+    !
+    ! Just returns the 3d_field pointed by the iFieldNbr
+    !
+    IMPLICIT NONE
 
-  ! Imported IN
-  TYPE(silja_stack), INTENT(In), TARGET :: stack
-  INTEGER, INTENT(in) :: iFieldNbr
+    ! Imported IN
+    TYPE(silja_stack), INTENT(In) :: stack
+    INTEGER, INTENT(in) :: iFieldNbr
 
-  !result
-  TYPE(silja_3d_field), POINTER :: field_3d
+    !result
+    TYPE(silja_3d_field), POINTER :: field_3d
 
-  ! Local declarations
-  TYPE(silja_stack), POINTER :: stackpointer
-!  LOGICAL :: stack_defined
-
-    stackpointer => stack
-
-    IF(.not.defined(stackpointer)) THEN
+    IF(.not.defined(stack)) THEN
        NULLIFY(field_3d)
     ELSE
-      field_3d => stackpointer%fields_3d(iFieldNbr)%fp
+      field_3d => stack%fields_3d(iFieldNbr)%fp
     END IF
 
   END FUNCTION fu_get_3d_field
@@ -3729,30 +2676,23 @@ CONTAINS
 
 
   FUNCTION fu_get_2d_field(stack, iFieldNbr) RESULT(field_2d)
-  !
-  ! Just returns the field pointed by the iFieldNbr
-  !
-  ! Code owner Mikhail Sofiev, FMI
-  
-  IMPLICIT NONE
+    !
+    ! Just returns the field pointed by the iFieldNbr
+    !
+    IMPLICIT NONE
 
-  ! Imported IN
-  TYPE(silja_stack), INTENT(in), TARGET :: stack
-  INTEGER, INTENT(in) :: iFieldNbr
+    ! Imported IN
+    TYPE(silja_stack), INTENT(in) :: stack
+    INTEGER, INTENT(in) :: iFieldNbr
 
-  !result
-  TYPE(silja_field), POINTER :: field_2d
-
-  ! Local declarations
-  TYPE(silja_stack), POINTER :: stackpointer
-
-    stackpointer => stack
+    !result
+    TYPE(silja_field), POINTER :: field_2d
 
     NULLIFY(field_2d)
 
-    IF(defined(stackpointer))THEN
-      IF(fu_field_defined(stackpointer%fields(iFieldNbr)%fp))THEN
-        field_2d => stackpointer%fields(iFieldNbr)%fp
+    IF(defined(stack))THEN
+      IF(fu_field_defined(stack%fields(iFieldNbr)%fp))THEN
+        field_2d => stack%fields(iFieldNbr)%fp
       END IF
     END IF
 
@@ -3798,20 +2738,10 @@ CONTAINS
     ! Local declarations:
     INTEGER :: i, co
     TYPE(silja_field), POINTER :: field
-    TYPE(silja_windfield), POINTER :: windfield
     TYPE(silja_3d_field), POINTER :: field_3d
-    TYPE(silja_3d_windfield), POINTER :: wind_3d
-    INTEGER :: fc, wfc, f3c, wf3c
+    INTEGER :: fc, f3c
     logical :: ifShort
-
-    IF (.NOT.defined(stack)) THEN
-      call msg(' Undefined stack')
-      RETURN
-    else
-      call msg(fu_connect_strings('%%%%%%%%%%%%_report of stack:', &
-                                & stack%name, &
-                                & '_%%%%%%%%%%%%%%'))
-    end if
+    integer, dimension(:), pointer :: quantities
 
     if(present(ifShort_))then
       ifShort = ifShort_
@@ -3819,42 +2749,45 @@ CONTAINS
       ifShort = .false.
     endif
 
+    call msg('')
+    IF (.NOT.defined(stack)) THEN
+      call msg(' Undefined stack')
+      RETURN
+    else
+      if(ifShort)then
+        call msg('************_report of stack:' + stack%name + '_**************')
+      else
+        call msg('%%%%%%%%%%%%_report of stack:' + stack%name + '_%%%%%%%%%%%%%%')
+      endif
+    end if
+
     call msg(' Size of stack now ', fu_stacksize(stack))
 
     call msg(' ********** SCALAR FIELDS ***********')
-    fc = 0
-    DO i = 1, min(stack%storepointer,size(stack%fields))
-      field => stack%fields(i)%fp
-      IF (defined(field)) THEN
-        fc = fc + 1
-        if(ifShort)then
-          call msg(fu_quantity_string(fu_quantity(field)))
-        else
-          CALL report(field)
-        endif
-        IF (error) RETURN
-      END IF
-    END DO
-
-
-    wfc = 0
-    IF (ASSOCIATED(stack%winds)) THEN
-      call msg(' ********** WINDFIELDS ***********')
-      DO i = 1, min(stack%windstorepointer,size(stack%winds))
-        windfield => stack%winds(i)%fp
-        IF (defined(windfield)) THEN
-          wfc = wfc + 1
-          if(ifShort)then
-            call msg('Wind field')
-          else
-            CALL report(windfield)
-          endif
+    if(ifShort)then
+      ! short
+      quantities => fu_work_int_array(max_quantities)
+      call stack_quantities(stack, quantities, fc)
+      do i= 1, fc
+        call msg(fu_quantity_string(quantities(i)))
+      end do
+    else
+      ! detailed
+      fc = 0
+      DO i = 1, min(stack%storepointer,size(stack%fields))
+        field => stack%fields(i)%fp
+        IF (defined(field)) THEN
+          fc = fc + 1
+!          if(ifShort)then
+!            call msg(fu_quantity_string(fu_quantity(field)), fu_field_stats(field)) ! too long anyway
+!          else
+            CALL report(field)
+!          endif
           IF (error) RETURN
         END IF
       END DO
-    ELSE
-      call msg(' ********** NO WINDFIELDS ***********')
-    END IF
+    endif  ! ifShort
+
 
 
     f3c = 0
@@ -3865,9 +2798,9 @@ CONTAINS
         IF (defined(field_3d)) THEN
           f3c = f3c + 1
           if(ifShort)then
-            call msg(fu_quantity_string(fu_quantity(field_3d))+ "_ Field No:"+fu_str(i))
+            call msg(fu_quantity_string(fu_quantity(field_3d)) + "_ Field No:" + fu_str(i))
           else
-            call msg("Field No:"+fu_str(i))
+            call msg("Field No:" + fu_str(i))
             CALL report(field_3d)
             call msg("")
           endif
@@ -3879,32 +2812,22 @@ CONTAINS
     END IF
 
 
-    wf3c = 0
-    IF (ASSOCIATED(stack%winds_3d)) THEN
-      call msg(' ********** 3D-WINDFIELDS ***********')
-      DO i = 1, min(stack%windstorepointer_3d,size(stack%winds_3d))
-        wind_3d => stack%winds_3d(i)%fp
-        IF (defined(wind_3d)) THEN
-          wf3c = wf3c + 1
-          if(ifShort)then
-            call msg('3D wind field')
-          else
-            CALL report(wind_3d)
-          endif
-          IF (error) RETURN
-        END IF
-      END DO
-    ELSE
-      call msg(' ********** NO 3D-WINDFIELDS ***********')
-    END IF
-
-
-    call msg('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
-    call msg(' fields in total. ', fc)
-    call msg(' windfields in total. ', wfc)
-    call msg(' 3D-fields in total. ', f3c)
-    call msg(' 3D-windfields in total. ', wf3c)
-    call msg('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
+    if(ifShort)then
+      call msg('*****************************************************')
+      call free_work_array(quantities)
+      call msg(' Qauntities in total (incl.multi-layers).', fc)
+      call msg(' fields in total. ', size(stack%fields))
+    else
+      call msg('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
+      call msg(' valid fields. ', fc)
+    endif
+    call msg(' 3D-fields in total.', f3c)
+    if(ifShort)then
+      call msg('*****************************************************')
+    else
+      call msg('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
+    endif
+    call msg('')
 
   END SUBROUTINE print_stack_report
 

@@ -1,0 +1,31 @@
+#Leaf area index, low vegetation
+'m2 m-2' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber =  56 ;
+	}
+#Leaf area index, high vegetation
+'m2 m-2' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber =  55;
+	}
+#Biome cover, low vegetation
+'m2 m-2' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber =  53;
+	}
+#Biome cover, high vegetation
+'m2 m-2' = {
+	 discipline = 2 ;
+	 parameterCategory = 0 ;
+	 parameterNumber =  54;
+	}
+#	Graupel (snow pellets) precipitation rate
+'kg m-2 s-1' = {
+	 discipline = 0 ;
+	 parameterCategory = 1 ;
+	 parameterNumber =  75 ;
+         typeOfFirstFixedSurface = 1 ;
+	}

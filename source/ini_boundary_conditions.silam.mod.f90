@@ -142,7 +142,7 @@ MODULE ini_boundary_conditions
                                                                   ! set it to something reasonable....
     real :: polarCapArea
     type(silja_field_3d_pointer), dimension(:,:), pointer :: Fld3dPtr   ! dimension - past/future; 1:nSpTr
-    integer :: past_future_switch = 0      !  0 -> [past, future], 1 ->  [future -> past]
+    type(silja_time), dimension(2) :: times = time_missing  !!Times corresponding to dim1 of Fld3dPtr
     type(THorizInterpStruct), pointer :: meteo2BoundaryInterpHoriz => null()
     type(TVertInterpStruct), pointer :: meteo2BoundaryInterpVert => null()
     type(silam_vertical) :: vertical
@@ -189,6 +189,11 @@ MODULE ini_boundary_conditions
     real, dimension(:,:,:,:), pointer :: bEast => null(),  bWest => null()  ! (nSpecies, nSrc, ny, nz)
     real, dimension(:,:,:,:), pointer :: bTop => null(),   bBottom => null() ! (nSpecies, nSrc, nx, ny)
     type(pBnd), dimension(6) :: pBoundaryData
+
+    integer :: nTransportSpecies
+    logical :: perturb_boundaries = .false.
+    real, dimension(:), pointer :: scale_factor
+    
   end type TboundaryBuffer
   public TboundaryBuffer
   public pBnd
@@ -900,6 +905,7 @@ MODULE ini_boundary_conditions
                                     & wdr, &
                                     & speciesTransp, nSpeciesTransp, &
                                     & mapDisp, &
+                                    & DA_time_window, &
                                     & boundaryMarketPtr, &
                                     & boundStructArray, &
                                     & pBBuffer)
@@ -913,6 +919,7 @@ MODULE ini_boundary_conditions
     type(silam_species), dimension(:), intent(in) :: speciesTransp
     integer, intent(in) :: nSpeciesTransp
     type(Tmass_Map), intent(in) :: mapDisp
+    type(silja_interval), intent(in) :: DA_time_window
     type(TboundaryStructPtr), dimension(:), pointer :: boundStructArray
     type(mini_market_of_stacks), pointer ::  boundaryMarketPtr
     type(TboundaryBuffer), pointer :: pBBuffer
@@ -944,7 +951,7 @@ MODULE ini_boundary_conditions
     type(silam_fformat), dimension(max_met_files) :: fFmt_multitime, fFmt_singletime
 
     integer :: nSingletimeFs, nMultitimeFs, ifile, nlinks, ilink, iTSpecies, iId, &
-             & iBSpecies, maxlevs, iHeader, indexvar, nfiles, nSelected
+             & iBSpecies, maxlevs, iHeader, indexvar, nfiles, nSelected, nTimeNodesNeeded
     integer, dimension(:), pointer :: indices, iTransportSpeciesInvolved
     real :: bModeVal, tModeVal, b2tFactor
     character(len=substnmlen) :: bSubstNm, tSubstNm
@@ -1237,7 +1244,7 @@ MODULE ini_boundary_conditions
           !call set_valid_time(idTmp, time_missing)
           if(error)call unset_error(sub_name)
 
-          call add_shopping_variable(rulesIniBoundary%bFiles(iHeader)%shoplst, idTmp, 2)
+          call add_shopping_variable(rulesIniBoundary%bFiles(iHeader)%shoplst, idTmp)
           if(.not. fu_field_id_in_list(idTmp, &
                                      & rulesIniBoundary%bFiles(iHeader)%shoplst, &
                                      & indexVar))then
@@ -1355,20 +1362,23 @@ MODULE ini_boundary_conditions
       end do  ! over boundaries
 
       ! Initialize boundary minimarket
-      call msg('Initiatlizing boundary market multi-time')
+      if(defined(DA_time_window))then
+        nTimeNodesNeeded = ceiling(DA_time_window / rulesIniBoundary%bInterval) + 2
+       !!nTimeNodesNeeded = max(min(nTimeNodesNeeded, max_times), 2) WTF?
+      else
+        nTimeNodesNeeded = 2   ! no data assimilation
+      endif
       ! Multi time stack initialization
+      call msg('Initiatlizing boundary market multi-time, ntimes to store', nTimeNodesNeeded)
       call initialize_mini_market(boundaryMarketPtr, &
                                 & 'boundary_market', &
                                 & 6, &      ! first dimension of the stack arrays
-                                & 2, &      ! if>0, the second dimension in multiTime stack
+                                & nTimeNodesNeeded, &      ! if>0, the second dimension in multiTime stack
                                 & nSpeciesTransp * maxlevs+3, & ! for each timenode - fields
-                                & 0, &      ! for each timenode - windfields
                                 & nSpeciesTransp + 3, &  ! for each timenode - 3d fields
-                                & 0, &      ! for each timenode  - 3d windfields
                                 & .true., & ! replace_oldest_when_full
                                 & wdrAr, &
-                                & .true., &  !.false., & - ifSingleMetSrc
-                                & .true.)   ! print_info_to_stdout
+                                & .true.)  !.false., & - ifSingleMetSrc
       ! Single-time stack initialization
       call msg('Initiatlizing boundary market single-time')
       call initialize_mini_market(boundaryMarketPtr, &
@@ -1376,13 +1386,10 @@ MODULE ini_boundary_conditions
                                 & 6, &        ! first dimension of the stack arrays
                                 & 0, &        ! if>0, the second dimension in multiTime stack
                                 & nSpeciesTransp * maxlevs+3, & ! for each timenode - fields
-                                & 0, &        ! for each timenode - windfields
                                 & nSpeciesTransp + 3, &  ! for each timenode - 3d fields
-                                & 0, &        ! for each timenode  - 3d windfields
                                 & .true., &   ! replace_oldest_when_full
                                 & wdrAr, &    ! WDR array - as many as stacks
-                                & .true., &   ! .false. - ifSingleMetSrc
-                                & .true.)     ! print_info_to_stdout
+                                & .true. )    ! .false. - ifSingleMetSrc
   
       IF (error) RETURN
 
@@ -1721,13 +1728,14 @@ MODULE ini_boundary_conditions
 
       ! Local parameters
       integer :: iB, nPolar, nDirichlet, iSpecies, nPoles
-
+      
       !
       ! Understand the boundary structure 
       !
       bBuffer%iBoundaryType(1:6) = RulesIniBoundary%bTypes(1:6)
       nPolar = count(bBuffer%iBoundaryType(1:6) ==  polar_boundary_type)
       nDirichlet = count(bBuffer%iBoundaryType(1:6) == dirichlet_boundary_type)
+      pBBuffer%nTransportSpecies = nSpeciesTransp
       !
       ! Create the species maping: not all transport species can have boundary conditions
       ! First, count the max number of non-zero species - different borders can have different lists
@@ -2076,25 +2084,30 @@ MODULE ini_boundary_conditions
       IF (error) RETURN
     enddo ! cycle over boundary header files
 
-        !
-        ! Finally arrange supermarket, if at least something was found.
-        !
-    if (ifNewDataAnywhere) then
-        call msg_warning('Why to arrange boundary market so many times?','fill_boundary_market')
-        CALL arrange_supermarket(boundaryMarketPtr, .false.)
-    endif
+    !
+    ! Finally arrange supermarket, if at least something was found. For the sake of safety
+    ! arrange all stacks
+    !
+    if (ifNewDataAnywhere) CALL arrange_supermarket(boundaryMarketPtr, .true., .true.)
 
     !
     ! Maybe print some supermarket_info and exit.
     !
     !IF (supermarket_info) THEN
     IF (.true.) THEN
-      ! missing_obstimes, i are used temporarily
-      CALL supermarket_times(boundaryMarketPtr, met_src_missing, missing_obstimes, iFile) 
+      ! missing_obstimes, iFile are used temporarily
+      CALL supermarket_times(boundaryMarketPtr, met_src_missing, missing_obstimes, iFile, .true.) 
       IF (error) RETURN
       call msg('********************************************************')
-      call msg('Data in supermarket now for the following times:')
-      CALL report(missing_obstimes)
+      if(iFile < 10)then
+        call msg('Data in boundary market now for the following times:')
+        CALL report(missing_obstimes)
+      else
+        call msg('Data in boundary market now for:' + fu_str(iFile) + '- times. Start-end:')
+        CALL report(missing_obstimes(1:3))
+        call msg('...')
+        CALL report(missing_obstimes(iFile-2:iFile))
+      endif
     END IF
 
   END SUBROUTINE fill_boundary_market
@@ -2102,8 +2115,7 @@ MODULE ini_boundary_conditions
 
   !***********************************************************************************
 
-  subroutine fillBoundaryStruct(ibRules, miniMarketBC, now, boundStructArray, &
-                              & met_buf, ifFirstTime)
+  subroutine fillBoundaryStruct(ibRules, miniMarketBC, now, boundStructArray, met_buf)
       !
       ! The sub is a bridge between the boundary mini-market and the boundary structure.
       ! In the mini-market the fields are in (up to) 6 stacks for (up to) 6 boudanries with
@@ -2120,26 +2132,33 @@ MODULE ini_boundary_conditions
       implicit none
 
       ! Imported parameters
-      type(Tini_boundary_rules),  intent(inout), target :: ibRules
-      type(TboundaryStructPtr), dimension(:), pointer :: boundStructArray
+      type(Tini_boundary_rules),  intent(in), target :: ibRules
+      type(TboundaryStructPtr), dimension(:), intent(inout) :: boundStructArray
       type(silja_time ), intent(in) :: now !! Mid-time-step
-      type(mini_market_of_stacks), pointer :: miniMarketBC
+      type(mini_market_of_stacks), intent(in) :: miniMarketBC
       type(Tfield_buffer), pointer :: met_buf
-      logical, intent(in) :: ifFirstTime
 
       ! Local variables
-      integer :: iBoundary, ifile, ifield 
+      integer :: iBoundary, ifile, ifield, islot, isptr, number_of_times, iTmp
       real :: weight_past_meteo
 
       type(silja_stack), pointer :: stackPtr
       type(silja_3d_field), pointer :: field3d
       type(silja_field), pointer :: field2d
       type(silja_field_id), pointer :: idPtr
-      logical :: found
+      logical :: found, ifFirstTime
       type(TVertInterpStruct), pointer :: interp_met2bnd, interp_bnd2disp 
-      integer :: past_fut_switch
+      type(silja_time), dimension(max_times) :: MarketBC_times !! Could have been smarter allocation
 
-      weight_past_meteo = met_buf%weight_past
+      type(silja_time), dimension(2) :: bstimes, needed_bstimes  !!Times corresponding to dim1 of Fld3dPtr
+      type(silja_time) :: timeTmp
+      character(len=*), parameter :: sub_name="fillBoundaryStruct" 
+
+
+      !!!RK: FIXME weight_past_meteo should correspond to time of the actual field, which might be beyond the
+      !!! meteo buffer.  met_buf%weight_past is likely to be irrelevant, though I have no better idea, and
+      !!! whatever value here would not do much harm (probably)
+      weight_past_meteo = met_buf%weight_past  
 
       ! As different fields in same stack and also same fields in different stacks can originate from
       ! different input files and have different quantities and verticals, cycle over input files, going
@@ -2151,174 +2170,179 @@ MODULE ini_boundary_conditions
       ! the past structure with dynamic fields. Later only the future fields will be taken from stack, after 
       ! switching the pointer of past fields to previous future ones. 
 
+      !!RK: NOTE that times must still be coherent
 
-
-      do iBoundary = 1, 6
-        if(boundStructArray(iBoundary)%ptr%boundaryType == dirichlet_boundary_type)then
-
-          ! Switch past and future
-          !
-          boundStructArray(iBoundary)%ptr%past_future_switch = &
-                                                 & 1 - boundStructArray(iBoundary)%ptr%past_future_switch
-        endif
+      ifFirstTime = .TRUE.
+      bstimes(:) = time_missing 
+      do iBoundary = 1, 6 !Sanity check
+          if(.not.fu_true(boundStructArray(iBoundary)%ptr%defined))then
+            call msg('Undefined boundary structure:',iBoundary)
+            call set_error('Undefined boundary structure',sub_name)
+            return
+          endif
+          if (defined(boundStructArray(iBoundary)%ptr%times(1))) then !!find defined times
+            bstimes(1) = boundStructArray(iBoundary)%ptr%times(1)
+            bstimes(2) = boundStructArray(iBoundary)%ptr%times(2)
+            ifFirstTime = .FALSE. !! Some times defined, so structure already gas static data
+          endif
       enddo
-
-
-      ! Cycle over the input file sets. 
-      !
-      do iFile = 1, ibRules%nBfiles        ! sets of input files
-
-        if(ibRules%bFiles(iFile)%ifStatic)then
-          if(ifFirstTime)then   
-            ! read the static field only at the first entrance
-            ! their contence has to be put to both past and future fields in boundary structure, 
-            !       
-            do iBoundary = 1, 6
-
-              if(.not. ibRules%bFiles(iFile)%ifToBoundary(iBoundary))cycle
-
-              ! Stupidity checking
-              !
-              if(.not.fu_true(boundStructArray(iBoundary)%ptr%defined))then
-                call msg('Undefined boundary structure:',iBoundary)
-                call set_error('Undefined boundary structure','fillBoundaryStruct')
-                return
-              endif
-
-              stackPtr => fu_closest_sm_met_src_time(miniMarketBC, & 
-                                                   & fu_mds(boundStructArray(iBoundary)%ptr%bc_wdr,1), &
-                                                   & time_missing, backwards)
-              if(error)then
-                call set_error('Failed to set the permanent 3D boundary','fillBoundaryStruct')
-                return
-              endif
-
-              interp_met2bnd => ibRules%bFiles(iFile)%interpCoefMet2BndInp(iBoundary)%ptr
-
-              interp_bnd2disp => ibRules%bFiles(iFile)%interpCoefBndInp2DispVert(iBoundary)%ptr
-
-              !
-              ! Preparatory work over, scan fields from the stack and send them to the boundary
-              !
-              do iField = 1, ibRules%bFiles(iFile)%nTSpecies
-
-                call find_field_3d_from_stack(met_src_missing, &
-                                            & fu_quantity(ibRules%bFiles(iFile)%fieldInStack(iField)),&
-                                            & time_missing,&
-                                            & stackPtr,&
-                                            & Field3d,&
-                                            & found, &
-                                            & fu_species(ibRules%bFiles(iFile)%fieldInStack(iField)))
-                if(found)then
-
-                  ! set the future field in the structure
-                  !
-                  call field_3d_to_boundary_struct(Field3d, &                 
-                                                 & boundStructArray(iBoundary)%ptr, &
-                                                 & ibRules%bFiles(iFile)%tSpecies(iField), &
-                                                 & interp_bnd2disp, & ! interp rule
-                                                 & boundStructArray(iBoundary)%ptr%past_future_switch, &
-                                                 &  met_buf, weight_past_meteo,ifFirstTime)
-                  if(error)return
-
-                  !point the past field to it
-                  !
-                  past_fut_switch = boundStructArray(iBoundary)%ptr%past_future_switch
-                  boundStructArray(iBoundary)%ptr%Fld3dPtr(2-past_fut_switch, &
-                                                         & ibRules%bFiles(iFile)%tSpecies(iField))%fp => &
-                  & boundStructArray(iBoundary)%ptr%Fld3dPtr(1+past_fut_switch, &
-                                                           & ibRules%bFiles(iFile)%tSpecies(iField))%fp
-                else
-                  !
-                  ! Check 2D, if boundary type allows
-                  !
-                  if(boundStructArray(iBoundary)%ptr%name == 'T' .or. &
-                   & boundStructArray(iBoundary)%ptr%name == 'B')then
-
-                    call find_field_from_stack(stackPtr, ibRules%bFiles(iFile)%fieldInStack(iField), &
-                                             & Field2d, found)
-                    if(found)then
-                      
-                      call field_2d_to_boundary_struct(Field2d,&                 
-                                                     & boundStructArray(iBoundary)%ptr, &
-                                                     & ibRules%bFiles(iFile)%tSpecies(iField), &
-                                                     & interp_bnd2disp, &  ! destination
-                                                     & boundStructArray(iBoundary)%ptr%past_future_switch, &
-                                                      &  met_buf, weight_past_meteo)
-                      if(error)return
-
-                      !point the past field to it
-                      !
-                      past_fut_switch = boundStructArray(iBoundary)%ptr%past_future_switch
-                      boundStructArray(iBoundary)%ptr%Fld3dPtr(2-past_fut_switch, &
-                                                             & ibRules%bFiles(iFile)%tSpecies(iField))%fp => &
-                                               & boundStructArray(iBoundary)%ptr%Fld3dPtr(1+past_fut_switch, &
-                                                           & ibRules%bFiles(iFile)%tSpecies(iField))%fp
-
-                    endif ! if found in 2D
-
-                  endif  ! if T or B boundary 
-
-                endif  ! if input 3D field is in permanent stack
-                if(.not. found)then
-                  call set_error('Permanent boundary input field not found in stack', 'fillBoundaryStruct')
-                  return
-                endif
-                boundStructArray(iBoundary)%ptr%ifBoundSpecies(ibRules%bFiles(iFile)%tSpecies(iField)) = .true.
-              enddo  !field
-            enddo  ! boundary
-
-          else  ! if first time
-            cycle
-          endif ! if first time 
       
-        else
-          !
-          ! not a Static file
-          !
-          do iBoundary = 1, 6
+      if (defined(bstimes(1)) .and. defined(bstimes(2))) then
+        if (fu_between_times(now, bstimes(1) , bstimes(2), .FALSE.)) then 
+          call msg("Boundary structure up-to-date")
+          return !! The strucrures fully set for now
+        endif
+      endif
+      
+      !!! identify time slots of BStruct to fill: one or both
 
+      call supermarket_times(miniMarketBC, met_src_missing, MarketBC_times, number_of_times, .true.) 
+      iTmp = fu_closest_time(now, MarketBC_times(1:number_of_times), backwards)
+      needed_bstimes(1) = MarketBC_times(iTmp)
+      needed_bstimes(2) = MarketBC_times(iTmp+1)
+      if (needed_bstimes(1) == now .or.  needed_bstimes(2)  == now) then
+          call msg("Reftime: "//trim(fu_str(now)))
+          call msg("Market times")
+          do iTmp = 1,size(MarketBC_times)
+            call report(MarketBC_times(iTmp))
+          enddo
+          call set_error("Reference time must be in between supermarket timees", sub_name)
+          return
+      endif
+      call msg("Needed bstimes hour", fu_hour(needed_bstimes(1)), fu_hour(needed_bstimes(2)))
+      if (defined(bstimes(1))) then
+        call msg("Current bstimes hour", fu_hour(bstimes(1)), fu_hour(bstimes(2)))
+      else
+        call msg("No bstimes currently")
+      endif
+      call report(now)
+    
+      if (.not. ifFirstTime) then 
+        if (bstimes(1) < bstimes(2)) then !! Both bstimes and needed_bstimes forward -- flipping needed
+          if  (needed_bstimes(2) ==  bstimes(1)) then !!keep slot1 
+                 needed_bstimes(2) = needed_bstimes(1) !! request other needed time to slot 2
+                 bstimes(2) = time_missing !! slot2 is free
+                 needed_bstimes(1) = time_missing      !! keep slot 1  
+          elseif (needed_bstimes(1) ==  bstimes(2)) then
+                 needed_bstimes(1) = needed_bstimes(2) !! request other needed time to slot 1
+                 bstimes(1) = time_missing !! slot1 is free
+                 needed_bstimes(2) = time_missing      !! keep slot 2
+          else
+                 bstimes(:) = time_missing !! discard both slots
+          endif  !!
+        else !! bstimes reversed no flip needed for needed_bstimes
+          if  (needed_bstimes(1) ==  bstimes(1)) then !!keep slot1 
+                 needed_bstimes(1) = time_missing !! Keep slot 1
+                 bstimes(2) = time_missing !! slot2 is free
+          elseif (needed_bstimes(2) ==  bstimes(2)) then
+                 bstimes(1) = time_missing !! slot1 is free
+                 needed_bstimes(2) = time_missing      !! keep slot 2
+          else
+                 bstimes(:) = time_missing !! discard both slots, keep both requests
+          endif  !!
+        endif
+      endif
+            
+
+      ! read the static field only at the first entrance
+      ! their contence has to be put to both past and future fields in boundary structure, 
+      if(ifFirstTime)then !! Fill static files
+        do iFile = 1, ibRules%nBfiles        ! sets of input files
+          if (.not. ibRules%bFiles(iFile)%ifStatic) cycle
+          !       
+          do iBoundary = 1, 6
             if(.not. ibRules%bFiles(iFile)%ifToBoundary(iBoundary))cycle
 
-            ! Stupidity checking
-            !
-            if(.not. boundStructArray(iBoundary)%ptr%defined==silja_true)then
-              call msg('Undefined boundary structure:',iBoundary)
-              call set_error('Undefined boundary structure','fillBoundaryStruct')
+            stackPtr => fu_closest_sm_met_src_time(miniMarketBC, & 
+                                                 & fu_mds(boundStructArray(iBoundary)%ptr%bc_wdr,1), &
+                                                 & time_missing, backwards)
+            if(error)then
+              call set_error('Failed to set the permanent 3D boundary',sub_name)
               return
             endif
 
-            !
-            ! Update the interpolation structure
-            !
             interp_met2bnd => ibRules%bFiles(iFile)%interpCoefMet2BndInp(iBoundary)%ptr
             interp_bnd2disp => ibRules%bFiles(iFile)%interpCoefBndInp2DispVert(iBoundary)%ptr
-            
-! Handled in diagnostic_quantities for the whole pool     
-!            call refine_interp_vert_coefs_v2(interp_bnd2disp, & 
-!                                           & met_buf, &
-!                                           & now, &
-!                                           & boundStructArray(iBoundary)%ptr%meteo2BoundaryInterpHoriz, &
-!                                           & interp_met2bnd)
-!            if(error)return
 
-            if(ifFirstTime)then
-              !
-              ! Switch temporarily past and future to fill the past stack
-              !
-              boundStructArray(iBoundary)%ptr%past_future_switch = &
-                                             & 1 -  boundStructArray(iBoundary)%ptr%past_future_switch
-              stackPtr => fu_closest_sm_met_src_time(miniMarketBC, &
-                                                   & fu_mds(boundStructArray(iBoundary)%ptr%bc_wdr,1), &
-                                                   & now, backwards)
+            ! Scan fields from the stack and send them to the boundary
+            do iField = 1, ibRules%bFiles(iFile)%nTSpecies
+
+              iSpTr = ibRules%bFiles(iFile)%tSpecies(iField)
+
+              call find_field_3d_from_stack(met_src_missing, &
+                                          & fu_quantity(ibRules%bFiles(iFile)%fieldInStack(iField)),&
+                                          & time_missing,&
+                                          & stackPtr,&
+                                          & Field3d,&
+                                          & found, &
+                                          & fu_species(ibRules%bFiles(iFile)%fieldInStack(iField)))
+              if(found)then !! Set 3d fld, point other one to it
+                !
+                call field_3d_to_boundary_struct(Field3d, &                 
+                                               & boundStructArray(iBoundary)%ptr, &
+                                               & iSpTr, &
+                                               & interp_bnd2disp, & ! interp rule
+                                               & 1, & !!time
+                                               &  met_buf, weight_past_meteo)
+                if(error)return
+                ! Point the second to just-created first one
+                boundStructArray(iBoundary)%ptr%Fld3dPtr(2, iSpTr)%fp => & 
+                  boundStructArray(iBoundary)%ptr%Fld3dPtr(1, iSpTr)%fp
+              else ! Check 2D, if boundary type allows
+                if(boundStructArray(iBoundary)%ptr%name == 'T' .or. &
+                 & boundStructArray(iBoundary)%ptr%name == 'B')then
+
+                  call find_field_from_stack(stackPtr, ibRules%bFiles(iFile)%fieldInStack(iField), &
+                                           & Field2d, found)
+                  if(found)then
+                    call field_2d_to_boundary_struct(Field2d,&                 
+                                                   & boundStructArray(iBoundary)%ptr, &
+                                                   & iSpTr, &
+                                                   & interp_bnd2disp, &  ! destination
+                                                   & 1, & !! time index
+                                                   &  met_buf, weight_past_meteo)
+                    if(error)return
+
+                    !point the second field to it 
+                    boundStructArray(iBoundary)%ptr%Fld3dPtr(2, iSpTr)%fp => &
+                      &  boundStructArray(iBoundary)%ptr%Fld3dPtr(1, iSpTr)%fp 
+
+                  endif ! if found in 2D
+                endif  ! if T or B boundary 
+              endif  ! if input 3D field is in permanent stack
+              if(fu_fails(found,'Permanent boundary input field not found in stack', sub_name)) return
+              boundStructArray(iBoundary)%ptr%ifBoundSpecies(iSpTr) = .true.
+            enddo  !field
+          enddo  ! boundary
+        enddo !!ifile
+      endif ! if first time 
+
+      !
+      ! Deal with dynamic fields
+      !
+      
+      do iBoundary = 1, 6
+         do iFile = 1, ibRules%nBfiles        ! sets of input files
+            if(.not. ibRules%bFiles(iFile)%ifToBoundary(iBoundary))cycle
+            if (ibRules%bFiles(iFile)%ifStatic) cycle
+            !
+            ! Update the interpolation structure
+            interp_met2bnd => ibRules%bFiles(iFile)%interpCoefMet2BndInp(iBoundary)%ptr
+            interp_bnd2disp => ibRules%bFiles(iFile)%interpCoefBndInp2DispVert(iBoundary)%ptr
+
+            do islot = 1,2 !! past/future or vice-versa 
+               if (defined(bstimes(iSlot))) cycle !! This time is fine already
+               boundStructArray(iBoundary)%ptr%times(iSlot) = time_missing !! We'll be resetting this slot
+               stackPtr => fu_stack(miniMarketBC, fu_mds(boundStructArray(iBoundary)%ptr%bc_wdr,1), &
+                                                   & needed_bstimes(iSlot))
               if(error)then
-                call set_error('Failed to set the dynamic 3D boundary','fillBoundaryStruct')
+                call set_error('Failed to set the dynamic 3D boundary',sub_name)
                 return
               endif
 
 !              call msg('number of transport species', ibRules%bFiles(iFile)%nTSpecies)
               do iField = 1, ibRules%bFiles(iFile)%nTSpecies
-
+                iSpTr = ibRules%bFiles(iFile)%tSpecies(iField)                
                 call find_field_3d_from_stack(met_src_missing, &
                                             & fu_quantity(ibRules%bFiles(iFile)%fieldInStack(iField)),&
                                             & time_missing,&
@@ -2330,10 +2354,10 @@ MODULE ini_boundary_conditions
                   call field_3d_to_boundary_struct(Field3d,  &                 
                                                  & boundStructArray(iBoundary)%ptr, &
                                                  !species index in structure
-                                                 & ibRules%bFiles(iFile)%tSpecies(iField), &
+                                                 & iSpTr, &
                                                  & interp_bnd2disp, & ! interp rule
-                                                 & boundStructArray(iBoundary)%ptr%past_future_switch, &
-                                                 &  met_buf, weight_past_meteo, ifFirstTime)
+                                                 & iSlot, &
+                                                 &  met_buf, weight_past_meteo)
                   if(error)return
                 else
                   !
@@ -2348,9 +2372,9 @@ MODULE ini_boundary_conditions
              
                       call field_2d_to_boundary_struct(Field2d, &                  
                                                      & boundStructArray(iBoundary)%ptr, &
-                                                     & ibRules%bFiles(iFile)%tSpecies(iField), &
+                                                     & iSpTr, &
                                                      & interp_bnd2disp, &  ! interp rule
-                                                     & boundStructArray(iBoundary)%ptr%past_future_switch, &
+                                                     & iSlot, &
                                                       &  met_buf, weight_past_meteo)
                       if(error)return
                     endif  ! if boudnary in 2D
@@ -2360,107 +2384,19 @@ MODULE ini_boundary_conditions
                   call msg("Field not found:")
                   idPtr => ibRules%bFiles(iFile)%fieldInStack(iField)
                   call report(idPtr)
-                  call set_error('Dynamic boundary input field 1 not found in stack','fillBoundaryStruct')
+                  call set_error('Dynamic boundary input field 1 not found in stack',sub_name)
                   return
                 endif
-                boundStructArray(iBoundary)%ptr%ifBoundSpecies(ibRules%bFiles(iFile)%tSpecies(iField)) = .true.
+                boundStructArray(iBoundary)%ptr%ifBoundSpecies(iSpTr) = .true.
               enddo !field
-              !
-              ! Switch past and future back to fill the future stack
-              !
-              boundStructArray(iBoundary)%ptr%past_future_switch = &
-                                           & 1 - boundStructArray(iBoundary)%ptr%past_future_switch
-            endif  ! ifFirstTime
-
-
-
-            ! And now to future fields
-
-            !
-            ! Find out the right stack
-            !
-            stackPtr => fu_closest_sm_met_src_time(miniMarketBC, &
-                                                 & fu_mds(boundStructArray(iBoundary)%ptr%bc_wdr,1), &
-                                                 & now, forwards)
-            if(error)then
-
-              call set_error('Failed to set the dynamic 3D boundary','fillBoundaryStruct')
-              call unset_error('fillBoundaryStruct')
-              call msg_warning('Continuing with last availible boundary fields', 'fillBoundaryStruct')
-              do iField = 1, ibRules%bFiles(iFile)%nTSpecies
-                past_fut_switch = boundStructArray(iBoundary)%ptr%past_future_switch
-                boundStructArray(iBoundary)%ptr%Fld3dPtr(1+past_fut_switch, &
-                 & ibRules%bFiles(iFile)%tSpecies(iField))%fp = &
-                 & boundStructArray(iBoundary)%ptr%Fld3dPtr(2-past_fut_switch, &
-                                                          & ibRules%bFiles(iFile)%tSpecies(iField))%fp
-              enddo           
-            else
-
-
-              !
-              ! Preparatory work over, scan the stack and send fields to the boundary structure
-              !
-              do iField = 1, ibRules%bFiles(iFile)%nTSpecies
-
-                ! Now put the fields from stack to future field array
-                !
-                call find_field_3d_from_stack(met_src_missing, &
-                                            & fu_quantity(ibRules%bFiles(iFile)%fieldInStack(iField)),&
-                                            & time_missing,&
-                                            & stackPtr,&
-                                            & Field3d,&
-                                            & found, &
-                                            & fu_species(ibRules%bFiles(iFile)%fieldInStack(iField)))
-                if(found)then
-
-                  !
-                  ! Write it down!
-                  !
-
-                  call field_3d_to_boundary_struct(Field3d,  &                 
-                                                 & boundStructArray(iBoundary)%ptr, &
-                                                 !species index in structure:
-                                                 & ibRules%bFiles(iFile)%tSpecies(iField), & 
-                                                 & interp_bnd2disp, & ! interp rule
-                                                 & boundStructArray(iBoundary)%ptr%past_future_switch, &
-                                                 &  met_buf, weight_past_meteo,ifFirstTime)
-                  if(error)return
-                else
-                  !
-                  ! Check 2D, if boundary type allows
-                  !
-                  if(boundStructArray(iBoundary)%ptr%name == 'T' .or. &
-                   & boundStructArray(iBoundary)%ptr%name == 'B')then
-  
-                    call find_field_from_stack(stackPtr, ibRules%bFiles(iFile)%fieldInStack(iField), &
-                                             & Field2d, found)
-                    if(found)then
-             
-                      call field_2d_to_boundary_struct(Field2d, &                  
-                                                     & boundStructArray(iBoundary)%ptr, &
-                                                     & ibRules%bFiles(iFile)%tSpecies(iField), &
-                                                     & interp_bnd2disp, &! interp rule
-                                                     & boundStructArray(iBoundary)%ptr%past_future_switch, &
-                                                      &  met_buf, weight_past_meteo)
-                      if(error)return
-
-                    endif  ! if boudnary in 2D
-                  endif ! if T  or B
-                endif ! if found in 3d
-                if(.not. found)then
-                  call msg("")
-                  call msg("Field we were looking for:")
-                  call report(ibRules%bFiles(iFile)%fieldInStack(iField))
-                  call set_error('Dynamic boundary input field not found in stack',&
-                               & 'fillBoundaryStruct')
-                  return
-                endif
-              enddo
-            endif  ! if error (stack missing)
-          enddo
-        endif ! ifStatic
-
-      end do  !input file set
+            enddo !!iTslot
+         enddo !! files
+         !! Finally set slot times for boundary structure
+         do islot = 1,2 !! past/future or vice-versa 
+           if (defined(bstimes(iSlot))) cycle !! This time is fine already
+            boundStructArray(iBoundary)%ptr%times(iSlot) = needed_bstimes(iSlot)!Set just-filled time
+         enddo
+      enddo !!Boundary  
       call msg('Boundary structures ready')
 
   end subroutine fillBoundaryStruct
@@ -2471,7 +2407,7 @@ MODULE ini_boundary_conditions
         subroutine field_3d_to_boundary_struct(Field_3d, &        ! source field from stack
                                              & boundStruct, &     ! destination structure
                                              & iSpecies, &        ! species index in structure
-                                          & interpStructVert, switch, met_buf, weight_past_meteo, ifFirstTime)  ! vertical interpolation rule  
+                                          & interpStructVert, itslot, met_buf, weight_past_meteo)  ! vertical interpolation rule  
           !
           ! Serves one boundary input field by distributing it from the boundary stack
           ! to the boundary structure
@@ -2489,10 +2425,9 @@ MODULE ini_boundary_conditions
           type(TVertInterpStruct), pointer :: interpStructVert
           integer :: iSpecies
           TYPE(silja_3d_field), pointer :: Field_3d
-       integer, intent(in) :: switch
+       integer, intent(in) :: itslot
        type(Tfield_buffer), pointer :: met_buf
        real, intent(in) :: weight_past_meteo
-       logical, intent(in) :: ifFirstTime
 
           ! Local variables
        integer :: iLev, inputQuantity,  nx, ny, iTmp
@@ -2511,73 +2446,33 @@ MODULE ini_boundary_conditions
           !
 
 
-          if(fu_valid_time(Field_3d) == fu_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp) .and. &
-               & (.not. ifFirstTime))then
-!            call msg('Field already in boundary structure')
-!         call msg('Times in structure: '//fu_str(fu_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)) //&
-!                   & fu_str(fu_valid_time(boundStruct%Fld3dPtr(2-switch, iSpecies)%fp)) )
-            return
-          elseif(fu_valid_time(Field_3d) == fu_valid_time(boundStruct%Fld3dPtr(2-switch, iSpecies)%fp) .and. &
-               & (.not. ifFirstTime))then
-!            call msg('Slow field')
-!         call msg("Field valid time:" //fu_str(fu_valid_time(Field_3d)))
-!         call msg('Times in structure: '//fu_str(fu_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)) //&
-!                   & fu_str(fu_valid_time(boundStruct%Fld3dPtr(2-switch, iSpecies)%fp)) )
-
-
-!            call report(Field_3d)
-!            call report(boundStruct%Fld3dPtr(2-switch, iSpecies)%fp)
-!            call report(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
-
-
-            Field_3d => boundStruct%Fld3dPtr(2-switch, iSpecies)%fp
-            boundStruct%Fld3dPtr(2-switch, iSpecies)%fp => boundStruct%Fld3dPtr(1+switch, iSpecies)%fp
-            boundStruct%Fld3dPtr(1+switch, iSpecies)%fp => Field_3d
-
-!            call report(boundStruct%Fld3dPtr(2-switch, iSpecies)%fp)
-!            call report(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
-
-!            call report(fu_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp))
-!            call report(fu_valid_time(boundStruct%Fld3dPtr(2-switch, iSpecies)%fp))
-
-
-            return
-          
-          else
-!            call msg('setting new field to b structure')
-!            call report(fu_valid_time(Field_3d))
-!            call report(fu_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp))
-          endif
-
           !
           ! Horizontal interpolation below should not take place, providing that the boundary fields all have
           ! the same grid. In some weird cases it can be violated, so better stay on the safe side.
           !
-          if(.not.(fu_grid(Field_3d) == fu_grid(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)))then
+          if(.not.(fu_grid(Field_3d) == fu_grid(boundStruct%Fld3dPtr(itslot, iSpecies)%fp)))then
             call msg('Field that comes for the boundary:')
             call report(Field_3d)
             call msg('Boundary structure field:')
-            call report(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
+            call report(boundStruct%Fld3dPtr(itslot, iSpecies)%fp)
             call set_error('grids of input field and boundary structure do not correspond', &
                          & 'field_3d_to_boundary_struct')
             return
           endif
 
           call interp_field_3d_2_field_3d(Field_3d, &                                     ! input
-                                        & boundStruct%Fld3dPtr(1+switch, iSpecies)%fp, &  ! output
-!                                        & .not.(fu_grid(Field_3d) == &
-!                                              & fu_grid(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)), &  ! if horizontal interp.
+                                        & boundStruct%Fld3dPtr(itslot, iSpecies)%fp, &  ! output
                                         & .false., &                                ! if horizontal interp
                                         & .true., &                                 ! if vertical interp
                                         & boundStruct%meteo2BoundaryInterpHoriz, &  ! horizontal interp structure
                                         & interpStructVert)                         ! vertical interp structure
           if(error)return
 
-          call set_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp, fu_valid_time(Field_3d))
+          call set_valid_time(boundStruct%Fld3dPtr(itslot, iSpecies)%fp, fu_valid_time(Field_3d))
           if(error)return
 !call msg('switch, species', switch, iSpecies)
 !call report(fu_valid_time(Field_3d))
-!call report(fu_valid_time(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp))
+!call report(fu_valid_time(boundStruct%Fld3dPtr(itslot, iSpecies)%fp))
 
           !
           ! Check whether the quantity conversion is needed
@@ -2595,7 +2490,7 @@ MODULE ini_boundary_conditions
                                    & boundStruct%meteo2BoundaryInterpHoriz, &
                                    & boundStruct%meteo2BoundaryInterpVert, &
                                    & .true., .true., &
-                                   & boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
+                                   & boundStruct%Fld3dPtr(itslot, iSpecies)%fp)
             else
               call set_error('Concentration cannot be diagnosed from input quantity:' + &
                            & fu_quantity_string(inputQuantity),'field_3d_to_boundary_struct')
@@ -2611,7 +2506,7 @@ MODULE ini_boundary_conditions
         subroutine field_2d_to_boundary_struct(Field_2d, &        ! source field from stack
                                              & boundStruct, &     ! destination structure
                                              & iSpecies, &        ! species index in structure
-                                          & interpStructVert, switch, met_buf, weight_past_meteo)  ! vertical interpolation rule  
+                                          & interpStructVert, itslot, met_buf, weight_past_meteo)  ! vertical interpolation rule  
           !
           ! Serves one boundary input field by distributing it from the boundary stack
           ! to the boundary structure
@@ -2629,7 +2524,7 @@ MODULE ini_boundary_conditions
           type(TVertInterpStruct), pointer :: interpStructVert
        integer, intent(in) :: iSpecies
           TYPE(silja_field), pointer :: Field_2d
-       integer, intent(in) :: switch
+       integer, intent(in) :: itslot
        type(Tfield_buffer), pointer :: met_buf
        real, intent(in) :: weight_past_meteo
 
@@ -2652,8 +2547,8 @@ MODULE ini_boundary_conditions
           ! No vertical interpolation, the field goes to the only level of the structure as it is
           ! First set the 3d field empty, then add the new field
           !
-          call set_3d_field_empty(boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
-          call add_field_to_3d_field(Field_2d, boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
+          call set_3d_field_empty(boundStruct%Fld3dPtr(itslot, iSpecies)%fp)
+          call add_field_to_3d_field(Field_2d, boundStruct%Fld3dPtr(itslot, iSpecies)%fp)
    
                    
           ! Check whether the quantity conversion is needed
@@ -2673,7 +2568,7 @@ MODULE ini_boundary_conditions
                                    & boundStruct%meteo2BoundaryInterpHoriz, &
                                    & boundStruct%meteo2BoundaryInterpVert, &
                                    & .true., .true., &
-                                   & boundStruct%Fld3dPtr(1+switch, iSpecies)%fp)
+                                   & boundStruct%Fld3dPtr(itslot, iSpecies)%fp)
             else
               call set_error(fu_connect_strings('Concentration cannot be diagnosed from input quantity:', &
                                               & fu_quantity_string(inputQuantity)), &
@@ -2841,12 +2736,24 @@ MODULE ini_boundary_conditions
 
     ! Local parameters
     type(TboundaryStruct), pointer :: bnd
+    integer :: nspecies, ind_species, ix, iy, nx, ny
+    integer :: isp
+    real :: ave_scale
     
     !
     ! Scan the boundaries one by one and get the pointers and values of the data
     ! Note that polar hat will be modified by advection etc, so pointer makes sense
     !
     bnd => arBoundaries(northern_boundary)%ptr                                               ! NORTH
+#ifdef DEBUG   
+    call msg("boundary_conditions_now past-future")
+    iSp = bBuffer%iTransportSpecies(1,northern_boundary) 
+    call report(now)
+    call report(fu_valid_time(bnd%Fld3dPtr(1, iSp)%fp))
+    call report(fu_valid_time(bnd%Fld3dPtr(2, iSp)%fp))
+    call msg("")
+#endif
+
     select case(bnd%boundaryType)
       case(polar_boundary_type)
         bBuffer%bNorth => bnd%polarCapMassMom
@@ -2924,6 +2831,58 @@ MODULE ini_boundary_conditions
                                     & 1, nx_dispersion, 1, ny_dispersion, int_missing, int_missing, &
                                     & .true.)
 
+    if (bBuffer%perturb_boundaries) then
+      call msg('Perturbing boundaries')
+      call msg('Min, max of boundary scale_factor', minval(bBuffer%scale_factor), maxval(bBuffer%scale_factor))
+
+      call msg('sum south boundary before pert', sum(bBuffer%bSouth))
+
+      nspecies = bBuffer%nTransportSpecies
+      ave_scale = 0.0
+      !!!$OMP PARALLEL default(none) private(ind_species, ix, iy) &
+      !!!$OMP & shared(bBuffer, nx_dispersion, ny_dispersion, nspecies)
+      do ind_species = 1, bBuffer%nBoundarySpecies(southern_boundary)
+        do ix = 1, nx_dispersion
+           bBuffer%bSouth(ind_species,:,ix,:) = bBuffer%bSouth(ind_species,:,ix,:) * &
+                & bBuffer%scale_factor((ix-1)*nspecies + ind_species)
+           ave_scale = ave_scale + bBuffer%scale_factor((ix-1)*nspecies + ind_species)
+        end do
+      end do
+
+      do ind_species = 1, bBuffer%nBoundarySpecies(northern_boundary)
+        do ix = 1, nx_dispersion
+           bBuffer%bNorth(ind_species,:,ix,:) = bBuffer%bNorth(ind_species,:,ix,:) * &
+               & bBuffer%scale_factor((ny_dispersion-1)*nspecies*nx_dispersion + (ix-1)*nspecies + ind_species)
+        end do
+      end do
+      do ind_species = 1, bBuffer%nBoundarySpecies(western_boundary)
+        do iy = 1, ny_dispersion
+           bBuffer%bWest(ind_species,:,iy,:) = bBuffer%bWest(ind_species,:,iy,:) * &
+               & bBuffer%scale_factor((iy-1)*nspecies*nx_dispersion + ind_species)
+        end do
+      end do
+      do ind_species = 1, bBuffer%nBoundarySpecies(eastern_boundary)
+        do iy = 1, ny_dispersion
+           bBuffer%bEast(ind_species,:,iy,:) = bBuffer%bEast(ind_species,:,iy,:) * &
+               & bBuffer%scale_factor((iy-1)*nspecies*nx_dispersion + (nx_dispersion-1)*nspecies + ind_species)
+        end do
+       end do
+       do ind_species = 1, bBuffer%nBoundarySpecies(top_boundary)
+         do ix = 1, nx_dispersion
+           do iy = 1, ny_dispersion
+              bBuffer%bTop(ind_species,:,ix,iy) = bBuffer%bTop(ind_species,:,ix,iy) * &
+                  & bBuffer%scale_factor((iy-1)*nspecies*nx_dispersion + (ix-1)*nspecies + ind_species)
+           end do
+         end do
+       end do
+       !!!OMP END DO
+       !!!$OMP END PARALLEL
+
+       call msg('sum south boundary after pert', sum(bBuffer%bSouth))
+       call msg('ave scaling south boundary', ave_scale/(nx_dispersion * bBuffer%nBoundarySpecies(southern_boundary)))
+
+    end if
+
     CONTAINS
 
       !===================================================================
@@ -2946,6 +2905,7 @@ MODULE ini_boundary_conditions
         integer :: ix, iy, iz, iCell, izb, iSpecies, iSpeciesTrn !, i1b
         real, dimension(max_species) :: weight_past_boundary
         real, dimension(:), pointer :: val_past, val_future !, &
+        character(len=*), parameter :: sub_name="get_dirichlet_boundary" 
 
 
         !
@@ -2953,23 +2913,22 @@ MODULE ini_boundary_conditions
         !
         do iSpecies = 1, nSpecies
           iSpeciesTrn = species_mapping_trn(iSpecies)
-          if(fu_valid_time(bnd%Fld3dPtr(2-bnd%past_future_switch, iSpeciesTrn)%fp) == &
-           & fu_valid_time(bnd%Fld3dPtr(1+bnd%past_future_switch, iSpeciesTrn)%fp))then
+          if(fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp) == &!!!Satic field
+           & fu_valid_time(bnd%Fld3dPtr(2, iSpeciesTrn)%fp))then
             weight_past_boundary(iSpeciesTrn) = 1.0
-          elseif(now >= fu_valid_time(bnd%Fld3dPtr(1+bnd%past_future_switch, iSpeciesTrn)%fp))then
-            weight_past_boundary(iSpeciesTrn) = 0.0
           else
             weight_past_boundary(iSpeciesTrn) = &
-                   & (fu_valid_time(bnd%Fld3dPtr(1+bnd%past_future_switch, iSpeciesTrn)%fp) - now) / &
-                   & (fu_valid_time(bnd%Fld3dPtr(1+bnd%past_future_switch, iSpeciesTrn)%fp) - &
-                    & fu_valid_time(bnd%Fld3dPtr(2-bnd%past_future_switch, iSpeciesTrn)%fp))
+                   & (fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp) - now) / &
+                   & (fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp) - &
+                    & fu_valid_time(bnd%Fld3dPtr(2, iSpeciesTrn)%fp))
           endif
           if(weight_past_boundary(iSpeciesTrn) < 0. .or. weight_past_boundary(iSpeciesTrn) > 1.)then
             call msg('Strange weight_past_boundary:', weight_past_boundary(iSpeciesTrn))
-            call msg('Now and valid times for 1+switch and 2-switch:')
+            call msg('Now and valid times:')
             call report(now)
-            call report(fu_valid_time(bnd%Fld3dPtr(1+bnd%past_future_switch, iSpeciesTrn)%fp))
-            call report(fu_valid_time(bnd%Fld3dPtr(2-bnd%past_future_switch, iSpeciesTrn)%fp))
+            call report(fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp))
+            call report(fu_valid_time(bnd%Fld3dPtr(2, iSpeciesTrn)%fp))
+            call set_error("Attempt to use extrapolated boundaries", sub_name)
           endif
           if(error)return
         end do  ! iSpecies
@@ -2984,10 +2943,9 @@ MODULE ini_boundary_conditions
           do iSpecies = 1, nSpecies
             iSpeciesTrn = species_mapping_trn(iSpecies)
             if(.not. bnd%ifBoundSpecies(iSpeciesTrn))cycle
-            val_future => fu_grid_data_from_3d(bnd%Fld3dPtr(1 + bnd%past_future_switch, &
-                                                          & iSpeciesTrn)%fp, 1)
-            val_past => fu_grid_data_from_3d(bnd%Fld3dPtr(2 - bnd%past_future_switch, &
-                                                        & iSpeciesTrn)%fp, 1)
+            !! past and future not necessarily ordered here
+            val_future => fu_grid_data_from_3d(bnd%Fld3dPtr(1, iSpeciesTrn)%fp, 1)
+            val_past => fu_grid_data_from_3d(bnd%Fld3dPtr(2, iSpeciesTrn)%fp, 1)
             iCell = 1
             do iy = y1,y2
               do ix = x1,x2
@@ -3001,8 +2959,8 @@ MODULE ini_boundary_conditions
                           call report(now)
                           call msg("Icell "//trim(fu_str(iCell)), val_past(iCell), val_future(iCell))
                           call msg("iSpeciesTrn,iz",iSpeciesTrn,iz)
-                          call report(bnd%Fld3dPtr(1 + bnd%past_future_switch, iSpeciesTrn)%fp)
-                          call report(bnd%Fld3dPtr(2 - bnd%past_future_switch, iSpeciesTrn)%fp)
+                          call report(bnd%Fld3dPtr(1 , iSpeciesTrn)%fp)
+                          call report(bnd%Fld3dPtr(2 , iSpeciesTrn)%fp)
                   endif
 #endif                  
                 iCell = iCell + 1  ! counts move along the plain
@@ -3019,10 +2977,8 @@ MODULE ini_boundary_conditions
             do iSpecies = 1, nSpecies
               iSpeciesTrn = species_mapping_trn(iSpecies)
               if(.not. bnd%ifBoundSpecies(iSpeciesTrn))cycle
-              val_future => fu_grid_data_from_3d(bnd%Fld3dPtr(1 + bnd%past_future_switch, &
-                                                            & iSpeciesTrn)%fp, iz)
-              val_past => fu_grid_data_from_3d(bnd%Fld3dPtr(2 - bnd%past_future_switch, &
-                                                          & iSpeciesTrn)%fp, iz)
+              val_future => fu_grid_data_from_3d(bnd%Fld3dPtr(1, iSpeciesTrn)%fp, iz)
+              val_past => fu_grid_data_from_3d(bnd%Fld3dPtr(2 , iSpeciesTrn)%fp, iz)
               iCell = 1
               do iy = y1,y2
                 do ix = x1,x2
@@ -3040,8 +2996,8 @@ MODULE ini_boundary_conditions
                           call report(now)
                           call msg("Icell "//trim(fu_str(iCell)), val_past(iCell), val_future(iCell))
                           call msg("iSpeciesTrn,iz",iSpeciesTrn,iz)
-                          call report(bnd%Fld3dPtr(1 + bnd%past_future_switch, iSpeciesTrn)%fp)
-                          call report(bnd%Fld3dPtr(2 - bnd%past_future_switch, iSpeciesTrn)%fp)
+                          call report(bnd%Fld3dPtr(1 , iSpeciesTrn)%fp)
+                          call report(bnd%Fld3dPtr(2 , iSpeciesTrn)%fp)
                   endif
 #endif                  
                   iCell = iCell + 1  ! counts move along x/y
@@ -3057,7 +3013,7 @@ MODULE ini_boundary_conditions
 
 #ifdef DEBUG
         if (.not. all(buf_data(:,:,:,:)>=0)) then
-                call set_error("Non-positive in buf_data", "boundary_conditions_now")
+                call set_error("Non-positive in buf_data", sub_name)
         endif
 #endif
         

@@ -26,7 +26,6 @@ MODULE lagrange_particles
   PUBLIC enlarge_lagrange_particles_set    ! Extend particle arrays
 
   public project_lagr_2_euler_flds    ! Project some particles to Eulerian mass map
-  public set_lpset_missing !! Workaround for crash in Intel compiler at tuima
   public report                       ! Report Lagrnagian particle
   
   ! Private subroutines  
@@ -76,8 +75,7 @@ MODULE lagrange_particles
     type(silja_logical) :: defined = silja_false
   end type Tlagrange_particles_set
   public Tlagrange_particles_set
-
-  type (Tlagrange_particles_set), parameter :: lagrange_particles_set_missing = &
+  type (Tlagrange_particles_set) :: lagrange_particles_set_missing = &
                & Tlagrange_particles_set(null(),null(),null(), &
                & int_missing,  int_missing, int_missing, int_missing, &
                & int_missing, int_missing,  int_missing,  &
@@ -94,15 +92,6 @@ MODULE lagrange_particles
 
 
 CONTAINS
-
-   !*******************************************************
-  
-  subroutine set_lpset_missing(lpset)
-      implicit none
-      type (Tlagrange_particles_set), intent(out) :: lpset
-      character(len = *), parameter :: sub_name = 'set_lpset_missing'
-      lpset = lagrange_particles_set_missing
-  end subroutine set_lpset_missing
 
   !******************************************************************
 

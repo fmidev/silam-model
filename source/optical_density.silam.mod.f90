@@ -930,26 +930,25 @@ species:  do iSpecies = 1, nspeciesLst
   subroutine get_o3column(metdat_col, massO3, o3_col)
     real, dimension(:,:), intent(in)  :: metdat_col   !metind, iLev
     real, dimension(:,:), intent(in)  :: massO3       !nSrc, nLev  slice of a massmap for ozone
-    real, dimension(:,:), intent(out) :: o3_col       !iLev, nSrc
+    real, dimension(:), intent(out) :: o3_col       !iLev
     
-    integer :: iLev, nLev, iSp, nSp, nSrc
+    integer :: iLev, nLev, iSp, nSp
 
     real ::  cellarea
 
     nLev = size(metdat_col,2)
-    nSrc = size(massO3,1)
     cellarea = metdat_col(ind_dx_size,1) * metdat_col(ind_dy_size,1)
 
     !Uppermost level has half of its mass above
-    o3_col(nLev,1:nSrc) = 0.5*massO3(1:nSrc,nLev)
+    o3_col(nLev) = 0.5*massO3(1,nLev)
     do iLev = nLev-1, 1, -1
-       o3_col(iLev,1:nSrc) = o3_col(iLev+1,1:nSrc) &
-            & + 0.5*massO3(1:nSrc,iLev+1) + 0.5*massO3(1:nSrc,iLev)                  
+       o3_col(iLev) = o3_col(iLev+1) &
+            & + 0.5*massO3(1,iLev+1) + 0.5*massO3(1,iLev)                  
     enddo
     !Convert the mass (in moles) to Dobson Units:
-    o3_col(1:nLev,1:nSrc) = o3_col(1:nLev,1:nSrc)/(4.4642e-4*cellarea)
+    o3_col(1:nLev) = o3_col(1:nLev)/(4.4642e-4*cellarea)
 
-    if (o3_col(1,1) < 50.) then ! Stupidity check
+    if (o3_col(1) < 50.) then ! Sanity check
       !! Too small column might mean a limited-area run with photolysis_affected_by_o3col = YES
         call set_error("Total ozone column < 50 DU, must be an error in the setup", &
               & "get_o3column")

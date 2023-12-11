@@ -28,7 +28,7 @@ use md
 
 private
 
-  PUBLIC trajectory_input_needs ! Just a list of quantities to be written
+  PUBLIC add_trajectory_input_needs ! Just a list of quantities to be written
   PUBLIC init_trajectory_output ! Allocate memory and fill in the initial values
                                 ! open output files
   PUBLIC store_traj_time        ! Drops particle positions to the array
@@ -101,7 +101,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE trajectory_input_needs(q_met_dyn, iQ, q_met_st, iQs)
+  SUBROUTINE add_trajectory_input_needs(q_met_dyn, iQ, q_met_st, iQs)
     !
     ! Returns the list of needed quantities for creating of the TRADOS-like output
     !
@@ -116,12 +116,12 @@ CONTAINS
                               & abl_height_m_flag, &
                               & pasquill_class_flag, &
                               & int_missing/), q_met_dyn, .false.)
+    iQs = int_missing
 !    iQs = fu_merge_int_arrays((/scavenging_coefficient_flag, &
 !                              & int_missing/), q_met_st, .false.)
-    iQs = fu_merge_int_arrays((/int_missing/), q_met_st, .false.) 
     !! missing scavenging_coefficient_flag should not crash the run
 
-  END SUBROUTINE trajectory_input_needs
+  END SUBROUTINE add_trajectory_input_needs
 
 
   ! ***************************************************************

@@ -994,30 +994,6 @@ END_LIST = substance
 
 # ***********************************************************************
 
-LIST = substance
-  #  Acetone (2-propanone or dimethyl ketone
-  chemical_name = CH3COCH3
-#  GRIB2_constituent_type = 10401 #FIXME Local code
-  molar_mass = 48.0 g/mole #RH2018: update from 72.
-  low_concentration_threshold = 0.001 pg/m3  #R.H. Decreased by factor of 1e5 (orig 0.1 ng/m3): C2O3
-  can_be_aerosol = NO
-  can_be_gas = YES
-
-  Henry_constant_at_298K    =  27e5    # mol/kg/pa #https://webbook.nist.gov/cgi/cbook.cgi?ID=C67641&Mask=10#Solubility
-  Henry_constant_T_dependence_exponent_scale = 5000.  #Dimension -- Degrees Kelvin 
-  Wesely_f0 = 0. 
-
-  gas_surf_resistance_over_water = -1000.
-  gas_surf_resistance_land_default = -1000.
-  gas_molecular_diffusivity_in_air   = 8e-6
-  gas_molecular_diffusivity_in_water = 6e-10
-  washout_coef_rain_ratio_to_SILAM_standard = -1.0
-  washout_coef_snow_ratio_to_SILAM_standard = -1.0
-  
-END_LIST = substance
-
-# ***********************************************************************
-
 #Commented out since after PAR-OLE tweaks the PAR only exists in pre-historical CB4 chemistry scheme!
 LIST = substance
   # parafin carbon bond (C-C)

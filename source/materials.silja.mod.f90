@@ -1302,6 +1302,9 @@ CONTAINS
     !
     ! !!! Uses iterational algorithm, so probably slow and not to be used too often !!!
     ! 
+    ! https://doi.org/10.1016/j.jaerosci.2006.04.001
+    ! 
+      
     implicit none
 
     ! return structure
@@ -1329,6 +1332,13 @@ CONTAINS
       !
       ! Aerosol, possibly, soluble
       !
+      ! For some reason material%mole_mass is used. Just to avoid segfaults
+      if (.not. material%mole_mass > 0) then
+        call set_error("Non-positive material%mole_mass", 'fu_wet_particle_Kelvin')
+        return
+      endif
+
+
       if(fRelHumidity < material%aerosol_param%Deliquescence_Humidity)then
         wetParticle%fGrowthFactor = 1.0
         wetParticle%fWetParticleDensity = material%aerosol_param%dry_part_density
@@ -2328,7 +2338,7 @@ CONTAINS
           factor_to_basic_unit = 1e-9/fu_mole_to_kg_by_material(material,1.)
         elseif(chBasicUnit == 'Bq')then
           factor_to_basic_unit = 1e-9 * fu_mole_to_bq(fu_nuclide(material),1.) / &
-                                      & fu_mole_to_kg_by_material(material,1.)
+                                             & fu_mole_to_kg_by_material(material,1.)
         else
           call set_error(fu_connect_strings('Failed factor to basic unit:',chUnit,',',chBasicUnit), &
                        & 'fu_factor_to_basic_unit_mater')
@@ -2408,7 +2418,7 @@ CONTAINS
           factor_to_basic_unit = 1e+6 / fu_mole_to_kg_by_material(material,1.)
         elseif(chBasicUnit == 'Bq')then
           factor_to_basic_unit = 1e+6 * fu_mole_to_bq(fu_nuclide(material),1.) / &
-                                      & fu_mole_to_kg_by_material(material,1.)
+                                          & fu_mole_to_kg_by_material(material,1.)
         else
           call set_error('Failed factor to basic unit:' + chUnit + ',' + chBasicUnit, &
                        & 'fu_factor_to_basic_unit_mater')
@@ -2424,7 +2434,7 @@ CONTAINS
           factor_to_basic_unit = 1e+9 / fu_mole_to_kg_by_material(material,1.)
         elseif(chBasicUnit == 'Bq')then
           factor_to_basic_unit = 1e9 * fu_mole_to_bq(fu_nuclide(material),1.) / &
-                                     & fu_mole_to_kg_by_material(material,1.)
+                                             & fu_mole_to_kg_by_material(material,1.)
         else
           call set_error('Failed factor to basic unit:' + chUnit + ',' + chBasicUnit, &
                        & 'fu_factor_to_basic_unit_mater')

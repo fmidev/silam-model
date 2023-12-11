@@ -3626,7 +3626,7 @@ CONTAINS
         else
           write(unit=chTmp,fmt='(F8.0)') gf%glevs%levels(iTmp)
         endif
-        sp%sp = fu_connect_with_space(sp%sp, chTmp)
+        sp%sp = trim(sp%sp) //" "//trim(chTmp)
       end do
       WRITE(iCtlUnit,'(A5,A)') 'ZDEF ',trim(sp%sp)
     END IF
@@ -3727,6 +3727,20 @@ CONTAINS
         call set_error('Unknown time label position:' + fu_str(gf%time_label_position),'write_ctl_file')
         return
     end select
+      
+    select case(gf%data_time_features)  
+      case(dynamic_map)
+        write(iCtlUnit,*)'data_time_features  =  dynamic_data'
+      case(monthly_climatology)
+        write(iCtlUnit,*)'data_time_features  =  monthly_data'
+      case(static_climatology)
+        write(iCtlUnit,*)'data_time_features  =  static_data'
+      case default
+        call msg('data_time_features can be dynamic_data/monthly_data/static_data')
+        call set_error('Unknown data_time_features:' + fu_str(gf%data_time_features),'write_ctl_file')
+        return
+    end select
+
     write(iCtlUnit,fmt='(A)')'END_LIST = general'
     !
     ! Individual lists for the variables contain the GrADS variable name as the list name

@@ -22,7 +22,7 @@ MODULE source_terms_bio_voc
   public reserve_bio_voc_source
   public init_emission_bio_voc
   public add_source_species_bio_voc_src
-  public add_input_needs
+  public add_input_needs_bio_voc_src
   public link_source_to_species
   public create_source_containing_grid
   public source_2_second_grid
@@ -37,7 +37,6 @@ MODULE source_terms_bio_voc
   !
   ! Private routines of the sea salt source
   !
-  private add_input_needs_bio_voc_src
   private link_bvoc_src_to_species
   private create_src_cont_grd_bvoc_src
   private project_bvoc_src_second_grd
@@ -50,11 +49,6 @@ MODULE source_terms_bio_voc
   !
   ! Private subs of sea salt source
   !
-
-  interface add_input_needs
-    module procedure add_input_needs_bio_voc_src
-  end interface
-
   interface link_source_to_species
     module procedure link_bvoc_src_to_species
   end interface

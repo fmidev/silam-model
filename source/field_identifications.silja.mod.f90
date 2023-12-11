@@ -3,8 +3,6 @@ MODULE field_identifications
   ! Description: 
   ! Contains the definition of silja_field_id -type which defines
   ! fully one 2-D data on a level in a horizontal grid.
-  ! Identification can defined either scalar-data, vector-data (wind)
-  ! or material-field-data.
   !
   ! Original code: Mika Salonoja
   ! Author: Mikhail Sofiev, FMI, e-mail mikhail.sofiev@fmi.fi
@@ -27,26 +25,16 @@ MODULE field_identifications
   ! The public functions and subroutines available in this module:
   PUBLIC fu_set_field_id
   PUBLIC fu_set_field_id_simple
-  PUBLIC fu_set_windfield_id
-  PUBLIC fu_set_windfield_id_simple
   public set_missing
-  PUBLIC fu_windfield_id_from_uvw_id
-  PUBLIC set_quantity
-  PUBLIC defined
-  PUBLIC report
   public fu_field_id_covers_request
   PUBLIC fu_grid
-  PUBLIC fu_u_grid
-  PUBLIC fu_v_grid
-  PUBLIC fu_w_grid
-  PUBLIC fu_grids_of_id
   PUBLIC fu_met_src
   PUBLIC fu_level
   PUBLIC fu_valid_time
   public fu_field_valid
   PUBLIC fu_analysis_time
   PUBLIC fu_forecast_length
-  PUBLIC fu_accumulated
+  PUBLIC fu_accumulated_id
   PUBLIC fu_accumulation_length
   PUBLIC fu_validity_length
   PUBLIC fu_accumulation_start_time
@@ -68,6 +56,9 @@ MODULE field_identifications
   public set_met_src
   PUBLIC set_species
   public set_cocktail_name
+  PUBLIC set_quantity
+  PUBLIC defined
+  PUBLIC report
   public fu_if_internal_silam_field
 
   ! The private functions and subroutines not to be used elsewhere:
@@ -88,7 +79,6 @@ MODULE field_identifications
   PRIVATE fu_accumulation_field_id
   private fu_validity_length_of_field_id
   PRIVATE fu_accum_start_time_id
-  PRIVATE fu_accumulated_id
   private set_acc_len_of_field_id
   private set_valid_time_of_field_id
   private set_analysis_time_of_field_id
@@ -100,10 +90,7 @@ MODULE field_identifications
   private set_level_of_field_id
   private set_grid_of_field_id
   private set_met_src_of_field_id
-  private fu_u_grid_of_windfield_id
-  private fu_v_grid_of_windfield_id
   private set_valid_len_of_field_id
-  private fu_w_grid_of_windfield_id
   private set_species_of_field_id
   !private set_species_from_basic_param
 
@@ -138,18 +125,6 @@ MODULE field_identifications
     MODULE PROCEDURE fu_grid_of_field_id
   END INTERFACE
 
-  INTERFACE fu_u_grid 
-    MODULE PROCEDURE fu_u_grid_of_windfield_id
-  END INTERFACE
-
-  INTERFACE fu_v_grid 
-    MODULE PROCEDURE fu_v_grid_of_windfield_id
-  END INTERFACE
-
-  INTERFACE fu_w_grid 
-    MODULE PROCEDURE fu_w_grid_of_windfield_id
-  END INTERFACE
-
   INTERFACE fu_analysis_time
     MODULE PROCEDURE fu_analysis_time_of_field_id
   END INTERFACE
@@ -172,10 +147,6 @@ MODULE field_identifications
 
   INTERFACE fu_accumulation_start_time
     MODULE PROCEDURE fu_accum_start_time_id
-  END INTERFACE
-
-  INTERFACE fu_accumulated
-    MODULE PROCEDURE fu_accumulated_id
   END INTERFACE
 
   INTERFACE fu_level
@@ -290,7 +261,7 @@ MODULE field_identifications
                       ! are the same. Obs. this definition is dfferent from GRIB!
 
     type(silja_interval) :: length_of_validity ! Starting from valid_time
-    TYPE(silja_grid), DIMENSION(3) :: grids ! three needed for wind
+    TYPE(silja_grid) ::  grid 
     TYPE(silja_level) :: level
     LOGICAL :: full
     TYPE(silja_logical) :: defined = silja_false
@@ -304,7 +275,7 @@ MODULE field_identifications
                                              & time_missing, time_missing, interval_missing,&
                                              & int_missing, &
                                              & interval_missing, interval_missing, &
-                                             & (/grid_missing, grid_missing, grid_missing/) , &
+                                             & grid_missing , &
                                              & level_missing, &
                                              & .false., &
                                              & silja_false)
@@ -508,9 +479,7 @@ CONTAINS
     ! Set grid and level.
     !
     IF (defined(grid)) THEN
-      id%grids(1) = grid
-      id%grids(2) = grid_missing 
-      id%grids(3) = grid_missing 
+      id%grid = grid
     ELSE
       CALL set_error('grid not defined','fu_set_field_id_from_params')
       RETURN
@@ -585,14 +554,11 @@ CONTAINS
     !
     ! Set grid and level.
     !
-    id%grids(1) = fu_set_grid(nlId)
-    if(.not. defined(id%grids(1)))then
+    id%grid = fu_set_grid(nlId)
+    if(.not. defined(id%grid))then
       call free_work_array(spTmp%sp)
       return  ! Must be defined
     endif
-
-    id%grids(2) = grid_missing 
-    id%grids(3) = grid_missing 
 
     nullify(levels)
     call create_levels_from_namelist_v2(levels, nlId)
@@ -777,7 +743,7 @@ CONTAINS
     id%length_of_validity = zero_interval
     id%analysis_time = time_missing
     id%forecast_length = interval_missing
-    id%grids = grid_missing 
+    id%grid = grid_missing 
     id%level = level
     id%full = .false.
     id%field_kind = forecast_flag
@@ -806,9 +772,7 @@ CONTAINS
     id%field_kind = int_missing
     id%length_of_accumulation = interval_missing
     id%length_of_validity = interval_missing
-    id%grids(1) = grid_missing
-    id%grids(2) = grid_missing
-    id%grids(3) = grid_missing
+    id%grid = grid_missing
     id%level = level_missing
     id%full = .false.
     id%defined = silja_false
@@ -818,38 +782,34 @@ CONTAINS
 
   ! ***************************************************************
 
-  SUBROUTINE set_quantity_of_field_id(id, quantity, chSubstNm, chCocktail)
+  SUBROUTINE set_quantity_of_field_id(id, quantity) !, chSubstNm, chCocktail)
   !
-  ! Sets a quantity to a requested flag
-  !
-  ! Code owner Mikhail Sofiev, FMI
+  ! Sets a quantity to a requested flag. Species are NOT set here
+  ! Use set_species for that purpose
   !
   IMPLICIT NONE
 
   ! Imported parameters, intent IN
   INTEGER, INTENT(in) :: quantity
-  character(len=*), intent(in), optional :: chSubstNm, chCocktail
+!  character(len=*), intent(in), optional :: chSubstNm, chCocktail
 
   ! Both in and out parameter
   TYPE(silja_field_id), INTENT(inout) :: id
     
-    IF(.not.fu_known_quantity(quantity))THEN
-      CALL set_error('Unknown quantity','fu_set_quantity')
-      RETURN
-    END IF
+    IF(fu_fails(fu_known_quantity(quantity), 'Unknown quantity','fu_set_quantity'))RETURN
 
     id%quantity = quantity
-    if(present(chSubstNm))then
-      if(present(chCocktail))then
-        call set_error('Substance name and cocktail are both present','set_quantity_of_field_id')
-        return
-      endif
-      call set_species(id%species, fu_get_material_ptr(chSubstNm), aerosol_mode_missing)
-      id%chCocktail = ''
-    else
-      id%species = species_missing
-      if(present(chCocktail)) id%chCocktail = chCocktail
-    endif
+!    if(present(chSubstNm))then
+!      if(present(chCocktail))then
+!        call set_error('Substance name and cocktail are both present','set_quantity_of_field_id')
+!        return
+!      endif
+!      call set_species(id%species, fu_get_material_ptr(chSubstNm), aerosol_mode_missing)
+!      id%chCocktail = ''
+!    else
+!      id%species = species_missing
+!      if(present(chCocktail)) id%chCocktail = chCocktail
+!    endif
   
   END SUBROUTINE set_quantity_of_field_id
 
@@ -857,308 +817,6 @@ CONTAINS
 
   ! ***************************************************************
 
-  FUNCTION fu_set_windfield_id(quantity, &
-                             & met_src,&
-                             & kind, &
-                             & analysis_time,&
-                             & forecast_length, &
-                             & u_grid,&
-                             & v_grid,&
-                             & w_grid,&
-                             & level,&
-                             & length_of_accumulation) result(id)
-
-    ! Description:
-    ! Sets the value for the identification sector desribing a field.
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_field_id) :: id
-
-    ! Imported parameters with intent(in):
-    type(meteo_data_source), INTENT(in) :: met_src
-    integer, intent(in) :: kind, quantity
-    TYPE(silja_time), INTENT(in) :: analysis_time
-    TYPE(silja_interval), INTENT(in) :: forecast_length
-    TYPE(silja_grid), INTENT(in) :: u_grid
-    TYPE(silja_grid), INTENT(in) :: v_grid
-    TYPE(silja_grid), INTENT(in) :: w_grid
-    TYPE(silja_level), INTENT(in) :: level
-
-    ! Optional imported parameters:
-    TYPE(silja_interval), INTENT(in), OPTIONAL :: length_of_accumulation
-
-    !----------------------------------------
-    !
-    ! 1. Set general values
-    !    ------------------
-
-    id%met_src = met_src
-
-    if(quantity == u_10m_flag .or. quantity == v_10m_flag) THEN
-      id%quantity = wind_10m_flag
-    ELSE
-      id%quantity = wind_flag
-    END IF
-    id%species = species_missing
-    id%chCocktail = ''
-
-    !----------------------------------------
-    !
-    ! 2. Set times.
-    !    ----------
-
-    id%field_kind = kind
-
-    IF (defined(analysis_time)) THEN
-      id%analysis_time = analysis_time
-    ELSE
-      CALL set_error('analysis time not defined','fu_set_windfield_id')
-      RETURN
-    END IF
-
-    IF (defined(forecast_length)) THEN 
-      id%forecast_length = forecast_length
-    ELSE
-      CALL set_error('forecast length not defined','fu_set_windfield_id')
-      RETURN
-    END IF
-
-    IF (PRESENT(length_of_accumulation)) THEN
-      IF (defined(length_of_accumulation)) THEN
-   id%length_of_accumulation = length_of_accumulation
-      ELSE
-   CALL set_error('length_of_accumulation not defined',&
-       & 'fu_set_windfield_id')
-   RETURN
-      END IF
-    END IF
-
-    id%valid_time = analysis_time + forecast_length
-
-
-    !----------------------------------------
-    !
-    ! 3. Set grid and level.
-    !    -------------------
-
-    IF (defined(u_grid).and.defined(v_grid)) THEN
-      id%grids(1) = u_grid
-      id%grids(2) = v_grid
-    ELSE
-      CALL set_error('uv grids not defined','fu_set_windfield_id')
-      RETURN
-    END IF
-
-    IF (defined(w_grid)) THEN
-      id%grids(3) = w_grid
-    ELSE
-      id%grids(3) = grid_missing
-    END IF
-
-    IF (defined(level)) THEN
-      id%level = level
-    ELSE
-      CALL set_error('LEVEL not defined', 'fu_set_windfield_id')
-      RETURN
-    END IF
-
-
-    !----------------------------------------
-    !
-    ! 4. Everything ok.
-    !    --------------
-
-    id%full = .true.
-    id%defined = fu_set_true()
-
-
-  END FUNCTION fu_set_windfield_id
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_set_windfield_id_simple(quantity, met_src, valid_time, level) result(id)
-
-    ! Description:
-    ! Sets the value for the identification sector desribing a
-    ! required field, do id may be partially undefined.
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_field_id) :: id
-
-    ! Imported parameters:
-    integer, intent(in) :: quantity
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), INTENT(in) :: valid_time
-    TYPE(silja_level), INTENT(in) :: level
-
-    ! Local declarations:
-    ! 
-    !----------------------------------------
-    !
-    ! 1. Set general values
-    !    ------------------
-
-    id%met_src = met_src
-
-    if(quantity == u_10m_flag .or. quantity == v_10m_flag) THEN
-      id%quantity = wind_10m_flag
-    ELSE 
-      id%quantity = wind_flag
-    END IF
-    id%species = species_missing
-    id%chCocktail = ''
-
-    !----------------------------------------
-    !
-    ! 2. Set times.
-    !    ----------
-
-    IF (defined(valid_time)) THEN
-      id%valid_time = valid_time
-    ELSE
-      CALL set_error('valid time not defined',&
-     & 'fu_set_windfield_id_simple')
-      RETURN
-    END IF
-
-    id%analysis_time = time_missing
-    id%forecast_length = interval_missing
-
-    !----------------------------------------
-    !
-    ! 3. Set grid and level.
-    !    -------------------
-
-    id%grids = grid_missing
-    id%level = level
-
-
-    !----------------------------------------
-    !
-    ! 4. Everything ok.
-    !    --------------
-
-    id%full = .false.
-    id%defined = fu_set_true()
-
-  END FUNCTION fu_set_windfield_id_simple
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_windfield_id_from_uvw_id(u_id, v_id, w_id) result(id)
-
-    ! Description:
-    ! Creates one windfield-id from corresponding u,v and w
-    ! identifications. W-id is optional. No checkings are done, so be
-    ! careful. Times etc. are defined by u-field. 
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_field_id) :: id
-    !
-    ! Imported parameters with intent(in):
-    TYPE(silja_field_id), INTENT(in) :: u_id, v_id
-
-    ! Optional parameters with intent(in):
-    TYPE(silja_field_id), INTENT(in), OPTIONAL :: w_id
-
-    IF (PRESENT(w_id)) THEN
-      id = fu_set_windfield_id(u_id%quantity, &
-     & u_id%met_src ,&
-      & u_id%field_kind, &
-     & u_id%analysis_time ,&
-     & u_id%forecast_length ,&
-     & u_id%grids(1) ,&
-     & v_id%grids(1) ,&
-     & w_id%grids(1) ,&
-     & u_id%level)
-
-    ELSE
-      id = fu_set_windfield_id(u_id%quantity, &
-     & u_id%met_src ,&
-      & u_id%field_kind, &
-     & u_id%analysis_time ,&
-     & u_id%forecast_length ,&
-     & u_id%grids(1) ,&
-     & v_id%grids(1) ,&
-     & grid_missing ,&
-     & u_id%level)
-    END IF
-
-  END FUNCTION fu_windfield_id_from_uvw_id
-
-  
-  
-!!!$  ! ***************************************************************
-!!!$  
-!!!$  SUBROUTINE set_w_grid_to_id(id, w_grid)
-!!!$    
-!!!$    ! Description:
-!!!$    ! Replaces the grid in id.
-!!!$    ! 
-!!!$    ! Language: ANSI Fortran 90
-!!!$    !
-!!!$    ! Author: Mika Salonoja, FMI
-!!!$    ! 
-!!!$    IMPLICIT NONE
-!!!$
-!!!$    ! Imported parameters with intent IN:
-!!!$    TYPE(silja_grid), INTENT(in) :: w_grid
-!!!$
-!!!$    ! Imported parameters with intent INout:
-!!!$    TYPE(silja_field_id), INTENT(inout) :: id
-!!!$
-!!!$    id%grids(3) = w_grid
-!!!$
-!!!$  END SUBROUTINE set_w_grid_to_id
-!!!$
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_grids_of_id(field_id) result(grids) 
-
-    ! Returns the grid of a field-id.
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_grid), DIMENSION(3) :: grids
-
-    ! Imported parameters with intent(in):
-    TYPE(silja_field_id), INTENT(in) :: field_id
-
-    grids = field_id%grids
-
-  END FUNCTION fu_grids_of_id
-
-
-  ! ***************************************************************
 
   LOGICAL FUNCTION fu_full_id(id)
 
@@ -1359,11 +1017,11 @@ CONTAINS
     !    if the field is accepted and stored into the stack.
     !
     if(.not. ifDisregardGrid)then
-      if(.not.(idRequest%grids(1) == grid_missing))then
+      if(.not.(idRequest%grid == grid_missing))then
         !
         ! Get the grid and reposition it if needed
         !
-        gridTmp = idIn%grids(1)
+        gridTmp = idIn%grid
         if(.not.fu_stdSilamGrid(gridTmp))then
           if(fu_ifLonGlobal(gridTmp))then
             if(.not.fu_stdSilamGrid(gridTmp)) call reposition_global_grid_lon(gridTmp)
@@ -1374,8 +1032,8 @@ CONTAINS
           if(.not.fu_stdSilamGrid(gridTmp))return
         endif  ! input grid is non-standard
 
-        if(.not.(fu_grids_arakawa_correspond(idRequest%grids(1),gridTmp)))then
-          if(.not.(fu_if_grid_covered(idRequest%grids(1),gridTmp)))return  ! failed to cover the requested grid
+        if(.not.(fu_grids_arakawa_correspond(idRequest%grid,gridTmp)))then
+          if(.not.(fu_if_grid_covered(idRequest%grid,gridTmp)))return  ! failed to cover the requested grid
         endif
       end if  ! if grid checking is needed
     end if  ! if grid checking is needed
@@ -1428,81 +1086,9 @@ CONTAINS
     ! Imported parameters with intent(in):
     TYPE(silja_field_id), INTENT(in) :: field_id
 
-    IF(field_id%quantity == wind_flag) THEN
-      CALL msg_warning('asked single grid from windfield','fu_grid_of_field_id')
-    END IF
-
-    grid = field_id%grids(1)
+    grid = field_id%grid
 
   END FUNCTION fu_grid_of_field_id
-
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_u_grid_of_windfield_id(id)
-
-    ! Returns the u-grid of a field-id when field contains wind.
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_grid) :: fu_u_grid_of_windfield_id
-    !
-    ! Imported parameters with intent(inout) or POINTER:
-    TYPE(silja_field_id), INTENT(in) :: id
-
-    fu_u_grid_of_windfield_id = id%grids(1)
-
-  END FUNCTION fu_u_grid_of_windfield_id
-
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_v_grid_of_windfield_id(id)
-
-    ! Returns the u-grid of a field-id when field contains wind.
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_grid) :: fu_v_grid_of_windfield_id
-    !
-    ! Imported parameters with intent(inout) or POINTER:
-    TYPE(silja_field_id), INTENT(in) :: id
-
-    fu_v_grid_of_windfield_id = id%grids(2)
-
-  END FUNCTION fu_v_grid_of_windfield_id
-
-
-
-  ! ***************************************************************
-
-  FUNCTION fu_w_grid_of_windfield_id(id)
-
-    ! Returns the u-grid of a field-id when field contains wind.
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-    !
-    ! The return value of this function:
-    TYPE(silja_grid) :: fu_w_grid_of_windfield_id
-    !
-    ! Imported parameters with intent(inout) or POINTER:
-    TYPE(silja_field_id), INTENT(in) :: id
-
-    fu_w_grid_of_windfield_id = id%grids(3)
-
-  END FUNCTION fu_w_grid_of_windfield_id
-
-
 
   ! ***************************************************************
 
@@ -1915,7 +1501,7 @@ CONTAINS
     TYPE(silja_field_id), INTENT(inout) :: id
     TYPE(silja_grid), INTENT(in) :: grid
 
-    id%grids(1) = grid
+    id%grid = grid
 
   end subroutine set_grid_of_field_id
 
@@ -2118,7 +1704,7 @@ CONTAINS
 !      if(id%length_of_accumulation > zero_interval)then
         call msg(fu_connect_strings('Start time of accumulation: ',&
                        & fu_str(id%valid_time-id%length_of_accumulation)))
-        call msg(fu_connect_strings('From which accumulated for ', fu_str(id%length_of_accumulation)))
+        call msg(fu_connect_strings('From which accumulated for:', fu_str(id%length_of_accumulation)))
 !      endif
     END IF
 
@@ -2130,28 +1716,7 @@ CONTAINS
          call msg('Length of validity: UNDEFINED')
     endif
 
-    SELECT CASE (id%quantity)
-
-      CASE (wind_flag)
-
-      call msg(' U-grid: ')
-      CALL report(id%grids(1))
-
-      call msg(' V-grid: ')
-      CALL report(id%grids(2))
-
-      if(defined(id%grids(3)))then
-        call msg(' W-grid: ')
-        CALL report(id%grids(3))
-      else
-        call msg('No W component')
-      endif
-
-    CASE default
-
-      CALL report (id%grids(1))
-
-    END SELECT
+    CALL report (id%grid)
 
   END SUBROUTINE print_field_id_report
 

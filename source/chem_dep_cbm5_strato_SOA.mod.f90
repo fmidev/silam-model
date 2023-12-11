@@ -26,15 +26,12 @@ module chem_dep_cbm5_strato_SOA
   public set_chem_rules_cbm5_strato_SOA
   public set_missing
   
-  public fu_lifetime
-  public check_low_mass_threshold_cbm5_strato_SOA
   public registerSpeciescbm5_strato_SOA
   public inventory_cbm5_strato_SOA
   public transform_cbm5_strato_SOA
   public transform_cbm5_strato_SOA_adj
 
   public cbm5_strato_SOA_input_needs
-  public fu_if_specific_deposition
   public prepare_step_cbm5_strato_SOA
   
   ! inherited from the interface
@@ -45,26 +42,11 @@ module chem_dep_cbm5_strato_SOA
   !
   private set_miss_chem_rules_cbm5_strato_SOA
 
-  private fu_lifetime_cbm5_strato_SOA
-  private fu_if_specific_deposition_cbm5_strato_SOA
-
   interface set_missing
     module procedure set_miss_chem_rules_cbm5_strato_SOA
   end interface
 
-  interface fu_lifetime
-    module procedure fu_lifetime_cbm5_strato_SOA
-  end interface
-
-  interface fu_if_specific_deposition
-    module procedure fu_if_specific_deposition_cbm5_strato_SOA
-  end interface
-
-  public fu_if_tla_required
-  private fu_if_tla_required_cbm5_strato_SOA
-  interface fu_if_tla_required
-     module procedure fu_if_tla_required_cbm5_strato_SOA
-  end interface
+  public fu_tla_size_cbm5_strato_SOA
 
 
   type Tchem_rules_cbm5_strato_SOA
@@ -383,11 +365,12 @@ CONTAINS
 
 
   !***********************************************************************
-  subroutine transform_cbm5_strato_SOA(vSp, photo, rules, metdat, timestep_sec, garbage, &
+  subroutine transform_cbm5_strato_SOA(vSp, tla_cell, photo, rules, metdat, timestep_sec, garbage, &
                                & zenith_cos, lat, h_start, now, print_it)
 
     implicit none
     real(precision_cbm5_strato_SOA), dimension(:), intent(inout) :: vSp
+    real, dimension(:), pointer :: tla_cell
     real(precision_cbm5_strato_SOA), dimension(:), intent(in) :: photo
     type(Tchem_rules_cbm5_strato_SOA), intent(in) :: rules
     real, dimension(:), intent(in) :: metdat
@@ -418,8 +401,11 @@ CONTAINS
     !real, dimension(num_species_cbm5_strato_SOA) :: atol, rtol
 
     integer :: ierr
-    !real, dimension(num_react_cbm5_strato_SOA) :: rc
-    !real, dimension(num_fixed_cbm5_strato_SOA) :: fix
+
+    if (associated(tla_cell)) then  !! Store TLA part
+        tla_cell(1:num_species_cbm5_strato_SOA)  = vSp(1:num_species_cbm5_strato_SOA)
+        tla_cell(num_species_cbm5_strato_SOA + 1) = h_start
+    endif
 
     ! The initial size for the substep taken by the integrator. This is saved from
     ! the previous integration in this gridcell. Saving h_start gives about 50% cut
@@ -659,25 +645,25 @@ CONTAINS
   
   !********************************************************************************
 
-  subroutine transform_cbm5_strato_SOA_adj(vSp, vSp_lin, photo, rules, metdat, timestep_sec, garbage, &
-                                   & zenith_cos, lat, h_start, now, print_it)
+  subroutine transform_cbm5_strato_SOA_adj(vSp, tla_point, photo, rules, metdat, timestep_sec, garbage, &
+                                   & zenith_cos, lat, now, print_it)
 
     implicit none
     real(precision_cbm5_strato_SOA), dimension(:), intent(inout) :: vSp
-    real(precision_cbm5_strato_SOA), dimension(:), intent(inout) :: vSp_lin ! linearization point
+    real, dimension(:), intent(in) :: tla_point ! linearization point
     real(precision_cbm5_strato_SOA), dimension(:), intent(in) :: photo
     type(Tchem_rules_cbm5_strato_SOA), intent(in) :: rules
     real, dimension(:), intent(in) :: metdat
     real, intent(in) :: timestep_sec
     real, dimension(:), intent(inout) :: garbage
     real, intent(in) :: zenith_cos, lat
-    real, intent(inout) :: h_start
     type(silja_time), intent(in) :: now
     logical, intent(out) :: print_it
 
     ! Local variables
+    real, dimension(num_species_cbm5_strato_SOA) :: vSp_lin ! linearization point
     real :: tempr, sun, sunD, &
-         & fPressure, fLandFr, &
+         & fPressure, &
          & fMixing_ratio_2_cnc, &
          & cH2O, cH2, cO2, cCH4, cCO2, fYear, cAir
     integer :: indT, indZ, iSubst, iMode, nSteps, iStep, iHourTmp, jTmp, i
@@ -695,14 +681,9 @@ CONTAINS
     !real, dimension(num_react_cbm5_strato_SOA) :: rc
     !real, dimension(num_fixed_cbm5_strato_SOA) :: fix
     
-    ! The initial size for the substep taken by the integrator. This is saved from
-    ! the previous integration in this gridcell. Saving h_start gives about 50% cut
-    ! in computation time for the cb4 transformation.
-    if (h_start > 0.0) then
-      kpp_rcntrl(3) = h_start
-    else
-      kpp_rcntrl(3) = 0.0
-    end if
+    !!! Restore linearisation point
+    vSp_lin(:) = tla_point(1:num_species_cbm5_strato_SOA) * mol2molec
+    kpp_rcntrl(3) = max(tla_point(num_species_cbm5_strato_SOA + 1), 0.)
     print_it = .false.
     !----------------------------------	----------------------------------------------
     !
@@ -711,8 +692,6 @@ CONTAINS
     fPressure = metdat(ind_press)
     tempr = metdat(ind_tempr)
     
-    !fLandFr = ptrLandFr(fu_grid_index(nx_meteo, ix, iy, interpCoefMet2DispHoriz, &
-    !                                & ifInterpMet2DispHoriz))
 
     fMixing_ratio_2_cnc = fPressure / (gas_constant_uni * tempr)
     
@@ -779,7 +758,6 @@ CONTAINS
     !call set_fixed_cbm5_strato_SOA(cnc_h2o=cH2O, cnc_o2=cO2, cnc_m=cAir, cnc_ch4=cCH4, cnc_h2=cH2) !NOTE: Arguments specific to cbm5_SOA!
     !call set_fixed_cbm4_SOA(cnc_h2o=cH2O, cnc_o2=cO2, cnc_m=cAir, cnc_ch4=cCH4) !NOTE: Arguments specific to cbm4_SOA!
     
-    vSp_lin(:) = vSp_lin(:) * mol2molec
     ! One could consider scaling also the perturbations for better numerics, but there
     ! seems to be no practical benefit.
 
@@ -790,8 +768,6 @@ CONTAINS
                      & rules%kpp_atol, rules%kpp_rtol, & 
                      & rules%kpp_atol, rules%kpp_rtol, kpp_rcntrl, &
                      & rules%kpp_icntrl, rstatus, istatus, ierr) ! , rc, fix)
-    vSp_lin(:) = vSp_lin(:) / mol2molec
-    h_start = rstatus(3)
     if (ierr < 0) then
       call msg('ierr', ierr)
       call set_error('The integrator had an error', 'transf_cbm5_strato_SOA_adj')
@@ -880,63 +856,13 @@ CONTAINS
 
   !************************************************************************************
 
-  !The following subroutine is not needed after PAR-OLE tweaks are all implemented.
-  !This routine is called from chemistry_manager.mod.f90 where the calls are disabled
-  !for all the chemistries where the PAR-OLE tweaks are applied.
-  subroutine check_low_mass_threshold_cbm5_strato_SOA(rules_cbm5_strato_SOA, speciesTrn, nSpeciesTrn, ifForwardRun, &
-                                        & low_cnc_threshold, low_mass_threshold)
-    !
-    ! This subroutine ensures that, in case of strong chemical connection, one substance can never
-    ! be dropped to garbage while the other one still stays alive. In-essence, for cb4 we want 
-    ! PAR to be always present if OLE are in
-    !
-    implicit none
-    
-    ! Imported parameters
-    type(Tchem_rules_cbm5_strato_SOA), intent(in) :: rules_cbm5_strato_SOA
-    logical, intent(in) :: ifForwardRun
-    type(silam_species), dimension(:), pointer :: speciesTrn
-    real, dimension(:), pointer :: low_cnc_threshold, low_mass_threshold
-    integer, intent(in) :: nSpeciesTrn
-    
-    ! Local variables
-    type(silam_species) :: spOLE, spPAR
-    integer :: indOLE, indPAR
-    !
-    ! Find the species
-    !
-    call set_species(spOLE, fu_get_material_ptr('OLE '), in_gas_phase)
-    call set_species(spPAR, fu_get_material_ptr('PAR '), in_gas_phase)
-    indOLE = fu_index(spOLE, speciesTrn, nSpeciesTrn)
-    indPAR = fu_index(spPAR, speciesTrn, nSpeciesTrn)
-    if(fu_fails(indOLE /= int_missing,'No OLE in CB4 list','check_low_mass_threshold_cbm5_strato_SOA'))return
-    if(fu_fails(indPAR /= int_missing,'No PAR in CB4 list','check_low_mass_threshold_cbm5_strato_SOA'))return
-    !
-    ! Check the relation
-    !
-    if(low_cnc_threshold(indPAR) > low_cnc_threshold(indOLE))then
-      call msg('cbm5_strato_SOA: bad relation between OLE and PAR thresholds. Take OLE (the second):', &
-                                            & low_cnc_threshold(indPAR), low_cnc_threshold(indOLE))
-      low_cnc_threshold(indPAR) = low_cnc_threshold(indOLE)
-      low_mass_threshold(indPAR) = low_mass_threshold(indOLE)
-    endif
-    
-  end subroutine check_low_mass_threshold_cbm5_strato_SOA
-  
-  
-  
-
-  !************************************************************************************
-
-  logical function fu_if_tla_required_cbm5_strato_SOA(rules) result(required)
+  integer function fu_tla_size_cbm5_strato_SOA(rules) result(n)
     implicit none
     type(Tchem_rules_cbm5_strato_SOA), intent(in) :: rules
     
-    ! call set_error('TLA not available for cbm5_strato_SOA', 'fu_if_tla_required_cbm5_strato_SOA')
-     required = .true.
+    n = num_species_cbm5_strato_SOA + 1 !!! FIXME TODO
     
-  end function fu_if_tla_required_cbm5_strato_SOA
-
+  end function fu_tla_size_cbm5_strato_SOA
 
 END MODULE chem_dep_cbm5_strato_SOA
 

@@ -59,6 +59,9 @@ public fu_anal_time_day_templ_str
 public fu_anal_time_month_templ_str
 public fu_anal_time_year_templ_str
 
+public defined
+public report
+
 private string_from_template
 private check_string
 private fu_master_items
@@ -89,6 +92,8 @@ private fu_n_times_of_tf_set
 
 private fu_compare_templates_eq  ! Interface for operator ==
 private fu_compare_template_items_eq  ! Interface for operator ==
+private grads_template_defined
+private report_grads_template
 
 interface fu_type
   module procedure fu_item_type_of_template_item
@@ -144,6 +149,13 @@ interface operator (==)
   module procedure fu_compare_template_items_eq
 end interface
 
+interface defined
+  module procedure grads_template_defined
+end interface
+
+interface report
+  module procedure report_grads_template
+end interface
 
 integer, private,parameter :: max_pos_of_template = 20
 integer, private,parameter :: max_nbr_of_templates = 40
@@ -2379,6 +2391,27 @@ function fu_template_string_for_template(template) result(str)
 
 end function fu_template_string_for_template
 
+!***************************************************************************
+
+logical function grads_template_defined(templ)
+  implicit none
+  type(grads_template), intent(in) :: templ
+  grads_template_defined = .not.(templ == grads_template_missing .or. &
+                               & (templ%n_items == 0 .and. templ%ini_string == ''))
+end function grads_template_defined
+
+!***************************************************************************
+
+subroutine report_grads_template(templ)
+  implicit none
+  type(grads_template), intent(in) :: templ
+  call msg('Grads template report -------------------------')
+  call msg('Number of items:', templ%n_items)
+  call msg('Initial string:' + templ%ini_string)
+  call msg('Final collection now:' + templ%templ_collection)
+  call msg('End of grads template report ------------------')
+end subroutine report_grads_template
+
 
 !***************************************************************************
 !
@@ -2458,4 +2491,5 @@ end function fu_n_times_of_tf_set
 !********************************************************************************
 
 
+  
 end module grads_templates

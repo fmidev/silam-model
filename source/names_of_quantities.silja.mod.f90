@@ -38,12 +38,11 @@ MODULE names_of_quantities
   PUBLIC fu_vector_quantity
   PUBLIC fu_wind_quantity
   PUBLIC fu_known_quantity
-  public fu_SILAM_dispersion_quantity ! Split meteorological and dispersion quantities
+  public fu_SILAM_disp_grid_quantity ! Split meteorological and dispersion quantities
   public fu_multi_level_quantity
   PUBLIC quantity_feasible_range      ! physically meaningful range for quantity
   public check_quantity_range         ! forcing the feasible range in 1D array
   PUBLIC fu_accumulated_quantity
-  PUBLIC fu_aver_quantity_for_acc
   PUBLIC fu_quantity_in_quantities
   PUBLIC fu_grib_missing_real
   public fu_real_missing_replacement
@@ -172,84 +171,100 @@ MODULE names_of_quantities
   ! Temperature related quantities
   !
   INTEGER, PARAMETER, PUBLIC :: temperature_2m_flag = 250001
-  INTEGER, PARAMETER, PUBLIC :: day_temperature_2m_acc_flag = 250002
-  INTEGER, PARAMETER, PUBLIC :: potential_temperature_2m_flag = 250003
-  INTEGER, PARAMETER, PUBLIC :: dew_point_temp_2m_flag = 250004
-  INTEGER, PARAMETER, PUBLIC :: temperature_1lyr_flag = 250005 ! K tempr at 1st layer
-  INTEGER, PARAMETER, PUBLIC :: underground_temperature_flag = 250006
-  integer, parameter, public :: day_mean_temperature_2m_flag = 250007
+  INTEGER, PARAMETER, PUBLIC :: potential_temperature_2m_flag = 250002
+  INTEGER, PARAMETER, PUBLIC :: dew_point_temp_2m_flag = 250003
+  INTEGER, PARAMETER, PUBLIC :: temperature_1lyr_flag = 250004 ! K tempr at 1st layer
+  INTEGER, PARAMETER, PUBLIC :: underground_temperature_flag = 250005
+  INTEGER, PARAMETER, PUBLIC :: day_temperature_2m_acc_flag = 250006
+  INTEGER, PARAMETER, PUBLIC :: day_temperature_2m_acc_max_flag = 250007
+  integer, parameter, public :: day_mean_temperature_2m_flag = 250008
+  integer, parameter, public :: day_max_temperature_2m_flag = 250009
   !
   ! Wind related quantities
   !
-  INTEGER, PARAMETER, PUBLIC :: u_10m_flag = 250008
-  INTEGER, PARAMETER, PUBLIC :: v_10m_flag = 250009
-  INTEGER, PARAMETER, PUBLIC :: windspeed_10m_flag = 250010  ! Scalar.
-  INTEGER, PARAMETER, PUBLIC :: wind_10m_flag = 250011       ! Similar to wind_flag: vector
-  INTEGER, PARAMETER, PUBLIC :: windspeed_1lyr_flag = 250012 ! m/s Windspeed at 1st layer
+  INTEGER, PARAMETER, PUBLIC :: u_10m_flag = 250010
+  INTEGER, PARAMETER, PUBLIC :: v_10m_flag = 250012
+  INTEGER, PARAMETER, PUBLIC :: windspeed_10m_flag = 250013  ! Scalar.
+  INTEGER, PARAMETER, PUBLIC :: wind_10m_flag = 250014       ! Similar to wind_flag: vector
+  INTEGER, PARAMETER, PUBLIC :: windspeed_1lyr_flag = 250015 ! m/s Windspeed at 1st layer
+  integer, parameter, public :: day_windspeed_10m_acc_flag = 250016
+  integer, parameter, public :: day_windspeed_10m_acc_max_flag = 250017
+  integer, parameter, public :: day_mean_windspeed_10m_flag = 250018
+  integer, parameter, public :: day_max_windspeed_10m_flag = 250019
   !
   ! Physiography et al
   !
-  integer, parameter, public :: relief_height_flag = 250013 ! m
-  integer, parameter, public :: geopotential_sfc_flag = 250014 ! m2/s2
-  integer, parameter, public :: longitude_flag = 250015 ! deg
-  integer, parameter, public :: latitude_flag = 250016 ! deg
-  INTEGER, PARAMETER, PUBLIC :: cell_size_x_flag = 250017 ! [m]
-  INTEGER, PARAMETER, PUBLIC :: cell_size_y_flag = 250018 ! [m]
-  INTEGER, PARAMETER, PUBLIC :: fraction_of_ice_flag = 250019    ! 1.0 = all water is ice, 0.0 = no ice
-  INTEGER, PARAMETER, PUBLIC :: fraction_of_land_flag = 250020   ! 1.0 = all land, 0.0 = all water
-  INTEGER, PARAMETER, PUBLIC :: fraction_of_water_flag = 250021  ! 1.0 = all land, 0.0 = all water
-  INTEGER, PARAMETER, PUBLIC :: fraction_of_forest_flag = 250022  ! 1.0 = all forest, 0.= no forest
-  INTEGER, PARAMETER, PUBLIC :: fraction_of_erodible_soil_flag = 250023  ! 1.0 = all forest, 0.= no forest
-  INTEGER, PARAMETER, PUBLIC :: soiltype_flag = 250024            ! index
-  INTEGER, PARAMETER, PUBLIC :: albedo_flag = 250025
-  INTEGER, PARAMETER, PUBLIC :: climatological_albedo_flag = 250026
-  INTEGER, PARAMETER, PUBLIC :: soil_moisture_vol_frac_nwp_flag = 250027 ! m3/m3, upper layer
-  integer, parameter, public :: water_salinity_flag = 250028 ! fraction, NOT %
-  INTEGER, PARAMETER, PUBLIC :: land_roughness_meteo_flag = 250029 ! = land, as in meteo model
-  INTEGER, PARAMETER, PUBLIC :: land_roughness_disp_flag = 250030 ! = land, refined for dispersion model
-  INTEGER, PARAMETER, PUBLIC :: water_roughness_flag = 250031
-  INTEGER, PARAMETER, PUBLIC :: surface_roughness_meteo_flag = 250032  ! ground merged with water
-  INTEGER, PARAMETER, PUBLIC :: surface_roughness_disp_flag = 250033  ! ground merged with water
-  INTEGER, PARAMETER, PUBLIC :: ground_surface_temp_flag = 250034
-  INTEGER, PARAMETER, PUBLIC :: water_surface_temp_flag = 250035
-  INTEGER, PARAMETER, PUBLIC :: water_eq_snow_depth_flag = 250037 !kg/m2
-  INTEGER, PARAMETER, PUBLIC :: charnock_parameter_flag = 250038
-  INTEGER, PARAMETER, PUBLIC :: leaf_area_index_flag = 250039
-  INTEGER, PARAMETER, PUBLIC :: leaf_area_indexhv_flag = 250040  !High vegetation
-  INTEGER, PARAMETER, PUBLIC :: leaf_area_indexlv_flag = 250041  !Low vegetation
-  INTEGER, PARAMETER, PUBLIC :: soil_sand_mass_fraction_flag = 250042
-  INTEGER, PARAMETER, PUBLIC :: soil_clay_mass_fraction_flag = 250043
-  INTEGER, PARAMETER, PUBLIC :: alluvial_sedim_index_flag = 250044
-  INTEGER, PARAMETER, PUBLIC :: fraction_hv_flag = 250045  !High vegetation
-  INTEGER, PARAMETER, PUBLIC :: fraction_lv_flag = 250046  !Low vegetation
-  INTEGER, PARAMETER, PUBLIC :: land_use_type_flag = 250047
-  INTEGER, PARAMETER, PUBLIC :: ref_evapotranspiration_flag = 250048 ! reference, for standard grass field
-  integer, parameter, public :: water_in_soil_srf_grav_flag = 250049      ! kg/m2 in the upper layer
-  integer, parameter, public :: water_in_soil_deep_grav_flag = 250050     ! kg/m2 in the deep layer
-  integer, parameter, public :: water_capac_soil_srf_grav_flag = 250051  ! kg/m2 in the upper layer
-  integer, parameter, public :: water_capac_soil_deep_grav_flag = 250052 ! kg/m2 in the deep layer
-  integer, parameter, public :: free_soil_water_grav_flag = 250053  ! underground water excess, kg/m2
-  integer, parameter, public :: emission_mask_flag = 250054  ! total emission per run per m2
-  integer, parameter, public :: dust_emis_0_flag = 250055
-  integer, parameter, public :: c4_frac_flag = 250056
-  integer, parameter, public :: irrigated_area_flag = 250057
-  integer, parameter, public :: soil_NO_emis_0_flag = 250058
+  integer, parameter, public :: relief_height_flag = 250020 ! m
+  integer, parameter, public :: geopotential_sfc_flag = 250021 ! m2/s2
+  integer, parameter, public :: longitude_flag = 250022 ! deg
+  integer, parameter, public :: latitude_flag = 250023 ! deg
+  INTEGER, PARAMETER, PUBLIC :: cell_size_x_flag = 250024 ! [m]
+  INTEGER, PARAMETER, PUBLIC :: cell_size_y_flag = 250025 ! [m]
+  INTEGER, PARAMETER, PUBLIC :: fraction_of_ice_flag = 250026    ! 1.0 = all water is ice, 0.0 = no ice
+  INTEGER, PARAMETER, PUBLIC :: fraction_of_land_flag = 250027   ! 1.0 = all land, 0.0 = all water
+  INTEGER, PARAMETER, PUBLIC :: fraction_of_water_flag = 250028  ! 1.0 = all land, 0.0 = all water
+  INTEGER, PARAMETER, PUBLIC :: fraction_of_forest_flag = 250029  ! 1.0 = all forest, 0.= no forest
+  INTEGER, PARAMETER, PUBLIC :: fraction_of_erodible_soil_flag = 250030  ! 1.0 = all forest, 0.= no forest
+  INTEGER, PARAMETER, PUBLIC :: soiltype_flag = 250031            ! index
+  INTEGER, PARAMETER, PUBLIC :: albedo_flag = 250032
+  INTEGER, PARAMETER, PUBLIC :: climatological_albedo_flag = 250033
+  INTEGER, PARAMETER, PUBLIC :: soil_moisture_vol_frac_nwp_flag = 250034 ! m3/m3, upper layer
+  integer, parameter, public :: water_salinity_flag = 250035 ! fraction, NOT %
+  INTEGER, PARAMETER, PUBLIC :: land_roughness_meteo_flag = 250036 ! = land, as in meteo model
+  INTEGER, PARAMETER, PUBLIC :: land_roughness_disp_flag = 250037 ! = land, refined for dispersion model
+  INTEGER, PARAMETER, PUBLIC :: water_roughness_flag = 250038
+  INTEGER, PARAMETER, PUBLIC :: surface_roughness_meteo_flag = 250039  ! ground merged with water
+  INTEGER, PARAMETER, PUBLIC :: surface_roughness_disp_flag = 250040  ! ground merged with water
+  INTEGER, PARAMETER, PUBLIC :: ground_surface_temp_flag = 250041
+  INTEGER, PARAMETER, PUBLIC :: water_surface_temp_flag = 250042
+  INTEGER, PARAMETER, PUBLIC :: water_eq_snow_depth_flag = 250043 !kg/m2
+  INTEGER, PARAMETER, PUBLIC :: charnock_parameter_flag = 250044
+  INTEGER, PARAMETER, PUBLIC :: leaf_area_index_flag = 250045
+  INTEGER, PARAMETER, PUBLIC :: leaf_area_indexhv_flag = 250046  !High vegetation
+  INTEGER, PARAMETER, PUBLIC :: leaf_area_indexlv_flag = 250047  !Low vegetation
+  INTEGER, PARAMETER, PUBLIC :: soil_sand_mass_fraction_flag = 250048
+  INTEGER, PARAMETER, PUBLIC :: soil_clay_mass_fraction_flag = 250049
+  INTEGER, PARAMETER, PUBLIC :: alluvial_sedim_index_flag = 250050
+  INTEGER, PARAMETER, PUBLIC :: fraction_hv_flag = 250051  !High vegetation
+  INTEGER, PARAMETER, PUBLIC :: fraction_lv_flag = 250052  !Low vegetation
+  INTEGER, PARAMETER, PUBLIC :: land_use_type_flag = 250053
+  INTEGER, PARAMETER, PUBLIC :: ref_evapotranspiration_flag = 250054 ! reference, for standard grass field
+  integer, parameter, public :: water_in_soil_srf_grav_flag = 250055      ! kg/m2 in the upper layer
+  integer, parameter, public :: water_in_soil_deep_grav_flag = 250056     ! kg/m2 in the deep layer
+  integer, parameter, public :: water_capac_soil_srf_grav_flag = 250057  ! kg/m2 in the upper layer
+  integer, parameter, public :: water_capac_soil_deep_grav_flag = 250058 ! kg/m2 in the deep layer
+  integer, parameter, public :: free_soil_water_grav_flag = 250059  ! underground water excess, kg/m2
+  integer, parameter, public :: emission_mask_flag = 250060  ! total emission per run per m2
+  integer, parameter, public :: dust_emis_0_flag = 250061
+  integer, parameter, public :: c4_frac_flag = 250062
+  integer, parameter, public :: irrigated_area_flag = 250063
+  integer, parameter, public :: soil_NO_emis_0_flag = 250064
   !
   ! Precipitation and evaporation
   !
   ! Cumulative are moved to silam-owned quantities: Meteo stack cannot make
   ! them properly!
-  INTEGER, PARAMETER, PUBLIC :: large_scale_accum_rain_flag = 250060 ! mm or kg/m2
-  INTEGER, PARAMETER, PUBLIC :: convective_accum_rain_flag = 250061 ! mm or kg/m2
-  INTEGER, PARAMETER, PUBLIC :: large_scale_rain_int_flag = 250062 ! mm/s or kg/m2s
-  INTEGER, PARAMETER, PUBLIC :: convective_rain_int_flag = 250063! mm/s or kg/m2s
-  INTEGER, PARAMETER, PUBLIC :: total_precipitation_acc_flag = 250064 !kg/m2
-  INTEGER, PARAMETER, PUBLIC :: total_precipitation_rate_flag = 250065 !kg/m2s
-  INTEGER, PARAMETER, PUBLIC :: evaporation_flag= 250066  ! Evaporation [kg/m2]
-  INTEGER, PARAMETER, PUBLIC :: integr_cloud_water_flag = 250067 !kg/m2 integrated
-  INTEGER, PARAMETER, PUBLIC :: snowfall_rate_weq_flag = 250068 !kg/m2s
-  integer, parameter, public :: specific_humidity_2m_flag = 250069 ! kg/kg
-  integer, parameter, public :: relative_humidity_2m_flag = 250070 ! kg/kg
+  INTEGER, PARAMETER, PUBLIC :: large_scale_accum_rain_flag = 250070 ! mm or kg/m2
+  INTEGER, PARAMETER, PUBLIC :: convective_accum_rain_flag = 250071 ! mm or kg/m2
+  INTEGER, PARAMETER, PUBLIC :: large_scale_rain_int_flag = 250072 ! mm/s or kg/m2s
+  INTEGER, PARAMETER, PUBLIC :: convective_rain_int_flag = 250073! mm/s or kg/m2s
+  INTEGER, PARAMETER, PUBLIC :: total_precipitation_acc_flag = 250074 !kg/m2
+  INTEGER, PARAMETER, PUBLIC :: total_precipitation_int_flag = 250075 !kg/m2s
+  INTEGER, PARAMETER, PUBLIC :: evaporation_flag= 250076  ! Evaporation [kg/m2]
+  INTEGER, PARAMETER, PUBLIC :: integr_cloud_water_flag = 250077 !kg/m2 integrated
+  INTEGER, PARAMETER, PUBLIC :: snowfall_rate_weq_flag = 250078 !kg/m2s
+  integer, parameter, public :: mean_annual_precipitation_flag = 250079 ! mm = kg/m2
+  integer, parameter, public :: day_precipitation_acc_flag = 250080
+  integer, parameter, public :: day_sum_precipitation_flag = 250081
+  integer, parameter, public :: yesterday_precipitation_flag = 250082
+  integer, parameter, public :: dry_days_count_flag = 250083
+
+  integer, parameter, public :: specific_humidity_2m_flag = 250084 ! kg/kg
+  integer, parameter, public :: relative_humidity_2m_flag = 250085 ! kg/kg
+  integer, parameter, public :: day_relat_humid_2m_acc_flag = 250086
+  integer, parameter, public :: day_relat_humid_2m_acc_min_flag = 250087
+  integer, parameter, public :: day_mean_relat_humid_2m_flag = 250088
+  integer, parameter, public :: day_min_relat_humid_2m_flag = 250089
   !
   ! Radiation budget.
   ! sw - short wave radiation, 
@@ -258,49 +273,49 @@ MODULE names_of_quantities
   ! ac = accumulated, otherwise instant flux
   ! down - downward component, net - downward minus upward flux
   !
-  INTEGER, PARAMETER, PUBLIC :: surf_sw_down_radiation_ac_flag = 250075      ! [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_sw_down_radiation_flag = 250076    ! [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_lw_down_radiation_ac_flag = 250077      ! [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_lw_down_radiation_flag = 250078    ! [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_sw_net_radiation_ac_flag= 250079        ! [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_sw_net_radiation_flag= 250080      ! [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_lw_net_radiation_ac_flag= 250081        ! [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: surf_lw_net_radiation_flag= 250082      ! [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: top_sw_net_radiation_ac_flag = 250083        ! [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: top_sw_net_radiation_flag = 250084      ! [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: top_lw_net_radiation_ac_flag = 250085        ! [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: top_lw_net_radiation_flag = 250086      ! [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: photosynth_active_rad_flag = 250087  ! Photosynthetically active rad. flux [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: photosynth_active_rad_ac_flag = 250088  ! Photosynt. active rad. cumul [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_sw_down_radiation_ac_flag = 250090      ! [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_sw_down_radiation_flag = 250091    ! [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_lw_down_radiation_ac_flag = 250092      ! [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_lw_down_radiation_flag = 250093    ! [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_sw_net_radiation_ac_flag= 250094        ! [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_sw_net_radiation_flag= 250095      ! [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_lw_net_radiation_ac_flag= 250096        ! [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: surf_lw_net_radiation_flag= 250097      ! [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: top_sw_net_radiation_ac_flag = 250098        ! [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: top_sw_net_radiation_flag = 250099      ! [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: top_lw_net_radiation_ac_flag = 250100        ! [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: top_lw_net_radiation_flag = 250101      ! [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: photosynth_active_rad_flag = 250102  ! Photosynthetically active rad. flux [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: photosynth_active_rad_ac_flag = 250103  ! Photosynt. active rad. cumul [J/m2]
   !
   ! Surface layer energy budget
   !
-  INTEGER, PARAMETER, PUBLIC :: NWP_sensible_heatflux_ac_flag= 250090  ! Accumulated sensible heat flux [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: NWP_sensible_heatflux_flag= 250091  ! Sensible heat flux [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: NWP_latent_heatflux_ac_flag= 250092  ! Accumulated latent heat flux [J/m2]
-  INTEGER, PARAMETER, PUBLIC :: NWP_latent_heatflux_flag= 250093  ! Latent heat flux [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: SILAM_sensible_heat_flux_flag = 250094 ! surface sensible heat flux [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: SILAM_latent_heat_flux_flag = 250095 ! Surf latent heat flux [W/m2]
-  INTEGER, PARAMETER, PUBLIC :: u_momentum_flux_flag = 250096
-  INTEGER, PARAMETER, PUBLIC :: v_momentum_flux_flag = 250097
-  INTEGER, PARAMETER, PUBLIC :: cape_flag = 250098
+  INTEGER, PARAMETER, PUBLIC :: NWP_sensible_heatflux_ac_flag= 250110  ! Accumulated sensible heat flux [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: NWP_sensible_heatflux_flag= 250111  ! Sensible heat flux [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: NWP_latent_heatflux_ac_flag= 250112  ! Accumulated latent heat flux [J/m2]
+  INTEGER, PARAMETER, PUBLIC :: NWP_latent_heatflux_flag= 250113  ! Latent heat flux [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: SILAM_sensible_heat_flux_flag = 250114 ! surface sensible heat flux [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: SILAM_latent_heat_flux_flag = 250115 ! Surf latent heat flux [W/m2]
+  INTEGER, PARAMETER, PUBLIC :: u_momentum_flux_flag = 250116
+  INTEGER, PARAMETER, PUBLIC :: v_momentum_flux_flag = 250117
+  INTEGER, PARAMETER, PUBLIC :: cape_flag = 250118
   !
   ! Surface layer scaling parameters
   !
-  INTEGER, PARAMETER, PUBLIC :: pasquill_class_flag = 250100
-  INTEGER, PARAMETER, PUBLIC :: MO_length_inv_flag = 250101 ! m
-  INTEGER, PARAMETER, PUBLIC :: friction_velocity_flag = 250102 ! m/s
-  INTEGER, PARAMETER, PUBLIC :: convective_velocity_scale_flag = 250103 ! vertical, m/s
-  INTEGER, PARAMETER, PUBLIC :: temperature_scale_flag = 250104 ! K
-  integer, parameter, public :: humidity_scale_flag = 250105 ! kg/kg
-  integer, parameter, public :: Prandtl_nbr_flag = 250106 ! kg/kg
-  INTEGER, PARAMETER, PUBLIC :: Kz_scalar_1m_flag = 250107 ! [m2 s-1]
+  INTEGER, PARAMETER, PUBLIC :: pasquill_class_flag = 250120
+  INTEGER, PARAMETER, PUBLIC :: MO_length_inv_flag = 250121 ! m
+  INTEGER, PARAMETER, PUBLIC :: friction_velocity_flag = 250122 ! m/s
+  INTEGER, PARAMETER, PUBLIC :: convective_velocity_scale_flag = 250123 ! vertical, m/s
+  INTEGER, PARAMETER, PUBLIC :: temperature_scale_flag = 250124 ! K
+  integer, parameter, public :: humidity_scale_flag = 250125 ! kg/kg
+  integer, parameter, public :: Prandtl_nbr_flag = 250126 ! kg/kg
+  INTEGER, PARAMETER, PUBLIC :: Kz_scalar_1m_flag = 250127 ! [m2 s-1]
   !
   ! ABL 
   !
-  INTEGER, PARAMETER, PUBLIC :: abl_height_m_flag = 250109
-  INTEGER, PARAMETER, PUBLIC :: abl_top_pressure_flag = 250110
-  INTEGER, PARAMETER, PUBLIC :: nwp_abl_height_m_flag = 250111
+  INTEGER, PARAMETER, PUBLIC :: abl_height_m_flag = 250129
+  INTEGER, PARAMETER, PUBLIC :: abl_top_pressure_flag = 250130
+  INTEGER, PARAMETER, PUBLIC :: nwp_abl_height_m_flag = 250131
 
   ! A trick. Two below pressures form the low boundary for terrain-following 
   ! and for pure pressure vertical co-ordinate systems. So,
@@ -308,76 +323,85 @@ MODULE names_of_quantities
   ! them. It should be set by grib_analysis immediately after selection
   ! of the vertical structure of the model, similar to vertical_velocity_flag
   !
-  INTEGER, PARAMETER, PUBLIC :: ground_pressure_flag = 250112
-  INTEGER, PARAMETER, PUBLIC :: msl_pressure_flag = 250113
-  integer, parameter, public :: surface_pressure_flag = 250114 ! In fact, just a pointer
-  integer, parameter, public :: log_ground_pressure_flag = 250115 ! [log(Pa)]
+  INTEGER, PARAMETER, PUBLIC :: ground_pressure_flag = 250132
+  INTEGER, PARAMETER, PUBLIC :: msl_pressure_flag = 250133
+  integer, parameter, public :: surface_pressure_flag = 250134 ! In fact, just a pointer
+  integer, parameter, public :: log_ground_pressure_flag = 250135 ! [log(Pa)]
 
-  INTEGER, PARAMETER, PUBLIC :: low_level_cloud_cover_flag = 250116
-  INTEGER, PARAMETER, PUBLIC :: medium_level_cloud_cover_flag = 250117
-  INTEGER, PARAMETER, PUBLIC :: high_level_cloud_cover_flag = 250118
-  INTEGER, PARAMETER, PUBLIC :: total_cloud_cover_flag = 250119
-  INTEGER, PARAMETER, PUBLIC :: sub_grid_scale_snowfall_flag =250120
-  INTEGER, PARAMETER, PUBLIC :: grid_scale_snowfall_flag = 250121
-  INTEGER, PARAMETER, PUBLIC :: precipitable_water_flag = 250122  ! vertically-integrated [kg/m2]
+  INTEGER, PARAMETER, PUBLIC :: low_level_cloud_cover_flag = 250136
+  INTEGER, PARAMETER, PUBLIC :: medium_level_cloud_cover_flag = 250137
+  INTEGER, PARAMETER, PUBLIC :: high_level_cloud_cover_flag = 250138
+  INTEGER, PARAMETER, PUBLIC :: total_cloud_cover_flag = 250139
+  INTEGER, PARAMETER, PUBLIC :: sub_grid_scale_snowfall_flag =250140
+  INTEGER, PARAMETER, PUBLIC :: grid_scale_snowfall_flag = 250141
+  INTEGER, PARAMETER, PUBLIC :: precipitable_water_flag = 250142  ! vertically-integrated [kg/m2]
 
   ! Some ISBA parameters. ATTENTION. They are introduced just temporarily
   ! for the needs of fix_odditites procedure. They can not be used for 
   ! real programming because each of variables covers several true-ISBA
   ! variables
-  INTEGER, PARAMETER, PUBLIC :: ISBA_temperature = 250130
-  INTEGER, PARAMETER, PUBLIC :: ISBA_u_wind = 250131
-  INTEGER, PARAMETER, PUBLIC :: ISBA_v_wind = 250132 
-  INTEGER, PARAMETER, PUBLIC :: ISBA_spec_humidity = 250133
-  INTEGER, PARAMETER, PUBLIC :: ISBA_water_eq_of_snow = 250134
-  INTEGER, PARAMETER, PUBLIC :: ISBA_land_fraction = 250135
-  INTEGER, PARAMETER, PUBLIC :: ISBA_land_type = 250136
-  INTEGER, PARAMETER, PUBLIC :: ISBA_moisture = 250137
-  INTEGER, PARAMETER, PUBLIC :: ISBA_latent_hflux = 250138
-  INTEGER, PARAMETER, PUBLIC :: ISBA_sensible_hflux = 250139
-  INTEGER, PARAMETER, PUBLIC :: ISBA_roughness = 250140
+  INTEGER, PARAMETER, PUBLIC :: ISBA_temperature = 250150
+  INTEGER, PARAMETER, PUBLIC :: ISBA_u_wind = 250151
+  INTEGER, PARAMETER, PUBLIC :: ISBA_v_wind = 250152 
+  INTEGER, PARAMETER, PUBLIC :: ISBA_spec_humidity = 250153
+  INTEGER, PARAMETER, PUBLIC :: ISBA_water_eq_of_snow = 250154
+  INTEGER, PARAMETER, PUBLIC :: ISBA_land_fraction = 250155
+  INTEGER, PARAMETER, PUBLIC :: ISBA_land_type = 250156
+  INTEGER, PARAMETER, PUBLIC :: ISBA_moisture = 250157
+  INTEGER, PARAMETER, PUBLIC :: ISBA_latent_hflux = 250158
+  INTEGER, PARAMETER, PUBLIC :: ISBA_sensible_hflux = 250159
+  INTEGER, PARAMETER, PUBLIC :: ISBA_roughness = 250160
   
-  integer, parameter, public :: r_a_flag = 250141 ! For dry deposition resistive scheme
-  integer, parameter, public :: r_b_flag = 250142 ! For dry deposition resistive scheme
-  integer, parameter, public :: r_s_flag = 250143 ! For dry deposition resistive scheme
+  integer, parameter, public :: r_a_flag = 250161 ! For dry deposition resistive scheme
+  integer, parameter, public :: r_b_flag = 250162 ! For dry deposition resistive scheme
+  integer, parameter, public :: r_s_flag = 250163 ! For dry deposition resistive scheme
   !
   ! Variables storing the characteristics of the pollen source term
   ! and determining the thresholds for start of flowering 
   !
-  integer, parameter, public :: start_calday_threshold_flag = 250144  ! [day]
-  integer, parameter, public :: end_calday_threshold_flag = 250145    ! [day]
-  integer, parameter, public :: calday_start_end_diff_flag = 250146   ! [day]
-  integer, parameter, public :: start_heatsum_threshold_flag = 250147 ! [degday/deghr/bioday etc]
-  integer, parameter, public :: end_heatsum_threshold_flag = 250148   ! [degday/deghr/bioday etc]
-  integer, parameter, public :: heatsum_start_end_diff_flag = 250149  ! [degday/deghr/bioday etc]
-  integer, parameter, public :: growth_season_start_day_flag = 250150       ! [day]
-  integer, parameter, public :: heatsum_cutoff_tempr_flag = 250151    ! [K]
-  integer, parameter, public :: temperature_threshold_flag = 250152   ! [K]
-  integer, parameter, public :: daily_temp_threshold_flag = 250153    ! [K]
-  integer, parameter, public :: soil_moisture_threshold_flag = 250154 ! [m3/m3]
-  integer, parameter, public :: pollen_total_per_m2_flag = 250155     ! [grains/m2]
-  integer, parameter, public :: pollen_left_relative_flag = 250156      ! [grains/m2]
-  integer, parameter, public :: pollen_correction_flag = 250157       ! [relative]
-  integer, parameter, public :: plant_growth_flag = 250158            ! [relative]
-  integer, parameter, public :: pollen_potency_flag= 250159           ! [pg/grain]
-
+  integer, parameter, public :: start_calday_threshold_flag = 250164  ! [day]
+  integer, parameter, public :: end_calday_threshold_flag = 250165    ! [day]
+  integer, parameter, public :: calday_start_end_diff_flag = 250166   ! [day]
+  integer, parameter, public :: start_heatsum_threshold_flag = 250167 ! [degday/deghr/bioday etc]
+  integer, parameter, public :: end_heatsum_threshold_flag = 250168   ! [degday/deghr/bioday etc]
+  integer, parameter, public :: heatsum_start_end_diff_flag = 250169  ! [degday/deghr/bioday etc]
+  integer, parameter, public :: growth_season_start_day_flag = 250170       ! [day]
+  integer, parameter, public :: heatsum_cutoff_tempr_flag = 250171    ! [K]
+  integer, parameter, public :: temperature_threshold_flag = 250172   ! [K]
+  integer, parameter, public :: daily_temp_threshold_flag = 250173    ! [K]
+  integer, parameter, public :: soil_moisture_threshold_flag = 250174 ! [m3/m3]
+  integer, parameter, public :: pollen_total_per_m2_flag = 250175     ! [grains/m2]
+  integer, parameter, public :: pollen_left_relative_flag = 250176      ! [grains/m2]
+  integer, parameter, public :: pollen_correction_flag = 250177       ! [relative]
+  integer, parameter, public :: plant_growth_flag = 250178            ! [relative]
+  integer, parameter, public :: pollen_potency_flag= 250179           ! [pg/grain]
 
   ! local timezone-related flags  
-  integer, parameter, public :: timezone_index_flag= 250160           ! [integer]
+  integer, parameter, public :: timezone_index_flag= 250180           ! [integer]
   
   ! dry deposition related quantities
-  integer, parameter, public :: canopy_height_flag = 250161
-  integer, parameter, public :: stomatal_conductance_flag = 250162 ![m/s / per unit LAI]
+  integer, parameter, public :: canopy_height_flag = 250181
+  integer, parameter, public :: stomatal_conductance_flag = 250182 ![m/s / per unit LAI]
 
   ! Surface pressure to use in single-time stack in hybrid coordinates
-  integer, parameter, public :: srf_press_realtime_flag = 250163
-
+  integer, parameter, public :: srf_press_realtime_flag = 250183
                                                         
-  integer, parameter, public :: meteo_total_O3column_flag = 250164
+  integer, parameter, public :: meteo_total_O3column_flag = 250184
 
-
+  ! Fire Danger Indices
+  integer, parameter, public :: FDI_KBDI_moisture_deficit_flag = 250185
+  integer, parameter, public :: FDI_KBDI_drought_factor_flag = 250186
+  integer, parameter, public :: FDI_SDI_fire_danger_flag = 250187
+  integer, parameter, public :: FDI_grass_mean_fire_danger_flag = 250188
+  integer, parameter, public :: FDI_grass_max_fire_danger_flag = 250189
+  integer, parameter, public :: FDI_FWI_fine_fuel_moist_flag = 250190
+  integer, parameter, public :: FDI_FWI_duff_moist_flag = 250191
+  integer, parameter, public :: FDI_FWI_drought_flag = 250192
+  integer, parameter, public :: FDI_fire_weather_index_flag = 250193
+  integer, parameter, public :: FDI_fuel_moisture_flag = 250194
+  
   integer, parameter, public :: first_single_level_q = 250000
-  integer, parameter, public :: last_single_level_q = 250164
+  integer, parameter, public :: last_single_level_q = 250194
 
   ! ***************************************************************
   !
@@ -651,11 +675,38 @@ CONTAINS
       CASE (day_temperature_2m_acc_flag)
       string = '2m temperature accum [K sec]'
 
+      CASE(day_temperature_2m_acc_max_flag)
+      string = '2m temperature accum4max [K]'
+
+      CASE(day_windspeed_10m_acc_flag)
+      string = '10m windspeed accum [m]'
+
+      CASE(day_windspeed_10m_acc_max_flag)
+      string = '10m windspeed accum4max [m/sec]'
+
+      CASE(day_max_windspeed_10m_flag)
+      string = '10m windspeed daily max [m/sec]'
+
+      CASE(day_precipitation_acc_flag)
+      string = 'daily precip accum [kg sec /m2]'
+
+      CASE(day_min_relat_humid_2m_flag)
+      string = '2m relative humidity daily min [fract.]'
+
+      CASE(day_relat_humid_2m_acc_flag)
+      string = '2m relative humidity accum [fract. sec]'
+
+      CASE(day_relat_humid_2m_acc_min_flag)
+      string = '2m relative humidity accum4min [fract]'
+
       CASE (specific_humidity_2m_flag)
       string = '2m specific humidity [kg/kg]'
 
       CASE (relative_humidity_2m_flag)
       string = '2m relative humidity [frac.]'
+
+      CASE (mean_annual_precipitation_flag)
+      string = 'Mean annual precipitation [kg/m2]'
 
       CASE (u_10m_flag)
       string = 'U-component of 10m wind [m/s]'
@@ -718,9 +769,9 @@ CONTAINS
         string = 'irrigated area fraction'
       
       CASE (total_precipitation_acc_flag)
-      string = 'tot. precipitation [kg/m2]'
+      string = 'tot.precipitation acc.[kg/m2]'
 
-      CASE (total_precipitation_rate_flag)
+      CASE (total_precipitation_int_flag)
       string = 'precipitation rate [kg/m2s]'
 
       CASE (cloud_cover_flag)
@@ -812,6 +863,54 @@ CONTAINS
 
       CASE (meteo_total_O3column_flag)
       string = 'Meteo O3 column [kg/m2]'
+
+      CASE(FDI_KBDI_moisture_deficit_flag)
+      string = 'Moisture deficit KBDI'
+
+      CASE(FDI_KBDI_drought_factor_flag)
+      string = 'Drought factor KBDI'
+
+      CASE(FDI_SDI_fire_danger_flag)
+      string = 'Fire danger SDI'
+
+      CASE(FDI_grass_mean_fire_danger_flag)
+      string = 'Fire danger grass mean'
+
+      CASE(FDI_grass_max_fire_danger_flag)
+      string = 'Fire danger grass max'
+
+      CASE(FDI_FWI_fine_fuel_moist_flag)
+      string = 'FWI fine fuel moisture'
+
+      CASE(FDI_FWI_duff_moist_flag)
+      string = 'FWI duff moisture'
+
+      CASE(FDI_FWI_drought_flag)
+      string = 'FWI drought'
+
+      CASE(FDI_fire_weather_index_flag)
+      string = 'fire weather index'
+
+      CASE(FDI_fuel_moisture_flag)
+      string = 'fuel moisture'
+
+      CASE(day_sum_precipitation_flag)
+      string = 'day sum precipitation [kg/m2]'
+
+      CASE(yesterday_precipitation_flag)
+      string = 'yesterday sum precipitation [kg/m2]'
+
+      CASE(dry_days_count_flag)
+      string = 'number of dry days [nbr]'
+
+      CASE(day_max_temperature_2m_flag)
+      string = 'day max temperature 2m'
+
+      CASE(day_mean_windspeed_10m_flag)
+      string = 'day mean wind speed 10m'
+
+      CASE(day_mean_relat_humid_2m_flag)
+      string = 'day mean relat humid 2m'
 
       CASE (ground_pressure_flag)
       string = 'ground pressure [Pa]'
@@ -1424,11 +1523,38 @@ CONTAINS
       CASE (day_temperature_2m_acc_flag)
       string = 'temp_2m_acc'
 
+      CASE(day_temperature_2m_acc_max_flag)
+      string = 'temp_2m_acc4max'
+
+      CASE(day_windspeed_10m_acc_flag)
+      string = 'windsp_10m_acc'
+
+      CASE(day_windspeed_10m_acc_max_flag)
+      string = 'wsp_10m_acc4max'
+
+      CASE(day_max_windspeed_10m_flag)
+      string = 'windsp_daymax'
+
+      CASE(day_precipitation_acc_flag)
+      string = 'precip_day_acc'
+
+      CASE(day_min_relat_humid_2m_flag)
+      string = 'relhum2m_daymin'
+
+      CASE(day_relat_humid_2m_acc_flag)
+      string = 'relhum2m_acc'
+
+      CASE(day_relat_humid_2m_acc_min_flag)
+      string = 'relh2m_acc4min'
+
       CASE (specific_humidity_2m_flag)
       string = 'spec_humid_2m'
 
       CASE (relative_humidity_2m_flag)
       string = 'relat_humid_2m'
+
+      CASE (mean_annual_precipitation_flag)
+      string = 'mean_ann_precip'
 
       CASE (u_10m_flag)
       string = 'U_wind_10m'
@@ -1493,7 +1619,7 @@ CONTAINS
       CASE (total_precipitation_acc_flag)
       string = 'tot_prec'
       
-      CASE (total_precipitation_rate_flag)
+      CASE (total_precipitation_int_flag)
       string = 'prec_rate'
 
       CASE (cloud_cover_flag)
@@ -1588,6 +1714,54 @@ CONTAINS
 
       CASE (meteo_total_O3column_flag)
       string = 'met_o3_col'
+
+      CASE(FDI_KBDI_moisture_deficit_flag)
+      string = 'FDI_MDef_KBDI'
+
+      CASE(FDI_KBDI_drought_factor_flag)
+      string = 'FDI_DrFctr_KBDI'
+
+      CASE(FDI_SDI_fire_danger_flag)
+      string = 'FDI_SDI'
+
+      CASE(FDI_grass_mean_fire_danger_flag)
+      string = 'FDI_grassMean'
+
+      CASE(FDI_grass_max_fire_danger_flag)
+      string = 'FDI_grassMax'
+
+      CASE(FDI_FWI_fine_fuel_moist_flag)
+      string = 'FDI_FWI_FFM'
+
+      CASE(FDI_FWI_duff_moist_flag)
+      string = 'FDI_FWI_DM'
+
+      CASE(FDI_FWI_drought_flag)
+      string = 'FDI_FWI_drought'
+
+      CASE(FDI_fire_weather_index_flag)
+      string = 'FDI_FWI'
+
+      CASE(FDI_fuel_moisture_flag)
+      string = 'FDI_fuel_moist'
+
+      CASE(day_sum_precipitation_flag)
+      string = 'day_sum_precip'
+
+      CASE(yesterday_precipitation_flag)
+      string = 'yesterday_prec'
+
+      CASE(dry_days_count_flag)
+      string = 'nbr_dry_days'
+
+      CASE(day_max_temperature_2m_flag)
+      string = 'day_max_temp_2m'
+
+      CASE(day_mean_windspeed_10m_flag)
+      string = 'day_mn_wsp_10m'
+
+      CASE(day_mean_relat_humid_2m_flag)
+      string = 'day_mean_rh_2m'
 
       CASE (surface_pressure_flag)
       string = 'vrt_dep_srf_pr'
@@ -2043,7 +2217,7 @@ CONTAINS
 
     SELECT CASE (quantity)
 
-      CASE (temperature_flag, temperature_2m_flag, &
+    CASE (temperature_flag, temperature_2m_flag, &
           & day_mean_temperature_flag, day_mean_temperature_2m_flag, &
           & dew_point_temp_2m_flag, &
           & potential_temperature_flag, potential_temperature_2m_flag, &
@@ -2051,7 +2225,8 @@ CONTAINS
           & temperature_1lyr_flag, &
           & eq_pot_temperature_flag, &
           & ground_surface_temp_flag, &
-          & water_surface_temp_flag)
+          & water_surface_temp_flag, &
+          & day_temperature_2m_acc_max_flag)
         string = 'K'
 
       CASE (day_temperature_acc_flag, day_temperature_2m_acc_flag)
@@ -2070,11 +2245,15 @@ CONTAINS
           & wind_flag,&
           & mean_wind_flag, &
           & windspeed_10m_flag, &
+          & day_max_windspeed_10m_flag, day_windspeed_10m_acc_max_flag, &
           & windspeed_flag, &
           & dispersion_u_flag,&
           & dispersion_v_flag)
        string = 'm/s' 
 
+      CASE(day_windspeed_10m_acc_flag)
+      string = 'm'
+      
       CASE (dispersion_w_flag)
         string = 'may be m/s'
 
@@ -2097,8 +2276,12 @@ CONTAINS
       CASE (latitude_flag)
         string = 'deg'
 
-      CASE (relative_humidity_flag, relative_humidity_2m_flag)
+      CASE (relative_humidity_flag, relative_humidity_2m_flag, &
+          & day_relat_humid_2m_acc_min_flag, day_min_relat_humid_2m_flag)
         string = 'frac.'
+
+      CASE(day_relat_humid_2m_acc_flag)
+      string = '[fract. sec]'
 
       CASE (specific_humidity_flag)
         string = 'kg/kg'
@@ -2131,6 +2314,9 @@ CONTAINS
 
       CASE (convective_rain_int_flag)
         string = 'kg/m2s'
+
+      CASE(day_precipitation_acc_flag)
+        string = 'kg s /m2'
 
       CASE (soil_moisture_vol_frac_nwp_flag)
         string = 'm3/m3'
@@ -2228,7 +2414,7 @@ CONTAINS
       CASE (total_precipitation_acc_flag)
         string = 'kg/m2'
         
-      CASE (total_precipitation_rate_flag)
+      CASE (total_precipitation_int_flag)
         string = 'kg/m2s'
 
       CASE (integr_cloud_water_flag)
@@ -2502,6 +2688,24 @@ CONTAINS
       case(emis_factor_fire_smold_flag)
         string = 'kg/J'
 
+      CASE(day_sum_precipitation_flag)
+      string = 'kg/m2'
+
+      CASE(yesterday_precipitation_flag)
+      string = 'kg/m2'
+
+      CASE(dry_days_count_flag)
+      string = 'nbr'
+
+      CASE(day_max_temperature_2m_flag)
+      string = 'K'
+
+      CASE(day_mean_windspeed_10m_flag)
+      string = 'm/s'
+
+      CASE(day_mean_relat_humid_2m_flag)
+      string = 'frac.'
+
     CASE default
         string = ''
 
@@ -2550,6 +2754,7 @@ CONTAINS
 
 
   ! ***************************************************************
+
   LOGICAL FUNCTION fu_realtime_quantity(quantity)
     !
     ! Returns true value if the given quantity has finite validity time and
@@ -2558,26 +2763,41 @@ CONTAINS
     IMPLICIT NONE
     INTEGER, INTENT(in) :: quantity
 
-
     SELECT CASE (quantity)
 
-    CASE (large_scale_rain_int_flag, convective_rain_int_flag, &
-            &  total_precipitation_rate_flag, scavenging_coefficient_flag, &
-            &  disp_flux_cellt_rt_flag, disp_flux_celle_rt_flag, disp_flux_celln_rt_flag, &
-            &  ground_pressure_flag, &
-!            &  day_temperature_acc_flag, &
-            & day_mean_temperature_flag, &
-!            &  day_temperature_2m_acc_flag, &
-            & day_mean_temperature_2m_flag)
-      fu_realtime_quantity = .true.
+    CASE (large_scale_rain_int_flag, convective_rain_int_flag, total_precipitation_int_flag, &
+        & scavenging_coefficient_flag, &
+        & disp_flux_cellt_rt_flag, disp_flux_celle_rt_flag, disp_flux_celln_rt_flag, &
+        & ground_pressure_flag, &
+        ! daily mean/min/max
+        & day_mean_temperature_flag, day_mean_temperature_2m_flag, day_max_temperature_2m_flag, &
+        & day_sum_precipitation_flag, yesterday_precipitation_flag, &
+        & dry_days_count_flag, &
+        & day_mean_windspeed_10m_flag, day_max_windspeed_10m_flag, &
+        & day_mean_relat_humid_2m_flag, day_min_relat_humid_2m_flag, &
+        ! pollen internal fields
+        & pollen_total_per_m2_flag, pollen_left_relative_flag, pollen_rdy_to_fly_flag, &
+        & heatsum_flag, chillsum_flag, plant_growth_flag, &
+        & heatsum_start_end_diff_flag, start_heatsum_threshold_flag, end_heatsum_threshold_flag, &
+        & start_calday_threshold_flag, end_calday_threshold_flag, calday_start_end_diff_flag, &
+        & allergen_rdy_to_fly_flag, &
+        ! Fire danger indices
+        & FDI_KBDI_moisture_deficit_flag, FDI_KBDI_drought_factor_flag, &
+        & FDI_SDI_fire_danger_flag, FDI_grass_mean_fire_danger_flag, &
+        & FDI_grass_max_fire_danger_flag, FDI_FWI_fine_fuel_moist_flag, &
+        & FDI_FWI_duff_moist_flag, FDI_FWI_drought_flag, &
+        & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag)
 
-    CASE default
-      fu_realtime_quantity = .false.
+        fu_realtime_quantity = .true.
+
+      CASE default
+        fu_realtime_quantity = .false.
 
     END SELECT
 
   END FUNCTION fu_realtime_quantity
 
+  
   ! ***************************************************************
 
   LOGICAL FUNCTION fu_wind_quantity(quantity)
@@ -2646,7 +2866,7 @@ CONTAINS
 
   ! ***************************************************************
 
-  LOGICAL FUNCTION fu_SILAM_dispersion_quantity(quantity)
+  LOGICAL FUNCTION fu_SILAM_disp_grid_quantity(quantity)
     !
     ! Splits SILAM internal meteorological and dispersion quantities
     ! 
@@ -2699,15 +2919,27 @@ CONTAINS
          & disp_flux_celleast_flag, disp_flux_cellnorth_flag, disp_flux_celltop_flag, &
          & reaction_rate_flag,&
          & emission_scaling_flag, &
-         & emis_factor_fire_flame_flag, emis_factor_fire_smold_flag)
+         & emis_factor_fire_flame_flag, emis_factor_fire_smold_flag, &
+         & FDI_KBDI_moisture_deficit_flag, FDI_KBDI_drought_factor_flag, &
+         & FDI_SDI_fire_danger_flag, FDI_grass_mean_fire_danger_flag, &
+         & FDI_grass_max_fire_danger_flag, FDI_FWI_fine_fuel_moist_flag, &
+         & FDI_FWI_duff_moist_flag, FDI_FWI_drought_flag, &
+         & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag, &
+         & day_sum_precipitation_flag, day_max_temperature_2m_flag, yesterday_precipitation_flag, &
+         & day_mean_windspeed_10m_flag, day_mean_relat_humid_2m_flag, &
+         & day_temperature_2m_acc_max_flag, day_windspeed_10m_acc_flag, &
+         & day_windspeed_10m_acc_max_flag, day_max_windspeed_10m_flag, &
+         & day_precipitation_acc_flag, day_min_relat_humid_2m_flag, &
+         & day_relat_humid_2m_acc_flag, day_relat_humid_2m_acc_min_flag, &
+         & dry_days_count_flag)
 
-        fu_SILAM_dispersion_quantity = .true.
+      fu_SILAM_disp_grid_quantity = .true.
 
       case default 
-        fu_SILAM_dispersion_quantity = .false.
+        fu_SILAM_disp_grid_quantity = .false.
     end select
 
-  END FUNCTION fu_SILAM_dispersion_quantity
+  END FUNCTION fu_SILAM_disp_grid_quantity
 
 
   ! ***************************************************************
@@ -3008,11 +3240,38 @@ CONTAINS
       CASE (day_temperature_2m_acc_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
 
+      CASE(day_temperature_2m_acc_max_flag)
+      fMinAlert = -10; fMinForce = 0; fMaxForce = 500; fMaxAlert = 1000
+
+      CASE(day_windspeed_10m_acc_flag)
+      fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
+
+      CASE(day_windspeed_10m_acc_max_flag)
+      fMinAlert = -10; fMinForce = 0; fMaxForce = 200; fMaxAlert = 1000
+
+      CASE(day_max_windspeed_10m_flag)
+      fMinAlert = -10; fMinForce = 0; fMaxForce = 200; fMaxAlert = 1000
+
+      CASE(day_precipitation_acc_flag)
+      fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
+
+      CASE(day_min_relat_humid_2m_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 2; fMaxAlert = 10
+
+      CASE(day_relat_humid_2m_acc_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
+
+      CASE(day_relat_humid_2m_acc_min_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 2; fMaxAlert = 10
+
       CASE (specific_humidity_2m_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = 1; fMaxAlert = 10
 
       CASE (relative_humidity_2m_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = 1; fMaxAlert = 10
+
+      CASE (mean_annual_precipitation_flag)
+      fMinAlert = -0.1; fMinForce = 0; fMaxForce = 5000; fMaxAlert = 10000
 
       CASE (u_10m_flag)
       fMinAlert = -1000; fMinForce = -100; fMaxForce = 100; fMaxAlert = 1000
@@ -3077,7 +3336,7 @@ CONTAINS
       CASE (total_precipitation_acc_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
       
-      CASE (total_precipitation_rate_flag)
+      CASE (total_precipitation_int_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = 100; fMaxAlert = 1000
 
       CASE (cloud_cover_flag)
@@ -3169,6 +3428,54 @@ CONTAINS
 
       CASE (meteo_total_O3column_flag)
       fMinAlert = 30./2e-5; fMinForce = 30./2e-5; fMaxForce = 600./2e-5; fMaxAlert = 600./2e-5 !! 1 DU = 2.1415E-5 kg m-2
+
+      CASE(FDI_KBDI_moisture_deficit_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_KBDI_drought_factor_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_SDI_fire_danger_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_grass_mean_fire_danger_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_grass_max_fire_danger_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_FWI_fine_fuel_moist_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_FWI_duff_moist_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_FWI_drought_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(FDI_fire_weather_index_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
+
+      CASE(day_sum_precipitation_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 100; fMaxAlert = 1000
+
+      CASE(yesterday_precipitation_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 100; fMaxAlert = 1000
+
+      CASE(dry_days_count_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 300; fMaxAlert = 1000
+
+      CASE(day_max_temperature_2m_flag)
+      fMinAlert = 100; fMinForce = 150; fMaxForce = 350; fMaxAlert = 400
+
+      CASE(day_mean_windspeed_10m_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 100; fMaxAlert = 1000
+
+      CASE(day_mean_relat_humid_2m_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1.5; fMaxAlert = 10
+
+      CASE(FDI_fuel_moisture_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 1e5; fMaxAlert = 1e5
 
       CASE (ipv_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
@@ -3600,6 +3907,8 @@ CONTAINS
     !
     do ip = 1, nPoints
       fTmp = grid_data(ip)
+      fMin = min(fMin,fTmp)
+      fMax = max(fMax,fTmp)
       if(.not. ifRequireValidity)then
         if(fTmp == real_missing)then
           cycle  ! real_missing in the array
@@ -3609,7 +3918,6 @@ CONTAINS
       if(ifMinAlert .and. fTmp < fMinAlert)then     ! much too low
         nPatched=npatched+1
         iPatch(ip) = -1
-        fMin = min(fMin,fTmp)
 #ifdef DEBUG            
         if(nPatched < 5) call make_warning('Will try to patch too low')
 #endif        
@@ -3618,7 +3926,6 @@ CONTAINS
       if(ifMaxAlert .and. fTmp > fMaxAlert)then     ! much too high
         nPatched=npatched+1
         iPatch(ip) = 1
-        fMax = max(fMax,fTmp)
 #ifdef DEBUG            
         if(nPatched < 5) call make_warning('Will try to patch too high')
 #endif        
@@ -3628,14 +3935,12 @@ CONTAINS
 #ifdef DEBUG            
         if(n_out_of_range < 5 .and. fTmp < 0.999 * fMinForce) call make_warning('smaller-than-normal')
 #endif        
-        fMin = min(fMin,fTmp)
         fTmp =  fMinForce
         n_out_of_range = n_out_of_range + 1
       elseif(ifMaxForce .and. fTmp > fMaxForce)then ! somewhat too high
 #ifdef DEBUG            
         if(n_out_of_range < 5 .and. fTmp > 1.001 * fMaxForce) call make_warning('bigger-than-normal')
-#endif        
-        fMax = max(fMax,fTmp)
+#endif
         fTmp = fMaxForce
         n_out_of_range = n_out_of_range + 1
       endif
@@ -3732,11 +4037,17 @@ CONTAINS
           & top_sw_net_radiation_ac_flag,&
           & top_lw_net_radiation_ac_flag, &
           & photosynth_active_rad_ac_flag, &
-          & day_temperature_acc_flag, &
-          & day_temperature_2m_acc_flag, &
           & drydep_flag, &
           & wetdep_flag, &
-          & heatsum_flag, chillsum_flag)
+          & heatsum_flag, chillsum_flag, &
+          & day_temperature_acc_flag, &
+          & day_temperature_2m_acc_flag, &
+          & day_temperature_2m_acc_max_flag, &
+          & day_windspeed_10m_acc_flag, &
+          & day_windspeed_10m_acc_max_flag, & 
+          & day_precipitation_acc_flag, &
+          & day_relat_humid_2m_acc_flag, &
+          & day_relat_humid_2m_acc_min_flag)
     
       fu_accumulated_quantity = .true.
 
@@ -3748,90 +4059,7 @@ CONTAINS
 
   END FUNCTION fu_accumulated_quantity
 
-
-
-  ! ***************************************************************
-
-  INTEGER FUNCTION fu_aver_quantity_for_acc(quantity)
-    !
-    ! Returns the "instantaneous" quantity flag corresponding to the 
-    ! provided accumulated one. 
-    !
-    ! Code owner: Mikhail Sofiev
-
-    IMPLICIT NONE
-
-    ! Imported parameters with intent(in):
-    INTEGER, INTENT(in) :: quantity
-
-    IF(.not.fu_accumulated_quantity(quantity))THEN
-      CAll set_error('Not an accumulated quantity','fu_aver_quantity_for_acc')
-      fu_aver_quantity_for_acc = int_missing
-      RETURN
-    END IF
-
-    SELECT CASE (quantity)
-
-      CASE (large_scale_accum_rain_flag)
-        fu_aver_quantity_for_acc = large_scale_rain_int_flag
-
-      CASE (convective_accum_rain_flag)
-        fu_aver_quantity_for_acc = convective_rain_int_flag
-
-      case (total_precipitation_acc_flag)
-        fu_aver_quantity_for_acc = total_precipitation_rate_flag
-
-      CASE (surf_sw_down_radiation_ac_flag)
-        fu_aver_quantity_for_acc = surf_sw_down_radiation_flag
-
-      CASE (surf_lw_down_radiation_ac_flag)
-        fu_aver_quantity_for_acc = surf_lw_down_radiation_flag
-
-      CASE (surf_sw_net_radiation_ac_flag)
-        fu_aver_quantity_for_acc = surf_sw_net_radiation_flag
-
-      CASE (top_sw_net_radiation_ac_flag)
-        fu_aver_quantity_for_acc = top_sw_net_radiation_flag
-
-      CASE (surf_lw_net_radiation_ac_flag)
-        fu_aver_quantity_for_acc = surf_lw_net_radiation_flag
-
-      CASE (top_lw_net_radiation_ac_flag)
-        fu_aver_quantity_for_acc = top_lw_net_radiation_flag
-
-      CASE (NWP_latent_heatflux_ac_flag)
-        fu_aver_quantity_for_acc = NWP_latent_heatflux_flag
-
-      CASE (NWP_sensible_heatflux_ac_flag)
-        fu_aver_quantity_for_acc = NWP_sensible_heatflux_flag
-
-      case(photosynth_active_rad_ac_flag)
-        fu_aver_quantity_for_acc = photosynth_active_rad_ac_flag
-
-      case(day_temperature_acc_flag)
-        fu_aver_quantity_for_acc = temperature_flag
-
-      case(day_temperature_2m_acc_flag)
-        fu_aver_quantity_for_acc = temperature_2m_flag
-
-    CASE default
-      CALL set_error('no match available for:' + fu_quantity_string(quantity),&
-                   & 'fu_average_quantity')
-      fu_aver_quantity_for_acc = int_missing
-
-! Quantities without instantaneous analogies are: 
-!
-!                     sub_grid_scale_snowfall_flag,
-!                     grid_scale_snowfall_flag,
-!                     u_momentum_flux_flag,
-!                     v_momentum_flux_flag,
-!                     nuclear_cocktail_dep_flag
-
-    END SELECT
-
-  END FUNCTION fu_aver_quantity_for_acc
-
-
+  
   ! ***************************************************************
 
   LOGICAL FUNCTION fu_quantity_in_quantities(quantity, quantities)
@@ -3900,6 +4128,7 @@ CONTAINS
          & convective_accum_rain_flag, &
          & large_scale_rain_int_flag, &
          & convective_rain_int_flag, &
+         & mean_annual_precipitation_flag, &
          & soil_moisture_vol_frac_nwp_flag, &
          & fraction_of_ice_flag, &
          & fraction_of_land_flag, &
@@ -3913,7 +4142,7 @@ CONTAINS
          & charnock_parameter_flag, &
          & snowfall_rate_weq_flag, &
          & total_precipitation_acc_flag, &
-         & total_precipitation_rate_flag, &
+         & total_precipitation_int_flag, &
          & low_level_cloud_cover_flag, &
          & medium_level_cloud_cover_flag, &
          & high_level_cloud_cover_flag, &
@@ -3940,7 +4169,18 @@ CONTAINS
          & concentration_2m_flag, &
          & optical_density_flag, &
          & optical_column_depth_flag, &
-         & absorption_coef_flag, scattering_coef_flag, back_scattering_coef_flag)
+         & absorption_coef_flag, scattering_coef_flag, back_scattering_coef_flag, &
+
+         & FDI_KBDI_moisture_deficit_flag, &
+         & FDI_KBDI_drought_factor_flag, &
+         & FDI_SDI_fire_danger_flag, &
+         & FDI_grass_mean_fire_danger_flag, &
+         & FDI_grass_max_fire_danger_flag, &
+         & FDI_FWI_fine_fuel_moist_flag, &
+         & FDI_FWI_duff_moist_flag, &
+         & FDI_FWI_drought_flag, &
+         & FDI_fire_weather_index_flag, &
+         & FDI_fuel_moisture_flag)
 
       fu_grib_missing_real = 0.0
 
@@ -3975,6 +4215,7 @@ CONTAINS
          & convective_accum_rain_flag, &
          & large_scale_rain_int_flag, &
          & convective_rain_int_flag, &
+         & mean_annual_precipitation_flag, &
          & soil_moisture_vol_frac_nwp_flag, &
          & fraction_of_ice_flag, &
          & fraction_of_land_flag, &
@@ -3989,7 +4230,7 @@ CONTAINS
          & charnock_parameter_flag, &
          & snowfall_rate_weq_flag, &
          & total_precipitation_acc_flag, &
-         & total_precipitation_rate_flag, &
+         & total_precipitation_int_flag, &
          & low_level_cloud_cover_flag, &
          & medium_level_cloud_cover_flag, &
          & high_level_cloud_cover_flag, &
@@ -4017,7 +4258,17 @@ CONTAINS
          & optical_density_flag, &
          & optical_column_depth_flag, &
          & absorption_coef_flag, scattering_coef_flag, back_scattering_coef_flag, &
-         & leaf_area_indexhv_flag, leaf_area_indexlv_flag, leaf_area_index_flag)
+         & leaf_area_indexhv_flag, leaf_area_indexlv_flag, leaf_area_index_flag, &
+         & FDI_KBDI_moisture_deficit_flag, &
+         & FDI_KBDI_drought_factor_flag, &
+         & FDI_SDI_fire_danger_flag, &
+         & FDI_grass_mean_fire_danger_flag, &
+         & FDI_grass_max_fire_danger_flag, &
+         & FDI_FWI_fine_fuel_moist_flag, &
+         & FDI_FWI_duff_moist_flag, &
+         & FDI_FWI_drought_flag, &
+         & FDI_fire_weather_index_flag, &
+         & FDI_fuel_moisture_flag)
 
       fu_real_missing_replacement = 0.0
 
@@ -4116,6 +4367,7 @@ CONTAINS
          & large_scale_rain_int_flag, &
          & convective_rain_int_flag, &
          & snowfall_rate_weq_flag, &
+         & mean_annual_precipitation_flag, &
          & soil_sand_mass_fraction_flag, &
          & soil_clay_mass_fraction_flag, &
          & alluvial_sedim_index_flag, &   ! Has to be averaged: high variability, wide dynamic range
@@ -4128,7 +4380,7 @@ CONTAINS
          & fraction_of_forest_flag, &
          & fraction_of_erodible_soil_flag, &
          & total_precipitation_acc_flag, &
-         & total_precipitation_rate_flag, &
+         & total_precipitation_int_flag, &
          & cwcabove_3d_flag, cwcolumn_flag, &
          & lcwcabove_3d_flag, lcwcolumn_flag, &
          & pwcabove_3d_flag, pwcolumn_flag, &
@@ -4137,8 +4389,19 @@ CONTAINS
          & emission_mask_flag, &
          & soil_moisture_vol_frac_nwp_flag, &
          & dust_emis_0_flag, &
-         & soil_NO_emis_0_flag, &
-         & irrigated_area_flag)
+         & irrigated_area_flag, &
+         & FDI_KBDI_moisture_deficit_flag, &
+         & FDI_KBDI_drought_factor_flag, &
+         & FDI_SDI_fire_danger_flag, &
+         & FDI_grass_mean_fire_danger_flag, &
+         & FDI_grass_max_fire_danger_flag, &
+         & FDI_FWI_fine_fuel_moist_flag, &
+         & FDI_FWI_duff_moist_flag, &
+         & FDI_FWI_drought_flag, &
+         & FDI_fire_weather_index_flag, &
+         & FDI_fuel_moisture_flag, &
+         & day_sum_precipitation_flag, yesterday_precipitation_flag, &
+         & dry_days_count_flag)
 
         fu_regridding_method = average
          
@@ -4191,6 +4454,30 @@ CONTAINS
 
     elseif(trim(chQuantity) == "temperature_2m_acc")then
       iQ = day_temperature_2m_acc_flag 
+
+    elseif(trim(chQuantity) == "temp_2m_acc4max")then
+      iQ = day_temperature_2m_acc_max_flag
+
+    elseif(trim(chQuantity) == "windsp_10m_acc")then
+      iQ = day_windspeed_10m_acc_flag
+
+    elseif(trim(chQuantity) == "wsp_10m_acc4max")then
+      iQ = day_windspeed_10m_acc_max_flag
+
+    elseif(trim(chQuantity) == "windsp_daymax")then
+      iQ = day_max_windspeed_10m_flag
+
+    elseif(trim(chQuantity) == "precip_day_acc")then
+      iQ = day_precipitation_acc_flag
+
+    elseif(trim(chQuantity) == "relhum2m_daymin")then
+      iQ = day_min_relat_humid_2m_flag
+
+    elseif(trim(chQuantity) == "relhum2m_acc")then
+      iQ = day_relat_humid_2m_acc_flag
+
+    elseif(trim(chQuantity) == "relh2m_acc4min")then
+      iQ = day_relat_humid_2m_acc_min_flag
 
     elseif(trim(chQuantity) == "potential_temperature")then
       iQ = potential_temperature_flag 
@@ -4438,7 +4725,8 @@ CONTAINS
     elseif(trim(chQuantity) == "ground_surface_temp")then
       iQ = ground_surface_temp_flag
 
-    elseif(trim(chQuantity) == "water_surface_temp")then
+    elseif(trim(chQuantity) == "water_surface_temp".or. &
+       & trim(chQuantity) == "water_srf_temp")then !!! alias compatible with fu_quantity_short_string
       iQ = water_surface_temp_flag 
 
     elseif(trim(chQuantity) == "snow_depth")then
@@ -4459,6 +4747,9 @@ CONTAINS
 
     elseif(trim(chQuantity) == "relative_humidity_2m")then
       iQ = relative_humidity_2m_flag 
+
+    elseif(trim(chQuantity) == "mean_ann_precip")then
+      iQ = mean_annual_precipitation_flag 
 
     elseif(trim(chQuantity) == "u_10m" .or. trim(chQuantity) == "V_wind_10m")then
       iQ = u_10m_flag 
@@ -4514,11 +4805,13 @@ CONTAINS
     elseif(trim(chQuantity) == "irrigated_area")then
       iQ = irrigated_area_flag
 
-    elseif(trim(chQuantity) == "total_precipitation")then
+    elseif(trim(chQuantity) == "total_precipitation" .or. &
+       & trim(chQuantity) == "tot_prec")then
       iQ = total_precipitation_acc_flag 
 
-    elseif(trim(chQuantity) == "total_precipitation_rate")then
-      iQ = total_precipitation_rate_flag 
+    elseif(trim(chQuantity) == "total_precipitation_int" .or. &
+         & trim(chQuantity) == "total_precipitation_rate")then
+      iQ = total_precipitation_int_flag 
 
     elseif(trim(chQuantity) == "surf_sw_down_radiation_ac")then
       iQ = surf_sw_down_radiation_ac_flag 
@@ -4580,6 +4873,54 @@ CONTAINS
     elseif(trim(chQuantity) == "met_o3_col")then
       iQ = meteo_total_O3column_flag
 
+    elseif(trim(chQuantity) == 'FDI_MDef_KBDI')then
+      iQ = FDI_KBDI_moisture_deficit_flag
+
+    elseif(trim(chQuantity) == 'FDI_DrFctr_KBDI')then
+      iQ = FDI_KBDI_drought_factor_flag
+
+    elseif(trim(chQuantity) == 'FDI_SDI')then
+      iQ = FDI_SDI_fire_danger_flag
+
+    elseif(trim(chQuantity) == 'FDI_grassMean')then
+      iQ = FDI_grass_mean_fire_danger_flag
+
+    elseif(trim(chQuantity) == 'FDI_grassMax')then
+      iQ = FDI_grass_max_fire_danger_flag
+
+    elseif(trim(chQuantity) == 'FDI_FWI_FFM')then
+      iQ = FDI_FWI_fine_fuel_moist_flag
+
+    elseif(trim(chQuantity) == 'FDI_FWI_DM')then
+      iQ = FDI_FWI_duff_moist_flag
+
+    elseif(trim(chQuantity) == 'FDI_FWI_drought')then
+      iQ = FDI_FWI_drought_flag
+
+    elseif(trim(chQuantity) == 'FDI_FWI')then
+      iQ = FDI_fire_weather_index_flag
+
+    elseif(trim(chQuantity) == 'FDI_fuel_moist')then
+      iQ = FDI_fuel_moisture_flag
+
+    elseif(trim(chQuantity) == 'day_sum_precip')then
+      iQ = day_sum_precipitation_flag
+
+    elseif(trim(chQuantity) == 'yesterday_prec')then
+      iQ = yesterday_precipitation_flag
+
+    elseif(trim(chQuantity) == 'nbr_dry_days')then
+      iQ = dry_days_count_flag
+
+    elseif(trim(chQuantity) == 'day_max_temp_2m')then
+      iQ = day_max_temperature_2m_flag
+
+    elseif(trim(chQuantity) == 'day_mn_wsp_10m')then
+      iQ = day_mean_windspeed_10m_flag
+
+    elseif(trim(chQuantity) == 'day_mean_rh_2m')then
+      iQ = day_mean_relat_humid_2m_flag
+
     elseif(trim(chQuantity) == "dew_point_temp_2m")then
       iQ = dew_point_temp_2m_flag 
 
@@ -4592,7 +4933,8 @@ CONTAINS
     elseif(trim(chQuantity) == "high_level_cloud_cover")then
       iQ = high_level_cloud_cover_flag 
 
-    elseif(trim(chQuantity) == "total_cloud_cover")then
+    elseif(trim(chQuantity) == "total_cloud_cover" .or. &
+         & trim(chQuantity) == "total_cloud")then
       iQ = total_cloud_cover_flag 
 
     elseif(trim(chQuantity) == "sub_grid_scale_snowfall")then
@@ -5154,7 +5496,7 @@ CONTAINS
       CASE (total_precipitation_acc_flag) 
         string =   "precipitation_amount" 
 
-      CASE (total_precipitation_rate_flag) 
+      CASE (total_precipitation_int_flag) 
         string =   "precipitation_flux" 
 
       CASE (surf_sw_down_radiation_ac_flag) 
@@ -5286,9 +5628,10 @@ CONTAINS
        & convective_rain_int_flag, &
        & snowfall_rate_weq_flag, &
        & total_precipitation_acc_flag, &
-       & total_precipitation_rate_flag, &
+       & total_precipitation_int_flag, &
        & sub_grid_scale_snowfall_flag, &
        & grid_scale_snowfall_flag, &
+       & mean_annual_precipitation_flag, &
        & precipitable_water_flag, total_cloud_cover_flag, &
        & cloud_cond_water_flag, cloud_water_flag, cloud_ice_flag, cloud_cover_flag, &
        & cwcabove_3d_flag, cwcolumn_flag, &
@@ -5298,11 +5641,27 @@ CONTAINS
        & low_level_cloud_cover_flag, medium_level_cloud_cover_flag, high_level_cloud_cover_flag, &
        & integr_cloud_water_flag, fraction_of_forest_flag, plant_growth_flag, &
        & pollen_left_relative_flag, pollen_total_per_m2_flag, &
-       & fraction_of_erodible_soil_flag, emission_mask_flag)
+       & fraction_of_erodible_soil_flag, emission_mask_flag, &
+       & FDI_KBDI_moisture_deficit_flag, &
+       & FDI_KBDI_drought_factor_flag, &
+       & FDI_SDI_fire_danger_flag, &
+       & FDI_grass_mean_fire_danger_flag, &
+       & FDI_grass_max_fire_danger_flag, &
+       & FDI_FWI_fine_fuel_moist_flag, &
+       & FDI_FWI_duff_moist_flag, &
+       & FDI_FWI_drought_flag, &
+       & FDI_fire_weather_index_flag, &
+       & FDI_fuel_moisture_flag, &
+       & day_sum_precipitation_flag, day_max_temperature_2m_flag, yesterday_precipitation_flag, &
+       & day_mean_windspeed_10m_flag, day_mean_relat_humid_2m_flag, &
+       & day_temperature_2m_acc_max_flag, day_windspeed_10m_acc_flag, &
+       & day_windspeed_10m_acc_max_flag, day_max_windspeed_10m_flag, &
+       & day_precipitation_acc_flag, day_min_relat_humid_2m_flag, &
+       & day_relat_humid_2m_acc_flag, day_relat_humid_2m_acc_min_flag)
 
        fu_outGridInterpType = setZero
 
-    case(fraction_of_land_flag, &
+       case(fraction_of_land_flag, &
        & heatsum_flag, chillsum_flag, &
        & start_calday_threshold_flag, &
        & start_heatsum_threshold_flag, &
@@ -5317,7 +5676,8 @@ CONTAINS
        & heatsum_start_end_diff_flag, &
        & pollen_correction_flag, day_temperature_2m_acc_flag, day_mean_temperature_2m_flag, &
        & water_salinity_flag, &
-       & pollen_potency_flag)
+       & pollen_potency_flag, &
+       & dry_days_count_flag)
 
        fu_outGridInterpType = nearestPoint
        
@@ -5414,7 +5774,7 @@ subroutine print_name_list_for_quantity(uOut, quantity)
  write(unit=uOut,fmt='(A,E15.3)')'  default_real_missing = ',fu_grib_missing_real(quantity)
  if(fu_accumulated_quantity(quantity))then
    write(unit=uOut,fmt='(A)')'  cumulative_quantity = YES'
-   write(unit=uOut,fmt='(A,I15)')'  instant_quantity = ',fu_aver_quantity_for_acc(quantity)
+   write(unit=uOut,fmt='(A)')'  instant_quantity = UNKNOWN'  !,fu_rate_quantity_for_acc(quantity)
  else
    write(unit=uOut,fmt='(A)')'  cumulative_quantity = NO'
  endif

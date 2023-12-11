@@ -27,9 +27,11 @@ var     =         *     10u                     *                               
 var     =         *     10v                     *                                            v_10m                      undefined   HEIGHT_FROM_SURF     10    1
 var     =         *     2d                      *                                            dew_point_temp_2m          undefined   HEIGHT_FROM_SURF     2     1
 var     =         *     2q                      *                                            specific_humidity_2m       undefined   HEIGHT_FROM_SURF     2     1
+var     =    174096     2sh                     *                                            specific_humidity_2m       undefined   HEIGHT_FROM_SURF     2     1
 var     =         *     2t                      *                                            temperature_2m             undefined   HEIGHT_FROM_SURF     2    1
 var     =      3063     *                       *                                            convective_accum_rain      undefined   SURFACE_LEVEL       -1     1       #
 var     =         *     al                      *                                            albedo                     undefined   SURFACE_LEVEL       -1  0.01 #albedo (0-19-1) percent to fraction
+var     =    260083     hpbl                    *                                            nwp_abl_height_m           undefined   SURFACE_LEVEL       -1     1
 var     =         *     blh                     *                                            nwp_abl_height_m           undefined   SURFACE_LEVEL       -1     1
 var     =         *     ci           sea_ice_area_fraction                                   fraction_of_ice            undefined   SURFACE_LEVEL       -1     1       ## sea Ice fraction
 var     =         *     cc                      *                                            cloud_cover                undefined   XXX                 -1     1       ## cc as fraction
@@ -37,6 +39,7 @@ var     =         *     ciwc                    *                               
 var     =         *     clwc                    *                                            cloud_water                undefined   XXX                 -1     1
 var     =       143     cp            lwe_thickness_of_convective_precipitation_amount       convective_accum_rain      undefined   SURFACE_LEVEL       -1   1e3       # CMWF creature
 var     =      3063     acpcp                   *                                            convective_accum_rain      undefined   SURFACE_LEVEL       -1     1       #
+var     =    260059     sprate                  *                                            convective_accum_rain      undefined   SURFACE_LEVEL       -1     1       # Actually snow
 var     =         *     fal                     *                                            albedo                     undefined   SURFACE_LEVEL       -1     1
 var     =         *     fsr                     *                                            surface_roughness_met      undefined   SURFACE_LEVEL       -1     1
 var     =         *     lai                     *                                            lai                        undefined   SURFACE_LEVEL       -1     1
@@ -49,6 +52,7 @@ var     =         *     lnsp                    *                               
 var     =         *     lsm                     *                                            fraction_of_land           undefined   SURFACE_LEVEL       -1     1
 var     =       142     lsp           lwe_thickness_of_stratiform_precipitation_amount       large_scale_accum_rain     undefined   SURFACE_LEVEL       -1   1e3       # ECMWF creature
 var     =      3062     lsp                     *                                            large_scale_accum_rain     undefined   SURFACE_LEVEL       -1     1       #
+var     =     235015    tirf                     *                                           large_scale_accum_rain     undefined   SURFACE_LEVEL       -1     1       # Actually, liquid rain
 var     =         *     msl                     *                                            msl_pressure               undefined   SURFACE_LEVEL       -1     1
 var     =         *     mld                     *                                            nwp_abl_height_m           undefined   SURFACE_LEVEL       -1     1
 var     =        54     pres                    *                                            pressure                   undefined   XXX                 -1     1
@@ -57,6 +61,7 @@ var     =         *     sde            lwe_thickness_of_surface_snow_amount     
 var     =         *     sd            lwe_thickness_of_surface_snow_amount                   weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## ecmwf
 var     =         *     sd                      *                                            weq_snow_depth             undefined   SURFACE_LEVEL       -1    1e-3  ## ecmwf/CESM kg/m2 -> m
 var     =    228039     sm                      *                                            soil_moisture              undefined   SURFACE_LEVEL       -1    1e-3  ###kg/m3 -> m3/m3
+var     =    260210     liqvsm                  *                                            soil_moisture              undefined   SURFACE_LEVEL       -1     1 
 var     =         *     skt                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1       ## skin temperature, ground temperature is not used in SILAM
 var     =         *     slhf                    *                                            nwp_latent_heatflux        undefined   SURFACE_LEVEL       -1     1
 var     =         *     sp                      *                                            ground_pressure            undefined   SURFACE_LEVEL       -1     1
@@ -106,9 +111,10 @@ var     =   *          sd_meps                 *                                
 var     =   *          soilmoisture_lv         *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
 var     =   *          swavrs                  *                                           surf_sw_down_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
 var     =   *          nswrs                   *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
+var     =   176        ssr                     *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  #DE330 ALARO
 var     =   251253011  t                       *                                            temperature                  undefined   XXX                 -1     1
 var     =   251253160   cape                   *                                            cape                       undefined   SURFACE_LEVEL       -1     1
-
+var     =   173        sr                      *                                           land_roughness_met  undefined   SURFACE_LEVEL       -1     1
 #
 #  Copy of C_IFS netcdf_ametable
 #

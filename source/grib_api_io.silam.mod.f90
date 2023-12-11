@@ -157,7 +157,11 @@ MODULE grib_api_io
   ! Interface for high-level grib names to be used with GRIB2 (should be fine for GRIB1 as well)
   !
   type Tgrib_name_table
-      integer (8), dimension(max_quantities) :: paramId
+#ifdef VS2012
+      integer, dimension(max_quantities) :: paramId
+#else      
+      integer(8), dimension(max_quantities) :: paramId
+#endif
       character (len=clen), dimension(max_quantities) :: shortName, cfName, silam_species_io_str
       integer, dimension (max_quantities) :: silam_quantity
       type(silja_level), dimension(max_quantities) :: silam_level
@@ -240,18 +244,18 @@ MODULE grib_api_io
     silamDefinitionPath = fu_process_filepath(fu_content(nlTmp,'local_definition_path'), superfile=chFNm)
 #ifndef VS2012
     if (silamDefinitionPath /= '') then
-        inquire(file=silamDefinitionPath, exist=lTmp)
-        if (.not. lTmp) then
-               call msg("silamDefinitionPath = "//trim(silamDefinitionPath))
-               call set_error("silamDefinitionPath seems not to exist", sub_name)
-               return
-        endif
-
+      inquire(file=silamDefinitionPath, exist=lTmp)
+      if (.not. lTmp) then
+        call msg("silamDefinitionPath = "//trim(silamDefinitionPath))
+        call set_error("silamDefinitionPath seems not to exist", sub_name)
+        return
+      endif
        call get_definition_path(definitionPath)
        if (error) then
          call set_error("Failed to GET ECCODES definitions_path", sub_name)
          return
        endif
+
        newDefinitionPath = trim(silamDefinitionPath)//":"//trim(definitionPath)
 
        call msg("Resetting ECCODES definitions_path from '"//trim(definitionPath)//"' to '"//trim(newDefinitionPath)//"'" )
@@ -344,7 +348,11 @@ MODULE grib_api_io
     implicit none
 
     ! Imported parameters
-    integer (8), intent(in) :: paramId
+#ifdef VS2012
+    integer, intent(in) :: paramId
+#else
+    integer(8), intent(in) :: paramId
+#endif
     character(len=*), intent(in) :: cfName, shortName
     integer, intent(out) :: silam_quantity
     character(len=*), intent(out) :: silam_species_string
@@ -603,10 +611,9 @@ MODULE grib_api_io
       updateGrid = .true.
       do iCacheInd = 1, max_nbr_of_GRIB_grids
           grGridPtr => grib_grid_cache(iCacheInd)%grGrid
-          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, &
+          call msg("second search for grib grid, try_igrid, thread", iCacheInd, &
            !$ & OMP_GET_THREAD_NUM() + 1 &
            & - 1 )
-!!          call msg("second search for grib grid, try_igrid, thread", iCacheInd, OMP_GET_THREAD_NUM())
           if (.not. grGridPtr%defined) exit
           if (grGridPtr%proj4string== grGrid%proj4string) then
             if (grGridPtr%nx == nx .and. grGridPtr%ny == ny) then
@@ -632,7 +639,6 @@ MODULE grib_api_io
           call msg("")
       enddo
       if (defined(grid)) then
-!!          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, OMP_GET_THREAD_NUM())
           call msg("second search for grib grid found, try_igrid, thread", iCacheInd, &
            !$ & OMP_GET_THREAD_NUM() + 1 &
            & - 1 )
@@ -925,8 +931,7 @@ MODULE grib_api_io
   ! ***************************************************************
 
   SUBROUTINE open_grib_file_i(fname, grib_unit, obstime_interval)
-
-    ! Description:
+    !
     ! Opens a (compressed) gribfile and returns it's unit (output !!).
     ! Reads its contents to grib_raw array and selects individual messages
     !
@@ -960,9 +965,6 @@ MODULE grib_api_io
     !grib_mpi_rank  = 0
     !grib_mpi_tasks = 1
 
-    ! 
-
-
     CALL SYSTEM_CLOCK(count0)
 
     do grib_unit = 1,max_nbr_of_iGRIB_files
@@ -990,154 +992,152 @@ MODULE grib_api_io
     count1=count0
     count2=count0
     if (grib_mpi_rank == 0) then
-       if (fname(1:5) == 's3://') then
-         call msg('Opening s3:// GRIB.bz2 file i with bzReadPipe: '//trim(fname))
-         call bzReadPipe(fname, gf%grib_raw, file_size)
-       elseif (fname(namelen-3:namelen) == '.bz2') then
+      if (fname(1:5) == 's3://') then
+        call msg('Opening s3:// GRIB.bz2 file i with bzReadPipe: '//trim(fname))
+        call bzReadPipe(fname, gf%grib_raw, file_size)
+      elseif (fname(namelen-3:namelen) == '.bz2') then
          !BZIP file
 #ifdef WITH_BZIP2
         call msg('Opening GRIB.bz2 file i with bzReadPar: '//trim(fname))
-         call bzReadPar(fname, gf%grib_raw, file_size)
+        call bzReadPar(fname, gf%grib_raw, file_size)
 #else         
         call msg('Opening GRIB.bz2 file i with bzReadPipe: '//trim(fname))
-         call bzReadPipe(fname, gf%grib_raw, file_size)
+        call bzReadPipe(fname, gf%grib_raw, file_size)
 #endif         
-       else
-         ! regular grib file
+      else
+        ! regular grib file
         call msg('Opening GRIB file i: '//trim(FName))
-         INQUIRE(FILE=fname, SIZE=file_size)
-         if (allocated(gf%grib_raw)) then
-           if (size(gf%grib_raw) < file_size) then
-              call msg("reallocating gf%grib_raw to (kB)", int((file_size/10+1)*11/1024))
-             deallocate(gf%grib_raw)
-             allocate(gf%grib_raw((file_size/10+1)*11)) !Some 10% more, so next file fits
-           endif
-         else
-             call msg ("allocating gf%grib_raw size (kB)", int((file_size/10+1)*11/1024))
-             allocate(gf%grib_raw((file_size/10+1)*11))
-         endif
-         
-         iUnit = fu_next_free_unit()
-         if(error)return
-         open(iUnit, file=fname, status='old', action='read', form="unformatted",  ACCESS='STREAM', iostat= iStatus)
-         if(iStatus /= 0)then
-           call set_error('Failed to open GRIB file:' + fName, sub_name)
-           return
-         endif
-         do i = 0,100  !!!Or 250G should be enough
-            if (i*MAX_INT32 > file_size) exit
-            j=min((i+1)*MAX_INT32, file_size)
-!            print *, "reading total bytes", i*recsize+1, "to", j 
-            read(iUnit) gf%grib_raw(i*MAX_INT32+1:j)
-         enddo
-         close (iUnit)
-
-       endif
-       CALL SYSTEM_CLOCK(count1) !!Grib stream reading complete
-       gf%raw_len = file_size
-       if (file_size < 1) then
-          call set_error('Empty GRIB file:' + fName, sub_name)
-          return
-       endif
-
-       !
-       ! Find messages in the stream
-       !
-
-       j = 1 !index of message start
-       do i=1,max_2d_fields-2 !Message counter
-           do while (j < file_size - 8 ) 
-              grib_raw => gf%grib_raw(j:file_size)
-              if (all(grib_raw(1:4) == (/'G','R','I','B'/))) then
-                    iEdition = iachar(grib_raw(8))
-
-                    if (iEdition == 1) then !grib1
-
-                      msg_size = (iachar(grib_raw(5))*256 + iachar(grib_raw(6)))*256 + iachar(grib_raw(7))
-                      if (iachar(grib_raw(5)) > 127) then
-                          call ec_hack(grib_raw, msg_size)
-                      endif
-                    elseif (iEdition == 2) then !grib2
-                      msg_size = iachar(grib_raw(9))*256 + iachar(grib_raw(10))
-                      msg_size = (msg_size*256 + iachar(grib_raw(12)))*256 + iachar(grib_raw(11))
-                      msg_size = (msg_size*256 + iachar(grib_raw(13)))*256 + iachar(grib_raw(14))
-                      msg_size = (msg_size*256 + iachar(grib_raw(15)))*256 + iachar(grib_raw(16))
-                    else
-                      Call msg("Oops, grib edition recognition failed, Edition no:", iEdition)
-                      call set_error("Broken GRIB file?", sub_name)
-                      return
-                    endif
-                    grib_offsets(i) = j-1 !Strat of current message
-                    j = j + msg_size 
-                    !  call msg("imsg, size", int(i), int( msg_size))
-                    grib_offsets(i+1) = j-1 !First offset after current message
-                    gf%nmsgs = i
-                    exit ! next i
-              else
-           !       call msg("Seeking", i, j)
-                    j = j + 1 !seek
-              endif
-           enddo
-
-           if (j >= file_size - 8 )  exit
-       enddo
-       !call msg ("grib_offsets", grib_offsets(1:gf%nmsgs+1))
-
-       ! Check and return.....
-       if (i > max_2d_fields-2) then
-          call msg("max_2d_fields",max_2d_fields)
-          call msg("chFName="+fname)
-          call set_error("Too many mesages in grib file",sub_name)
-          return
-       endif
-       !!! grib_offsets(gf%nmsgs+1) is the next byte after the end of last message
-       grib_offsets(gf%nmsgs+2:max_2d_fields)=int_missing 
-       grib_offsets(max_2d_fields-1) = gf%nmsgs
-       grib_offsets(max_2d_fields) = file_size
-     endif !!rank0
-     CALL SYSTEM_CLOCK(count2) !!Grib stream reading complete
-     
-     if (grib_mpi_tasks > 1) then
-         call smpi_bcast_int8_aray(grib_offsets, max_2d_fields, smpi_adv_comm, 0) 
-         if (grib_mpi_rank /= 0) file_size = grib_offsets(max_2d_fields)
-     endif
-
-     CALL SYSTEM_CLOCK(count3) !!Grib stream labels echange
-
-
-     if (file_size<1) then
-       call set_error("zero-sized file",sub_name)
-       return
-     endif
-
-     if (grib_mpi_rank /= 0) then
-         file_size = grib_offsets(max_2d_fields)
-         gf%nmsgs =  grib_offsets(max_2d_fields-1)
-         iTmp8 =  (file_size/10+1)*11
-         if (allocated(gf%grib_raw)) then
-           if (size(gf%grib_raw) < file_size) then
-             deallocate(gf%grib_raw)
-             allocate(gf%grib_raw(iTmp8) ) !Some 10% more, so next file fits
-           endif
-          else
-              allocate(gf%grib_raw(iTmp8))
-              call msg("Allocated buffer", (/iTmp8/))
+        INQUIRE(FILE=fname, SIZE=file_size)
+        if (allocated(gf%grib_raw)) then
+          if (size(gf%grib_raw) < file_size) then
+            call msg("reallocating gf%grib_raw to (kB)", int((file_size/10+1)*11/1024))
+            deallocate(gf%grib_raw)
+            allocate(gf%grib_raw((file_size/10+1)*11)) !Some 10% more, so next file fits
           endif
-     endif
-     if (grib_mpi_tasks > 1) &
-          call smpi_bcast_char(gf%grib_raw, file_size,  0)
-          if (error)  return
+        else
+          call msg ("allocating gf%grib_raw size (kB)", int((file_size/10+1)*11/1024))
+          allocate(gf%grib_raw((file_size/10+1)*11))
+        endif
+         
+        iUnit = fu_next_free_unit()
+        if(error)return
+        open(iUnit, file=fname, status='old', action='read', form="unformatted",  ACCESS='STREAM', iostat= iStatus)
+        if(iStatus /= 0)then
+          call set_error('Failed to open GRIB file:' + fName, sub_name)
+          return
+        endif
+        do i = 0,100  !!!Or 250G should be enough
+          if (i*MAX_INT32 > file_size) exit
+          j=min((i+1)*MAX_INT32, file_size)
+!            print *, "reading total bytes", i*recsize+1, "to", j 
+          read(iUnit) gf%grib_raw(i*MAX_INT32+1:j)
+        enddo
+        close (iUnit)
 
-     gf%idList_ready = .false.
-     gf%obstime_interval = obstime_interval !Needed to fix_strange_quantities
+      endif   ! if from s3://
 
-     gf%defined = .true.
+      CALL SYSTEM_CLOCK(count1) !!Grib stream reading complete
+      gf%raw_len = file_size
+      if (file_size < 1) then
+        call set_error('Empty GRIB file:' + fName, sub_name)
+        return
+      endif
 
-      CALL SYSTEM_CLOCK(count4)
-      call msg("Opened GRIB file "//trim(fu_str(grib_unit))//": "//trim(fname)//" Memory usage (kB), time (ms)", &
+      !
+      ! Find messages in the stream
+      !
+      j = 1 !index of message start
+      do i=1,max_2d_fields-2 !Message counter
+        do while (j < file_size - 8 )
+          grib_raw => gf%grib_raw(j:file_size)
+          if (all(grib_raw(1:4) == (/'G','R','I','B'/))) then
+            iEdition = iachar(grib_raw(8))
+
+            if (iEdition == 1) then !grib1
+
+              msg_size = (iachar(grib_raw(5))*256 + iachar(grib_raw(6)))*256 + iachar(grib_raw(7))
+              if (iachar(grib_raw(5)) > 127) then
+                call ec_hack(grib_raw, msg_size)
+              endif
+            elseif (iEdition == 2) then !grib2
+              msg_size = iachar(grib_raw(9))*256 + iachar(grib_raw(10))
+              msg_size = (msg_size*256 + iachar(grib_raw(12)))*256 + iachar(grib_raw(11))
+              msg_size = (msg_size*256 + iachar(grib_raw(13)))*256 + iachar(grib_raw(14))
+              msg_size = (msg_size*256 + iachar(grib_raw(15)))*256 + iachar(grib_raw(16))
+            else
+              Call msg("Oops, grib edition recognition failed, Edition no:", iEdition)
+              call set_error("Broken GRIB file?", sub_name)
+              return
+            endif   ! edition
+            grib_offsets(i) = j-1 !Strat of current message
+            j = j + msg_size 
+          !  call msg("imsg, size", int(i), int( msg_size))
+            grib_offsets(i+1) = j-1 !First offset after current message
+            gf%nmsgs = i
+            exit ! next i
+          else
+     !       call msg("Seeking", i, j)
+            j = j + 1 !seek
+          endif   ! GRIB
+        enddo    ! while (j < file_size - 8 )
+
+        if (j >= file_size - 8 )  exit
+      enddo   ! Message counter
+      !call msg ("grib_offsets", grib_offsets(1:gf%nmsgs+1))
+
+      ! Check and return.....
+      if (i > max_2d_fields-2) then
+        call msg("max_2d_fields",max_2d_fields)
+        call msg("chFName="+fname)
+        call set_error("Too many mesages in grib file",sub_name)
+        return
+      endif
+      !!! grib_offsets(gf%nmsgs+1) is the next byte after the end of last message
+      grib_offsets(gf%nmsgs+2:max_2d_fields)=int_missing 
+      grib_offsets(max_2d_fields-1) = gf%nmsgs
+      grib_offsets(max_2d_fields) = file_size
+    endif !!rank0
+    CALL SYSTEM_CLOCK(count2) !!Grib stream reading complete
+     
+    if (grib_mpi_tasks > 1) then
+      call smpi_bcast_int8_aray(grib_offsets, max_2d_fields, smpi_adv_comm, 0) 
+      if (grib_mpi_rank /= 0) file_size = grib_offsets(max_2d_fields)
+    endif
+
+    CALL SYSTEM_CLOCK(count3) !!Grib stream labels echange
+
+    if (file_size<1) then
+      call set_error("zero-sized file",sub_name)
+      return
+    endif
+
+    if (grib_mpi_rank /= 0) then
+      file_size = grib_offsets(max_2d_fields)
+      gf%nmsgs =  grib_offsets(max_2d_fields-1)
+      iTmp8 =  (file_size/10+1)*11
+      if (allocated(gf%grib_raw)) then
+        if (size(gf%grib_raw) < file_size) then
+          deallocate(gf%grib_raw)
+          allocate(gf%grib_raw(iTmp8) ) !Some 10% more, so next file fits
+        endif
+      else
+        allocate(gf%grib_raw(iTmp8))
+        call msg("Allocated buffer", (/iTmp8/))
+      endif
+    endif
+    if (grib_mpi_tasks > 1) call smpi_bcast_char(gf%grib_raw, file_size,  0)
+    if (error)return
+
+    gf%idList_ready = .false.
+    gf%obstime_interval = obstime_interval !Needed to fix_strange_quantities
+
+    gf%defined = .true.
+
+    CALL SYSTEM_CLOCK(count4)
+    call msg("Opened GRIB file "//trim(fu_str(grib_unit))//": "//trim(fname)//" Memory usage (kB), time (ms)", &
            &  fu_system_mem_usage(), 1e-6*(count4-count0))
 
-      call msg("open_grib_file_i timings (ms): read_stream, parse_stream, lables_xcg, stream_xcg", &
+    call msg("open_grib_file_i timings (ms): read_stream, parse_stream, lables_xcg, stream_xcg", &
             & (/1e-6*(count1-count0), 1e-6*(count2-count1), 1e-6*(count3-count2), 1e-6*(count4-count3)/))
   
   !   if (allocated(gf%grib_raw)) then
@@ -1725,7 +1725,11 @@ MODULE grib_api_io
     type(Taerosol_mode) :: aerosol_mode
 !DEBUG only
     integer :: discipline, paramCategory, paramNbr
-    integer (8) :: paramId
+#ifdef VS2012
+    integer :: paramId
+#else
+    integer(8) :: paramId
+#endif
     character (len=*), parameter :: sub_name = "gribheadings_to_field_id"
 
     call set_missing(id)

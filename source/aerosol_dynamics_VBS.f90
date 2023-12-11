@@ -11,18 +11,10 @@ MODULE aer_dyn_VBS
   public transform_AerDynVBS
   public set_rules_AerDynVBS
   public AerDynVBS_input_needs
-  public fu_if_tla_required
 
   public  full_spec_lst_4_AerDynVBS
   public  registerSpecies_4_AerDynVBS
-  private fu_if_tla_required_VBS
-
-  interface fu_if_tla_required
-     module procedure fu_if_tla_required_VBS
-  end interface
-
-
-
+  public fu_tla_size_VBS
 
   !--------------------------------------------------------------------
   !
@@ -31,7 +23,7 @@ MODULE aer_dyn_VBS
   type Tchem_rules_AerDynVBS
     private
     type(Taerosol_mode) :: modeSOA
-    real, dimension(4) :: Csat_298, dH, MolMass
+    real, dimension(0:4) :: Csat_298, dH
     
     type(silja_logical) :: defined
   end type Tchem_rules_AerDynVBS
@@ -42,10 +34,9 @@ MODULE aer_dyn_VBS
   !
   ! Used for addressing the species
   !
-  integer, private, save :: iAVB0_gas, iAVB1e0_gas, iAVB1e1_gas, iAVB1e2_gas, iAVB1e3_gas, & ! iAVB1e4_gas, iAVB1e5_gas, iAVB1e6_gas, &
-                          & iBVB0_gas, iBVB1e0_gas, iBVB1e1_gas, iBVB1e2_gas, iBVB1e3_gas, &
-                          & iAVB0_aer, iAVB1e0_aer, iAVB1e1_aer, iAVB1e2_aer, iAVB1e3_aer, & ! iAVB1e4_aer, iAVB1e5_aer, iAVB1e6_aer, &
-                          & iBVB0_aer, iBVB1e0_aer, iBVB1e1_aer, iBVB1e2_aer, iBVB1e3_aer
+  
+  !! Same as matrix 
+  integer, dimension(1:2,0:4,1:2) :: iTr !(gas:part, ivMode, anthro:bio) 
   !
   ! Label of this module
   !
@@ -173,6 +164,10 @@ MODULE aer_dyn_VBS
 
     ! Local variables
     type(silam_species) :: speciesTmp
+    integer  :: iAVB0_gas, iAVB1e0_gas, iAVB1e1_gas, iAVB1e2_gas, iAVB1e3_gas, & ! iAVB1e4_gas, iAVB1e5_gas, iAVB1e6_gas, &
+              & iAVB0_aer, iAVB1e0_aer, iAVB1e1_aer, iAVB1e2_aer, iAVB1e3_aer, & ! iAVB1e4_aer, iAVB1e5_aer, iAVB1e6_aer, &
+              & iBVB0_gas, iBVB1e0_gas, iBVB1e1_gas, iBVB1e2_gas, iBVB1e3_gas, &
+              & iBVB0_aer, iBVB1e0_aer, iBVB1e1_aer, iBVB1e2_aer, iBVB1e3_aer
     
     call set_species(speciesTmp, fu_get_material_ptr('AVB0'), in_gas_phase)
     iAVB0_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
@@ -184,12 +179,6 @@ MODULE aer_dyn_VBS
     iAVB1e2_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
     call set_species(speciesTmp, fu_get_material_ptr('AVB1e3'), in_gas_phase)
     iAVB1e3_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
-!    call set_species(speciesTmp, fu_get_material_ptr('AVB1e4'), in_gas_phase)
-!    iAVB1e4_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
-!    call set_species(speciesTmp, fu_get_material_ptr('AVB1e5'), in_gas_phase)
-!    iAVB1e5_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
-!    call set_species(speciesTmp, fu_get_material_ptr('AVB1e6'), in_gas_phase)
-!    iAVB1e6_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
     call set_species(speciesTmp, fu_get_material_ptr('BVB0'), in_gas_phase)
     iBVB0_gas = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
     call set_species(speciesTmp, fu_get_material_ptr('BVB1e0'), in_gas_phase)
@@ -210,12 +199,6 @@ MODULE aer_dyn_VBS
     iAVB1e2_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
     call set_species(speciesTmp, fu_get_material_ptr('AVB1e3'), rulesAerDynVBS%modeSOA)
     iAVB1e3_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
-!    call set_species(speciesTmp, fu_get_material_ptr('AVB1e4'), rulesAerDynVBS%modeSOA)
-!    iAVB1e4_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
-!    call set_species(speciesTmp, fu_get_material_ptr('AVB1e5'), rulesAerDynVBS%modeSOA)
-!    iAVB1e5_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
-!    call set_species(speciesTmp, fu_get_material_ptr('AVB1e6'), rulesAerDynVBS%modeSOA)
-!    iAVB1e6_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
     call set_species(speciesTmp, fu_get_material_ptr('BVB0'), rulesAerDynVBS%modeSOA)
     iBVB0_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
     call set_species(speciesTmp, fu_get_material_ptr('BVB1e0'), rulesAerDynVBS%modeSOA)
@@ -227,10 +210,14 @@ MODULE aer_dyn_VBS
     call set_species(speciesTmp, fu_get_material_ptr('BVB1e3'), rulesAerDynVBS%modeSOA)
     iBVB1e3_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
 
-    if (any(  (/iAVB0_gas, iAVB1e0_gas, iAVB1e1_gas, iAVB1e2_gas, iAVB1e3_gas, & ! iAVB1e4_gas, iAVB1e5_gas, iAVB1e6_gas, &
-              & iBVB0_gas, iBVB1e0_gas, iBVB1e1_gas, iBVB1e2_gas, iBVB1e3_gas, &
-              & iAVB0_aer, iAVB1e0_aer, iAVB1e1_aer, iAVB1e2_aer, iAVB1e3_aer, & ! iAVB1e4_aer, iAVB1e5_aer, iAVB1e6_aer, &
-              & iBVB0_aer, iBVB1e0_aer, iBVB1e1_aer, iBVB1e2_aer, iBVB1e3_aer/) < 1)) then
+    !!!  integer, dimension(1:2,0:4,1:2) :: iTr !(gas:part, ivMode, anthro:bio) 
+    itr(1,:,1) = (/iAVB0_gas, iAVB1e0_gas, iAVB1e1_gas, iAVB1e2_gas, iAVB1e3_gas/)
+    itr(1,:,2) = (/iBVB0_gas, iBVB1e0_gas, iBVB1e1_gas, iBVB1e2_gas, iBVB1e3_gas/)
+    itr(2,:,1) = (/iAVB0_aer, iAVB1e0_aer, iAVB1e1_aer, iAVB1e2_aer, iAVB1e3_aer/)
+    itr(2,:,2) = (/iBVB0_aer, iBVB1e0_aer, iBVB1e1_aer, iBVB1e2_aer, iBVB1e3_aer/)
+
+
+    if (any( itr < 1)) then
           call report(speciesTrans)
           call set_error("Clould not find all transport species for VBS", &
                     & "registerSpecies_4_AerDynVBS")
@@ -242,189 +229,83 @@ MODULE aer_dyn_VBS
 
   !*******************************************************************
 
-  subroutine transform_AerDynVBS(vMassTrn, vMassSL, garbage, rulesAerDynVBS, fLowCncThresh, &
-                                  & metdat, seconds, print_it)
+  subroutine transform_AerDynVBS(vMassTrn, rulesAerDynVBS, metdat, seconds, vtla)
     !
     ! Gas-Particle partitioning
     !
     implicit none
 
     ! Imported parameters
-    real, dimension(:), intent(inout) :: vMassTrn, vMassSL
+    real, dimension(:), intent(inout) :: vMassTrn
     type(Tchem_rules_AerDynVBS), intent(in) :: rulesAerDynVBS
-    real, dimension(:), intent(inout) :: garbage
-    real, dimension(:), intent(in) :: metdat, fLowCncThresh
+    real, dimension(:), intent(in) :: metdat
+    real, dimension(:), pointer :: vtla !!!Single value
     real, intent(in) :: seconds
-    logical, intent(out) :: print_it
 
     ! Local variables
-    integer :: iBin, nIter
+    integer :: iBin, iAB, iaer, igas 
     real :: cOAer, cOGas, cOAer_new, OAchange, cnc_bin
-    real, dimension(4) :: c_sat, aer_fract
+    real :: csat, ctot
+    integer :: bitmask 
     !type(TwetParticle) :: wetParticle
+    character(len=*), parameter :: sub_name = 'transform_AerDynVBS'
     
-    print_it = .false.  ! set to true and chemistry manager will give complete dump for this cell
+     if (associated(vtla)) then
+       if (fu_fails(size(vtla) == 1, "Wrong size TLA", sub_name)) return
+     endif
 
-    ! Move the nonvolatile stuff that chemistry created to aerosol bin
-    vMassTrn(iAVB0_aer) = vMassTrn(iAVB0_aer) + vMassTrn(iAVB0_gas)
-    vMassTrn(iAVB0_gas) = 0.0
-    vMassTrn(iBVB0_aer) = vMassTrn(iBVB0_aer) + vMassTrn(iBVB0_gas)
-    vMassTrn(iBVB0_gas) = 0.0 
-    
-    ! Totals
-    cOAer =  vMassTrn(iAVB0_aer)+vMassTrn(iAVB1e0_aer)+vMassTrn(iAVB1e1_aer)+ &
-         & vMassTrn(iAVB1e2_aer)+vMassTrn(iAVB1e3_aer)+ &
-         !& vMassTrn(iAVB1e4_aer)+ vMassTrn(iAVB1e5_aer)+vMassTrn(iAVB1e6_aer)+ &
-         & vMassTrn(iBVB0_aer)+vMassTrn(iBVB1e0_aer)+vMassTrn(iBVB1e1_aer)+ &
-         & vMassTrn(iBVB1e2_aer)+vMassTrn(iBVB1e3_aer)
-         
-    cOGas =  vMassTrn(iAVB0_gas)+vMassTrn(iAVB1e0_gas)+vMassTrn(iAVB1e1_gas)+ &
-         & vMassTrn(iAVB1e2_gas)+vMassTrn(iAVB1e3_gas)+ &
-         !& vMassTrn(iAVB1e4_gas)+ vMassTrn(iAVB1e5_gas)+vMassTrn(iAVB1e6_gas)+ &
-         & vMassTrn(iBVB0_gas)+vMassTrn(iBVB1e0_gas)+vMassTrn(iBVB1e1_gas)+ &
-         & vMassTrn(iBVB1e2_gas)+vMassTrn(iBVB1e3_gas)
-    
-!    call msg('Beginning cOAer, cOGas', cOAer, cOGas)     
-    if(cOAer+cOGas < fLowCncThresh(iAVB1e0_aer))then ! threshold of whichever bin 
-        garbage(iAVB0_gas) = garbage(iAVB0_gas) + vMassTrn(iAVB0_gas)
-        garbage(iAVB1e0_gas) = garbage(iAVB1e0_gas) + vMassTrn(iAVB1e0_gas)
-        garbage(iAVB1e1_gas) = garbage(iAVB1e1_gas) + vMassTrn(iAVB1e1_gas)
-        garbage(iAVB1e2_gas) = garbage(iAVB1e2_gas) + vMassTrn(iAVB1e2_gas)
-        garbage(iAVB1e3_gas) = garbage(iAVB1e3_gas) + vMassTrn(iAVB1e3_gas)
-        !garbage(iAVB1e4_gas) = garbage(iAVB1e4_gas) + vMassTrn(iAVB1e4_gas)
-        !garbage(iAVB1e5_gas) = garbage(iAVB1e5_gas) + vMassTrn(iAVB1e5_gas)
-        !garbage(iAVB1e6_gas) = garbage(iAVB1e6_gas) + vMassTrn(iAVB1e6_gas)
-        garbage(iBVB0_gas) = garbage(iBVB0_gas) + vMassTrn(iBVB0_gas)
-        garbage(iBVB1e0_gas) = garbage(iBVB1e0_gas) + vMassTrn(iBVB1e0_gas)
-        garbage(iBVB1e1_gas) = garbage(iBVB1e1_gas) + vMassTrn(iBVB1e1_gas)
-        garbage(iBVB1e2_gas) = garbage(iBVB1e2_gas) + vMassTrn(iBVB1e2_gas)
-        garbage(iBVB1e3_gas) = garbage(iBVB1e3_gas) + vMassTrn(iBVB1e3_gas)
-        garbage(iAVB0_aer) = garbage(iAVB0_aer) + vMassTrn(iAVB0_aer)
-        garbage(iAVB1e0_aer) = garbage(iAVB1e0_aer) + vMassTrn(iAVB1e0_aer)
-        garbage(iAVB1e1_aer) = garbage(iAVB1e1_aer) + vMassTrn(iAVB1e1_aer)
-        garbage(iAVB1e2_aer) = garbage(iAVB1e2_aer) + vMassTrn(iAVB1e2_aer)
-        garbage(iAVB1e3_aer) = garbage(iAVB1e3_aer) + vMassTrn(iAVB1e3_aer)
-        !garbage(iAVB1e4_aer) = garbage(iAVB1e4_aer) + vMassTrn(iAVB1e4_aer)
-        !garbage(iAVB1e5_aer) = garbage(iAVB1e5_aer) + vMassTrn(iAVB1e5_aer)
-        !garbage(iAVB1e6_aer) = garbage(iAVB1e6_aer) + vMassTrn(iAVB1e6_aer)
-        garbage(iBVB0_aer) = garbage(iBVB0_aer) + vMassTrn(iBVB0_aer)
-        garbage(iBVB1e0_aer) = garbage(iBVB1e0_aer) + vMassTrn(iBVB1e0_aer)
-        garbage(iBVB1e1_aer) = garbage(iBVB1e1_aer) + vMassTrn(iBVB1e1_aer)
-        garbage(iBVB1e2_aer) = garbage(iBVB1e2_aer) + vMassTrn(iBVB1e2_aer)
-        garbage(iBVB1e3_aer) = garbage(iBVB1e3_aer) + vMassTrn(iBVB1e3_aer)
-    
-        vMassTrn(iAVB0_gas) = 0.0
-        vMassTrn(iAVB1e0_gas) = 0.0
-        vMassTrn(iAVB1e1_gas) = 0.0
-        vMassTrn(iAVB1e2_gas) = 0.0
-        vMassTrn(iAVB1e3_gas) = 0.0
-        !vMassTrn(iAVB1e4_gas) = 0.0
-        !vMassTrn(iAVB1e5_gas) = 0.0
-        !vMassTrn(iAVB1e6_gas) = 0.0
-        vMassTrn(iBVB0_gas) = 0.0
-        vMassTrn(iBVB1e0_gas) = 0.0
-        vMassTrn(iBVB1e1_gas) = 0.0
-        vMassTrn(iBVB1e2_gas) = 0.0
-        vMassTrn(iBVB1e3_gas) = 0.0
-        vMassTrn(iAVB0_aer) = 0.0
-        vMassTrn(iAVB1e0_aer) = 0.0
-        vMassTrn(iAVB1e1_aer) = 0.0
-        vMassTrn(iAVB1e2_aer) = 0.0
-        vMassTrn(iAVB1e3_aer) = 0.0
-        !vMassTrn(iAVB1e4_aer) = 0.0
-        !vMassTrn(iAVB1e5_aer) = 0.0
-        !vMassTrn(iAVB1e6_aer) = 0.0
-        vMassTrn(iBVB0_aer) = 0.0
-        vMassTrn(iBVB1e0_aer) = 0.0
-        vMassTrn(iBVB1e1_aer) = 0.0
-        vMassTrn(iBVB1e2_aer) = 0.0
-        vMassTrn(iBVB1e3_aer) = 0.0
-        return
+    if (seconds > 0) then
+      bitmask = 0
+      do iBin = 0,4  
+         ! claculate the saturation concentration
+         csat = rulesAerDynVBS%Csat_298(iBin) / metdat(ind_tempr) * 298.0 * &
+              & exp(rulesAerDynVBS%dH(iBin) / gas_constant_uni * &
+                  & (1.0/298.0 - 1.0/metdat(ind_tempr)))
+         do iAB = 1,2
+            !!integer, dimension(1:2,0:4,1:2) :: iTr (gas:part, ivMode, anthro:bio) 
+            bitmask = bitmask * 2 ! <<1
+            igas = iTr(1,iBin,iAB)
+            iaer = iTr(2,iBin,iAB)
+            ctot =  vMassTrn(igas) + vMassTrn(iaer)
+            bitmask = bitmask * 2 ! <<1
+            if (ctot > csat) then                     ! / 0   0 \                        !
+               vMassTrn(igas) = csat                  !|         |   TL  for saturation  !
+               vMassTrn(iaer) = ctot - csat           ! \ 1   1 /                        !
+               bitmask = bitmask + 1
+            else
+               vMassTrn(igas) = ctot                  ! / 1   1 \                               !
+               vMassTrn(iaer) = 0.                    !|         |   TL  for no saturation      !
+            endif                                     ! \ 0   0 /                               !
+         enddo
+      enddo
+      if (associated(vtla)) vtla(1) = bitmask !!! WARNING: only 24 bit available
+    else 
+      if (fu_fails( associated(vtla) .and. size(vtla) == 1, & !!! Adjoint, single value needed
+              & "Unassociated TLA in adjoint", sub_name)) return
+      !!10 bit allowed for now
+      if (fu_fails( vtla(1) >= 0 .and. vtla(1) < 2**11, "Strane TLA in adjoint", sub_name)) return 
+      bitmask = int(vtla(1))
+      do iBin = 4, 0, -1  !! reverse order to pop corresponding bits from bitmask
+         do iAB = 2,1, -1
+            !!integer, dimension(1:2,0:4,1:2) :: iTr (gas:part, ivMode, anthro:bio) 
+            igas = iTr(1,iBin,iAB)
+            iaer = iTr(2,iBin,iAB)
+            if (modulo(bitmask,1) == 1) then                           ! / 0   1 \                           !
+              !! Saturation, aerosol only could be affected by either  !|         |   TLA  for saturation    !
+               vMassTrn(igas) = vMassTrn(iaer)                         ! \ 0   1 /                           !
+               !!! vMassTrn(iaer) =  !!!aerosol the same
+            else        
+              !! No saturation gas only could be affected by either    ! / 1   0 \                            !
+              !vMassTrn(igas) = ctot  !!! gas the same                 !|         |   TLA  for no saturation  !
+               vMassTrn(iaer) = vMassTrn(igas)                         ! \ 1   0 /                            !
+            endif
+            bitmask = bitmask / 2 !>>1
+         enddo
+      enddo
     endif
-     
-    ! claculate the saturation concentrations
-    do iBin = 1,4  !7
-        c_sat(iBin) = rulesAerDynVBS%Csat_298(iBin) / metdat(ind_tempr) * 298.0 * &
-            & exp(rulesAerDynVBS%dH(iBin) / gas_constant_uni * &
-                & (1.0/298.0 - 1.0/metdat(ind_tempr)))
-    enddo
-    
-    ! iterate until aerosol changes less than 5%
-    OAchange = 1.0
-    nIter = 0
-    do while(OAchange > 0.05 .and. nIter <= 5)
-      nIter = nIter + 1
-      if (cOAer > 0.0)then
-        do iBin = 1, 4 !7
-          aer_fract(iBin) = 1.0 / (1.0 + c_sat(iBin)/cOAer)
-        enddo
-      else
-!call msg('0 cOAer, cOGas', cOAer, cOGas)
-        ! Hope that iterations take care of this
-        do iBin = 1, 4  !7
-          aer_fract(iBin) = 0.5
-        enddo
-      endif
-      cnc_bin = vMassTrn(iAVB1e0_aer) + vMassTrn(iAVB1e0_gas)
-      vMassTrn(iAVB1e0_aer) = cnc_bin * aer_fract(1) 
-      vMassTrn(iAVB1e0_gas) = cnc_bin - vMassTrn(iAVB1e0_aer)
-      cnc_bin = vMassTrn(iAVB1e1_aer) + vMassTrn(iAVB1e1_gas)
-      vMassTrn(iAVB1e1_aer) = cnc_bin * aer_fract(2)
-      vMassTrn(iAVB1e1_gas) = cnc_bin - vMassTrn(iAVB1e1_aer)
-      cnc_bin = vMassTrn(iAVB1e2_aer) + vMassTrn(iAVB1e2_gas)
-      vMassTrn(iAVB1e2_aer) = cnc_bin * aer_fract(3)
-      vMassTrn(iAVB1e2_gas) = cnc_bin - vMassTrn(iAVB1e2_aer)
-      cnc_bin = vMassTrn(iAVB1e3_aer) + vMassTrn(iAVB1e3_gas)
-      vMassTrn(iAVB1e3_aer) = cnc_bin * aer_fract(4)
-      vMassTrn(iAVB1e3_gas) = cnc_bin - vMassTrn(iAVB1e3_aer)
-!      cnc_bin = vMassTrn(iAVB1e4_aer) + vMassTrn(iAVB1e4_gas)
-!      vMassTrn(iAVB1e4_aer) = cnc_bin * aer_fract(5)
-!      vMassTrn(iAVB1e4_gas) = cnc_bin - vMassTrn(iAVB1e4_aer)
-!      cnc_bin = vMassTrn(iAVB1e5_aer) + vMassTrn(iAVB1e5_gas)
-!      vMassTrn(iAVB1e5_aer) = cnc_bin * aer_fract(6)
-!      vMassTrn(iAVB1e5_gas) = cnc_bin - vMassTrn(iAVB1e5_aer)
-!      cnc_bin = vMassTrn(iAVB1e6_aer) + vMassTrn(iAVB1e6_gas)
-!      vMassTrn(iAVB1e6_aer) = cnc_bin * aer_fract(7)
-!      vMassTrn(iAVB1e6_gas) = cnc_bin - vMassTrn(iAVB1e6_aer)
-      cnc_bin = vMassTrn(iBVB1e0_aer) + vMassTrn(iBVB1e0_gas)
-      vMassTrn(iBVB1e0_aer) = cnc_bin * aer_fract(1)
-      vMassTrn(iBVB1e0_gas) = cnc_bin - vMassTrn(iBVB1e0_aer)
-      cnc_bin = vMassTrn(iBVB1e1_aer) + vMassTrn(iBVB1e1_gas)
-      vMassTrn(iBVB1e1_aer) = cnc_bin * aer_fract(2)
-      vMassTrn(iBVB1e1_gas) = cnc_bin - vMassTrn(iBVB1e1_aer)
-      cnc_bin = vMassTrn(iBVB1e2_aer) + vMassTrn(iBVB1e2_gas)
-      vMassTrn(iBVB1e2_aer) =  cnc_bin * aer_fract(3)
-      vMassTrn(iBVB1e2_gas) = cnc_bin - vMassTrn(iBVB1e2_aer)
-      cnc_bin = vMassTrn(iBVB1e3_aer) + vMassTrn(iBVB1e3_gas)
-      vMassTrn(iBVB1e3_aer) = cnc_bin * aer_fract(4)
-      vMassTrn(iBVB1e3_gas) = cnc_bin - vMassTrn(iBVB1e3_aer)
-      
-      cOAer_new = vMassTrn(iAVB0_aer)+vMassTrn(iAVB1e0_aer)+vMassTrn(iAVB1e1_aer)+ &
-                & vMassTrn(iAVB1e2_aer)+vMassTrn(iAVB1e3_aer)+ &
-                !& vMassTrn(iAVB1e4_aer)+vMassTrn(iAVB1e5_aer)+vMassTrn(iAVB1e6_aer)+ &
-                & vMassTrn(iBVB0_aer)+ vMassTrn(iBVB1e0_aer)+vMassTrn(iBVB1e1_aer)+ &
-                & vMassTrn(iBVB1e2_aer)+vMassTrn(iBVB1e3_aer)
-      if (cOAer > 0.0)then
-          OAchange = abs(cOAer_new - cOAer) / cOAer  
-      else
-          if(cOAer_new > 0.0)then
-              OAchange = 1.0
-          else
-              OAchange = 0.0
-          endif
-      endif
-      cOAer = cOAer_new 
-    enddo
-!    cOGas =  vMassTrn(iAVB0_gas)+vMassTrn(iAVB1e0_gas)+vMassTrn(iAVB1e1_gas)+ &
-!         & vMassTrn(iAVB1e2_gas)+vMassTrn(iAVB1e3_gas)+ &
-!         !& vMassTrn(iAVB1e4_gas)+vMassTrn(iAVB1e5_gas)+vMassTrn(iAVB1e6_gas)+ &
-!         & vMassTrn(iBVB0_gas)+vMassTrn(iBVB1e0_gas)+vMassTrn(iBVB1e1_gas)+ &
-!         & vMassTrn(iBVB1e2_gas)+vMassTrn(iBVB1e3_gas)
-!if(nIter == 5)then
-!call msg('End cOAer, cOGas', cOAer, cOGas)
-!endif
  
   end subroutine transform_AerDynVBS
+
   !*******************************************************************
 
 
@@ -443,26 +324,20 @@ MODULE aer_dyn_VBS
     rulesAerDynVBS%modeSOA = fu_set_mode(fixed_diameter_flag, 0.1e-6, 1.0e-6, 0.5e-6) !whatever
     ! parameters for the bins from Tsimpidi ea 2010
     ! First 2 bins assumed to be always aerosol (lumped to VB0) and last 3 always gas(do not exist in particulate phase)
-    !rulesAerDynVBS%Csat_298 = /0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0/  !ug/m3
-    rulesAerDynVBS%Csat_298 = (/1.0e-9, 10.0e-9, 100.0e-9, 1000.0e-9/) !kg/m3
-    !rulesAerDynVBS%dH = /112.0, 106.0, 100.0, 94.0, 88.0, 82.0, 76.0, 70.0, 64.0/  !kJ/mol
-    rulesAerDynVBS%dH = (/100.0e3, 94.0e3, 88.0e3, 82.0e3/) !J/mol
-!    rulesAerDynVBS%MolMass = (/250.0e-3, 250.0e-3, 250.0e-3, 250.0e-3/) !kg/mol
+    rulesAerDynVBS%Csat_298 = (/0., 1.0e-9, 10.0e-9, 100.0e-9, 1000.0e-9/) !kg/m3
+    rulesAerDynVBS%dH = (/0., 100.0e3, 94.0e3, 88.0e3, 82.0e3/) !J/mol
     rulesAerDynVBS%defined = silja_true
 
   end subroutine set_rules_AerDynVBS
  
   !************************************************************************************
 
-  logical function fu_if_tla_required_VBS(rules) result(required)
-    ! Collect transformations' requests for tangent linearization. If tangent linear
-    ! is not allowed, corresponding subroutine sets error. 
+  integer function fu_tla_size_VBS(rules) result(n)
     implicit none
-    type(Tchem_rules_AerDynVBS), intent(out) :: rules
+    type(Tchem_rules_AerDynVBS), intent(in) :: rules
     
-    call set_error('Aerosol dynamics VBS does not have TLA/ADJOINT','fu_if_tla_required_VBS')
-    required = .false.
+    n  = 1
     
-  end function fu_if_tla_required_VBS
+  end function fu_tla_size_VBS
 
 END MODULE aer_dyn_VBS

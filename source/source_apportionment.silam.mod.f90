@@ -34,8 +34,7 @@ module source_apportionment
   ! 
   ! where rho is the emission density in kg / (m*s). This way, the 
   ! squared sum, as used in the cost function, becomes only
-  ! dependent on the (continuous) distributino of rho, not
-  ! dz.
+  ! dependent on the (continuous) distribution of rho, not dz.
 
   ! Using the weighted mode generally recommended. Without it, the inversion will favour
   ! putting the emission into thinner levels.
@@ -51,15 +50,17 @@ module source_apportionment
   public process_emission_adjoint
   public zero_processor
   public fu_type
+  public fu_grid
+  public fu_vertical
   public set_da_source_indices
-  
-  public Temission_processor
   public fu_species_list
+  public report
 
   private fu_defined_processor
   private fu_type_processor
   private fu_vertical_proc
   private fu_grid_proc
+  private report_emission_processor
   
   interface set_emission_processor
      module procedure set_emission_processor_from_params
@@ -77,15 +78,17 @@ module source_apportionment
   interface fu_grid
      module procedure fu_grid_proc
   end interface
-  public fu_grid
 
   interface fu_vertical
      module procedure fu_vertical_proc
   end interface
-  public fu_vertical
 
   interface set_missing
      module procedure set_missing_processor
+  end interface
+  
+  interface report
+    module procedure report_emission_processor
   end interface
 
   type Temission_processor
@@ -98,16 +101,24 @@ module source_apportionment
      integer :: num_times 
      type(chemical_adaptor) :: adapt_transp_to_emis 
      logical :: defined = .false.
-     integer :: type, nspecies
+     integer :: emProc_type, nspecies
   end type Temission_processor
+  public Temission_processor
 
-  integer, parameter, public :: processor_scaling = 91, processor_void = 90, processor_tm_hgt_scale = 92, &
-       & processor_tm_hgt_force = 93, processor_tm_hgt_force_wgt = 94, processor_time_height = 95
+  integer, parameter, public :: processor_scaling_flag = 91, &
+                              & processor_void_flag = 90, &
+                              & processor_tm_hgt_scale_flag = 92, &
+                              & processor_tm_hgt_force_flag = 93, &
+                              & processor_tm_hgt_force_wgt_flag = 94, &
+                              & processor_time_height_flag = 95
   ! Indices in the 1th dimension of time_slots array:
   integer, parameter, public :: slot_end = 2, slot_start = 1
   real, parameter, public :: tm_hgt_force_scaling = 1e3
 
 contains
+
+  !************************************************************
+
   subroutine set_da_source_indices(num_sources)
     implicit none
     integer, intent(in) :: num_sources
@@ -134,6 +145,8 @@ contains
     DA_NUM_SOURCES = num_sources
   end subroutine set_da_source_indices
 
+  !************************************************************
+
   subroutine set_missing_processor(proc)
     implicit none
     type(Temission_processor), intent(out) :: proc
@@ -142,19 +155,23 @@ contains
     ! Default initialization will occur.
     !
   end subroutine set_missing_processor
-  
+
+  !************************************************************
+
   logical function fu_defined_processor(proc) result(is_defined)
     implicit none
     type(Temission_processor), intent(in) :: proc
     is_defined = proc%defined
   end function fu_defined_processor
-  
+
+  !************************************************************
+
   function fu_data(proc) result(data_ptr)
     implicit none
     type(Temission_processor), intent(in) :: proc
     real, dimension(:), pointer :: data_ptr
     
-    if (proc%type == processor_void) then
+    if (proc%emProc_type == processor_void_flag) then
       nullify(data_ptr)
     else
       data_ptr => proc%scale_factor
@@ -162,11 +179,15 @@ contains
 
   end function fu_data
 
+  !************************************************************
+
   integer function fu_type_processor(proc) result(proc_type)
     implicit none
     type(Temission_processor), intent(in) :: proc
-    proc_type = proc%type
+    proc_type = proc%emProc_type
   end function fu_type_processor
+
+  !************************************************************
 
   function fu_grid_proc(proc) result(grd)
     implicit none
@@ -175,12 +196,16 @@ contains
     grd = proc%grid
   end function fu_grid_proc
 
+  !************************************************************
+
   function fu_vertical_proc(proc) result(vert)
     implicit none
     type(Temission_processor), intent(in) :: proc
     type(silam_vertical) :: vert
     vert = proc%vertical
   end function fu_vertical_proc
+
+  !************************************************************
 
   function fu_species_list(proc) result(species_list)
     implicit none
@@ -192,7 +217,8 @@ contains
 
   !************************************************************************************
 
-  subroutine set_emission_processor_from_params(map_emis, species_transport, proc_type, proc, time_slots)
+  subroutine set_emission_processor_from_params(map_emis, species_transport, proc_type, proc, &
+                                              & time_slots)
     implicit none
     type(tMass_map), intent(in) :: map_emis
     type(silam_species), dimension(:), intent(in) :: species_transport
@@ -206,7 +232,7 @@ contains
     type(silam_species), dimension(:), pointer :: species_emission
 
     select case (proc_type)
-    case(processor_scaling)
+    case(processor_scaling_flag)
       if (fu_fails(.not. present(time_slots), 'Time dimension not supported', 'set_emission_processor')) return
       nx = map_emis%nx
       ny = map_emis%ny
@@ -216,17 +242,18 @@ contains
       allocate(proc%scale_factor(nx*ny*nsp), proc%species_list(nsp), stat=stat)
       if (fu_fails(stat == 0, 'Allocate failed', 'set_Temission_processor')) return
       nullify(proc%time_slots)
-      proc%scale_factor = real_missing
+      proc%scale_factor = 1. !! unity scaling by deafult. If defined is set below, the scale_factor must be meaningful.
       proc%grid = map_emis%gridTemplate
       call set_missing(proc%vertical, ifNew=.true.)
       proc%species_list = species_emission
       proc%nspecies = nsp
+      proc%num_times = int_missing
 
       call create_adaptor(species_transport, species_emission, proc%adapt_transp_to_emis, &
                         & allow_missing=.true.)
       if (error) return
 
-    case(processor_tm_hgt_scale, processor_tm_hgt_force, processor_tm_hgt_force_wgt)
+    case(processor_tm_hgt_scale_flag, processor_tm_hgt_force_flag, processor_tm_hgt_force_wgt_flag)
       if (fu_fails(present(time_slots), 'time_slots required', 'set_emission_processor')) return
       if (fu_fails(size(time_slots, 1) == 2, 'Strange shape for time_slots', 'set_emission_processor')) return
       nsp = map_emis%nspecies
@@ -238,7 +265,7 @@ contains
       allocate(proc%scale_factor(nz*num_times*nsp), proc%species_list(nsp), proc%time_slots(2, num_times), &
              & stat=stat)
       if (fu_fails(stat == 0, 'Allocate failed', 'set_Temission_processor')) return
-      proc%scale_factor = real_missing
+      proc%scale_factor = 1.
       proc%grid = grid_missing
       proc%vertical = map_emis%vertTemplate
       proc%species_list = species_emission
@@ -248,7 +275,7 @@ contains
                         & allow_missing=.true.)
       if (error) return
 
-    case(processor_void)
+    case(processor_void_flag)
       nullify(proc%scale_factor, proc%time_slots, proc%species_list)
       proc%grid = grid_missing
 
@@ -258,10 +285,13 @@ contains
     end select
 
     proc%defined = .true.
-    proc%type = proc_type
+    proc%emProc_type = proc_type
 
   end subroutine set_emission_processor_from_params
 
+  
+  !*******************************************************************
+  
   subroutine set_emission_processor_from_input(disp_market, valid_time, map_emis, &
                                              & species_transport, proc_type, proc)
     implicit none
@@ -283,13 +313,13 @@ contains
 
     select case (proc_type)
       
-    case(processor_scaling)
+    case(processor_scaling_flag)
       species_emission => map_emis%species
       do isp_emis = 1, size(species_emission)
         fid = fu_set_field_id(met_src_missing, emission_scaling_flag, valid_time, zero_interval, &
                             & dispersion_grid, surface_level, species=species_emission(isp_emis))
         if (error) return
-        field_emis => fu_get_field_from_mm_general(disp_market, fid, ifMandatory=.false.)
+        call get_field_from_mm_general(disp_market, fid, field_emis, ifMandatory=.false.)
         if (error) then
           call set_error('Failed to set emission_processor from input', 'set_emission_processor_from_input')
           return
@@ -318,8 +348,9 @@ contains
         proc%scale_factor(ind_start:ind_end:stride) = emis_data_for_species(1:fs_dispersion)
       end do
 
-    case(processor_tm_hgt_scale, processor_tm_hgt_force, processor_tm_hgt_force_wgt)
-      call set_error('Cannot set this processor type from disp market', 'set_emission_processor')
+    case(processor_tm_hgt_scale_flag, processor_tm_hgt_force_flag, processor_tm_hgt_force_wgt_flag)
+      call set_error('Cannot set this processor type from disp market:' + &
+                   & fu_str(processor_scaling_flag), 'set_emission_processor')
       return
 
     case default
@@ -331,12 +362,15 @@ contains
 
   end subroutine set_emission_processor_from_input
 
+
+  !*******************************************************************
+
   subroutine process_emission_forward(proc, map_emis, map_emis_px, map_emis_py, map_emis_pz, now, timestep)
     ! 
     ! Apply the emission adjustment in forward mode. Modifies the emission mass map
     ! according to the mode and content of the processor.
-    ! Moments are assumed given for emission mass, not centre of mass.
-    ! If using centres off mass remove modifications to map_emis_px etc.
+    ! Moments are assumed given, not centre of mass.
+    ! If using centres of mass remove modifications to map_emis_px etc.
     ! 
     implicit none
     type(Temission_processor), intent(in) :: proc
@@ -347,7 +381,7 @@ contains
     integer :: ix, iy, isp, nx, ny, nspecies, ind, ilev, nz, ind_time
     integer, parameter :: isrc=1
     real :: scaling, scaling_max, seconds, mass
-    real, dimension(:), pointer :: lev_wgt
+    real, dimension(map_emis%n3d) :: lev_wgt
     
     if (.not. proc%defined) return
     if (map_emis%nspecies /= map_emis_px%nspecies) then
@@ -357,92 +391,90 @@ contains
 
     seconds = fu_sec(timestep)
     
-    select case(proc%type)
-    case(processor_void)
-      return
-        
-    case(processor_scaling)
-      call grid_dimensions(proc%grid, nx, ny)
-      nspecies = proc%nspecies
-      scaling_max = -1
-      map_emis%ifGridValid = .true.
-
-      do iy = 1, ny
-        do ix = 1, nx
-          do isp = 1, nspecies
-            ind = (iy-1)*nspecies*nx + (ix-1)*nspecies + isp
-            scaling = proc%scale_factor(ind)
-            map_emis%arm(isp,isrc,:,ix,iy) = map_emis%arm(isp,isrc,:,ix,iy)*scaling 
-
-            map_emis_px%arm(isp,isrc,:,ix,iy) = map_emis_px%arm(isp,isrc,:,ix,iy)*scaling
-            map_emis_py%arm(isp,isrc,:,ix,iy) = map_emis_py%arm(isp,isrc,:,ix,iy)*scaling
-            map_emis_pz%arm(isp,isrc,:,ix,iy) = map_emis_pz%arm(isp,isrc,:,ix,iy)*scaling
-
-            if (scaling > scaling_max) scaling_max = scaling
-          end do
-        end do
-      end do
-      call msg('Max scaling', scaling_max)
-      call report_map(map_emis)
-
-    case(processor_tm_hgt_scale, processor_tm_hgt_force, processor_tm_hgt_force_wgt)
-      do ind_time = 1,  proc%num_times
-        if (proc%time_slots(slot_start, ind_time) <= now .and. now < proc%time_slots(slot_end, ind_time)) exit
-      end do
-      if (ind_time > proc%num_times) then
-        call msg_warning('No time slot found for processor')
+    select case(proc%emProc_type)
+      case(processor_void_flag)
         return
-      else
-        call msg('time_height_emission forward: slot start: ' &
-               & // fu_str(proc%time_slots(slot_start, ind_time)))
-      end if
-      
-      nz = map_emis%n3d
-      nspecies = proc%nspecies
-      if (proc%type == processor_tm_hgt_scale) then
-        do ilev = 1, nz
-          do isp = 1, nspecies
-            ind = (ind_time-1)*nspecies*nz + (ilev-1)*nspecies + isp
-            scaling = proc%scale_factor(ind)
-            map_emis%arm(isp,isrc,ilev,:,:) = map_emis%arm(isp,isrc,ilev,:,:) * scaling
-            map_emis_px%arm(isp,isrc,ilev,:,:) = map_emis_px%arm(isp,isrc,ilev,:,:)*scaling
-            map_emis_py%arm(isp,isrc,ilev,:,:) = map_emis_py%arm(isp,isrc,ilev,:,:)*scaling
-            map_emis_pz%arm(isp,isrc,ilev,:,:) = map_emis_pz%arm(isp,isrc,ilev,:,:)*scaling
-            if (scaling > scaling_max) scaling_max = scaling
+
+      case(processor_scaling_flag)
+        call grid_dimensions(proc%grid, nx, ny)
+        nspecies = proc%nspecies
+        scaling_max = -1
+        map_emis%ifGridValid = .true.
+
+        !$OMP PARALLEL default(none) shared(nx, ny, nspecies, proc, &
+        !$OMP   & map_emis, map_emis_px, map_emis_py, map_emis_pz) &
+        !$OMP  private(ix,iy,isp,ind,scaling)
+        !$OMP DO collapse(2)
+        do iy = 1, ny
+          do ix = 1, nx
+            do isp = 1, nspecies
+              ind = (iy-1)*nspecies*nx + (ix-1)*nspecies + isp
+              scaling = proc%scale_factor(ind)
+              map_emis%arm(isp,isrc,:,ix,iy) = map_emis%arm(isp,isrc,:,ix,iy)*scaling 
+              map_emis_px%arm(isp,isrc,:,ix,iy) = map_emis_px%arm(isp,isrc,:,ix,iy)*scaling
+              map_emis_py%arm(isp,isrc,:,ix,iy) = map_emis_py%arm(isp,isrc,:,ix,iy)*scaling
+              map_emis_pz%arm(isp,isrc,:,ix,iy) = map_emis_pz%arm(isp,isrc,:,ix,iy)*scaling
+            end do
           end do
         end do
-        call msg('Max scaling', scaling_max)
-        
-      else
-        ! The forcing mode. The sqrt-weighting can be applied, see top of the module. 
-        ! The forced emission is applied with zero centre of mass.
-        lev_wgt => fu_work_array()
-        if (proc%type == processor_tm_hgt_force_wgt) then
-          lev_wgt(1:nz) = (/(sqrt(fu_layer_thickness_m(fu_level(map_emis%vertTemplate, ilev))), ilev=1, nz)/)
+        !$OMP END DO
+        !$OMP END PARALLEL
+      case(processor_tm_hgt_scale_flag, processor_tm_hgt_force_flag, processor_tm_hgt_force_wgt_flag)
+        do ind_time = 1,  proc%num_times
+          if (proc%time_slots(slot_start, ind_time) <= now .and. &
+            & now < proc%time_slots(slot_end, ind_time)) exit
+        end do
+        if (ind_time > proc%num_times) then
+          call msg_warning('No time slot found for processor')
+          return
         else
-          lev_wgt(1:nz) = 1.0
+          call msg('time_height_emission forward: slot start: ' &
+                 & // fu_str(proc%time_slots(slot_start, ind_time)))
         end if
-        do ilev = 1, nz
-          do isp = 1, nspecies
-            ind = (ind_time-1)*nspecies*nz + (ilev-1)*nspecies + isp
-            mass = proc%scale_factor(ind)*seconds
-            where (map_emis%arm(isp,isrc,ilev,:,:) > 0)
-              map_emis%arm(isp,isrc,ilev,:,:) = mass * tm_hgt_force_scaling  * lev_wgt(ilev)
-            end where
-            map_emis_px%arm(isp,isrc,ilev,:,:) = 0.0!map_emis_px%arm(isp,isrc,ilev,:,:)*scaling
-            map_emis_py%arm(isp,isrc,ilev,:,:) = 0.0!map_emis_py%arm(isp,isrc,ilev,:,:)*scaling
-            map_emis_pz%arm(isp,isrc,ilev,:,:) = 0.0!map_emis_pz%arm(isp,isrc,ilev,:,:)*scaling
+
+        nz = map_emis%n3d
+        nspecies = proc%nspecies
+        if (proc%emProc_type == processor_tm_hgt_scale_flag) then
+          do ilev = 1, nz
+            do isp = 1, nspecies
+              ind = (ind_time-1)*nspecies*nz + (ilev-1)*nspecies + isp
+              scaling = proc%scale_factor(ind)
+              map_emis%arm(isp,isrc,ilev,:,:) = map_emis%arm(isp,isrc,ilev,:,:) * scaling
+              map_emis_px%arm(isp,isrc,ilev,:,:) = map_emis_px%arm(isp,isrc,ilev,:,:)*scaling
+              map_emis_py%arm(isp,isrc,ilev,:,:) = map_emis_py%arm(isp,isrc,ilev,:,:)*scaling
+              map_emis_pz%arm(isp,isrc,ilev,:,:) = map_emis_pz%arm(isp,isrc,ilev,:,:)*scaling
+              if (scaling > scaling_max) scaling_max = scaling
+            end do
           end do
-        end do
-        call free_work_array(lev_wgt)
-        
-        !call msg('sum of emission map after forcing:', sum(map_emis%arm(:,:,:,:,:)))
-      end if
+          call msg('Max scaling', scaling_max)
+
+        else
+          ! The forcing mode. The sqrt-weighting can be applied, see top of the module. 
+          ! The forced emission is applied with zero centre of mass.
+          if (proc%emProc_type == processor_tm_hgt_force_wgt_flag) then
+            lev_wgt(1:nz) = (/(sqrt(fu_layer_thickness_m(fu_level(map_emis%vertTemplate, ilev))), ilev=1, nz)/)
+          else
+            lev_wgt(1:nz) = 1.0
+          end if
+          do ilev = 1, nz
+            do isp = 1, nspecies
+              ind = (ind_time-1)*nspecies*nz + (ilev-1)*nspecies + isp
+              mass = proc%scale_factor(ind)*seconds
+              where (map_emis%arm(isp,isrc,ilev,:,:) > 0)
+                map_emis%arm(isp,isrc,ilev,:,:) = mass * tm_hgt_force_scaling  * lev_wgt(ilev)
+              end where
+              map_emis_px%arm(isp,isrc,ilev,:,:) = 0.0!map_emis_px%arm(isp,isrc,ilev,:,:)*scaling
+              map_emis_py%arm(isp,isrc,ilev,:,:) = 0.0!map_emis_py%arm(isp,isrc,ilev,:,:)*scaling
+              map_emis_pz%arm(isp,isrc,ilev,:,:) = 0.0!map_emis_pz%arm(isp,isrc,ilev,:,:)*scaling
+            end do
+          end do
+
+          !call msg('sum of emission map after forcing:', sum(map_emis%arm(:,:,:,:,:)))
+        end if
       
-    case default
-      call set_error('Strange processor type', 'process_emission_forward')
-      return
-      
+      case default
+        call set_error('Strange processor type', 'process_emission_forward')
+        return
     end select
     
   contains
@@ -459,7 +491,11 @@ contains
     
   end subroutine process_emission_forward
 
-  subroutine process_emission_adjoint(map_emis, map_transp, proc, now, timestep)
+  
+  !*******************************************************************
+
+  subroutine process_emission_adjoint(map_emis, map_transp, cell_metric, buf, proc, now, timestep)
+    !!   "observation on" adjoint massmap
     ! 
     ! Apply the emission processor in adjoint mode. In the end of assimilation/inversion
     ! window, the action of the adjoint processor recovered from the processor data array.
@@ -469,65 +505,116 @@ contains
     implicit none
     type(tmass_map), intent(in) :: map_emis
     type(tmass_map), intent(in) :: map_transp
+    integer, intent(in) :: cell_metric
+    TYPE(Tfield_buffer), intent(in) :: buf  !! dispersion_buffer
     type(Temission_processor), intent(inout) :: proc
     type(silja_time), intent(in) :: now
     type(silja_interval), intent(in) :: timestep
 
     integer :: ix, iy, isp_transp, isp_emis, ind, ilev, nx, ny, nlevs, nspecies, nspecies_transp, ind_time
-    real :: transp_val, emis_val, volume, seconds
+    real :: transp_val, emis_val, volume, seconds, weight_past, cell_area
     type(chemical_adaptor) :: adaptor
-    real, dimension(:), pointer :: thickness, lev_wgt
-    !map_emis%arm = 1.0
+    real, dimension(map_transp%n3d) :: thickness, lev_wgt
+    type(field_3d_data_ptr), pointer  :: airmass3dp, airmass3df
+    integer :: iSpOnes
+    character(len=*), parameter :: sub_name = 'process_emission_adjoint'
 
     if (.not. proc%defined) return
+    if (proc%emProc_type == processor_void_flag) return
 
-    seconds = abs(fu_sec(timestep))
-    
-    select case(proc%type) 
-    case (processor_void)
+    if (cell_metric /= cloud_metric_geometry_flag .and. proc%emProc_type /= processor_scaling_flag) then
+      call set_error("Unimplemented combination of cell_metric and emProc_type", sub_name)
       return
-    case (processor_scaling)
+      ! RK: Should be trivial to implement here, but I have no test case to debug it
+      ! RK: processor_scaling_flag can be used as an example
+    endif
+
+    adaptor = proc%adapt_transp_to_emis
+    nx = map_emis%nx
+    ny = map_emis%ny
+    nlevs = map_emis%n3d
+    nspecies_transp = map_transp%nspecies
+    nspecies = proc%nspecies
+
+    ind = int_missing
+    airmass3dp => null()
+    airmass3df => null()
+    select case (cell_metric)
+      case (cloud_metric_geometry_flag)
+         thickness(1:nlevs) = (/(fu_layer_thickness_m(fu_level(map_emis%vertTemplate, ilev)), ilev=1, nlevs)/)
+       case (cloud_metric_cellmass_flag)
+         ind = fu_index(buf, disp_cell_airmass_flag)
+         if (ind < 1) then                              
+           call set_error('Failed to find the air mass field', sub_name)
+           return
+         end if
+         airmass3dp => buf%p4d(ind)%past
+         airmass3df => buf%p4d(ind)%future
+         weight_past = (buf%time_future - now) / (buf%time_future - buf%time_past)
+       case(cloud_metric_ones_flag)
+         iSpOnes = select_single_species(map_transp%species, nspecies_transp, &
+                           & 'ones', in_gas_phase, real_missing)
+         if (error .or. (iSpOnes < 1)) then
+           call set_error("Couldn't find 'ones' species", sub_name)
+           return
+         endif
+         !! Stupidity check
+         volume = map_transp%arm(iSpOnes, 1, 1, 1, 1)    ! kg or whatever
+         if( fu_fails(volume > 1, "Strange ones mass", sub_name)) return
+      case default
+        call set_error("Strange cloud_metric_flag: "//trim(fu_str(cell_metric)), sub_name)
+         return
+    end select 
+    
+    select case(proc%emProc_type) 
+    case (processor_scaling_flag)
+      
+      call msg("Processing adjoint emissions")
       
       if (fu_fails(map_transp%nsrc == DA_NUM_SOURCES, &
-           & 'Wrong number of sources in transport map', 'process_emission_adjoint')) return
+           & 'Wrong number of sources in transport map', sub_name)) return
 
-      if (fu_fails(map_transp%gridTemplate == proc%grid, 'Grids do not match', 'process_emission_adjoint')) return
-
-      call grid_dimensions(proc%grid, nx, ny)
-      nlevs = map_transp%n3d
-      thickness => fu_work_array()
-      if (error) return
-      thickness(1:nlevs) = (/(fu_layer_thickness_m(fu_level(map_emis%vertTemplate, ilev)), ilev=1, nlevs)/)
-      call grid_dimensions(proc%grid, nx, ny)
-      nspecies_transp = map_transp%nspecies
-      nspecies = proc%nspecies
-      adaptor = proc%adapt_transp_to_emis
-
+      if (fu_fails(map_transp%gridTemplate == proc%grid, 'Grids do not match', sub_name)) return
+      
+      !$OMP parallel if (.TRUE.) default(none) &
+      !$OMP & shared(map_emis,map_transp,nx,ny,nlevs, nspecies_transp, nspecies,cell_metric,thickness, &
+      !$OMP & airmass3dp,airmass3df,proc,weight_past, ispones, adaptor, DA_POSITIVE, DA_ZERO, DA_NEGATIVE,&
+      !$OMP & DA_ZERO_COEF_GRAD, DA_NEGT_COEF_GRAD) &
+      !$OMP & private(cell_area,ix,iy,ilev,isp_transp,volume,ind,isp_emis,emis_val,transp_val)
+      !$OMP DO  collapse (2)
       do iy = 1, ny
         do ix = 1, nx
+          if(cell_metric == cloud_metric_geometry_flag) cell_area = fu_cell_size(map_emis%gridTemplate, ix, iy)
           do ilev = 1, nlevs
+            if (cell_metric == cloud_metric_geometry_flag) then
+              volume = thickness(ilev) * cell_area
+            elseif (cell_metric == cloud_metric_cellmass_flag) then
+              ind = ix + nx * (iy - 1) !index in 2d field
+              volume = airmass3dp%p2d(ilev)%ptr(ind) * weight_past + &  !! Actually cell mass
+                       airmass3df%p2d(ilev)%ptr(ind) * (1. - weight_past)
+            elseif (cell_metric == cloud_metric_ones_flag) then
+              volume = map_transp%arm(iSpOnes, 1, ilev, ix, iy)    ! kg or whatever
+            else 
+              call set_error("Strange cloud_metric_flag: "//trim(fu_str(cell_metric)), sub_name)
+            endif
             do isp_transp = 1, nspecies_transp
               isp_emis = adaptor%isp(isp_transp)
               if (isp_emis == int_missing) cycle
               ind = (iy-1)*nspecies*nx + (ix-1)*nspecies + isp_emis
               emis_val = map_emis%arm(isp_emis,1,ilev,ix,iy)
-              volume = thickness(ilev) * fu_cell_size(map_emis%gridTemplate, ix, iy)
               transp_val = map_transp%arm(isp_transp,DA_POSITIVE,ilev,ix,iy) &
                    & + DA_ZERO_COEF_GRAD * map_transp%arm(isp_transp,DA_ZERO,ilev,ix,iy) &
                    & + DA_NEGT_COEF_GRAD * map_transp%arm(isp_transp,DA_NEGATIVE,ilev,ix,iy)
 
               proc%scale_factor(ind) = proc%scale_factor(ind) + emis_val*transp_val / volume
-
             end do
           end do
         end do
       end do
-      call free_work_array(thickness)
+      !$OMP ENDDO
+      !$OMP END parallel
 
-    case (processor_tm_hgt_scale, processor_tm_hgt_force, processor_tm_hgt_force_wgt)
-      nlevs = map_transp%n3d
-      nspecies = proc%nspecies
-      adaptor = proc%adapt_transp_to_emis
+    case (processor_tm_hgt_scale_flag, processor_tm_hgt_force_flag, processor_tm_hgt_force_wgt_flag)
 
       do ind_time = 1,  proc%num_times
         if (proc%time_slots(slot_start, ind_time) <= now .and. now < proc%time_slots(slot_end, ind_time)) exit
@@ -539,25 +626,18 @@ contains
         call msg('time_height_emission adjoint: slot start: ' &
                & // fu_str(proc%time_slots(slot_start, ind_time)))
       end if
-      thickness => fu_work_array()
-      thickness(1:nlevs) = (/(fu_layer_thickness_m(fu_level(map_emis%vertTemplate, ilev)), ilev=1, nlevs)/)
-      nx = map_emis%nx
-      ny = map_emis%ny
-      nspecies_transp = map_transp%nspecies
-      nspecies = proc%nspecies
-      adaptor = proc%adapt_transp_to_emis
       ! summation over x, y (and timeslot), ilev, isp resolved
 
-      if (proc%type == processor_tm_hgt_scale) then
+      if (proc%emProc_type == processor_tm_hgt_scale_flag) then
         do iy = 1, ny
           do ix = 1, nx
             do ilev = 1, nlevs
+              volume = thickness(ilev) * fu_cell_size(map_emis%gridTemplate, ix, iy)
               do isp_transp = 1, nspecies_transp
                 isp_emis = adaptor%isp(isp_transp)
                 if (isp_emis == int_missing) cycle
                 ind = (ind_time-1)*nspecies*nlevs + (ilev-1)*nspecies + isp_emis
                 emis_val = map_emis%arm(isp_emis,1,ilev,ix,iy)
-                volume = thickness(ilev) * fu_cell_size(map_emis%gridTemplate, ix, iy)
                 transp_val = map_transp%arm(isp_transp,DA_POSITIVE,ilev,ix,iy) &
                      & + DA_ZERO_COEF_GRAD * map_transp%arm(isp_transp,DA_ZERO,ilev,ix,iy) &
                      & + DA_NEGT_COEF_GRAD * map_transp%arm(isp_transp,DA_NEGATIVE,ilev,ix,iy)
@@ -569,12 +649,12 @@ contains
         end do
 
       else
-        lev_wgt => fu_work_array()
-        if (proc%type == processor_tm_hgt_force_wgt) then
+        if (proc%emProc_type == processor_tm_hgt_force_wgt_flag) then
           lev_wgt(1:nlevs) = sqrt(thickness(1:nlevs))
         else
           lev_wgt(1:nlevs) = 1.0
         end if
+        seconds = abs(fu_sec(timestep))
         do iy = 1, ny
           do ix = 1, nx
             do ilev = 1, nlevs
@@ -596,23 +676,82 @@ contains
             end do
           end do
         end do
-        call free_work_array(lev_wgt)
 
       end if
-      call free_work_array(thickness)
-
     case default
-      call set_error('Strange processor type', 'process_emission_adjoint')
+      call set_error('Strange processor type', sub_name)
       return
       
     end select
   end subroutine process_emission_adjoint
+
+
+  !************************************************************
 
   subroutine zero_processor(proc)
     implicit none
     type(Temission_processor), intent(inout) :: proc
     if (associated(proc%scale_factor)) proc%scale_factor = 0.0
   end subroutine zero_processor
+
+  
+  !************************************************************
+
+  subroutine report_emission_processor(proc, message_)
+    !
+    ! Emission processor report
+    !
+    implicit none
+    
+    ! Imported parameters
+    type(Temission_processor), intent(in) :: proc
+    character(len=*), intent(in), optional :: message_
+    character(len=fnlen) :: message
+
+    
+    ! Local variables
+    integer :: iTmp
+    
+    if(present(message_)) then 
+        message = message_
+    else
+       message = ""
+    endif
+
+    if(proc%defined)then
+      if (proc%emProc_type == processor_void_flag) then
+        call msg(trim(message) // ": VOID emission processor")
+      else
+        call msg('')
+        call msg(message)
+        call msg('----------------- emission processor report ----------------')
+        call msg('Processor type:' + fu_str(proc%emProc_type))
+        call report(proc%grid)
+        call report(proc%vertical)
+        call msg('Number of species and times:', proc%nspecies, proc%num_times)
+        do iTmp = 1, proc%nspecies
+          call msg('Species:' + fu_str(proc%species_list(iTmp)))
+        end do
+        if(proc%num_times > 0 .and. associated(proc%time_slots))then
+          call msg('Starting time:' + fu_str(proc%time_slots(1,1)))
+          call msg('Ending time:' + fu_str(proc%time_slots(2,proc%num_times)))
+        endif
+        
+        if(associated(proc%scale_factor))then
+          call msg('scale_factor min / max:', minval(proc%scale_factor), maxval(proc%scale_factor))
+          call msg('scale_factor minloc:', minloc(proc%scale_factor, KIND=4))
+          call msg('scale_factor maxloc:', maxloc(proc%scale_factor, KIND=4))
+        else
+          call msg('Scale_factor is not associated')
+        endif
+  !      call report(proc%adapt_transp_to_emis) no such function
+        call msg('----------------- END emission processor report ----------------')
+      endif
+    else
+      call msg(trim(message) // ": UNDEFINED emission processor")
+    endif
+    
+  end subroutine report_emission_processor
 
 end module source_apportionment
 

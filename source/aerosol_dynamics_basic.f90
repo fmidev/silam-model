@@ -51,8 +51,9 @@ MODULE aer_dyn_basic
   integer, private, save :: soluble, insoluble
   !
   ! Material properties  
-  character(len = substNmLen), dimension(:), pointer, private, save :: chADBMaterialNms
-  real, dimension(:), pointer, private, save :: factor2volume, density, molarMass, volMolec
+  character(len = substNmLen), dimension(:), allocatable, private, save :: chADBMaterialNms
+  logical, dimension(:), allocatable, private, save :: ifSmallSection
+  real, dimension(:), allocatable, private, save :: factor2volume, density, molarMass, volMolec
   !
   ! Aerosol modes
   type(Taerosol_mode), dimension(:,:), pointer, private, save :: modesADB
@@ -286,7 +287,10 @@ MODULE aer_dyn_basic
     ! Imported parameter
     type(silam_species), dimension(:), allocatable, intent(out) :: species_lst_initial
     type(Tchem_rules_AerDynBasic), intent(inout) :: rules
+
     ! local variables 
+    character(len=4), dimension(7), parameter :: ADB_species = &
+                                          & [character(len=4) :: 'SO4', '_NO3', 'NH4', 'OC', 'BC', 'sslt', 'dust']
     integer :: i, iMode
     real ::  ratio, dlo, dhi, dmid
     character(len=substNmLen) :: modeNm
@@ -297,20 +301,15 @@ MODULE aer_dyn_basic
     REAL(r8k), parameter :: ions = 3.0_r8k,   & ! van't Hoff factor (ions produced upon dissociation)
                            slim = 1.005_r8k    ! water saturation used as limit                               
 
-    integer :: nRH, nT, iRH, iT, klev
+    integer :: nRH, nT, iRH, iT, klev, iMat, iModeStart
     real, dimension(:), pointer :: rh, t
     type(TwetParticle) :: wetP
-
     REAL, dimension(:), pointer :: pres0, & ! pressure at each vertical level [Pa]
                                    temp0   ! temperature at each vertical level [K]
-
     INTEGER :: ii, jj, kk  ! loop indices
-
     REAL(r8k) :: mpart(nBins)   ! approximate mass of particles [kg]
-
     real :: ftmp
-
-
+    
     ! Named indices
     in1 = 1                           ! regime 1
     in2 = in1 + rules%regNbin(1)      ! regime 2
@@ -321,12 +320,11 @@ MODULE aer_dyn_basic
     fn2 = in3 - 1                    ! regime 2b
     fn3 = in3 + rules%regNbin(3) - 1 ! regime 3b
 
-    allocate(chADBMaterialNms(nMaterials))
-    allocate(density(nMaterials))
-    allocate(molarMass(nMaterials))
-    allocate(volMolec(nMaterials))
-    allocate(factor2volume(nMaterials))
+    allocate(chADBMaterialNms(nMaterials), density(nMaterials), molarMass(nMaterials))
+    allocate(volMolec(nMaterials), factor2volume(nMaterials), ifSmallSection(nMaterials))
+    
     chADBMaterialNms = (/'SO4 ', 'OC  ', 'BC  ', 'sslt', 'dust', '_NO3', 'NH4 '/)
+    ifSmallSection =   (/.true.,.true.,.false., .false., .false.,.true., .true./)
   
     iSO4 = 1
     iOC = 2   
@@ -338,7 +336,6 @@ MODULE aer_dyn_basic
 
     soluble = 1
     insoluble = 2
-
 
     ! Compute the factors for converting silam mass map to ADB vols matrix
     ! Have to take into account, that some things are in moles and some in kg-s
@@ -352,21 +349,15 @@ MODULE aer_dyn_basic
                                             & 'kg', materialPtrTmp) / &
                        & fu_dry_part_density(materialPtrTmp)
     enddo
-
-
     !
     ! First fill the modes array (20 bins, sometimes parallel)
     !-------------------------------------------------------------------------------
     !-- 1) size regime 1: --------------------------------------
     ! 1 parallel
     !
-
     allocate(modesADB(nBins,nParallelBins))
-    allocate(vlolim(nBins))
-    allocate(vhilim(nBins))
-    allocate(dpmid(nBins))
+    allocate(vlolim(nBins), vhilim(nBins), dpmid(nBins))
 !    allocate(speciesADB_aerosol(nBins*2-fn1))
-
 
     ratio = rules%reglims(2)/rules%reglims(1)   ! section spacing
 
@@ -380,9 +371,7 @@ MODULE aer_dyn_basic
        ! ADB wants these ..
        vlolim(i) = pi / 6. * dlo**3
        vhilim(i) = pi / 6. * dhi**3
-
     END DO
-
 
     !-- 2) size regime 2: --------------------------------------
     ! 2 parallel
@@ -403,7 +392,6 @@ MODULE aer_dyn_basic
        vlolim(i) = pi/6 * dlo**3
        vhilim(i) = pi/6 * dhi**3
        dpmid(i) = (0.5*(dhi**3 + dlo**3))**(1./3.)
-
     END DO
 
     !-- 3) size regime 3: --------------------------------------
@@ -425,87 +413,34 @@ MODULE aer_dyn_basic
        vlolim(i) = pi/6 * dlo**3
        vhilim(i) = pi/6 * dhi**3
     END DO
-
     !
     ! Since ADB wants the aerosol features to be strict, it has to fill them in into the 
     ! chemical_aerosol in the chemical rules. That aerosol will be later used for mapping, 
     ! setting source terms with continuous size spectrum, etc.
     !
-
     allocate(species_lst_initial(nMaterials*nBins*nParallelBins))
     species_lst_initial(:) = species_missing
-   
+    !
+    ! Create the species    
+    !
     i = 0
-    materialPtrTmp => fu_get_material_ptr('SO4')
-    do iMode = in1,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo  
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo 
-
-    materialPtrTmp => fu_get_material_ptr('_NO3')
-    do iMode = in1,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo  
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo  
- 
-    materialPtrTmp => fu_get_material_ptr('NH4')
-    do iMode = in1,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo  
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo  
-
-    materialPtrTmp => fu_get_material_ptr('OC')
-    do iMode = in1,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo 
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo 
-
-    materialPtrTmp => fu_get_material_ptr('BC')
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo 
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo 
-
-    materialPtrTmp => fu_get_material_ptr('sslt')
-    do iMode = in2,fn2
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo 
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo 
-
-    materialPtrTmp => fu_get_material_ptr('dust')
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
-    enddo 
-    do iMode = in2,fn3
-      i = i + 1
-      call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
-    enddo 
-
+    do iMat = 1, len(chADBMaterialNms)
+      materialPtrTmp => fu_get_material_ptr(trim(chADBMaterialNms(iMat)))
+      if(ifSmallSection(iMat))then
+        iModeStart = in1
+      else
+        iModeStart = in2
+      endif
+      do iMode = iModeStart,fn3
+        i = i + 1
+        call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,soluble))
+      enddo  
+      do iMode = in2,fn3
+        i = i + 1
+        call set_species(species_lst_initial(i), materialPtrTmp, modesADB(iMode,insoluble))
+      enddo 
+    end do  ! chADBMaterialNms
+    
     allocate(speciesADB_aerTransp(i))
     speciesADB_aerTransp(1:i) = species_lst_initial(1:i)
 
@@ -555,7 +490,8 @@ call set_error('The number concentrations now in transported mass map, linked ae
       do iMode = 1, nBins 
         do iRH = 1, nRH ! Relative humidity 
           do iT = 1, nT
-            wetP = fu_wet_particle_features(fu_get_material_ptr(chADBMaterialNms(i)), fu_massmean_D(modesADB(iMode, 1)), T(iT), RH(iRH))
+            !wetP = fu_wet_particle_features(fu_get_material_ptr(chADBMaterialNms(i)), fu_massmean_D(modesADB(iMode, 1)), T(iT), RH(iRH))
+            wetP = fu_wet_particle_features(fu_get_material_ptr(chADBMaterialNms(i)), RH(iRH))
             if(error)return
             rules%wetParticleGrowth(i, iMode, iRH, iT) = wetP%fGrowthFactor
           enddo
@@ -566,6 +502,9 @@ call set_error('The number concentrations now in transported mass map, linked ae
     call free_work_array(RH)
     call free_work_array(T)
 
+    !
+    ! The coagulation is computed below dynamically, no need to store the lookup table
+    !
 !    ! Fill the coagulation coeffitients table 
 !    if(.not.(fu_leveltype(dispersion_vertical) == layer_btw_2_height .or. &
 !           & fu_leveltype(dispersion_vertical) == layer_btw_2_h_altit_above_msl))then
@@ -602,14 +541,14 @@ call set_error('The number concentrations now in transported mass map, linked ae
 !
 !    call free_work_array(pres0)
 !    call free_work_array(temp0)
-
-
-    contains
-
+!
+!
+!    contains
+!
 !====================================================================================================
-
-      FUNCTION coagc(diam1,diam2,mass1,mass2,temp,pres)
-
+!
+      !FUNCTION coagc(diam1,diam2,mass1,mass2,temp,pres)
+      !
       !
       ! Purpose:
       ! --------
@@ -634,69 +573,68 @@ call set_error('The number concentrations now in transported mass map, linked ae
       ! ---------
       ! Hannele Korhonen (FMI) 2005 
       !
-
-        IMPLICIT NONE
-
-        !-- Input variables ----------
-        REAL, INTENT(IN) :: diam1, diam2   ! diameters of colliding particles [m]
-        REAL(r8k), INTENT(IN) :: mass1, mass2   ! masses -"- [kg]
-        
-        real, intent(in) ::     temp,   &   ! ambient temperature [K]
-                                pres        ! ambient pressure [fxm]
-
-        !-- Output variables ---------
-        REAL(r8k) :: coagc       ! coagulation coefficient of particles [m3/s]
-
-        !-- Local variables ----------  
-        REAL(r8k) :: visc,   &   ! viscosity of air [kg/(m s)]
-                    mfp,    &   ! mean free path of air molecules [m]
-                    mdiam,  &   ! mean diameter of colliding particles [m]
-                    fmdist      ! distance of flux matching [m]
-
-        REAL(r8k), DIMENSION (2) :: diam,   &   ! diameters of particles [m]
-                                   mpart,  &   ! masses of particles [kg]
-                                   knud,   &   ! particle knudsen number [1]
-                                   beta,   &   ! Cunningham correction factor [1]
-                                   dfpart, &   ! particle diffusion coefficient [m2/s]
-                                   mtvel,  &   ! particle mean thermal velocity [m/s]
-                                   omega,  &   !
-                                   tva,    &   ! temporary variable [m]
-                                   flux        ! flux in continuum and free molec. regime [m/s]
-
-        !-- 0) Initializing particle and ambient air variables --------------------
-        diam = (/ diam1, diam2 /)       ! particle diameters [m]
-        mpart = (/ mass1, mass2 /)       ! particle masses [kg]
-        visc = (7.44523e-3_r8k*temp**1.5_r8k)/(5093._r8k*(temp+110.4_r8k)) ! viscosity of air [kg/(m s)]
-        mfp = (1.656e-10_r8k*temp+1.828e-8_r8k)*std_pressure_sl/pres ! mean free path of air [m]
-
-        !-- 2) Slip correction factor for small particles -------------------------
-        knud = 2._r8k*mfp/diam                                    ! Knudsen number
-        beta = 1._r8k+knud*(1.142_r8k+0.558_r8k*exp(-0.999_r8k/knud))! Cunningham correction factor
-        ! (Allen and Raabe, Aerosol Sci. Tech. 4, 269)
-
-        !-- 3) Particle properties ------------------------------------------------
-        dfpart = beta*boltzmann_const*temp/(3._r8k*pi*visc*diam)  ! diffusion coefficient [m2/s]
-        mtvel = sqrt((8._r8k*boltzmann_const*temp)/(pi*mpart))    ! mean thermal velocity [m/s]
-        omega = 8._r8k*dfpart/(pi*mtvel)
-        mdiam = 0.5_r8k*(diam(1)+diam(2))               ! mean diameter [m]
-
-        !-- 4) Calculation of fluxes and flux matching ----------------------------
-        flux(1) = 4._r8k*pi*mdiam*(dfpart(1)+dfpart(2)  )    ! flux in continuum regime [m3/s]
-        flux(2) = pi*sqrt(mtvel(1)**2+mtvel(2)**2)*mdiam**2 !  -"- in free molec. regime [m3/s]
-        ! temporary variable [m]
-        tva(1) = ((mdiam+omega(1))**3 - (mdiam**2+omega(1)**2)* &
-                  sqrt((mdiam**2+omega(1)**2)))/(3._r8k*mdiam*omega(1)) - mdiam
-        ! temporary variable [m]
-        tva(2) = ((mdiam+omega(2))**3 - (mdiam**2+omega(2)**2)* &
-                 sqrt((mdiam**2+omega(2)**2)))/(3._r8k*mdiam*omega(2)) - mdiam
-        ! flux matching distance [m]
-        fmdist = sqrt(tva(1)**2+tva(2)**2)             
-
-        !-- 5) Coagulation coefficient [m3/s] -------------------------------------
-        coagc = flux(1) / (mdiam/(mdiam+fmdist) + flux(1)/flux(2)) 
-
-      END FUNCTION coagc
-
+      !
+      !  IMPLICIT NONE
+      !
+      !  !-- Input variables ----------
+      !  REAL, INTENT(IN) :: diam1, diam2   ! diameters of colliding particles [m]
+      !  REAL(r8k), INTENT(IN) :: mass1, mass2   ! masses -"- [kg]
+      !  
+      !  real, intent(in) ::     temp,   &   ! ambient temperature [K]
+      !                          pres        ! ambient pressure [fxm]
+      !
+      !  !-- Output variables ---------
+      !  REAL(r8k) :: coagc       ! coagulation coefficient of particles [m3/s]
+      !
+      !  !-- Local variables ----------  
+      !  REAL(r8k) :: visc,   &   ! viscosity of air [kg/(m s)]
+      !              mfp,    &   ! mean free path of air molecules [m]
+      !              mdiam,  &   ! mean diameter of colliding particles [m]
+      !              fmdist      ! distance of flux matching [m]
+      !
+      !  REAL(r8k), DIMENSION (2) :: diam,   &   ! diameters of particles [m]
+      !                             mpart,  &   ! masses of particles [kg]
+      !                             knud,   &   ! particle knudsen number [1]
+      !                             beta,   &   ! Cunningham correction factor [1]
+      !                             dfpart, &   ! particle diffusion coefficient [m2/s]
+      !                             mtvel,  &   ! particle mean thermal velocity [m/s]
+      !                             omega,  &   !
+      !                             tva,    &   ! temporary variable [m]
+      !                             flux        ! flux in continuum and free molec. regime [m/s]
+      !
+      !  !-- 0) Initializing particle and ambient air variables --------------------
+      !  diam = (/ diam1, diam2 /)       ! particle diameters [m]
+      !  mpart = (/ mass1, mass2 /)       ! particle masses [kg]
+      !  visc = (7.44523e-3_r8k*temp**1.5_r8k)/(5093._r8k*(temp+110.4_r8k)) ! viscosity of air [kg/(m s)]
+      !  mfp = (1.656e-10_r8k*temp+1.828e-8_r8k)*std_pressure_sl/pres ! mean free path of air [m]
+      !
+      !  !-- 2) Slip correction factor for small particles -------------------------
+      !  knud = 2._r8k*mfp/diam                                    ! Knudsen number
+      !  beta = 1._r8k+knud*(1.142_r8k+0.558_r8k*exp(-0.999_r8k/knud))! Cunningham correction factor
+      !  ! (Allen and Raabe, Aerosol Sci. Tech. 4, 269)
+      !
+      !  !-- 3) Particle properties ------------------------------------------------
+      !  dfpart = beta*boltzmann_const*temp/(3._r8k*pi*visc*diam)  ! diffusion coefficient [m2/s]
+      !  mtvel = sqrt((8._r8k*boltzmann_const*temp)/(pi*mpart))    ! mean thermal velocity [m/s]
+      !  omega = 8._r8k*dfpart/(pi*mtvel)
+      !  mdiam = 0.5_r8k*(diam(1)+diam(2))               ! mean diameter [m]
+      !
+      !  !-- 4) Calculation of fluxes and flux matching ----------------------------
+      !  flux(1) = 4._r8k*pi*mdiam*(dfpart(1)+dfpart(2)  )    ! flux in continuum regime [m3/s]
+      !  flux(2) = pi*sqrt(mtvel(1)**2+mtvel(2)**2)*mdiam**2 !  -"- in free molec. regime [m3/s]
+      !  ! temporary variable [m]
+      !  tva(1) = ((mdiam+omega(1))**3 - (mdiam**2+omega(1)**2)* &
+      !            sqrt((mdiam**2+omega(1)**2)))/(3._r8k*mdiam*omega(1)) - mdiam
+      !  ! temporary variable [m]
+      !  tva(2) = ((mdiam+omega(2))**3 - (mdiam**2+omega(2)**2)* &
+      !           sqrt((mdiam**2+omega(2)**2)))/(3._r8k*mdiam*omega(2)) - mdiam
+      !  ! flux matching distance [m]
+      !  fmdist = sqrt(tva(1)**2+tva(2)**2)             
+      !
+      !  !-- 5) Coagulation coefficient [m3/s] -------------------------------------
+      !  coagc = flux(1) / (mdiam/(mdiam+fmdist) + flux(1)/flux(2)) 
+      !
+      !END FUNCTION coagc
 
   end subroutine init_AerDynBasic
 
@@ -790,9 +728,9 @@ call set_error('The number concentrations now in transported mass map, linked ae
     enddo
 
     !
-    ! So now, knowing what's around, set the requested species
+    ! So now, knowing what's around, set the requested species.
+    ! Note that for now we are going to transport aerosol masses, not numbers. It may be a bad idea
     !
-
     indices => fu_work_int_array()
 
     if(rulesADB%ifSO4)then
@@ -855,19 +793,17 @@ call set_error('The number concentrations now in transported mass map, linked ae
 
     !
     ! Request the number concentrations
+    ! For now, number concentrations is a passenger. But probably should be the other way round
     !
     call addSpecies(speciesAerosol, nSpeciesAerosol,  speciesADB_aerosol, size(speciesADB_aerosol))
-
-
 
     !
     ! Registration.
     ! This is stupid of course, but as ADB wants everything in its own dp arrays
-    ! indexed in its prefered way, it ADB still deals with the big full list of its species,
+    ! indexed in its prefered way, ADB still deals with the big full list of its species,
     ! not just the ones available in the current run. The ones not existing are kept as zeroes,
     ! indices to mass maps are set to int_missing
     !
-
     ! Gaseous species
     call set_species(speciesTmp, fu_get_material_ptr('SO4'), in_gas_phase)
     iSO4_gas_sl = fu_index(speciesTmp, speciesShortLived, nSpeciesShortLived) 

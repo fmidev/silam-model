@@ -163,7 +163,6 @@ CONTAINS
                 & daPointers, &
                 & outDefPtr, &       ! output definitions
                 & nlSetupGrp, &        ! A group of setup namelists
-                & nlStandardSetup, &
                 & had_error) ! if an error occurred
 
 
@@ -664,7 +663,7 @@ CONTAINS
                     & wdr, & 
                     & daPointers, &
                     & outDef, &
-                    & nlSetupGrp, nlStdSetup, &
+                    & nlSetupGrp, &
                     & had_error) 
 
     ! The main dispersion routine. Does the follwing:
@@ -684,7 +683,6 @@ CONTAINS
     TYPE(silja_wdr), pointer :: wdr
     TYPE(silam_output_definition), pointer :: outDef
     type(Tsilam_namelist_group), pointer :: nlSetupGrp
-    type(Tsilam_namelist), pointer :: nlStdSetup
     type(observationPointers), intent(inout) :: daPointers
     logical, intent(out) :: had_error
 
@@ -699,9 +697,8 @@ CONTAINS
              & u_ind, v_ind, nParticlesToReset
     CHARACTER (LEN=fnlen) :: command_string = ' '
     LOGICAL :: first_step = .true., ifOK, lTmp
-    INTEGER, DIMENSION(max_quantities + 4*max_species) :: q_met_dyn, q_met_st, q_disp_dyn, q_disp_st, request, q_out
-              !few quantities can have species attached
-    REAL :: weight_past, fInjectedMass
+    ! quantities can have species attached, so size can be large
+    INTEGER, DIMENSION(:), pointer :: q_met_dyn, q_met_st, q_disp_dyn, q_disp_st, q_out_met, q_out_disp
     type(Tsilam_namelist), pointer :: nlPtr
     type(Tmass_map), pointer :: pOptDepth
     type(wdr_ptr), dimension(:), pointer :: wdrPtr
@@ -800,19 +797,26 @@ CONTAINS
     ! which will be used for the data acquisition. The full_shopping_list
     ! will contain all fields needed for the model run and used for making 
     ! the derived fields.
-    ! Since the request type is skipped in this call - all variables will be treated 
-    ! as mandatory ones.
     !
     ! In addition, we should know the number of model fields and cocktail maps 
     ! to be placed in dispersion_stack of dispersion_buffer. They will be 
     ! initialized a bit later, by each of the model units. Do NOT mix them with the
     ! meteo quantities ! They have nothing common.
     !
-
-    q_met_dyn(:) = int_missing
-    q_met_st(:) = int_missing
-    q_disp_dyn(:) = int_missing
-    q_disp_st(:) = int_missing
+    ! Some of these quantities can have attached species, then the size grows quickly and random
+    ! max_smth is not good. Also, this sub is never left, so its stack is costly
+    !
+    q_met_dyn => fu_work_int_array()
+    q_met_st => fu_work_int_array()
+    q_disp_dyn => fu_work_int_array()
+    q_disp_st => fu_work_int_array()
+    q_out_met => fu_work_int_array()
+    q_out_disp => fu_work_int_array()
+    
+    q_met_dyn(1) = int_missing
+    q_met_st(1) = int_missing
+    q_disp_dyn(1) = int_missing
+    q_disp_st(1) = int_missing
 
     met_dyn_shopping_list = fu_set_shopping_list (met_src_missing, &
                                                 & q_met_dyn,&
@@ -834,15 +838,17 @@ CONTAINS
     ! dispersion buffer. Consequently, below the input needs are stored into the 
     ! shopping lists, while internal field requests are sent to global_io_init
     !
+    ! The baseline - OutDef
+    call get_output_quantities(OutDef, q_out_met, q_out_disp)
+    !
+    ! Model dispersion part
+    !
     if(fu_ifRunDispersion(OutDef)) then
-
-      request(:) = fu_model_output_request(OutDef)
 
       ! ADVECTION
       !
       if(fu_if_eulerian_present(simRules%dynamicsRules%simulation_type))then
         CALL euler_adv_input_needs(simRules%dynamicsRules%advMethod_Eulerian, &
-                                 & .false., &                ! no vertical-dependent fields
                                  & ifUseMassfluxes(simRules%diagnosticRules), &
                                  & q_met_dyn, q_met_st, q_disp_dyn, q_disp_st)
       endif
@@ -884,11 +890,8 @@ CONTAINS
       ! ATTENTION. The full outputlist is not yet ready, it is prepared in global_io_uinit
       ! However, here the call is safe because we need just a list of quantitites, not
       ! the full list of variables. And the list of quantities is complete already here. 
-      ! In fact, it can be shrinken in case if some quantitity is not available btu it will
-      ! not grow. 
       !
-      call get_output_quantities(OutDef,q_out)
-      call add_optical_dens_input_needs(q_out, &
+      call add_optical_dens_input_needs(q_out_disp, &
                                       & q_met_dyn, q_met_st, &
                                       & q_disp_dyn, q_disp_st, &
                                       & fu_optical_rules(simRules%chemicalRules))
@@ -898,33 +901,27 @@ CONTAINS
       !
       if(fu_if_eulerian_present(simRules%dynamicsRules%simulation_type))then
          call add_ini_boundary_input_needs(simRules%IniBoundaryRules, q_met_dyn, q_met_st, &
-                                                                 & q_disp_dyn, q_disp_st)
+                                                                    & q_disp_dyn, q_disp_st)
          if(error)return
       endif
-
-      !
-      ! All input needs are collected. Can add them to the shopping lists
-      !
-      call add_shopping_quantities(met_dyn_shopping_list, q_met_dyn, request)
-      call add_shopping_quantities(met_st_shopping_list, q_met_st, request)
-      ! Dispersion quantities now added inside global_io_init.
-
-    else
-      request(:) = 2  ! whatever, just to activate the input fields requests
     endif ! ifRunDispersion
     if(error)return
-
     !
-    ! No matter whether the dispersion run takes place or not, the diagnostic rules will probably
-    ! be called. So, it is a good idea to check what they need
-    ! By now we have all requests from all modules, so the diagnostic quantities can 
-    ! see what is needed and what is not
+    ! All input needs are collected. Can add them to the shopping lists
     !
-    call diagnostic_input_needs(simRules%diagnosticRules, q_met_dyn, q_met_st, q_disp_dyn, q_disp_st)
+    call add_shopping_quantities(met_dyn_shopping_list, q_met_dyn)
+    call add_shopping_quantities(met_st_shopping_list, q_met_st)
+    call add_shopping_quantities(disp_dyn_shopping_list, q_disp_dyn)
+    call add_shopping_quantities(disp_st_shopping_list, q_disp_st)
     if(error)return
-    call add_shopping_quantities(met_dyn_shopping_list, q_met_dyn, request)
-    call add_shopping_quantities(met_st_shopping_list, q_met_st, request)
-    
+    !
+    ! Info collected, get rid of temporaries
+    call free_work_array(q_met_dyn)
+    call free_work_array(q_met_st)
+    call free_work_array(q_disp_dyn)
+    call free_work_array(q_disp_st)
+    call free_work_array(q_out_met)
+    call free_work_array(q_out_disp)
     !
     ! Having model input needs, we can initialize all IO structures,
     ! pre- and post-processors
@@ -941,14 +938,12 @@ CONTAINS
                       & simRules%dynamicsRules, &
                       & em_source, &   ! initial state
                       & cloud, &
-                      & q_disp_dyn, q_disp_st, &       ! dispersion-market fields available outside
                       & simRules%timestep, &          ! of advection
                       & simRules%ResidenceInterval, & ! Can be negative in adjoint runs
                       & simRules%PeriodToCompute, &
                       & simRules%iComputationAccuracy, &
                       & fu_DA_time_window(simRules%DArules), & ! time window covered by data assimilation
-                      & nlSetupGrp, &                 ! Group of setup namelists
-                      & nlStdSetup)
+                      & nlSetupGrp)                 ! Group of setup namelists
     if(error)return
 
     now = fu_start_time(wdr)
@@ -957,25 +952,20 @@ CONTAINS
 
     !! Should be run before meteo
     call update_btypes(wholeMPIdispersion_grid,simRules%IniBoundaryRules)
-
-
-
-   !
-   ! Get initial meteo
-   !
-
+    !
+    ! Get initial meteo
+    !
     call msg("Acquiring meteo after init (in silam_v5)")
     lTmp=.True.  !!Force reading of new meteo
-    call  prepare_meteo( wdr, simrules%iComputationAccuracy, simRules%diagnosticRules, &
-                          & met_dyn_shopping_list, met_dyn_full_shopping_list,  &
-                          & disp_dyn_shopping_list, disp_st_shopping_list, &
-                          & fu_output_dyn_shopping_list(OutDef, now),&
-                          & fu_output_st_shopping_list(OutDef, now), & 
-                          & meteo_ptr, disp_buf_ptr, out_buf_ptr, &
-                          & now, simrules%timestep, &
-                          & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, lTmp)
-
-    
+    call prepare_meteo(wdr, simrules%iComputationAccuracy, simRules%diagnosticRules, &
+                     & met_dyn_shopping_list, met_dyn_full_shopping_list,  &
+                     & disp_dyn_shopping_list, disp_st_shopping_list, &
+                     & fu_output_dyn_shopping_list(OutDef, now),&
+                     & fu_output_st_shopping_list(OutDef, now), & 
+                     & meteo_ptr, disp_buf_ptr, out_buf_ptr, &
+                     & now, simrules%timestep, &
+                     & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, lTmp, &
+                     & simrules%ifRunDispersion)
     !
     ! For Eulerian advection we have to define the minimum mass threshold, below which
     ! computations are not performed
@@ -1053,6 +1043,7 @@ CONTAINS
                                     & wdr, &
                                     & fu_species_transport(cloud), fu_nbr_of_species_transport(cloud), &
                                     & fu_concMM_ptr(cloud), &
+                                    & fu_DA_time_window(simRules%DArules), &
                                     & boundaryMarketPtr, &
                                     & fu_boundaryStructures(cloud), &  ! boundary structures themsemves
                                     & fu_boundaryBuffer(cloud))       ! buffer for data flow to advection
@@ -1073,9 +1064,7 @@ CONTAINS
                                         & meteoMarketPtr, dispersionMarketPtr)
         if(error)return
 
-        call msg("After init")
-        call collect_total_masses(cloud)
-        call report_total_masses(cloud, 0, .false.)
+        call msg("Initial conditions set")
 
         !
         ! If emission scaling data was loaded, it will be used to set the emission processor.
@@ -1084,9 +1073,14 @@ CONTAINS
                                   & now, &
                                   & fu_emisMM_ptr(cloud), &
                                   & fu_species_transport(cloud), &
-                                  & processor_scaling, &
+                                  & processor_scaling_flag, &
                                   & fu_emission_processor_ptr(cloud))
         if(error)return
+
+#ifdef DEBUG
+        call report(fu_emission_processor_ptr(cloud), 'emission processor at the start')
+#endif
+
       endif
     endif
     !
@@ -1146,7 +1140,7 @@ CONTAINS
                         & outDef, &
                         & meteo_ptr, disp_buf_ptr, daPointers, &
                         & pMeteo_input, out_buf_ptr, &
-                        & meteoMarketPtr, dispersionMarketPtr, boundaryMarketPtr, outputMarketPtr)
+                        & meteoMarketPtr, dispersionMarketPtr, boundaryMarketPtr, outputMarketPtr, tla_traj)
       !
       ! If we left without errors - the last time step has to be stored into the file
       !
@@ -1158,11 +1152,9 @@ CONTAINS
       endif
 
     endif ! DA run or normal dispersion 
-
     !
     ! Last output
     call msg("Final output after-step")
-
 
     command_string = 'Output'
     call start_count(chCounterNm = command_string)
@@ -1216,17 +1208,19 @@ CONTAINS
 
     ! INOUT-parameters
     type(Tdynamics_rules), intent(inout) :: rulesDynamics
-    character(len=clen) :: line
 
     ! Local variables
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
     integer :: nItems
+    character(len=clen) :: line
+
+    character(len=*), parameter :: sub_name = 'set_standard_setup'
    
     pItems=>null() 
     test_messages = .false. ! For debug information
 
     if(.not. associated(nlSetup))then
-      call set_error('Undefined pointer to standard setup namelist','set_standard_setup')
+      call set_error('Undefined pointer to standard setup namelist',sub_name)
       return
     endif
     !
@@ -1352,7 +1346,7 @@ CONTAINS
         CASE default
           call msg("Strange random_walk_method ="+fu_content(nlSetup,'random_walk_method'))
           call report(nlSetup)
-          call set_error('Unknown random_walk_method. Must be NONE/FIXED/FULLY_MIXED/BULK_GAUSSIAN','set_standard_setup')
+          call set_error('Unknown random_walk_method. Must be NONE/FIXED/FULLY_MIXED/BULK_GAUSSIAN',sub_name)
           return
       end select
     endif ! if old file format
@@ -1369,7 +1363,7 @@ CONTAINS
                rulesDynamics%advectionType_default = eulerian_flag
             else
               CALL set_error('Default advection must be EULERIAN or LAGRANGIAN, not:' + &
-                         & fu_content(nlSetup,'advection_method_default'), 'set_standard_setup')
+                         & fu_content(nlSetup,'advection_method_default'), sub_name)
                   return
             endif
     end select
@@ -1397,6 +1391,23 @@ CONTAINS
       call msg("Setting smoother_factor = 1. (no smoothing)")
       rulesDynamics%smoother_factor = 1.
     endif
+    
+    !! Cloud geometry (cell size or air_mass or ones tracer)
+    line = fu_str_l_case(fu_content(nlSetup, 'cloud_metric'))
+    select case (line)
+      case ('cell_size')
+        rulesDynamics%cloud_metric = cloud_metric_geometry_flag
+      case ('cell_mass')
+        rulesDynamics%cloud_metric =  cloud_metric_cellmass_flag
+      case ('ones_mass')
+        rulesDynamics%cloud_metric = cloud_metric_ones_flag
+      case ('')
+        call msg_warning("cloud_metric not found in the namelist, using SIZE", sub_name)
+        rulesDynamics%cloud_metric = cloud_metric_geometry_flag
+      case default
+        call set_error("Strange cloud_metric in the namelist: '"//trim(line)//"'", sub_name)
+        return
+    end select 
    
     !
     ! Read the chemical database
@@ -1428,8 +1439,7 @@ CONTAINS
       CASE ('DEBUG_INFO_NO')
         test_messages = .false.
       case default 
-        call msg_warning('Debug switch may be DEBUG_INFO_YES or DEBUG_INFO_NO', &
-                       & 'set_standard_setup')
+        call msg_warning('Debug switch may be DEBUG_INFO_YES or DEBUG_INFO_NO', sub_name)
         test_messages = .false.
     end select
 

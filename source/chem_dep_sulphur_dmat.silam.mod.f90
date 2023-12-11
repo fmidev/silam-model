@@ -51,11 +51,7 @@ MODULE chem_dep_sulphur_dmat
     module procedure fu_if_specific_dep_DMAT_S
   end interface
 
-  public fu_if_tla_required
-  private fu_if_tla_required_dmat
-  interface fu_if_tla_required
-     module procedure fu_if_tla_required_dmat
-  end interface
+  public fu_tla_size_dmat
 
   !--------------------------------------------------------------------
   !
@@ -278,8 +274,9 @@ CONTAINS
 
   !***********************************************************************
 
-  subroutine transform_dmat(vSp, vSp_SL, rules, metdat, zenith_cos, now, lat, lon, timestep_sec, &
-                          & low_conc_thresh, garbage, print_it)
+
+  subroutine transform_dmat(vSp, vSp_SL, rules, metdat, zenith_cos, now, lat, lon, &
+                      & timestep_sec, vtla)
     !
     ! Implements conversion SO2 -> SO4 as it is done in DMAT
     !
@@ -289,29 +286,53 @@ CONTAINS
     real, dimension(:), intent(inout) :: vSp, vSp_SL
     type(Tchem_rules_DMAT_S), intent(in) :: rules
     real, dimension(:), intent(in) :: metdat
-    real, dimension(:), intent(inout) :: low_conc_thresh, garbage
     type(silja_time), intent(in) :: now
     real, intent(in) :: zenith_cos, timestep_sec, lat, lon
-    logical, intent(out) :: print_it
+    real, dimension(:), pointer :: vtla !!!Single value
 
     ! Local variables
-    integer, parameter :: dp = SELECTED_REAL_KIND(15,307)
-    real(dp) :: fTmp, dSO2_air, dSO2_water, rate_air, rate_water, dSO2_sum
-    real :: tempr, fCloudCover, fHeight, sun, sunD, cOH_forced, scaling, dSO4_air, dSO4_water
-   integer :: indT, indZ
+    real(kind=8) :: fTmp, dSO2_air, dSO2_water, rate_air, rate_water, dSO2_sum, alphat
+    real :: tempr, fCloudCover, fHeight, sun, sunD, cOH_forced, scaling, dSO4_air, dSO4_water, SO4w, SO4a, SO2
+    integer :: indT, indZ
+    character (len=*), parameter :: sub_name = 'transform_dmat'
 
-    print_it = .false.  ! set to true and chemistry manager will give complete dump for this cell
-    if(vSp(iSO2) < low_conc_thresh(iSO2) .and. timestep_sec > 0)then
-      garbage(iSO2) = garbage(iSO2) + vSp(iSO2)  ! but do not touch SO4...
-      vSp(iSO2) = 0.
-      return
+    if (associated(vtla)) then
+      if (fu_fails(size(vtla) == 1, "Wrong size TLA", sub_name)) return
+    else
+      if(vSp(iSO2) == 0. .and. timestep_sec > 0) return
     endif
+
+    if (rules%use_clim_oh) then
+      cOH_forced = fu_OH_cnc_clim(lat, lon, fHeight, now)
+    elseif (rules%use_mm_oh) then
+      if (timestep_sec>0) then
+        cOH_forced = vSp(iOH)
+        if (associated(vtla)) vtla(1) = cOH_forced
+      else
+        if (associated(vtla)) then
+           cOH_forced = vtla(1)
+        else
+          call set_error("Can't use massmap OH in adjoint..", sub_name)
+        endif
+    endif
+    else
+      cOH_forced = fu_OH_cnc_forced(sunD, fHeight)
+    end if
+    if (error) return
+    if ( .not. (cOH_forced >= 0) ) then
+      call msg('cOH:', cOH_forced)
+      call msg('lat lon hgt', (/lat, lon, fHeight/))
+      call set_error('Neg cOH', sub_name)
+      return
+    end if
+
+    if(vSp(iSO2) == 0. .and. timestep_sec > 0) return
     
     ! Get temperature from the meteo buffer
     !
     tempr = metdat(ind_tempr)
     if(tempr > 372 .or. tempr < 74)then
-      call set_error('Strange temperature :'//trim(fu_str(tempr)),'transform_dmat')
+      call set_error('Strange temperature :'//trim(fu_str(tempr)),sub_name)
       return
     endif
 
@@ -322,7 +343,7 @@ CONTAINS
     if(sun < 0.) sun = 0.  ! night
     sunD = sun * (1. - fCloudCover*0.5)
     if (sunD < 0.)then
-      call set_error('Negative sunshine', 'transform_dmat') 
+      call set_error('Negative sunshine', sub_name) 
       call msg('sun, fCloudCover', sun, fCloudCover)
     endif
     if(error)return
@@ -330,21 +351,6 @@ CONTAINS
     indT = min(int(tempr-71.65), nIndT)
     indZ = min(int(fHeight / 500.) + 1, nIndZ)
 
-    if (rules%use_clim_oh) then
-      cOH_forced = fu_OH_cnc_clim(lat, lon, fHeight, now)
-    elseif (rules%use_mm_oh) then
-      cOH_forced = vSp(iOH)
-      if (fu_fails(timestep_sec>0, "Can't use massmap OH in adjoint..", 'transform_dmat')) return
-    else
-      cOH_forced = fu_OH_cnc_forced(sunD, fHeight)
-    end if
-    if (error) return
-    if ( .not. (cOH_forced >= 0) ) then
-      call msg('cOH:', cOH_forced)
-      call msg('lat lon hgt', (/lat, lon, fHeight/))
-      call set_error('Neg cOH', 'transform_dmat')
-      return
-    end if
 !    !
 !    ! Compute the actual transformation rate. Unit = moles, so no problem with mass
 !    !
@@ -354,7 +360,7 @@ CONTAINS
     !
     ! gas phase oxidation
     !
-    rate_air = abs(timestep_sec) * rules%SO2_OH_2_SO3(indT,indZ) * cOH_forced
+    rate_air =  rules%SO2_OH_2_SO3(indT,indZ) * cOH_forced
     !
     ! Aquesous-phase oxidation - see n.11,pp24-26
     !
@@ -443,16 +449,24 @@ CONTAINS
     
     
     ! aqueous conversion rate
-    rate_water = rules%conv_SO2_2_SO4_aqua_basic * scaling * abs(timestep_sec)
+    rate_water = rules%conv_SO2_2_SO4_aqua_basic * scaling
 
     !
     ! Take possible fast reduction of the SO2 mass
     !
-    if (rate_air < 1e-4) rate_air = 1e-4
-    if (rate_water < 1e-4) rate_water = 1e-4           
-    fTmp = (1.-exp(-rate_air - rate_water)) / (rate_air + rate_water)
+
+    !! Copy from advection 
+    alphat = -(rate_air + rate_water) * abs(timestep_sec)
+    if (abs(alphat) > 0.05_r8k) then
+        fTmp =   (1.0_r8k - exp(alphat))/(rate_air + rate_water)
+    else
+      !! ~2e-8 max error
+        fTmp =   abs(timestep_sec)*(0.999999993201951d0 - alphat*(0.499999996857818d0 - &
+            & alphat* (0.166688704367924d0 - alphat*(0.0416714248986641d0))))
+    endif
+
     
-    dSO2_air = vSp(iSO2) * rate_air * fTmp
+    dSO2_air = vSp(iSO2) * rate_air * fTmp 
     dSO2_water = vSp(iSO2) * rate_water * fTmp
 
 !write(15,*)fHeight,cOH_forced,indT,indZ,rules%SO2_OH_2_SO3(indT,indZ),dSO2_air,dSO2_water,vSp(iSO2),vSp_SL(iH2SO4_sl),vSp_SL(iSO4w_sl)
@@ -461,10 +475,15 @@ CONTAINS
       !
       ! Forwad mode
       !
+!      SO2 = vSp(iSO2) - dSO2_air - dSO2_water
+!      SO4a = vSp_SL(iH2SO4_sl) + dSO2_air
+!      SO4w = vSp_SL(iSO4w_sl) + dSO2_water
+!      if (any( (/SO2, SO4a, SO4w/) < 0)) call ooops("")
+!
       vSp(iSO2) = vSp(iSO2) - dSO2_air - dSO2_water
       vSp_SL(iH2SO4_sl) = vSp_SL(iH2SO4_sl) + dSO2_air
       vSp_SL(iSO4w_sl) = vSp_SL(iSO4w_sl) + dSO2_water
-      
+
     else
       !
       ! adjoint mode
@@ -660,17 +679,14 @@ CONTAINS
   end function fu_if_specific_dep_DMAT_S
 
   !************************************************************************************
-  
-  logical function fu_if_tla_required_dmat(rules) result(required)
-    ! Collect transformations' requests for tangent linearization. If tangent linear
-    ! is not allowed, corresponding subroutine sets error. 
+
+  integer function fu_tla_size_dmat(rules) result(n)
     implicit none
-    type(Tchem_rules_dmat_s), intent(in) :: rules
+    type(Tchem_rules_DMAT_S), intent(in) :: rules
     
-    required = .false.
-
-  end function fu_if_tla_required_dmat
-
+    n = 0
+    if (rules%use_mm_oh) n  = n + 1
+  end function fu_tla_size_dmat
 
 
 

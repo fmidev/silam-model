@@ -434,14 +434,14 @@ subroutine write_progress_file(chFNm, iProgr)
     call msg("SMS failed for progress", iProgr)
     call msg_warning('Please replace "SMS" with "${SMSBIN}/smsmeter progress"')
 
-  elseif (fu_str_u_case(trim(chFNm(1:4))) == 'CMD ') then
-    envstr=trim(chFNm(5:))//' '//trim(fu_str(iProgr))
-    call msg("Executing '"//trim(envstr)//"'")
+  elseif (fu_str_u_case(trim(chFNm(1:3))) == 'CMD') then
+    envstr=trim(chFNm(4:))//' '//trim(fu_str(iProgr))
+    call msg("Executing "//trim(envstr))
     iStat=0
     CALL EXECUTE_COMMAND_LINE(envstr, EXITSTAT=iStat, CMDSTAT=iStat1, CMDMSG=mesg)
     if (iStat1 /= 0) then
         call msg_warning("Progress command failed!", "write_progress_file")
-        call msg("CMDMSG = '"// trim(mesg)//"', CMDSTAT=", iStat1) 
+        call msg(mesg) 
     elseif (iStat /= 0) then
        call msg_warning("Progress command returned: "//trim(fu_str(iStat)), "write_progress_file")
     endif

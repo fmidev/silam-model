@@ -1,0 +1,29 @@
+# leaf area index
+'SURFIND.FOLIAIRE' = {
+  discipline                                         =               2;
+  parameterCategory                                  =               0;
+  parameterNumber                                    =              28;
+  typeOfFirstFixedSurface                            =               1;
+}
+# thermal roughness length
+'SURFGZ0.THERM' = {
+  discipline                                         =               2;
+  parameterCategory                                  =               0;
+  parameterNumber                                    =             216;
+  typeOfFirstFixedSurface                            =               1;
+}
+# total liquid soil water content
+'PROFRESERV.EAU' = {
+  discipline                                         =               2;
+  level                                              =             255;
+  parameterCategory                                  =               3;
+  parameterNumber                                    =              20;
+  typeOfFirstFixedSurface                            =             106;
+}
+# superficial liquid water content
+'SURFRESERV.EAU' = {
+  discipline                                         =               2;
+  parameterCategory                                  =               3;
+  parameterNumber                                    =              20;
+  typeOfFirstFixedSurface                            =               1;
+}

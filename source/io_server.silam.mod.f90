@@ -44,7 +44,6 @@ module io_server
   public global_io_init    ! nain IO initializtion
   public finalise_output   ! Finishes the output, closes files and writes a report
   public collect_output      ! pick the data
-  public read_output_configuration ! Reads the file with list of requested variables
   public prepare_meteo
   public report
 
@@ -56,7 +55,6 @@ module io_server
   public fu_ifRunDispersion
   public fu_traj_set
   public get_output_quantities
-  public fu_model_output_request
   public fu_species_output_name
   public fu_output_template
   public fu_output_dyn_shopping_list
@@ -66,9 +64,10 @@ module io_server
   public align_OutDef_initial_time_with_shift
 
   ! Private functions
+  private read_output_configuration ! Reads the file with list of requested variables
   private cut_mesh
   private set_OV_missing
-  private output_input_needs  ! Orders the quantities requested by the user for output
+  private add_output_input_needs  ! Orders the quantities requested by the user for output
   private collect_buffers
   private collect_field_data      ! Takes field-based data to intermediate-IO stacks
   private write_output        ! write the data
@@ -208,9 +207,10 @@ module io_server
   !
   type TOutputVariables
     private
-    TYPE(silja_stack), pointer :: meteoStack, dispStack ! Output stacks
-    TYPE(silja_stack), pointer :: meteoTmpStack              ! Intermediate output stacks
-    TYPE(silja_stack), dimension(:), pointer :: dispTmpStack ! Intermediate output stacks
+    TYPE(silja_stack) :: meteoStack, dispStack ! Output stacks
+    TYPE(silja_stack) :: meteoTmpStack              ! Intermediate output stacks
+    TYPE(silja_stack), allocatable, dimension(:) :: dispTmpStack ! Intermediate output stacks
+    type(silja_stack), pointer :: pMeteoStack
     type(TMassMapLink) :: MassMapLinks
     type(TLagrangeToMassMapLink) :: Lagr2MMLinks
 !    real, dimension(:), pointer :: dx, dy, dz ! Sizes of the output grid cells - permanent data
@@ -242,12 +242,12 @@ CONTAINS
 
   !*****************************************************************************
 
-  subroutine output_input_needs(OutDef, q_st, req_st, q_dyn,  req_dyn, qd_dyn, qd_st, wdr)
+  subroutine add_output_input_needs(OutDef, q_dyn, q_st, qd_dyn, qd_st, wdr)
     !
     ! Does two things:
     ! 1. Orders necessary quantities for interpolation from system grid/vertical
     !    to the output ones.
-    ! 2. Orders the quantities requested by the user for the explicit output
+    ! 2. Orders the quantities explicitly requested by the user for the output
     ! 
     !  Huom! No massmap quantities added here
     !
@@ -261,31 +261,20 @@ CONTAINS
     implicit none
 
     ! Imported parameters
-    integer, dimension(:), intent(inout) :: q_st, req_st, q_dyn,  req_dyn, qd_dyn, qd_st
+    integer, dimension(:), intent(inout) :: q_st, q_dyn, qd_dyn, qd_st
     type(silam_output_definition), intent(in) :: OutDef
     type(silja_wdr), pointer :: wdr
 
     ! Local variables
     integer :: i, iQs, iQd, Qtmp 
 
-    call msg("Making output input needs")
+    call msg("Adding output input needs")
 
-    q_dyn(1) = int_missing
-    q_st(1) = int_missing
-    req_dyn(1) = int_missing
-    req_st(1) = int_missing
     !
     ! Trajectory output may require specific q_dyn 
     !
     if(OutDef%Rules%ifTrajectory)then
-      CALL trajectory_input_needs(q_dyn, iQd, q_st, iQs)  !---- Link to trajectory_io module
-      req_dyn(1:iQd) = 2
-      q_dyn(iQd+1) = int_missing
-      req_st(1:iQs) = 2
-      q_st(iQs+1) = int_missing
-    else
-      iQd = 0
-      iQs = 0
+      CALL add_trajectory_input_needs(q_dyn, iQd, q_st, iQs)  !---- Link to trajectory_io module
     endif
 
     !
@@ -296,38 +285,33 @@ CONTAINS
     if(fu_NbrOfLevels(output_vertical) > 1)then
       select case(fu_leveltype(output_vertical))
         case(constant_pressure, layer_btw_2_pressure)
-          iQd = fu_merge_integer_to_array(pressure_flag, q_dyn, 2, req_dyn)
+          iQd = fu_merge_integer_to_array(pressure_flag, q_dyn)
         case(constant_height, layer_btw_2_height)
-          iQd = fu_merge_integer_to_array(height_flag, q_dyn, 2, req_dyn)
+          iQd = fu_merge_integer_to_array(height_flag, q_dyn)
         case(constant_altitude, layer_btw_2_altitude)
-          iQd = fu_merge_integer_to_array(height_flag, q_dyn, 2, req_dyn)
+          iQd = fu_merge_integer_to_array(height_flag, q_dyn)
         case(hybrid, layer_btw_2_hybrid)
-          iQd = fu_merge_integer_to_array(pressure_flag, q_dyn, 2, req_dyn)
-          q_dyn(iQd+1) = int_missing
-          iQd = fu_merge_integer_to_array(ground_pressure_flag, q_dyn, 2, req_dyn)
+          iQd = fu_merge_integer_to_array(pressure_flag, q_dyn)
+          iQd = fu_merge_integer_to_array(ground_pressure_flag, q_dyn)
         case default ! just 2D output, no vertical interpolation 
-          call msg_warning('Possibly strange output vertical','output_input_needs')
+          call msg_warning('Possibly strange output vertical','add_output_input_needs')
           call report(output_vertical)
           return
       end select
     endif
-    q_dyn(iQd+1) = int_missing
     !
     ! Add a relief height - this is needed for various conversions, including often
     ! connection between the dispersion and meteorological and dispersion verticals
     !
-    iQs = fu_merge_integer_to_array(relief_height_flag, q_st, 2, req_st)
-    q_st(iQs+1) = int_missing
-
+    iQs = fu_merge_integer_to_array(relief_height_flag, q_st)
     !
-    !Surface pressure is needed for many things
-    iQd = fu_merge_integer_to_array(ground_pressure_flag, q_dyn, 2, req_dyn)
-    q_dyn(iQd+1) = int_missing
+    ! Surface pressure is needed for many things
     !
+    iQd = fu_merge_integer_to_array(ground_pressure_flag, q_dyn)
     !
+    ! Check the meteo output list
     !
-
-    if ( allocated(OutDef%Rules%MeteoOutLst%ptrItem)) then
+    if(allocated(OutDef%Rules%MeteoOutLst%ptrItem)) then
       do i=1, size(OutDef%Rules%MeteoOutLst%ptrItem)
         Qtmp = OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity
 
@@ -336,40 +320,30 @@ CONTAINS
         ! Dirty hack for LAI
         if ( any(Qtmp == (/leaf_area_index_flag, leaf_area_indexhv_flag, leaf_area_indexlv_flag/))) then
           if ( any(fu_LAIsrc(wdr) == (/LAI_static_1, LAI_static_2/) )) then
-           iQs = fu_merge_integer_to_array(Qtmp, q_st, &
-                        & OutDef%Rules%MeteoOutLst%ptrItem(i)%request, req_st)
-           q_st(iQs+1) = int_missing
+            iQs = fu_merge_integer_to_array(Qtmp, q_st)
           else
-           iQd = fu_merge_integer_to_array(Qtmp, q_dyn, &
-                        & OutDef%Rules%MeteoOutLst%ptrItem(i)%request, req_dyn)
-           q_dyn(iQd+1) = int_missing
+            iQd = fu_merge_integer_to_array(Qtmp, q_dyn)
           endif
           cycle
         endif
 
         if (fu_realtime_quantity(Qtmp)) then 
-          iQs = fu_merge_integer_to_array(Qtmp, q_st, &
-                                         & OutDef%Rules%MeteoOutLst%ptrItem(i)%request, req_st)
-          q_st(iQs+1) = int_missing
+          iQs = fu_merge_integer_to_array(Qtmp, q_st)
         else
-          iQd = fu_merge_integer_to_array(Qtmp, q_dyn, &
-                                         & OutDef%Rules%MeteoOutLst%ptrItem(i)%request, req_dyn)
-          q_dyn(iQd+1) = int_missing
+          iQd = fu_merge_integer_to_array(Qtmp, q_dyn)
         endif
       end do
-    endif
+    endif   ! if allocated(OutDef%Rules%MeteoOutLst%ptrItem)
     !
     ! A stupid workaround: we may need pressure no matter what, if someone will need
     ! z-size, so let's add it here
     !
-    iQd = fu_merge_integer_to_array(pressure_flag, q_dyn, 2, req_dyn)
+    iQd = fu_merge_integer_to_array(pressure_flag, q_dyn)
 
-
-
-    ! Add requested _Buffer_ quantities
+    ! Add requested dispersion_buffer quantities
     ! If something does not get to the requests it will not be available from buffer
     !
-    if ( allocated(OutDef%Rules%DispOutLst%ptrItem)) then
+    if(allocated(OutDef%Rules%DispOutLst%ptrItem))then
       do i=1, size(OutDef%Rules%DispOutLst%ptrItem)
         Qtmp = OutDef%Rules%DispOutLst%ptrItem(i)%quantity
 
@@ -377,21 +351,15 @@ CONTAINS
         if ( fu_if_cloud_mass_map_quantity(Qtmp) == silja_true ) cycle 
               !! No need to put it in a buffer: it is a massmap quantity
 
-        ! Not actually needed... I was lazy to push the requests through
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%request /= 2) cycle 
-     
-        ! No requests for dispesion quantities, sorry 
         if (fu_realtime_quantity(Qtmp)) then 
           iQs = fu_merge_integer_to_array(Qtmp, qd_st)
-          qd_st(iQs+1) = int_missing
         else
           iQd = fu_merge_integer_to_array(Qtmp, qd_dyn)
-          qd_dyn(iQd+1) = int_missing
         endif
       end do
     endif
 
-  end subroutine output_input_needs
+  end subroutine add_output_input_needs
 
   
   !*****************************************************************************
@@ -399,7 +367,11 @@ CONTAINS
   subroutine set_OV_missing(OV)
     type(TOutputVariables), intent(inout) :: OV
 
-    nullify(OV%meteoStack, OV%dispStack, OV%meteoTmpStack, OV%dispTmpStack)
+    OV%meteoStack = stack_missing
+    OV%dispStack = stack_missing
+    OV%meteoTmpStack = stack_missing
+    if(allocated(OV%dispTmpStack)) deallocate(OV%dispTmpStack)
+    nullify(OutVars%pMeteoStack)
     call set_MML_missing(OV%MassMapLinks)
     call set_LMML_missing(OV%Lagr2MMLinks)
     OV%lastOutputTime = time_missing
@@ -794,10 +766,8 @@ CONTAINS
     call expand_output_list(OutDef%Rules%DispOutLst, 1)
     call expand_output_list(OutDef%Rules%MassMapOutLst, 1)
 
-
-    OutDef%Rules%ifRunDispersion = .true.
-
     strTmp = fu_content(nlSetup,'variable_list')
+    OutDef%Rules%ifRunDispersion = .true.        ! can be overwritten by output_config below
 
     if(index(fu_str_u_case(strTmp),'PASSIVE_DISPERSION_LIST') > 0)then
 
@@ -807,20 +777,16 @@ CONTAINS
         call expand_output_list(OutDef%Rules%DispOutLst, 3)
         OutDef%Rules%DispOutLst%ptrItem(1:3)%species = speciesTmp
         OutDef%Rules%DispOutLst%ptrItem(1)%quantity = particle_counter_flag
-        OutDef%Rules%DispOutLst%ptrItem(1)%request = 2
         OutDef%Rules%DispOutLst%ptrItem(1)%AvType = iAsIs                ! Instant, in fact
         OutDef%Rules%DispOutLst%ptrItem(2)%quantity = areas_of_risk_flag
-        OutDef%Rules%DispOutLst%ptrItem(2)%request = 2
         OutDef%Rules%DispOutLst%ptrItem(2)%AvType = iAsIs                ! Instant, in fact
         OutDef%Rules%DispOutLst%ptrItem(3)%quantity = concentration_flag
-        OutDef%Rules%DispOutLst%ptrItem(3)%request = 2
         OutDef%Rules%DispOutLst%ptrItem(3)%AvType = iAsIs                ! Instant, in fact
         OutDef%Rules%ifSplitSizeModes = .false.
       elseif(fu_if_eulerian_present(simulation_type))then
         call expand_output_list(OutDef%Rules%DispOutLst, 1)
         OutDef%Rules%DispOutLst%ptrItem(1)%species = speciesTmp
         OutDef%Rules%DispOutLst%ptrItem(1)%quantity = concentration_flag
-        OutDef%Rules%DispOutLst%ptrItem(1)%request = 2
         OutDef%Rules%DispOutLst%ptrItem(1)%AvType = iAsIs                ! Instant, in fact
         OutDef%Rules%ifSplitSizeModes = .false.
       else
@@ -831,19 +797,15 @@ CONTAINS
     elseif(index(fu_str_u_case(strTmp),'SOURCE_INVENTORY_DISPERSION_LIST') > 0)then
       call expand_output_list(OutDef%Rules%DispOutLst, 4)
       OutDef%Rules%DispOutLst%ptrItem(1)%quantity = concentration_flag
-      OutDef%Rules%DispOutLst%ptrItem(1)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(1)%AvType = iAverage
       OutDef%Rules%DispOutLst%ptrItem(1)%iSpeciesListType = iSourceInventory   !'SOURCE_INVENTORY'
       OutDef%Rules%DispOutLst%ptrItem(2)%quantity = concentration_2m_flag
-      OutDef%Rules%DispOutLst%ptrItem(2)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(2)%AvType = iAverage
       OutDef%Rules%DispOutLst%ptrItem(2)%iSpeciesListType = iSourceInventory   !'SOURCE_INVENTORY'
       OutDef%Rules%DispOutLst%ptrItem(3)%quantity = drydep_flag
-      OutDef%Rules%DispOutLst%ptrItem(3)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(3)%AvType = iCumulative
       OutDef%Rules%DispOutLst%ptrItem(3)%iSpeciesListType = iSourceInventory   !'SOURCE_INVENTORY'
       OutDef%Rules%DispOutLst%ptrItem(4)%quantity = wetdep_flag
-      OutDef%Rules%DispOutLst%ptrItem(4)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(4)%AvType = iCumulative
       OutDef%Rules%DispOutLst%ptrItem(4)%iSpeciesListType = iSourceInventory   !'SOURCE_INVENTORY'
 
@@ -852,27 +814,27 @@ CONTAINS
     elseif(index(fu_str_u_case(strTmp),'FULL_INVENTORY_DISPERSION_LIST') > 0)then
       call expand_output_list(OutDef%Rules%DispOutLst, 4)
       OutDef%Rules%DispOutLst%ptrItem(1)%quantity = concentration_flag
-      OutDef%Rules%DispOutLst%ptrItem(1)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(1)%AvType = iAverage
       OutDef%Rules%DispOutLst%ptrItem(1)%iSpeciesListType = iFullInventory   !'FULL_INVENTORY'
       OutDef%Rules%DispOutLst%ptrItem(2)%quantity = concentration_2m_flag
-      OutDef%Rules%DispOutLst%ptrItem(2)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(2)%AvType = iAverage
       OutDef%Rules%DispOutLst%ptrItem(2)%iSpeciesListType = iFullInventory   !'FULL_INVENTORY'
       OutDef%Rules%DispOutLst%ptrItem(3)%quantity = drydep_flag
-      OutDef%Rules%DispOutLst%ptrItem(3)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(3)%AvType = iCumulative
       OutDef%Rules%DispOutLst%ptrItem(3)%iSpeciesListType = iFullInventory   !'FULL_INVENTORY'
       OutDef%Rules%DispOutLst%ptrItem(4)%quantity = wetdep_flag
-      OutDef%Rules%DispOutLst%ptrItem(4)%request = 2
       OutDef%Rules%DispOutLst%ptrItem(4)%AvType = iCumulative
       OutDef%Rules%DispOutLst%ptrItem(4)%iSpeciesListType = iFullInventory   !'FULL_INVENTORY'
-
 
       OutDef%Rules%ifSplitSizeModes = .true.
 
     else
+      !
+      ! Custom output - read it well. Can be without disperion, for instance - 
+      ! ifunDispersion may be overwritten
+      !
       call read_output_configuration(fu_expand_environment(strTmp), OutDef, model_time_step)
+      
     endif
     if(error)return
     
@@ -906,7 +868,6 @@ CONTAINS
                           & call expand_output_list(OutDef%Rules%MeteoOutLst, 2)
 
             OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity = ground_pressure_flag
-            OutDef%Rules%MeteoOutLst%ptrItem(i)%request = 2
             OutDef%Rules%MeteoOutLst%ptrItem(i)%AvType = iAvType
             OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = .False.
             OutDef%Rules%MeteoOutLst%ptrItem(i)%iVerticalTreatment = do_nothing_flag
@@ -963,13 +924,12 @@ CONTAINS
                           & chemRules, dynRules, &
                           & em_source, &
                           & cloud, &
-                          & q_disp_dyn, q_disp_stat, &
                           & timestep, &                      ! of advection
                           & ResidenceTime, &                 ! in the grid due to advection
                           & PeriodToCompute, &
                           & iAccuracy, &
                           & DA_time_window, &
-                          & nlSetupGrp, nlStdSetup)
+                          & nlSetupGrp)
     !
     ! Performs the global intialization of all input and output structures.
     ! Tasks:
@@ -993,25 +953,23 @@ CONTAINS
     type(Tdynamics_rules), intent(in) :: dynRules
     type(silam_source), pointer :: em_source
     type(silam_pollution_cloud), pointer :: cloud
-    integer, dimension(:), intent(inout) :: q_disp_dyn, q_disp_stat
     type(silja_interval), intent(in) :: timestep, PeriodToCompute, DA_time_window
     type(Tfield_buffer), pointer :: met_buf, disp_buf, out_buf
     type(silja_interval), intent(out) :: ResidenceTime
     type(Tsilam_namelist_group), pointer :: nlSetupGrp
-    type(Tsilam_namelist), pointer :: nlStdSetup
     TYPE(silam_trajectory_set), intent(out), target:: traj_set
 
     ! Local variables
-    integer, dimension(:), pointer ::  q_dyn, q_st, req_dyn, req_st, quantities
+    integer, dimension(:), pointer ::  q_dyn, q_st, q_disp_dyn, q_disp_st, q_met_buf
     integer :: i,j, iTmp, al_status, nSrcId, nDatTypes,nCtlTypes, nBins, &
              & nTimeNodesNeeded, nTimeNodesNeededDisp, nx, ny 
     type(silam_sp) :: strTmp
     type(silja_grid) :: gridTmp, meteo_grid_reduced
 !    type(silja_grid), pointer :: pGrid
     real :: corner_lon_E, corner_lat_N, s_pole_lon_E, s_pole_lat_N, dx_deg, dy_deg, fTmp, max_topo_height
-    logical :: corner_in_geographical_latlon, if_south_pole
+    logical :: corner_in_geographical_latlon, if_south_pole, ifVertical_MeteoDependent
     real, dimension(:), pointer :: pTmp
-    type(Tsilam_namelist), pointer :: nlSetup
+    type(Tsilam_namelist), pointer :: nlSetup, nlPtr
     character (len=5) :: chTmp
     character (len=3) :: taskNumber
     character (len=clen) :: chOutGridType, chDispGridType
@@ -1043,31 +1001,85 @@ CONTAINS
 
     !
     ! Model input needs are known. Let's add what is needed for the IO server
-    ! and then - be careful with request type. Here it is no longer trivial.
     !
-    q_st => fu_work_int_array()
-    req_st => fu_work_int_array()
-    q_dyn => fu_work_int_array()
-    req_dyn => fu_work_int_array()
-    q_st = int_missing
-    q_dyn = int_missing
-    quantities => fu_work_int_array()
-
-    call output_input_needs(OutDef, q_st, req_st, q_dyn, req_dyn, q_disp_dyn, q_disp_stat,  wdr)
-
-    call add_shopping_quantities(input_shopping_list, q_dyn, req_dyn)
-    call add_shopping_quantities(static_shopping_list, q_st, req_st)
-
+    q_dyn => fu_work_int_array(max_quantities)
+    q_st => fu_work_int_array(max_quantities)
+    q_disp_dyn => fu_work_int_array(max_quantities)
+    q_disp_st => fu_work_int_array(max_quantities)
+    q_met_buf => fu_work_int_array(max_quantities)
+!    q_dyn(1) = int_missing
+!    q_st(1) = int_missing
+!    q_disp_dyn(1) = int_missing
+!    q_disp_st(1) = int_missing
+!    q_met_buf(1) = int_missing
+    !
+    ! Get the starting list of quantities needed by all model parts
+    !
+    call all_quantities_from_list(input_shopping_list, .false., q_dyn)
+    call all_quantities_from_list(static_shopping_list, .false., q_st)
+    call all_quantities_from_list(disp_dyn_shopping_list, .false., q_disp_dyn)
+    call all_quantities_from_list(disp_stat_shopping_list, .false.,q_disp_st)
+    !
+    ! Output input needs. Requests all quantities it is going to output and whatever is needed for that
+    !
+    call add_output_input_needs(OutDef, q_dyn, q_st, q_disp_dyn, q_disp_st,  wdr)
+    !
+    ! Now need to identify whether dispersion_vertical is meteo-dependent. The sub that sets it
+    ! returns the answer even if vertical itself is not set (i.e., called prior to meteo_init)
+    !
+    call set_dispersion_vertical(nlSetupGrp, dynRules%simulation_type, &
+                               & .false., &           ! ifMeteo_initialized
+                               & ifVertical_MeteoDependent)
+    if(error)return
+    !
+    ! If vertical is meteo-dependent, cell_size_z is dynamic, if not - single-time (actually, static)
+    !
+    if(ifVertical_MeteoDependent)then
+      iTmp = fu_merge_int_arrays((/cell_size_z_flag, int_missing/), q_disp_dyn, .false.)
+      iTmp = fu_merge_int_arrays((/cell_size_x_flag, cell_size_y_flag, int_missing/),q_disp_st,.false.)
+    else
+      iTmp = fu_merge_int_arrays((/cell_size_x_flag, cell_size_y_flag, cell_size_z_flag, &
+                                 & int_missing/), q_disp_st, .false.)
+    endif
+    !
+    ! It is time to initialize the supplementary diagnostics: fire danger indices or water in soil
+    ! They will figure out whether to activate by themselves
+    !
+    ! water in soil
+    !
+    nlPtr => fu_namelist(nlSetupGrp, 'water_in_soil')
+    call set_rules_water_in_soil_model(nlPtr, diagnostic_rules)
+    if(error)return
+    !
+    ! fire danger indices
+    !
+    nlPtr => fu_namelist(nlSetupGrp, 'IS4FIRES')
+    call set_rules_fire_danger_indices(nlPtr, diagnostic_rules, q_disp_st)
+    if(error)return
+    !
+    ! No matter whether the dispersion run takes place or not, the diagnostic rules will probably
+    ! be called. Now we have all requests from all modules, so the diagnostic routine can 
+    ! see what is needed and what is not
+    !
+    call add_diagnostic_input_needs(diagnostic_rules, ifVertical_MeteoDependent, &
+                                  & q_dyn, q_st, q_disp_dyn, q_disp_st)
+    if(error)return
+    !
+    ! Store to the shopping lists
+    !
+    call add_shopping_quantities(input_shopping_list, q_dyn)
+    call add_shopping_quantities(static_shopping_list, q_st)
+    call add_shopping_quantities(disp_dyn_shopping_list, q_disp_dyn)
+    call add_shopping_quantities(disp_stat_shopping_list, q_disp_st)
     !
     ! If any quantity is 3D, we will need surface pressure
     !
     do iTmp = 1, fu_nbr_of_quantities(input_shopping_list)
       if(fu_multi_level_quantity(fu_quantity(input_shopping_list, iTmp)))then
-        call add_shopping_quantities(input_shopping_list, (/surface_pressure_flag/), (/2/))
+        call add_shopping_quantities(input_shopping_list, (/surface_pressure_flag/))
         exit
       endif
     end do
-
     !
     ! Prepare the log file. It will be opened in the directory of the first output,
     ! which means the first source, if they are split.
@@ -1300,14 +1312,9 @@ CONTAINS
       ! to be kept in memory
       !
       if(defined(DA_time_window))then
-        nlSetup => fu_namelist(nlSetupGrp,'data_assimilation')
-        if(error .or. .not.associated(nlSetup))then
-          call set_error('dispersion_parameters namelist is absent','global_io_init')
-          return
-        endif
-        
-        nTimeNodesNeeded = int(DA_time_window / fu_obstime_interval(wdr) + 0.5) + 6
-        nTimeNodesNeeded = max(min(nTimeNodesNeeded, max_times), 2)
+        !nTimeNodesNeeded = int(DA_time_window / fu_obstime_interval(wdr) + 0.5) + 6
+        !nTimeNodesNeeded = max(min(nTimeNodesNeeded, max_times), 2)
+        nTimeNodesNeeded = ceiling(DA_time_window / fu_obstime_interval(wdr)) + 2
       else
         nTimeNodesNeeded = 2   !3  ! no data assimilation
       endif
@@ -1320,7 +1327,7 @@ CONTAINS
 
     endif  ! ifRunDispersion
     if(error)return
-
+    
     !----------------------------------------------------------------------------------
     !----------------------------------------------------------------------------------
     !
@@ -1329,7 +1336,7 @@ CONTAINS
     ! It sets the meteo_grid so that it covers maximum possible part of 
     ! the requested area. However, nobody promised that it will cover 100%.
     !
-    call msg('Initializing NWP data usage...')
+    call msg('Initializing NWP data usage.. Steps to store:', nTimeNodesNeeded)
 
     strTmp%sp = 'Meteo_initialisation'
     call start_count(chCounterNm = strTmp%sp)
@@ -1340,12 +1347,10 @@ CONTAINS
                   & complete_static_shopping_list, &
                   & fu_interval_positive(timestep), &    ! ifForward                  
                   & gridTmp, &                           ! Grid to cover with meteo (can be undefined)
-                  & quantities, &  ! return list of quantities to be stored in meteo_buffer regardless st/dyn
+                  & q_met_buf, &  ! return list of quantities to be stored in meteo_buffer regardless st/dyn
                   & meteoMarketPtr, &   ! The main storage
                   & nTimeNodesNeeded)   ! number of meteo times to be kept in memory
     IF (error) RETURN
-
-
 
     !----------------------------------------------------------------------------------
     !
@@ -1527,7 +1532,7 @@ CONTAINS
         return
       endif ! type of the dispersion grid definition
 
-    else
+    else    ! ...%ifRunDispersion
       !
       ! No dispersion needed => no dispersion grid. Just output
       !
@@ -1559,7 +1564,6 @@ CONTAINS
       endif  ! output grid type
 
     endif  ! if dispersion is requested
-
     !
     ! The output and dispersion grid reports
     !
@@ -1637,7 +1641,7 @@ CONTAINS
       gridTmp = dispersion_grid
     endif
 
-    if(.not.   fu_if_mesh_intrpolatable(gridTmp, meteo_grid)) then
+    if(.not. fu_if_mesh_intrpolatable(gridTmp, meteo_grid)) then
       call set_error('After all, the meteo grid does not cover dispersion one','global_io_init')
       return
     endif
@@ -1845,61 +1849,30 @@ CONTAINS
     !
     ! Vertical definitions
     !
-    ! The output levels can be requested from meteo_vertical too
+    ! if output is in meteo vertical
     !
     if(fu_str_u_case(fu_content(fu_namelist(nlSetupGrp, 'output_parameters'),'vertical_method')) &
-     & == 'METEO_LEVELS')then
-      output_vertical = meteo_vertical
-     endif
-
+                    & == 'METEO_LEVELS') output_vertical = meteo_vertical  ! the earliest place to set it
     !
-    ! Dispersion vertical structure can be partly determined by user for Eulerian advection
-    ! while for Lagrangian we force selection of the meteo cut to the height of ouput one
+    ! output vertical is known, set the dispersion one
     !
-    nlSetup => fu_namelist(nlSetupGrp,'dispersion_parameters')
-    if(fu_fails(associated(nlSetup), 'dispersion_parameters namelist is absent','global_io_init'))return
+    call set_dispersion_vertical(nlSetupGrp, dynRules%simulation_type, .true., ifVertical_MeteoDependent)
+    if(error)return
+    !
+    ! Now some forcing: dispersion_vertical MUST be either hybrid or height layers.
+    !
+    if (fu_fails(any(fu_leveltype(dispersion_vertical) == (/layer_btw_2_hybrid, layer_btw_2_height/)), &
+       & 'Only hybrid or height layers are allowed for dispersion vertical', 'global_io_init'))return
 
-    if(dynRules%simulation_type == lagrangian_flag)then
-
-!      dispersion_vertical = output_vertical
-      call msg('Lagrange requires dispersion vertical based on meteo levels')
-      call levels_to_layers(meteo_vertical, dispersion_vertical)
-      ! dispersion vertical top must be below the upper meteo level
-      call remove_last_level(dispersion_vertical)
-
-      ! If no output from upper layers -- can cut further
-      if(fu_if_cut_vertical_size_from_above(dispersion_vertical, output_vertical, max_topo_height))then
-        call msg("Cut done")
-      endif
-
-    elseif(dynRules%simulation_type == eulerian_flag .or. dynRules%simulation_type == hybrid_flag)then
-      !
-      ! Eulerian advection, vertical is selected by the user
-      !
-      if(fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'METEO_LEVELS')then
-        !dispersion_vertical = meteo_vertical
-        call msg('Creating dispersion vertical from meteo levels')
-        call levels_to_layers(meteo_vertical, dispersion_vertical)
-
-      elseif(fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'OUTPUT_LEVELS')then
-        dispersion_vertical = output_vertical
-
-      elseif(fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'CUSTOM_LEVELS' .or. &
-           & fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'CUSTOM_LAYERS')then
-        call set_vertical(nlSetup, dispersion_vertical)
-
-      else
-        call set_error('Strange dispersion vertical deifinition:' + &
-                     & fu_content(nlSetup,'vertical_method'),'global_io_init')
-        return
-      endif
-    endif  ! type of advection
-    if(error .or. .not.defined(dispersion_vertical)) then
-      call report(dispersion_vertical)
-      call set_error('Failed to determine the dispersion_vertical','global_io_init')
-      return
-    endif
-
+    dispersion_verticalPtr => dispersion_vertical
+    call vertical_parameters(dispersion_vertical, nz_dispersion, &
+                           & a_half_disp, b_half_disp,  disp_layer_top_m, .true., .true.) 
+    if(error)return
+    !
+    ! Due to some internal limitations, we require nz_dispersion > 1.
+    !
+    if(fu_fails(nz_dispersion > 1,'At least 2 levels required in dispersion vertical', &
+                                & 'global_io_init'))return
     !
     ! Now, with the domain topography defined, we can reduce the number of vertical levels 
     ! in meteo grid. Possible only if bottom-up wind diagnostic is used, of course.
@@ -1917,23 +1890,8 @@ CONTAINS
         call vertical_parameters_ab(meteo_vertical, nz_meteo, a_met, b_met)
       endif
     endif
-
-    ! Now some forcing: dispersion_vertical MUST be either hybrid or height layers.
     !
-    if (.not. any(fu_leveltype(dispersion_vertical) == (/layer_btw_2_hybrid, layer_btw_2_height/))) then
-      call set_error('Only hybrid or height layers are allowed for dispersion vertical', 'global_io_init')
-      return
-    endif
-
-    dispersion_verticalPtr => dispersion_vertical
-    call vertical_parameters(dispersion_vertical, nz_dispersion, &
-                       a_half_disp, b_half_disp,  disp_layer_top_m, .true., .true.) 
-                       !    & dispersion_layer_z_size, dispersion_layer_boundaries)
-    if(error)return
-
-    ! Due to some internal limitations, we require nz_dispersion > 1.
-    !
-    if(fu_fails(nz_dispersion > 1,'At least 2 levels required in dispersion vertical','global_io_init'))return
+    ! Reporting...
     call msg('')
     call msg('========================= METEO VERTICAL ==========================')
     call report(meteo_vertical,.true.)
@@ -2003,137 +1961,111 @@ CONTAINS
 !    call report(full_shopping_list)
 !    call msg('')
 
-
-    call arrange_supermarket(meteoMarketPtr)
-
+    call arrange_supermarket(meteoMarketPtr, .true., .true.)
 
     call stop_count(chCounterNm = strTmp%sp)
     
 
     !--------------------------------------------------------------------
     !
-    ! Initialise the dispersion market and buffer
+    ! Initialise the dispersion market, buffer, and other dispersion-related parts of the model
+    ! Note that diagnostic_variables, except for those that require specific species, can be
+    ! requested to the output regardless the actual dispersion
+    !
+    wdrDisp = wdr
+    call set_storage_region(wdrDisp, area_missing, dispersion_grid)
+
+    !
+    ! How many time nodes are to be kept in the market?
+    !
+    nTimeNodesNeededDisp = 2  ! by default
+    !
+    ! DA runs might require more
     !
     if(OutDef%rules%ifRunDispersion)then
-        ! 
-        ! Now include the vertical-dependent quantities to the list of
-        ! requested dispersion quantities.
-        !
-        if (dynRules%simulation_type == eulerian_flag .or. dynRules%simulation_type == hybrid_flag) then
-        call euler_adv_input_needs(dynRules%advMethod_Eulerian, &
-                                 & .true., &              ! include vertical-dependent fields
-                                 & ifUseMassfluxes(diagnostic_rules), &
-                                 & q_dyn, q_st, q_disp_dyn, q_disp_stat)
-        if(error)return
-        endif
-
-        if(fu_if_level_meteo_dependent(fu_leveltype(dispersion_vertical)))then
-          iTmp = fu_merge_int_arrays((/cell_size_z_flag, int_missing/), q_disp_dyn, .true.)
-          iTmp = fu_merge_int_arrays((/cell_size_x_flag, cell_size_y_flag, int_missing/), &
-                                   & q_disp_stat, .true.)
-        else
-          iTmp = fu_merge_int_arrays((/cell_size_x_flag, cell_size_y_flag, cell_size_z_flag, &
-                                     & int_missing/), q_disp_stat, .true.)
-        endif
-
-
-        call add_shopping_quantities(disp_dyn_shopping_list, q_disp_dyn)
-        call add_shopping_quantities(disp_stat_shopping_list, q_disp_stat)
-!    call msg("") 
-!    call msg("*********************************************************")
-!    call msg("disp_dyn_shopping_list after euler_adv_input_needs")
-!    call report(disp_dyn_shopping_list)
-!    call msg("*********************************************************")
-!    call msg("") 
-!    call msg("") 
-!    call msg("*********************************************************")
-!    call msg("disp_stat_shopping_list after euler_adv_input_needs")
-!    call report(disp_stat_shopping_list)
-!    call msg("*********************************************************")
-!    call msg("")
-!    call ooops("")
-
-      wdrDisp = wdr
-      call set_storage_region(wdrDisp, area_missing, dispersion_grid)
-      !
-      ! How many time nodes are to be kept in the market?
-      !
       if(defined(DA_time_window))then
         nTimeNodesNeededDisp = int(DA_time_window / fu_obstime_interval(wdrDisp) + 0.5) + 6
         nTimeNodesNeededDisp = max(min(nTimeNodesNeededDisp,max_times),2)
-      else
-        nTimeNodesNeededDisp = 2  ! no data assimilation
       endif
+    endif
+    
+    ! Initialize mini market...
+    call init_supplementary_market(dispersionMarketPtr, q_disp_dyn, q_disp_st, &
+                                 & wdrDisp, nTimeNodesNeededDisp, 'dispersion minimarket')
+    if(error)return
+    !
+    ! Now, fill-in the dispersion market with the fields that will not change their location
+    !
+    ! ... fill-in the basic information: dx, dy, dz ...
+    !
+    call set_basic_physiography(dispersionMarketPtr, wdrDisp, dispersion_grid, dispersion_vertical)
+    if(error)return
 
-      ! Initialize mini market...
-      call init_supplementary_market(dispersionMarketPtr, &
-                                   & q_disp_dyn, q_disp_stat, &
-                                   & wdrDisp, nTimeNodesNeededDisp, 'dispersion minimarket')
-      if(error)return
+    ! Allocate structures needed for wind diagnostics
+    call init_wind_diag(wholeMPIdispersion_grid, dispersion_grid, dispersion_vertical, &
+                     &  meteo_vertical, diagnostic_rules)
+    if(error)return
+    !
+    ! ... create empty fields to store realtime stuff...
+    !
+    call init_singletime_fields(dispersionMarketPtr, dispersion_grid, &
+                              & dispersion_vertical, disp_stat_shopping_list)
+    if(error)return
+    !
+    ! It is time to initialize the supplementary diagnostics: fire danger indices or water in soil
+    ! They will figure out whether to activate by themselves
+    !
+    ! water in soil
+    !
+    call init_water_in_soil_model(dispersionMarketPtr, meteoMarketPtr, diagnostic_rules, &
+                                & fu_start_time(wdr))
+    if(error)return
+    !
+    ! fire danger indices
+    !
+    call init_fire_danger_indices(diagnostic_rules, dispersionMarketPtr, fu_start_time(wdr))
+    if(error)return
 
-      !
-      ! Now, fill-in the dispersion market with the fields that will not change their location
-      !
-      ! ... fill-in the basic information: dx, dy, dz ...
-      !
-      call set_basic_physiography(dispersionMarketPtr, wdrDisp, dispersion_grid, dispersion_vertical)
-      if(error)return
-
-      ! Allocate structures needed for wind diagnostics
-      call init_wind_diag(wholeMPIdispersion_grid, dispersion_grid, dispersion_vertical, &
-                  &  meteo_vertical, diagnostic_rules)
-      if(error)return
-
-      ! ... create empty fields to store realtime stuff...
-      !
-      call init_singletime_fields(dispersionMarketPtr, dispersion_grid, &
-                                & dispersion_vertical, disp_stat_shopping_list)
-      if(error)return
-
-      ! Should this be needed, initialise the water in soil computation procedure
-      !
-      call init_water_in_soil_model(dispersionMarketPtr, meteoMarketPtr, diagnostic_rules, fu_start_time(wdr))
-      if(error)return
-      
-      ! Initialise emission sources and related fields: they are in dispersionMarket
-      !
+    !
+    ! Initialise emission sources and related fields: they are in dispersionMarket
+    !
+    if(OutDef%rules%ifRunDispersion)then
       call init_emission_internal_fields(em_source, dispersionMarketPtr, fu_start_time(wdr))
       if(error)return
-      !
-      ! Arrange the market
-      !
-      call arrange_supermarket(dispersionMarketPtr)
-      if(error)return
+    endif
+    !
+    ! Arrange the market
+    !
+    call arrange_supermarket(dispersionMarketPtr, .true., .true.)
+    if(error)return
 
-      ! Finally, initialise the corresponding buffer...
-      !
-      nullify(disp_buf)
-      q_dyn = int_missing
-      iTmp = fu_merge_int_arrays(q_disp_dyn, q_dyn, .true.)
-      iTmp = fu_merge_int_arrays(q_disp_stat, q_dyn, .true.)
+    ! Finally, initialise the corresponding buffer...
+    ! Note that it does not care about singletime vs multitime/dynamic, need to sum-up
+    !
+    nullify(disp_buf)
+    iTmp = fu_merge_int_arrays(q_disp_st, q_disp_dyn, .false.)  ! from, to, 
 
-      call init_supplementary_data_buffer(dispersionMarketPtr, disp_buf, &
-                                        & .false., fs_dispersion, q_dyn)
-      if(error .or. fu_fails(associated(disp_buf),'Non-associated dispersion buffer', &
-                                                & 'global_io_init'))return
-      ! ... and arrange it
-      !
-      call arrange_buffer(dispersionMarketPtr, met_src_missing, time_missing, interval_missing, disp_buf,& 
-                                       &  dispersion_verticalPtr)
-      if(error)return
-      !
-      ! A couple of other global pointers
-      !
-      dispersion_cell_x_size_fld => fu_sm_simple_field(dispersionMarketPtr, silam_internal_src,&
-                                                     & cell_size_x_flag,&
-                                                     & level_missing, &
-                                                     & single_time_stack_flag)
-      dispersion_cell_y_size_fld => fu_sm_simple_field(dispersionMarketPtr, silam_internal_src,&
-                                                     & cell_size_y_flag,&
-                                                     & level_missing, &
-                                                     & single_time_stack_flag)
+    call init_supplementary_data_buffer(dispersionMarketPtr, disp_buf, .false., fs_dispersion, q_disp_dyn)
+    if(error .or. fu_fails(associated(disp_buf),'Non-associated dispersion buffer', &
+                                              & 'global_io_init'))return
+    ! ... and arrange it
+    !
+    call arrange_buffer(dispersionMarketPtr, met_src_missing, time_missing, interval_missing, disp_buf,& 
+                     &  dispersion_verticalPtr)
+    if(error)return
+    !
+    ! A couple of other global pointers
+    !
+    dispersion_cell_x_size_fld => fu_sm_simple_field(dispersionMarketPtr, silam_internal_src,&
+                                                   & cell_size_x_flag,&
+                                                   & level_missing, &
+                                                   & single_time_stack_flag)
+    dispersion_cell_y_size_fld => fu_sm_simple_field(dispersionMarketPtr, silam_internal_src,&
+                                                   & cell_size_y_flag,&
+                                                   & level_missing, &
+                                                   & single_time_stack_flag)
 
-      !----------------------------------------------------------------------------
+    if(OutDef%rules%ifRunDispersion)then
       !
       ! Converting source to initial cloud.
       !
@@ -2187,11 +2119,7 @@ CONTAINS
     IF (error) RETURN
     
 
-
-
-
     call stop_count(chCounterNm = strTmp%sp)
-
 
     !--------------------------------------------------------------------
     !
@@ -2219,7 +2147,7 @@ CONTAINS
 
     ! ... and the corresponding buffer...
     nullify(out_buf)
-    iTmp = fu_merge_int_arrays(q_st, q_dyn, .true.)
+    iTmp = fu_merge_int_arrays(q_st, q_dyn, .false.)
     call init_supplementary_data_buffer(outputMarketPtr, out_buf, &
                                       & .false., fs_output, q_dyn)
     if(error .or. fu_fails(associated(out_buf),'Non-associated output buffer', &
@@ -2229,7 +2157,7 @@ CONTAINS
     call set_basic_physiography(outputMarketPtr, wdrDisp, output_grid, output_vertical)
     if(error)return
 
-    call arrange_supermarket(outputMarketPtr)
+    call arrange_supermarket(outputMarketPtr, .true., .true.)
     if(error)return
 
     ! ... and set permanent dispersion pointers
@@ -2239,11 +2167,6 @@ CONTAINS
                                        & output_verticalPtr)
     if(error)return
 
-    call free_work_array(q_dyn)
-    call free_work_array(q_st)
-    call free_work_array(req_dyn)
-    call free_work_array(req_st)
-
     !---------------------------------------------------------------------------
     !
     ! Now all grids seem to be determined, so we can compute all the coefficients
@@ -2252,15 +2175,11 @@ CONTAINS
     call msg('')
     call msg('Setting horizontal and vertical cross-interpolation')
     !
-    ! Meteo-to-dispersion grids and verticals. Conversion is set in 
-    ! pollution_cloud
+    ! Meteo-to-dispersion grids and verticals. Conversion is set in pollution_cloud
     !
-    if(OutDef%rules%ifRunDispersion) then
-      call msg('Meteo to dispersion grid interpolation')
-      call set_meteo2disp_interp(cloud, wdr, timestep) ! from pollution cloud
-      if(error)return
-    endif
-
+    call msg('Meteo to dispersion grid interpolation')
+    call set_meteo2disp_interp(cloud, wdr, timestep) ! from pollution cloud
+    if(error)return
     !
     ! Meteo-to-output grid
     !
@@ -2301,45 +2220,45 @@ CONTAINS
     !
     ! Dispersion-to-output grid
     !
-    if(OutDef%rules%ifRunDispersion) then
-!call msg('Dispersion to output grid interpolation')
-      if(output_grid == dispersion_grid)then
-        nullify(OutVars%interpCoefDisp2OutHoriz)
-        OutDef%Rules%ifDisp2OutHorizInterp = .false.
-      else
-        OutVars%interpCoefDisp2OutHoriz => fu_horiz_interp_struct(dispersion_grid, &    ! grid From
-                                                               & output_grid, &  ! grid To
-                                                               & fu_horizontal_interp_method(wdr), &
-                                                               & fu_if_randomise(wdr), &
-                                                               &  iOutside = setMissVal) !method
-        if(error)then
-          call set_error('failed dispersion to output horizontal interpolation structure', &
-                       & 'global_io_init')
-          return
-        endif
-        OutDef%Rules%ifDisp2OutHorizInterp = .true.
-      endif ! output grid == dispersion grid
-
-      !
-      ! Dispersion-to-output verticals
-      !
-!call msg('Dispersion to output vertical interpolation')
-      if(fu_cmp_verts_eq(output_vertical, dispersion_vertical))then
-        nullify(OutVars%interpCoefDisp2OutVert)
-        OutDef%Rules%ifDisp2OutVertInterp = .false.
-      else
-        OutVars%interpCoefDisp2OutVert => fu_vertical_interp_struct(dispersion_vertical, &
-                                                                  & output_vertical, &
-                                                                  & output_grid, &
-                                                                  & fu_vertical_interp_method(wdr), &
-                                                                  & OutDef%rules%timestep, &
-                                                                  & 'disp_to_output')
-        OutDef%Rules%ifDisp2OutVertInterp = .true.
-      endif ! output vertical == dispersion vertical
-      if(error)return
+    if(output_grid == dispersion_grid)then
+      nullify(OutVars%interpCoefDisp2OutHoriz)
+      OutDef%Rules%ifDisp2OutHorizInterp = .false.
+    else
+      OutVars%interpCoefDisp2OutHoriz => fu_horiz_interp_struct(dispersion_grid, &    ! grid From
+                                                              & output_grid, &  ! grid To
+                                                              & fu_horizontal_interp_method(wdr), &
+                                                              & fu_if_randomise(wdr), &
+                                                              & iOutside = setMissVal) !method
+      if(error)then
+        call set_error('failed dispersion to output horizontal interpolation structure', &
+                     & 'global_io_init')
+        return
+      endif
+      OutDef%Rules%ifDisp2OutHorizInterp = .true.
+    endif ! output grid == dispersion grid
+    !
+    ! Dispersion-to-output verticals
+    !
+    if(fu_cmp_verts_eq(output_vertical, dispersion_vertical))then
+      nullify(OutVars%interpCoefDisp2OutVert)
+      OutDef%Rules%ifDisp2OutVertInterp = .false.
+    else
+      OutVars%interpCoefDisp2OutVert => fu_vertical_interp_struct(dispersion_vertical, &
+                                                                & output_vertical, &
+                                                                & output_grid, &
+                                                                & fu_vertical_interp_method(wdr), &
+                                                                & OutDef%rules%timestep, &
+                                                                & 'disp_to_output')
+      OutDef%Rules%ifDisp2OutVertInterp = .true.
+    endif ! output vertical == dispersion vertical
+    if(error)return
+    !
+    ! Report the starting status of the pollution cloud
+    !
+    if(OutDef%rules%ifRunDispersion)then
       call report(cloud, .false.)  ! Non-detailed report
       call collect_total_masses(cloud)
-      call report_total_masses(cloud, OutVars%iNbrCollection, .true.)
+      call report_total_masses(cloud, OutVars%iNbrCollection)
 !      call report_inout_mass_cld(cloud,outgoing)
       call msg('')
     endif  ! if run dispersion
@@ -2409,7 +2328,7 @@ CONTAINS
     ! so we can initiate buffers and try to set permanent pointers. 
     !
     nullify(met_buf)
-    call init_data_buffer(met_buf, quantities, .true., fs_meteo)  
+    call init_data_buffer(met_buf, q_met_buf, .true., fs_meteo)  
     if(error .or. .not. associated(met_buf))then
       call set_error('Non-associated meteo buffer','global_io_init')
       return
@@ -2436,7 +2355,8 @@ CONTAINS
                               & static_shopping_list, &
                               & cloud, &
                               & em_source, &
-                              & OutDef, chemRules, dynRules, nlStdSetup, &
+                              & OutDef, chemRules, dynRules, &
+                              & fu_namelist(nlSetupGrp,'STANDARD_SETUP'), &
                               & DispersionMarketPtr, met_buf, &
                               & timestep) ! Of the model
     if(error)return
@@ -2452,11 +2372,13 @@ CONTAINS
     call msg('')
 
 
-
 !call report(DispersionMarketPtr)
 
-    
-    call free_work_array(quantities)
+    call free_work_array(q_dyn)
+    call free_work_array(q_st)
+    call free_work_array(q_disp_dyn)
+    call free_work_array(q_disp_st)
+    call free_work_array(q_met_buf)
     call free_work_array(strTmp%sp)
 
 !    call msg('After global IO initialization cloud status=',fu_overall_cloud_status(cloud))
@@ -2509,18 +2431,152 @@ CONTAINS
     end subroutine set_output_grid
 
 
+    !=============================================================================
+    
+    subroutine set_dispersion_vertical(nlSetupGrp, simulation_type, ifMeteoReady, &
+                                     & ifDispVert_MeteoDependent)
+      !
+      ! Sets the verticals if meteo is initialized and returns the best-guess (or an exact knowlesge)
+      ! on whether it is meteo-dependent.
+      ! The function is called twice - before and after initializing the meteo. The first call
+      ! is to understand whether we need meteo-dependent transformations and corresponding input
+      !
+      implicit none
+      
+      ! Imported parameters
+      type(Tsilam_namelist_group), intent(in) :: nlSetupGrp
+      integer, intent(in) :: simulation_type
+      logical, intent(in) :: ifMeteoReady
+      logical, intent(out) :: ifDispVert_MeteoDependent
+      
+      ! local variables
+      type(Tsilam_namelist), pointer :: nlSetup
+      !
+      ! If dispersion_vertical has already been set by the previous call, exit
+      !
+      ifDispVert_MeteoDependent = .FALSE. !Fallback for the logic below
+
+      if(defined(dispersion_vertical))then
+        ifDispVert_MeteoDependent = fu_if_level_meteo_dependent(fu_leveltype(dispersion_vertical))
+        return
+      endif
+      !
+      ! Get the dispersion_parameters namelist
+      !
+      nlSetup => fu_namelist(nlSetupGrp,'dispersion_parameters')
+      if(fu_fails(associated(nlSetup), 'dispersion_parameters namelist is absent', &
+                                     & 'set_dispersion_vertical'))return
+      !
+      ! Dispersion vertical can be set from control file if requested explicitly
+      !
+      if(any(simulation_type == (/eulerian_flag, hybrid_flag/)) .and. &
+       & (fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'CUSTOM_LEVELS' .or. &
+        & fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'CUSTOM_LAYERS'))then
+        !
+        ! explicit definition, set and return
+        call set_vertical(nlSetup, dispersion_vertical)
+        if(error)return
+        ifDispVert_MeteoDependent = fu_if_level_meteo_dependent(fu_leveltype(dispersion_vertical))
+        return
+      endif
+      !
+      ! no shortcuts, do it hard way
+      ! Dispersion vertical structure can be determined by user for Eulerian advection
+      ! while for Lagrangian we force selection of the meteo cut to the height of ouput one
+      !
+      if(ifMeteoReady)then
+        !
+        ! Meteodata have been initialized, all is known. Set the vertical
+        !
+        if(simulation_type == lagrangian_flag)then
+
+          call msg('Lagrange requires dispersion vertical based on meteo levels')
+          call levels_to_layers(meteo_vertical, dispersion_vertical)
+          !
+          ! dispersion vertical top must be below the upper meteo level
+          call remove_last_level(dispersion_vertical)
+
+          ! If no output from upper layers -- can cut further
+          if(fu_if_cut_vertical_size_from_above(dispersion_vertical, output_vertical, &
+                                              & max_topo_height)) call msg("Cut done")
+
+        elseif(simulation_type == eulerian_flag .or. simulation_type == hybrid_flag)then
+          !
+          ! Eulerian advection, remaining options
+          !
+          if(fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'METEO_LEVELS')then
+            !dispersion_vertical = meteo_vertical
+            call msg('Creating dispersion vertical from meteo levels')
+            call levels_to_layers(meteo_vertical, dispersion_vertical)
+
+          elseif(fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'OUTPUT_LEVELS')then
+            dispersion_vertical = output_vertical
+
+          else
+            call set_error('Strange dispersion vertical deifinition:' + &
+                         & fu_content(nlSetup,'vertical_method'),'set_dispersion_vertical')
+            return
+          endif    ! vertical_method
+        else
+          call set_error('Unknown advection:' + fu_str(simulation_type),'set_dispersion_vertical')
+        endif  ! type of advection
+
+        if(error .or. .not.defined(dispersion_vertical)) then
+          call report(dispersion_vertical)
+          call set_error('Failed to determine the dispersion_vertical','set_dispersion_vertical')
+          return
+        endif
+        !
+        ! Finally, is it meteo-dependent?
+        !
+        ifDispVert_MeteoDependent = fu_if_level_meteo_dependent(fu_leveltype(dispersion_vertical))
+
+      else
+        !
+        ! Meteo has not been initialized, yet, but we can still guess whether the
+        ! dispersion vertical will be meteo-dependent
+        ! It is meteo-dependent if
+        ! - output_vertical is from meteo - then all is in hybrid/sigma-P
+        ! - Lagrangian advection - then dispersion is always in meteo
+        ! - dispersion_vertical method is METEO_LEVELS - then it is hybrid/sigma-P
+        ! - dispersion_vertical method is OUTPUT_LEVELS and output_vertical is meteo-dependent
+        !
+        ifDispVert_MeteoDependent = ifDispVert_MeteoDependent &
+                             & .or. fu_str_u_case(fu_content(fu_namelist(nlSetupGrp, &
+                                                                       & 'output_parameters'), &
+                                                & 'vertical_method')) == 'METEO_LEVELS' &
+                             & .or. simulation_type == lagrangian_flag &
+                             & .or. fu_str_u_case(fu_content(nlSetup,'vertical_method')) &
+                                             & == 'METEO_LEVELS'
+        if(ifDispVert_MeteoDependent)return
+        !
+        ! check the output_vertical
+        if(fu_str_u_case(fu_content(nlSetup,'vertical_method')) == 'OUTPUT_LEVELS')then
+          if(defined(output_vertical))then
+            ifDispVert_MeteoDependent = fu_if_level_meteo_dependent(fu_leveltype(output_vertical))
+          else
+            ifDispVert_MeteoDependent = .true.   ! undefined but better be safe. Actually, should never be here
+            call set_error('No clue on dispersion_vertical, strange','set_dispersion_vertical')
+          endif
+        else
+          return  ! none of the above -> meteo-independent
+        endif
+      endif  ! ifMeteoReady
+    end subroutine set_dispersion_vertical
+
   end subroutine global_io_init
 
-  !**********************************************************************************
     
+  !**********************************************************************************  
 
-  subroutine prepare_meteo( wdr, iAccuracy, DiagRules,&
-                          & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
-                          & disp_dyn_shopping_list, disp_stat_shopping_list, &
-                          & output_dyn_shopping_list, output_stat_shopping_list, &
-                          & meteo_ptr, disp_buf_ptr, output_buf_ptr, &
-                          & now, timestep, &
-                          & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, ifGotNewMeteoData)
+  subroutine prepare_meteo(wdr, iAccuracy, DiagRules,&
+                         & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
+                         & disp_dyn_shopping_list, disp_stat_shopping_list, &
+                         & output_dyn_shopping_list, output_stat_shopping_list, &
+                         & meteo_ptr, disp_buf_ptr, output_buf_ptr, &
+                         & now, timestep, &
+                         & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, ifGotNewMeteoData, &
+                         & ifRunDispersion)
 
     ! Acquire needed meteo and set all buffers
 
@@ -2541,8 +2597,7 @@ CONTAINS
     type(Tfield_buffer), pointer :: meteo_ptr, disp_buf_ptr, output_buf_ptr
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, outputMarketPtr
     logical, intent(inout) :: ifGotNewMeteoData
-
-
+    logical, intent(in) :: ifRunDispersion
 
     CHARACTER (LEN=fnlen) :: command_string = ' '
     type(silja_time) :: reftime
@@ -2551,48 +2606,54 @@ CONTAINS
     reftime = now + timestep*0.5 + fu_meteo_time_shift(wdr)
 
     if (ifGotNewMeteoData) then
-        command_string = 'Meteodata_acquisition'
-        call msg(command_string)
-        call start_count(chCounterNm = command_string)
-        CALL fix_shopping_time_boundaries(meteo_input_dyn_shopping_list, & !pMeteo_input_dyn_shop_list, &
-                                        & reftime, &
-                                        & reftime) ! + simRules%timestep)
-        CALL fill_meteo_market(meteoMarketPtr, wdr, &
-                             & meteo_input_dyn_shopping_list, &  !pMeteo_input_dyn_shop_list, &
-                             & timestep, &  !! needed only for direction
-                             & iAccuracy, &
-                             & ifGotNewMeteoData)
-        IF (error) return
-        call stop_count(chCounterNm = command_string)
-     endif
-            
-      !-------------------------------------------------------------------------
-      !
-      ! Whether the new data are consumed or not, we should create or, at least, check
-      ! the diagnostic quantities and set the pointers in all MiniMarkets.
-      ! So far, we handle 
-      ! (i) meteomarket using derived_field_quantities modules
-      ! (ii) dispersion market using functions in this module
-      !
-     command_string = 'Meteodata_processing'
-     call start_count(chCounterNm = command_string)
+      command_string = 'Meteodata_acquisition'
+      call msg(command_string)
+      call start_count(chCounterNm = command_string)
+      CALL fix_shopping_time_boundaries(meteo_input_dyn_shopping_list, & !pMeteo_input_dyn_shop_list, &
+                                      & reftime, reftime) ! + simRules%timestep)
+      CALL fill_meteo_market(meteoMarketPtr, wdr, &
+                           & meteo_input_dyn_shopping_list, &  !pMeteo_input_dyn_shop_list, &
+                           & timestep, &  !! needed only for direction
+                           & iAccuracy, &
+                           & ifGotNewMeteoData)
+      IF (error) return
+      call stop_count(chCounterNm = command_string)
+    endif
+    
+    
+!    call report(meteoMarketPtr)
+!    call msg('STOP HERE, NOW')
+!    stop
+    
+    
+    
+    !-------------------------------------------------------------------------
+    !
+    ! Whether the new data are consumed or not, we should create or, at least, check
+    ! the diagnostic quantities and set the pointers in all MiniMarkets.
+    ! So far, we handle 
+    ! (i) meteomarket using derived_field_quantities modules
+    ! (ii) dispersion market using functions in diagnostic_variables module
+    ! Both are now done regardless running the dispersion
+    !
+    command_string = 'Meteodata_processing'
+    call start_count(chCounterNm = command_string)
      
-     call make_all_diagnostic_fields(meteoMarketPtr, meteo_ptr, &         ! meteo market & buffer
-                                & dispersionMarketPtr, disp_buf_ptr, & ! disp market & buffer
-                                & outputMarketPtr, output_buf_ptr, & ! output market & buffer
-                                & meteo_full_dyn_shopping_list, &     ! meteo dynamic shopping list
-                                & disp_dyn_shopping_list, &      ! dispersion dynamic shopping list
-                                & output_dyn_shopping_list, &  ! full list of output dynamic fields
-                                & disp_stat_shopping_list, &     ! dispersion static shopping list
-                                & output_stat_shopping_list, &   ! fuopenll list of output static fields
-                                & wdr, &                          ! weather data rules
-                                & diagRules, &     ! diagnostic rules
-                                & ifGotNewMeteoData, &            ! if new meteo data avaialble
-                                & now, timestep, & ! now, step & weight of past-meteo time
-                                & .True. )       ! if dispersion structures exist
+    call make_all_diagnostic_fields(meteoMarketPtr, meteo_ptr, &         ! meteo market & buffer
+                                  & dispersionMarketPtr, disp_buf_ptr, & ! disp market & buffer
+                                  & outputMarketPtr, output_buf_ptr, & ! output market & buffer
+                                  & meteo_full_dyn_shopping_list, &     ! meteo dynamic shopping list
+                                  & disp_dyn_shopping_list, &      ! dispersion dynamic shopping list
+                                  & output_dyn_shopping_list, &  ! full list of output dynamic fields
+                                  & disp_stat_shopping_list, &     ! dispersion static shopping list
+                                  & output_stat_shopping_list, &   ! fuopenll list of output static fields
+                                  & wdr, &                          ! weather data rules
+                                  & diagRules, &           ! diagnostic rules
+                                  & ifGotNewMeteoData, &   ! if new meteo data avaialble
+                                  & now, timestep)       ! now, step & weight of past-meteo time
+    call stop_count(chCounterNm = command_string)
+  end subroutine prepare_meteo
 
-     call stop_count(chCounterNm = command_string)
-    end subroutine prepare_meteo
 
   !**********************************************************************************
     
@@ -2766,13 +2827,13 @@ CONTAINS
     type(Tfield_buffer), pointer :: met_buf
 
     ! Local variables
-    integer :: i,j, al_status, nSrc, i2D,i3D,iWind2D,iWind3D, tmpFieldKind, iExtra, iTmp
+    integer :: i,j, al_status, nSrc, i2D,i3D, tmpFieldKind, iExtra, iTmp
     logical :: found, ifMultiLevel, corner_in_geographical_latlon, if_south_pole, &
              & ifDD_all_cumulative, ifDD_all_rate, ifWD_all_cumulative, ifWD_all_rate
     type(silja_stack), pointer :: stackPtr
     character(len=clen) :: chTmp
     type(ToutputVariables), pointer :: ov
-    type(silam_species), dimension(:), pointer :: ptrSpecies
+!    type(silam_species), dimension(:), pointer :: ptrSpecies
 
 !    call msg("tune_output_parameters got meteoVarLstST:")
 !    call report(meteoVarLstST)
@@ -2861,44 +2922,6 @@ CONTAINS
         endif
     end select
 
-    !------------------------------------------------------------
-    !
-    ! Check that all needed variables are in varLst, delete desirable ones
-    ! if they are not in the list
-    !
-    if(allocated(OutDef%Rules%DispOutLst%ptrItem))then
-      i=1
-      do while(i <= size(OutDef%Rules%DispOutLst%ptrItem))
-
-        ! May be, the list is over...
-        !
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == int_missing) exit
-
-!        call msg_test('')
-        call msg_test('Checking output dispersion variable:' + &
-                    & fu_quantity_short_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' +&
-                    & fu_str(OutDef%Rules%DispOutLst%ptrItem(i)%species))
-        !
-        ! If the dispersion quantity is requested but the model is turned off, check the request and 
-        ! proceed apropriately. The rest will be handled by the expand_dispersion_output_list
-        !
-        if(.not. OutDef%Rules%ifRunDispersion)then
-          if(OutDef%Rules%DispOutLst%ptrItem(i)%request == 2)then
-            call set_error('SILAM dispersion output requested, but model is off', &
-                         & 'tune_output_parameters')
-            return
-          else
-            call msg_warning('Removing variable from output list:' + &
-                      & fu_quantity_short_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
-                      & fu_str(OutDef%Rules%DispOutLst%ptrItem(i)%species))
-            call shrink_output_list(OutDef%Rules%DispOutLst, i)
-            cycle
-          endif
-        endif
-        i = i + 1
-      end do  ! SILAM dispersion quantities
-    endif  ! Allocated dispersion output item
-
     ! Now - meteorological quantities
     !
     OutDef%Rules%ifAverageMeteo = .false.
@@ -2907,45 +2930,12 @@ CONTAINS
     if (allocated(OutDef%Rules%MeteoOutLst%ptrItem)) then
       do while (i <= size(OutDef%Rules%MeteoOutLst%ptrItem))
 
-        ! May be, the list is over...
-        !
         if(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity == int_missing) exit
-        call msg_test('Checking meteo quantity:' + &
-                    & fu_quantity_string(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity))
-        !
-        ! Non-SILAM quantity => it must be in the meteo shopping list
-        ! If the quantity is not in full shopping list - check the request and 
-        ! proceed appropriately
-        !
-        if((.not. fu_quantity_in_list(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity, meteoVarLst) ).and. &
-         & (.not. fu_quantity_in_list(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity, meteoVarLstST)))then
-          if(OutDef%Rules%MeteoOutLst%ptrItem(i)%request == 2)then
-    call msg("tune_output_parameters got meteoVarLst:")
-    call report(meteoVarLst)
-    call msg("tune_output_parameters got meteoVarLst:")
-    call report(meteoVarLstST)
-
-            call set_error('Output variable:### "' + &
-                         & fu_quantity_string(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity) + &
-                         & '" ### is dropped from run',  &
-                         & 'tune_output_parameters')
-            return
-          else  ! Delete the variable and shrunk the list
-            call msg_warning('Removing the quantity from output list:' + &
-                           & fu_quantity_string(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity))
-            call shrink_output_list(OutDef%Rules%MeteoOutLst, i)
-            cycle
-          endif ! request <> 2
-        end if  ! quantity is not in shopping list
 
         ! Check if we should collect meteo at every model timestep....
-        if (OutDef%Rules%MeteoOutLst%ptrItem(i)%request > 0 .and. &
-             & OutDef%Rules%MeteoOutLst%ptrItem(i)%AvType /= iAsIs ) then
-             OutDef%Rules%ifAverageMeteo = .true.
-        endif
-
+        if (OutDef%Rules%MeteoOutLst%ptrItem(i)%AvType /= iAsIs ) &
+             & OutDef%Rules%ifAverageMeteo = .true.
         i = i + 1
-
       end do ! list of output meteo quantities
     endif !allocated
 
@@ -3016,7 +3006,7 @@ CONTAINS
       call expand_dispersion_output_list(OutDef,PCld, em_source, &
                                        & pDispersionMarket, nlStdSetup, dynRules)
       if(error) return
-    endif
+    endif    ! ifRunDispersion
 
     !-----------------------------------------------------------------------------
     !
@@ -3026,8 +3016,6 @@ CONTAINS
     if(error)return
     i2D = 0
     i3D = 0
-    iWind2D = 0
-    iWind3D = 0
 
     if (allocated(OutDef%Rules%MeteoOutLst%ptrItem)) then
       call msg('')
@@ -3065,10 +3053,6 @@ CONTAINS
           call msg('3D quantity:' + fu_quantity_string(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity))
           i2D = i2D + nz_output * (iExtra + 1)
           i3D = i3D + 1 + iExtra
-          if(fu_wind_quantity(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity)) then
-            iWind2D = iWind2D + nz_output * (iExtra + 1)
-            iWind3D = iWind3D + 1 + iExtra
-          endif
         else
           if(OutDef%Rules%MeteoOutLst%ptrItem(i)%iVerticalTreatment == lowest_level_flag)then
             call msg('lowest-level quantity:' + &
@@ -3080,8 +3064,6 @@ CONTAINS
             call msg('2-D quantity:' + fu_quantity_string(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity))
           endif
           i2D = i2D + 1 + iExtra
-          if(fu_wind_quantity(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity)) &
-                                                                     & iWind2D = iWind2D + 1 + iExtra
         endif
 
       end do  ! Cycle through the output vars
@@ -3092,17 +3074,11 @@ CONTAINS
     !
     if(i2D > 0)then
 
-      allocate(OutVars%meteoStack, stat = al_status)
-      if(fu_fails(al_status ==0, 'Failed to allocate output meteo stack','tune_output_parameters'))return
-      call set_defined(OutVars%meteoStack,silja_false)  ! To avoid some funny coinsidence
-
       CALL init_stack(i2D + 1, &         ! Nbr of fields
-                    & iWind2D+1, &       ! Nbr of windfields
                     & 'meteo_output', &  ! Stack name
                     & .false., &         ! single time
                     & .false., &         ! sinlge met_src
                     & i3D+1, &           ! Nbr of 3d fields
-                    & iWind3D+1, &       ! Nbr of 3d windfields
                     & wdr, &             ! weather data rules
                     & OutVars%meteoStack)  ! Stack itself
       if(error)return
@@ -3114,24 +3090,18 @@ CONTAINS
       ! interpolation
       !
       if(output_grid == meteo_grid)then
-        OutVars%MeteoTmpStack => OutVars%meteoStack
+        OutVars%pMeteoStack => OutVars%meteoStack
       else
-        allocate(OutVars%meteoTmpStack, stat = al_status)
-        if(fu_fails(al_status == 0,'Failed to allocate output intermediate meteo stack', &
-                                 & 'tune_output_parameters'))return
-        call set_defined(OutVars%meteoTmpStack,silja_false)  ! To avoid funny coinsidence
         CALL init_stack(i2D + 1, &              ! Nbr of fields
-                      & iWind2D, &              ! Nbr of windfields
                       & 'meteo_TMP_output', &  ! Stack name
                       & .false., &               ! single time
                       & .false., &               ! sinlge met_src
                       & i3D, &                  ! Nbr of 3d fields
-                      & iWind3D, &              ! Nbr of 3d windfields
                       & wdr, &                  ! weather data rules
                       & OutVars%meteoTmpStack)  ! Stack itself
         IF (error) RETURN
+        OutVars%pMeteoStack => OutVars%meteoTmpStack
       endif   ! output grid == meteo_grid
-
       !
       ! The output stack should be filled-in by empty fields but with proper
       ! field_id -s. We shall never add/remove fields from this stack,
@@ -3145,98 +3115,97 @@ CONTAINS
       if(error)return
 !      call report(OutVars%MeteoTmpStack)
 
-    else
-      nullify(OutVars%MeteoTmpStack, OutVars%MeteoStack)
     endif  ! If any meteo vars for output
 
     !
     ! Initalization of the model output stack
     !
-    if(OutDef%Rules%ifRunDispersion)then
-      !
-      ! Count the number of fields to be in model output 
-      !
-      i2D = 0
-      i3D = 0
-      call msg('')
-      call msg('Initializing dispersion output. List size =', size(OutDef%Rules%DispOutLst%ptrItem))
+!    if(OutDef%Rules%ifRunDispersion)then
+    !
+    ! Count the number of fields to be in model output 
+    !
+    i2D = 0
+    i3D = 0
+    call msg('')
+    call msg('Initializing dispersion output. List size =', size(OutDef%Rules%DispOutLst%ptrItem))
 
-      do i=1,size(OutDef%Rules%DispOutLst%ptrItem)
+    do i=1,size(OutDef%Rules%DispOutLst%ptrItem)
         
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == int_missing) exit ! List over
+      if(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == int_missing) exit ! List over
 
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%avType == iAverage .or. &
-         & OutDef%Rules%DispOutLst%ptrItem(i)%avType == iCumulative .or. &
-         & OutDef%Rules%DispOutLst%ptrItem(i)%avType == iMeanLastHrs)then
-          iExtra = 1
-        else
-          iExtra = 0
-        endif
-        !
-        ! We have to take into account that emission has different cocktail from the others
-        !
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == emission_intensity_flag)then
-          ptrSpecies => fu_species_emission(PCld)
-        elseif(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == optical_density_flag .or. &
-             & OutDef%Rules%DispOutLst%ptrItem(i)%quantity == optical_density_flag)then
-          ptrSpecies => fu_species_optical(PCld)
-        else
-          ptrSpecies => fu_species_transport(PCld)
-        endif
+      if(OutDef%Rules%DispOutLst%ptrItem(i)%avType == iAverage .or. &
+       & OutDef%Rules%DispOutLst%ptrItem(i)%avType == iCumulative .or. &
+       & OutDef%Rules%DispOutLst%ptrItem(i)%avType == iMeanLastHrs)then
+        iExtra = 1
+      else
+        iExtra = 0
+      endif
+!      !
+!      ! We have to take into account that emission has different cocktail from the others
+!      !
+!      if(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == emission_intensity_flag)then
+!        ptrSpecies => fu_species_emission(PCld)
+!      elseif(OutDef%Rules%DispOutLst%ptrItem(i)%quantity == optical_density_flag .or. &
+!           & OutDef%Rules%DispOutLst%ptrItem(i)%quantity == optical_density_flag)then
+!        ptrSpecies => fu_species_optical(PCld)
+!      else
+!        ptrSpecies => fu_species_transport(PCld)
+!      endif
 
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == lowest_level_flag .or. &
-         & OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == integrate_column_flag)then
-          OutDef%Rules%DispOutLst%ptrItem(i)%if3D = .false.
-        else
-          OutDef%Rules%DispOutLst%ptrItem(i)%if3D = &
-                        & fu_multi_level_quantity(OutDef%Rules%DispOutLst%ptrItem(i)%quantity)
-        endif
-        if(OutDef%Rules%DispOutLst%ptrItem(i)%if3D) then
-          !
-          ! Just potentially 3D var, but let's reserve all levels anyway
-          !
-          i2D = i2D + nz_output * (iExtra + 1)
-          i3D = i3D + 1 + iExtra
-          call msg('3D quantity:' + &
+      if(OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == lowest_level_flag .or. &
+       & OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == integrate_column_flag)then
+        OutDef%Rules%DispOutLst%ptrItem(i)%if3D = .false.
+      else
+        OutDef%Rules%DispOutLst%ptrItem(i)%if3D = &
+                      & fu_multi_level_quantity(OutDef%Rules%DispOutLst%ptrItem(i)%quantity)
+      endif
+      if(OutDef%Rules%DispOutLst%ptrItem(i)%if3D) then
+        !
+        ! Just potentially 3D var, but let's reserve all levels anyway
+        !
+        i2D = i2D + nz_output * (iExtra + 1)
+        i3D = i3D + 1 + iExtra
+        call msg('3D quantity:' + &
+               & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
+               & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
+      else ! 2D/3D
+
+        i2D = i2D + 1 + iExtra
+        if(OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == lowest_level_flag)then
+          call msg('lowest-level quantity:' + &
                  & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
                  & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
-        else ! 2D/3D
+        elseif(OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == integrate_column_flag)then
+          call msg('column-integrated quantity:' + &
+                 & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
+                 & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
+        else
+          call msg('2D quantity:' + &
+                 & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
+                 & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
+        endif
+      endif  ! 2D/3D
+    end do  ! Cycle through the output vars
 
-          i2D = i2D + 1 + iExtra
-          if(OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == lowest_level_flag)then
-            call msg('lowest-level quantity:' + &
-                   & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
-                   & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
-          elseif(OutDef%Rules%DispOutLst%ptrItem(i)%iVerticalTreatment == integrate_column_flag)then
-            call msg('column-integrated quantity:' + &
-                   & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
-                   & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
-          else
-            call msg('2D quantity:' + &
-                   & fu_quantity_string(OutDef%Rules%DispOutLst%ptrItem(i)%quantity) + ',' + &
-                   & fu_species_output_name(OutDef%Rules%DispOutLst%ptrItem(i)%species))
-          endif
-        endif  ! 2D/3D
-      end do  ! Cycle through the output vars
+    ! Initialization itself. There will be the only output dispersion stack
+    ! but possibly nSrc temporary output stacks
+    !
+    allocate(OutVars%DispTmpStack(nSrc), stat=al_status)
+    if(fu_fails(al_status ==0, 'Failed to allocate output intermediate dispersion stack', &
+                             & 'tune_output_parameters'))return
+    do i=1, nSrc
+      OutVars%DispTmpStack(i) = stack_missing
+    end do
 
-      ! Initialization itself. There will be the only output dispersion stack
-      ! but possibly nSrc temporary output stacks
-      !
-      allocate(OutVars%DispTmpStack(nSrc), stat=al_status)
-      if(fu_fails(al_status ==0, 'Failed to allocate output intermediate dispersion stack', &
-                               & 'tune_output_parameters'))return
+    if(i2D > 0)then
       do i=1, nSrc
-        call set_defined(OutVars%DispTmpStack(i),silja_false)  ! To avoid funny coinsidence
-        stackPtr => OutVars%DispTmpStack(i)
         CALL init_stack(i2D + 1, &
-                      & 0, &  ! No windfields
                       & 'dispersion_output_tmp', &
                       & .false., &
                       & .false., &
                       & i3D, &      ! 
-                      & 0, &      ! No 3D wind fields
                       & wdr, &
-                      & stackPtr)
+                      & OutVars%DispTmpStack(i))
         IF (error) RETURN
       enddo
       !
@@ -3244,50 +3213,36 @@ CONTAINS
       ! otherwise it will be just pointing to the tmp stacks one-by-one for
       ! all emission sources.
       !
-      if(dispersion_grid == output_grid)then
-        OutVars%DispStack => OutVars%DispTmpStack(1)
-      else
-        allocate(OutVars%DispStack, stat=al_status)
-        if(fu_fails(al_status ==0, 'Failed to allocate output dispersion stack','tune_output_parameters'))return
-        call set_defined(OutVars%DispStack,silja_false)  ! To avoid funny coinsidence
-
+      if(.not. dispersion_grid == output_grid)then
         CALL init_stack(i2D + 1, &
-                      & 0, &      ! No wind fields
                       & 'silam_dispersion_output', &
                       & .false., &
                       & .false., &
                       & i3D, &
-                      & 0, &      ! No 3D wind fields
                       & wdr, &
                       & OutVars%DispStack)
         IF (error) RETURN
       endif
-
       !
       ! Similar to meteo output tmp stacks, all these stacks have to be filled
       ! with empty fields using the dispersion_grid as a template.
       !
       do i=1, nSrc
-        stackPtr => OutVars%DispTmpStack(i)
-        call fill_stack_with_empty_fields(stackPtr , &        ! stack to fill
+        call fill_stack_with_empty_fields(OutVars%DispTmpStack(i), &        ! stack to fill
                                         & OutDef%Rules%DispOutLst, &  ! list of vars
                                         & dispersion_grid)
         if(error)then
           call msg("************************************************************")
           call msg("iSource:"+fu_str(i))
           call msg("")
-          call report(stackPtr)
+          call report(OutVars%DispTmpStack(i))
           call set_error("Failed filling output stacks with place-holders",'tune_output_parameters')
           call msg("************************************************************")
           return
         endif
       end do
 
-    else  ! If Run dispersion
-
-      nullify(OutVars%DispStack,OutVars%DispTmpStack)
-
-    endif  ! If Run dispersion
+    endif  ! i2D > 0      (not If Run dispersion)
 
     OutVars%iNbrCollection = 0
     if(error)return
@@ -3343,7 +3298,7 @@ CONTAINS
 
       ! Imported parameters
       !
-      type(silja_stack), pointer :: stackPtr
+      type(silja_stack), intent(inout) :: stackPtr
       type(TOutputList), intent(inout) :: VarLst
       type(silja_grid), intent(in), optional :: grid_to_use
 
@@ -3883,7 +3838,6 @@ CONTAINS
     integer :: iMet, iLev, iSourceId, iQ
     real, dimension(:), pointer :: dataPtr
     type(silja_field_id) :: idTmp
-!    type(silam_cocktail), dimension(:), pointer :: cockArPtr
     type(silja_stack), pointer :: stackPtr
     real, dimension(:), pointer :: fTmp
     type(silja_field), pointer :: FldPtr
@@ -3916,36 +3870,37 @@ CONTAINS
       ifRatesDumpOutputTime = now == (OutVars%LastRatesDumpOutputTime + OD%Rules%rates_dump_timestep)
     endif
     
-    call msg_test('Collecting the output masses')
-    !------------------------------------------------------------------
-    !
-    ! The next step - collect the masses, both in air and deposited, as well as optics, 
-    ! for both Eulerian and Lagrangian runs. Note that mass maps are present always: deposition fields
-    !
-    call start_count('Collect_intermediate_mass_maps')
+    if(fu_ifRunDispersion(OutDef))then
+      call msg_test('Collecting the output masses')
+      !------------------------------------------------------------------
+      !
+      ! The next step - collect the masses, both in air and deposited, as well as optics, 
+      ! for both Eulerian and Lagrangian runs. Note that mass maps are present always: deposition fields
+      !
+      call start_count('Collect_intermediate_mass_maps')
 
-    call merge_mass_map_2_mass_map(OutVars%MassMapLinks, &
-                                 & dispBuf, &          ! data buffer, also has time
-                                 & OutVars%LastOutputTime + OutDef%Rules%timestep, & ! next output time
-                                 & now, &
-                                 & model_time_step, &     ! timestep in mass maps
-                                 & ifFirststep, ifLastOutput)
-    if(error)return
+      call merge_mass_map_2_mass_map(OutVars%MassMapLinks, &
+                                   & dispBuf, &          ! data buffer, also has time
+                                   & OutVars%LastOutputTime + OutDef%Rules%timestep, & ! next output time
+                                   & now, &
+                                   & model_time_step, &     ! timestep in mass maps
+                                   & ifFirststep, ifLastOutput)
+      if(error)return
 
-    if(fu_if_lagrangian_present(simulation_type)) &
-        & call merge_lagrPartSet_2_mass_map(OutVars%Lagr2MMLinks, &      ! Structure to merge
-                                          & outBuf, &           ! data buffer
-                                          & OutVars%LastOutputTime + OutDef%Rules%timestep, & ! next output time
-                                          & now, &
-                                          & model_time_step)     ! timestep in mass maps
-                                        !!! ifLastOutput  should be here
+      if(fu_if_lagrangian_present(simulation_type)) &
+          & call merge_lagrPartSet_2_mass_map(OutVars%Lagr2MMLinks, &      ! Structure to merge
+                                            & outBuf, &           ! data buffer
+                                            & OutVars%LastOutputTime + OutDef%Rules%timestep, & ! next output time
+                                            & now, &
+                                            & model_time_step)     ! timestep in mass maps
+                                          !!! ifLastOutput  should be here
 
-    call stop_count('Collect_intermediate_mass_maps')
-
+      call stop_count('Collect_intermediate_mass_maps')
+    endif  ! ifRunDispersion
 
     ! Force all AS_IS on the first step to have all outputs defined
     call collect_buffers(metBuf, dispBuf, OD, OV, now + meteo_time_shift, model_time_step, &
-        & ifFirstStep, fu_if_randomise(wdr), ifLastOutput, ifOutputTime)
+                       & ifFirstStep, fu_if_randomise(wdr), ifLastOutput, ifOutputTime)
 
     OutVars%iNbrCollection = OutVars%iNbrCollection + 1
     !
@@ -3965,9 +3920,11 @@ CONTAINS
       !
       ! Collect and report total masses
       !
-      if(fu_ifRunDispersion(OutDef) .and. mod(iOutputCounter,OutDef%Rules%cldRepInterv) == 0)then
+      if(fu_ifRunDispersion(OutDef) .and. mod(iOutputCounter,OutDef%Rules%cldRepInterv) == 0 &
+                 & .and.  (.not. ifFirstStep) .and. (.not. ifLastOutput))then 
+        !!! Reports for begin and end of dispersion loop  made outside the loop
         call collect_total_masses(PCld)
-        call report_total_masses(PCld, OutVars%iNbrCollection, .true.) 
+        call report_total_masses(PCld, OutVars%iNbrCollection) 
         call report_inout_mass_cld(pCld,outgoing)
         call report_inout_mass_cld(pCld,incoming)
       end if
@@ -4070,17 +4027,16 @@ CONTAINS
       ! Accumulated fields will continue accumulation, while instant fields will
       ! anyway be overwritten at a proper time.
       !
-      if (associated(OutVars%MeteoTmpStack)) then
-        if(defined(OutVars%MeteoTmpStack))then
-          stackPtr => OutVars%MeteoTmpStack
-          call prepare_new_averaging_period(stackPtr)
+      if(associated(OutVars%pMeteoStack))then  ! can be null
+        if(defined(OutVars%pMeteoStack))then
+          call prepare_new_averaging_period(OutVars%pMeteoStack)
         endif
       endif
 
-      if(OutDef%Rules%ifRunDispersion)then
+      if(allocated(OutVars%DispTmpStack))then  !actually, it is always allocated
         do iQ =1, size(OutDef%Params%chSrcNm)
-          stackPtr => OutVars%DispTmpStack(iQ)
-          call prepare_new_averaging_period(stackPtr)
+          if(defined(OutVars%DispTmpStack(iQ))) &
+                      & call prepare_new_averaging_period(OutVars%DispTmpStack(iQ))
         end do
       endif
 
@@ -4093,10 +4049,10 @@ CONTAINS
 
   !***********************************************************************************
 
-  subroutine collect_buffers( metBuf,  dispBuf, OD, OV, now, model_time_step, &
-      & ifForceASIS, ifRandomise, ifLastOutput, ifCollectASIS)
+  subroutine collect_buffers(metBuf, dispBuf, OD, OV, now, model_time_step, &
+                           & ifForceASIS, ifRandomise, ifLastOutput, ifCollectASIS)
     ! 
-    ! Should be clled by collect_output before actual output
+    ! Should be called by collect_output before actual output
     !
     ! "AS_IS" values are colected  ifBeforeOut == .True.
     !
@@ -4113,63 +4069,60 @@ CONTAINS
     logical, intent(in) :: ifCollectASIS !! If we are not going to output
                                          !! ifCollectASIS can be .False.
     type(silam_output_definition), pointer :: OD
-    type(ToutputVariables), pointer :: OV
+    type(ToutputVariables), target, intent(inout) :: OV
     type(silam_pollution_cloud), pointer :: PCld
     type(silja_time), intent(in) :: now
     type(silja_interval), intent(in) :: model_time_step
 
-
-    integer :: iQ, iSourceId, avtype, nTmp
+    ! Local variables
+    integer :: iQ, iSourceId, avtype, nTmp, nSrcs
     type(silja_logical) :: slTmp
-    type(silja_stack), pointer :: stackPtr
-
-      
     !
     ! There are two stacks - meteo and model data. So, let's start from the meteo
     ! It does not depend on splitting of sources, so all meteofields
     ! must be stored to all output files despite the emission sources
     !
     if (allocated(OD%Rules%MeteoOutLst%ptrItem)) then
-        ! No averaged meteo quantities  => Skip  the second collection 
+      ! No averaged meteo quantities  => Skip  the second collection 
 
-        call msg_test('Collecting the output meteo')
+      call msg_test('Collecting the output meteo')
 
-        call start_count('collect_met_field_data')
-        do iQ=1,size(OD%Rules%MeteoOutLst%ptrItem)
+      call start_count('collect_met_field_data')
+      do iQ=1,size(OD%Rules%MeteoOutLst%ptrItem)
 
-          if(OD%Rules%MeteoOutLst%ptrItem(iQ)%quantity == int_missing) exit
+        if(OD%Rules%MeteoOutLst%ptrItem(iQ)%quantity == int_missing) exit
 
-          if (ifForceASIS) then
-            avtype = iAsIs
-          else
-            avtype = OD%Rules%MeteoOutLst%ptrItem(iQ)%AvType
-          endif
+        if (ifForceASIS) then
+          avtype = iAsIs
+        else
+          avtype = OD%Rules%MeteoOutLst%ptrItem(iQ)%AvType
+        endif
 
-          if (.not. ifCollectASIS) then
-            if (avtype == iAsIs) cycle
-          endif
-          !
-          ! Collect this variable
-          !
+        if (.not. ifCollectASIS) then
+          if (avtype == iAsIs) cycle
+        endif
+        !
+        ! Collect this variable
+        !
 
 !call msg_test("Collecting MET with avtype _"+fu_str(avtype)+"_:" &
 !                  &+fu_quantity_string(OD%Rules%MeteoOutLst%ptrItem(iQ)%quantity))
 !if(OD%Rules%MeteoOutLst%ptrItem(iQ)%quantity == windspeed_10m_flag)then
 !  call msg('*')
 !endif
-          call collect_field_data(metBuf, &             ! Buffer to take the field from
-                                & meteo_verticalPtr, &  ! meteorological vertical used in that buffer
-                                & now, &                ! Time now
-                                & model_time_step, & 
-                                & OD%Rules%MeteoOutLst%ptrItem(iQ),&
-                                & OV%MeteoTmpStack, &   ! Output stack to merge the field in
-                                & avtype, & 
-                                & OD, ifRandomise)  ! Overall set of rules and supplementary information
-          if(error) exit  !MUST die on error here!
-          !call unset_error('collect_buffers')
-        end do  ! Scan through the meteo output list
-        call stop_count('collect_met_field_data')
-        if(error) return
+        call collect_field_data(metBuf, &             ! Buffer to take the field from
+                              & meteo_verticalPtr, &  ! meteorological vertical used in that buffer
+                              & now, &                ! Time now
+                              & model_time_step, & 
+                              & OD%Rules%MeteoOutLst%ptrItem(iQ),&
+                              & OV%pMeteoStack, &   ! Output stack to merge the field in
+                              & avtype, & 
+                              & OD, ifRandomise)  ! Overall set of rules and supplementary information
+        if(error) exit  !MUST die on error here!
+        !call unset_error('collect_buffers')
+      end do  ! Scan through the meteo output list
+      call stop_count('collect_met_field_data')
+      if(error) return
 !call msg('done')
 !if(error)call unset_error('Let see it further')
     endif ! allocated
@@ -4178,40 +4131,48 @@ CONTAINS
     !
     ! Now - collect the dispersion quantities, specifically for each source
     !
-    call msg_test('Collecting the output dispersion')
-    call start_count('Collect_other_dispersion_fields')
-
-    if(associated(OD%Params%chSrcNm))then
-      do iSourceId = 1, size(OD%Params%chSrcNm)
+    if(allocated(OD%Rules%DispOutLst%ptrItem))then
       
-        if(allocated(OD%Rules%DispOutLst%ptrItem))then
-          do iQ=1,size(OD%Rules%DispOutLst%ptrItem)
-      
-            if(OD%Rules%DispOutLst%ptrItem(iQ)%quantity == int_missing)exit
+      call msg_test('Collecting the output dispersion')
+      call start_count('Collect_other_dispersion_fields')
+      !
+      ! If sources are allocated, i.e. we run dispersion, scan them all
+      ! If not, we have only one source and NO_SOURCE_SPLIT
+      !
+      if(associated(OD%Params%chSrcNm))then
+        nSrcs = size(OD%Params%chSrcNm)
+      else
+        nSrcs = 1
+      endif
 
-            if (ifForceASIS) then
-              avtype = iAsIs
-            else
-              avtype = OD%Rules%DispOutLst%ptrItem(iQ)%AvType
-            endif
-            if (.not. ifCollectASIS) then
-              if (avtype == iAsIs) cycle
-            endif
+      do iSourceId = 1, nSrcs
+        do iQ=1,size(OD%Rules%DispOutLst%ptrItem)
+      
+          if(OD%Rules%DispOutLst%ptrItem(iQ)%quantity == int_missing)exit
+
+          if (ifForceASIS) then
+            avtype = iAsIs
+          else
+            avtype = OD%Rules%DispOutLst%ptrItem(iQ)%AvType
+          endif
+          if (.not. ifCollectASIS) then
+            if (avtype == iAsIs) cycle
+          endif
 
     !call msg_test('Collect_buffers:' + fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) )
 
-            !
-            ! If the quantity is tight to pollution cloud, its output is driven 
-            ! by specialised routine collect_dispersion_data.
-            ! Otherwise, we are dealing with internal model field stored in 
-            ! dispersion_buffer. It can be treated exactly like meteorological one
-            !
-            slTmp = fu_if_cloud_mass_map_quantity(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) 
-            if(slTmp == silja_true)then
+          !
+          ! If the quantity is tight to pollution cloud, its output is driven 
+          ! by specialised routine collect_dispersion_data.
+          ! Otherwise, we are dealing with internal model field stored in 
+          ! dispersion_buffer. It can be treated exactly like meteorological one
+          !
+          slTmp = fu_if_cloud_mass_map_quantity(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) 
+          if(slTmp == silja_true)then
 
-call msg('Pollution_cloud quantity cannot be collected here. SOURCE: ', iSourceId)
-call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
-                         & fu_str(OD%Rules%DispOutLst%ptrItem(iQ)%species))
+            call msg('Pollution_cloud quantity cannot be collected here. SOURCE: ', iSourceId)
+            call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
+                                              & fu_str(OD%Rules%DispOutLst%ptrItem(iQ)%species))
 
 !call msg('Collecting data for:' + &
 !                     & fu_quantity_short_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity)))
@@ -4221,47 +4182,43 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
 !                                     & simulation_type)
 !          call stop_count('collect_disp_data')
 
-            elseif(slTmp == silja_false)then
-
-              stackPtr => OV%DispTmpStack(iSourceId)
+          elseif(slTmp == silja_false)then
 
 !if(OD%Rules%DispOutLst%ptrItem(iQ)%quantity == 260010 .or. &
 ! & OD%Rules%DispOutLst%ptrItem(iQ)%quantity == 250132)then
 !call msg('Collecting field data for:' + &
 !       & fu_quantity_short_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity))
 !endif
-              call start_count('collect_field_data')
-              call collect_field_data(dispBuf, &  ! Buffer to take the field from
-                                    & dispersion_verticalPtr, & ! vertical structure used in the buffer
-                                    & now, &         ! Time now
-                                    & model_time_step, &
-                                    & OD%Rules%DispOutLst%ptrItem(iQ),&
-                                    & stackPtr, &  ! Output stack to merge the field in
-                                    & avtype, & !
-                                    & OD, ifRandomise)   ! OD: all rules and supplementary information
-              call stop_count('collect_field_data')
+            call start_count('collect_field_data')
+            call collect_field_data(dispBuf, &  ! Buffer to take the field from
+                                  & dispersion_verticalPtr, & ! vertical structure used in the buffer
+                                  & now, &         ! Time now
+                                  & model_time_step, &
+                                  & OD%Rules%DispOutLst%ptrItem(iQ),&
+                                  & OV%DispTmpStack(iSourceId), &  ! Output stack to merge the field in
+                                  & avtype, & !
+                                  & OD, ifRandomise)   ! OD: all rules and supplementary information
+            call stop_count('collect_field_data')
 
-            else
-              call msg('Neither mass map nor field quantity',OD%Rules%DispOutLst%ptrItem(iQ)%quantity)
-              call set_error('Neither particle- nor field-based quantity','collect_buffers')
-              return
-            endif
-            !
-            ! If we fail at this level, have to stop: if this variable was not excluded, model thinks
-            ! that it can deliver. If it cannot, something went wrong.
-            !
-            if(error)then
-              call set_error('Cannot collect variable:' + &
-                                   & fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity), &
-                             & 'collect_buffers')
-              return
-            endif
+          else
+            call msg('Neither mass map nor field quantity',OD%Rules%DispOutLst%ptrItem(iQ)%quantity)
+            call set_error('Neither particle- nor field-based quantity','collect_buffers')
+            return
+          endif
+          !
+          ! Anything wrong?
+          !
+          if(error)then
+            call set_error('Cannot collect variable:' + &
+                                 & fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity), &
+                           & 'collect_buffers')
+            return
+          endif
 
-          end do ! Quantities
-        endif  ! if associated quantities
+        end do ! Quantities
 
       end do ! Emission source ids
-    endif  ! associated source IDs
+    endif  ! if allocated quantities
 
     call stop_count('Collect_other_dispersion_fields')
   end subroutine collect_buffers
@@ -4454,7 +4411,7 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
             idTargetPtr => listItem%targetId
             !Set valid during the current timestep
             !call msg("Setting valid period")
-            if (.not. fu_accumulated(idTmp) )then
+            if (.not. fu_accumulated_id(idTmp) )then
               if(fu_interval_positive(model_time_step))then
                 call set_valid_time(idTmp, now - model_time_step)
                 call set_validity_length(idTmp, model_time_step)
@@ -4469,15 +4426,6 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
             call set_level(idTmp, lowest_atmosphere_level)
           endif
 
-          !if (fu_quantity(idTmp) == dispersion_v_flag) then
-          !  if (iLev == 1) then
-          !    call msg("**************Merging 4D field to output stack****************")
-          !    call msg("idTmp (Input)") 
-          !    call report(idTmp)
-          !    call msg("listItem%targetId") 
-          !    call report(idTargetPtr)
-          !  endif
-          !end if
           call merge_vector_data_to_stack(idTmp, dataPtr, stackOut, idTargetPtr, ifRandomise)
           if(error)return
 
@@ -4503,9 +4451,12 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
     ! Transfers the collected data to the output stacks, if needed, then
     ! writes the output stacks to files and prepares the stacks for future
     ! use.
-    ! Data copying happens if output grid != system_grid. Preparation of the 
-    ! fields for future use depends on their type and includes re-setting
-    ! the target id, and, if needed, current-id and the data field itself.
+    ! Data copying happens if output grid != dispersion_grid / meteo_grid.
+    ! Preparation of the fields for future use depends on their type and 
+    ! includes re-setting the target id, and, if needed, current-id and
+    ! the data field itself.
+    ! SILAM can write files source-wise. Then meteodata are repeated in each file,
+    ! source fields are specific.
     !
     implicit none
 
@@ -4568,21 +4519,19 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
 !call check_stack_fields_ranges(OutVars%MeteoStack)
 !call check_stack_fields_ranges(OutVars%MeteoTmpStack)
 !call msg('Finished')
-    if (associated(OutVars%MeteoTmpStack)) then
-      if(defined(OutVars%MeteoTmpStack))then
-        if(.not. meteo_grid == output_grid)then
-          call copy_stack_grid_interpolation(OutVars%MeteoTmpStack, &  !stackFrom
-                                           & OutVars%MeteoStack, &  ! stackTo, 
-                                           & output_grid, &   !gridNew
-                                           & .false., &  ! No copy of internal fields
-                                           & setMissVal, &
-                                           & fu_if_randomise(wdr))  ! out of grid value
-          if(error)return
-        endif !meteo_grid == OutDef%Params%grid
+    if(defined(OutVars%MeteoTmpStack))then
+      if(.not. meteo_grid == output_grid)then
+        call copy_stack_grid_interpolation(OutVars%MeteoTmpStack, &  !stackFrom
+                                         & OutVars%MeteoStack, &  ! stackTo, 
+                                         & output_grid, &   !gridNew
+                                         & .false., &  ! No copy of internal fields
+                                         & setMissVal, &
+                                         & fu_if_randomise(wdr))  ! out of grid value
+        if(error)return
+      endif !meteo_grid == OutDef%Params%grid
 
   !      call arrange_fields_in_stack(OutVars%MeteoStack)
   !      if(error)return
-      endif
     endif
 
 !call msg('Checking stack range after final output collection')
@@ -4590,10 +4539,11 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
 !call check_stack_fields_ranges(OutVars%MeteoTmpStack)
     !
     ! Now - fill-in output dispersion stack(s) with immediate writing
+    ! As many sources as defined in the output.
     !
 !call msg_test('Write output 2')
 
-    if(OutDef%Rules%ifRunDispersion)then
+    if(associated(OutDef%Params%chSrcNm))then
       !
       ! If sources are split - there will be several names in SrcNm
       ! If they are mixed - there will be just one name in SrcNm. 
@@ -4604,62 +4554,30 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
         ! But if the grids are the same, the stack pointers coincide and thus
         ! no data copying needed
         !
+        call msg('write_output, source:' + OutDef%Params%chSrcNm(iSource) + ', iSource', iSource)
         iFileManipTmp = iFileManipulation
         if(dispersion_grid == output_grid)then
 
-          OutVars%DispStack => OutVars%DispTmpStack(iSource) ! No interpolation needed
+          stackPtr => OutVars%DispTmpStack(iSource) ! No interpolation needed
 
         else
           !
           ! Copy all fields from temporary stack to the output one with interpolation
           !
-          stackPtr => OutVars%DispTmpStack(iSource)
-          call copy_stack_grid_interpolation(StackPtr, &  !stackFrom
+          call copy_stack_grid_interpolation(OutVars%DispTmpStack(iSource), &  !stackFrom
                                            & OutVars%DispStack, &   ! stackTo, 
                                            & output_grid, &   !gridNew
                                            & .false., &  ! No copy of internal fields
                                            & setMissVal, &
                                            & fu_if_randomise(wdr))  ! out of grid value
           if(error)return
+          stackPtr => OutVars%DispStack
 
         endif !dispersion_grid == OutDef%Params%grid
         !
         !   Writing MeteoStack to file
         !
-        if (associated(OutVars%MeteoStack))then
-          if(defined(OutVars%MeteoStack))then
-
-            IF(OutDef%Rules%ifGRADS) then
-              CALL do_file_manip_grads(OutDef, now, iSource, iFileManipTmp)
-              iGrads = OutDef%params%grads_funit(iSource)
-            endif
-
-            IF(OutDef%Rules%iNETCDF /= int_missing) then
-              call do_file_manip_netcdf(OutDef, now, iSource, iFileManipTmp, OutDef%Rules%iNETCDF)
-              iNetcdf = OutDef%Params%netcdf_funit(iSource)
-            endif
-
-            IF(OutDef%Rules%iGRIB /= int_missing) then
-              CALL do_file_manip_grib(OutDef, now, iSource, iFileManipTmp)
-              iGrib = OutDef%Params%grib_funit(iSource)
-            endif
-            if(error)return
-
-  !call msg('meteo: write_stack_to_files')
-            CALL write_stack_to_files(OutVars%MeteoStack, iSource, &
-                                    & iGrads, iNetcdf, iGrib, OutDef%Rules%iGrib, now, &
-                                    & OutDef%Rules%iOutTimesType == iRegular)
-            if(error)return
-
-            iFileManipTmp = DoNothing
-
-          endif  ! defined output meteo stack
-        endif
-
-        !
-        !  Writing DispStack to file
-        !
-        if(defined(OutVars%DispStack))then
+        if(defined(OutVars%MeteoStack))then
 
           IF(OutDef%Rules%ifGRADS) then
             CALL do_file_manip_grads(OutDef, now, iSource, iFileManipTmp)
@@ -4677,7 +4595,38 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
           endif
           if(error)return
 
-          CALL write_stack_to_files(OutVars%DispStack, iSource, &
+  !call msg('meteo: write_stack_to_files')
+          CALL write_stack_to_files(OutVars%MeteoStack, iSource, &
+                                  & iGrads, iNetcdf, iGrib, OutDef%Rules%iGrib, now, &
+                                  & OutDef%Rules%iOutTimesType == iRegular)
+          if(error)return
+
+          iFileManipTmp = DoNothing
+
+        endif  ! defined output meteo stack
+
+        !
+        !  Writing DispStack to file
+        !
+        if(defined(stackPtr))then
+
+          IF(OutDef%Rules%ifGRADS) then
+            CALL do_file_manip_grads(OutDef, now, iSource, iFileManipTmp)
+            iGrads = OutDef%params%grads_funit(iSource)
+          endif
+
+          IF(OutDef%Rules%iNETCDF /= int_missing) then
+            call do_file_manip_netcdf(OutDef, now, iSource, iFileManipTmp, OutDef%Rules%iNETCDF)
+            iNetcdf = OutDef%Params%netcdf_funit(iSource)
+          endif
+
+          IF(OutDef%Rules%iGRIB /= int_missing) then
+            CALL do_file_manip_grib(OutDef, now, iSource, iFileManipTmp)
+            iGrib = OutDef%Params%grib_funit(iSource)
+          endif
+          if(error)return
+
+          CALL write_stack_to_files(stackPtr, iSource, &
                                   & iGrads, iNetcdf, iGrib, OutDef%Rules%iGrib, now, &
                                   & OutDef%Rules%iOutTimesType == iRegular)
           if(error)return
@@ -4953,7 +4902,7 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
     TYPE(silam_output_definition), INTENT(in) :: OutDef
     type(silam_pollution_cloud), pointer :: cloud
 
-    if(.not. fu_silam_dispersion_quantity(quantity)) then
+    if(.not. fu_SILAM_disp_grid_quantity(quantity)) then
       grid = meteo_grid  ! Can be Arakawa-shifted, but here we do not know it
       return
     endif
@@ -5972,8 +5921,6 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
       ! and allowing it to through out species with unknown optical features. But
       ! if a specific species is requested with request == 2, the optical data must be available.
       !
-      if(Lst%ptrItem(item)%iSpeciesListType /= iSingleSubstance) Lst%ptrItem(item)%request = 1
-
       if(Lst%ptrItem(item)%iSpeciesListType == iSourceInventory)then                          ! source inventory
         call addSpecies(pSpTmp, nSpTmp, &
                       & fu_species_emission(pCloud), fu_nbr_of_species_emission(pCloud))
@@ -6124,7 +6071,6 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
       if(error)return
       do iSp = nSpInit+1, nSpecies
         lst%ptrItem(iTmp)%quantity = - lst%ptrItem(item)%quantity   ! mark as used
-        lst%ptrItem(iTmp)%request = lst%ptrItem(item)%request
         lst%ptrItem(iTmp)%AvType = lst%ptrItem(item)%AvType
         lst%ptrItem(iTmp)%iSpeciesListType = int_missing            ! individual species
         lst%ptrItem(iTmp)%iVerticalTreatment = lst%ptrItem(item)%iVerticalTreatment
@@ -6316,7 +6262,6 @@ call msg(fu_quantity_string(OD%Rules%DispOutLst%ptrItem(iQ)%quantity) + ',' + &
         !
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%quantity = LstTmp%ptrItem(iVarIni)%quantity
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%species = LstTmp%ptrItem(iVarIni)%species
-        OutDef%Rules%DispOutLst%ptrItem(iVarOut)%request = LstTmp%ptrItem(iVarIni)%request
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%AvType = LstTmp%ptrItem(iVarIni)%AvType
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%AvPeriod = LstTmp%ptrItem(iVarIni)%AvPeriod
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%iVerticalTreatment = &
@@ -6331,18 +6276,11 @@ call msg('Specific variable added:' + fu_quantity_short_string(LstTmp%ptrItem(iV
         !
         ! Variable is not available. Check the request and proceed appropriately
         !
-        if(LstTmp%ptrItem(iVarIni)%request == 2)then
-          call msg('Specific mandatory variable is not available:' + &
+        call msg('Specific mandatory variable is not available:' + &
                  & fu_quantity_short_string(LstTmp%ptrItem(iVarIni)%quantity) + &
                  & ',' + fu_species_output_name(LstTmp%ptrItem(iVarIni)%species))
-          call set_error('Mandatory specific variable is not available','expand_dispersion_output_list')
-          return
-        else
-          call msg('Exclude the specific unavailable variable:' + &
-                 & fu_quantity_short_string(LstTmp%ptrItem(iVarIni)%quantity) + &
-                 & ',' + fu_species_output_name(LstTmp%ptrItem(iVarIni)%species))
-          cycle
-        endif
+        call set_error('Mandatory specific variable is not available','expand_dispersion_output_list')
+        return
       endif
       iVarOut = iVarOut + 1 
     end do
@@ -6610,7 +6548,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
         if(error)return
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%quantity = LstTmp%ptrItem(iVarIni)%quantity
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%species = species
-        OutDef%Rules%DispOutLst%ptrItem(iVarOut)%request = LstTmp%ptrItem(iVarIni)%request
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%AvType = LstTmp%ptrItem(iVarIni)%AvType
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%AvPeriod = LstTmp%ptrItem(iVarIni)%AvPeriod
         OutDef%Rules%DispOutLst%ptrItem(iVarOut)%iVerticalTreatment = &
@@ -6670,11 +6607,14 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     type(silam_species), dimension (max_species) :: CustomList
     integer :: nCustomSpecies
     real :: avUnit
+    integer, dimension(:), pointer :: arQ
 
     nullify(ptrVars)
     iVar = fu_next_free_unit()
     iMeteoVar = 1
     iDispVar = 1
+    arQ => fu_work_int_array()
+    arQ(1) = int_missing
 
     ! Get the namelist
     !
@@ -6684,7 +6624,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     nlOutCfg => fu_read_namelist(iVar, .false., 'END_OUTPUT_CONFIG_3_7')
     if(error)return
     close(iVar)
-
     !
     ! Check if we have custom inventory specified
     !
@@ -6701,7 +6640,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
          k = k + iTmp -1
        enddo
     endif
-
 
     !
     ! Set the rule for aerosol size mode reporting (sum-up or separately)
@@ -6834,7 +6772,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
           if(error)return
           if (any(fu_get_SILAM_quantity(chVar) == (/drydep_flag,wetdep_flag/))) then
             if (any(iInventory == (/iFullInventory, iShortLivingInventory/))) then
-              call msg_warning("No depositions for short-lived species",  'read_output_configuration')
+              call msg_warning("No depositions for thes species:" + chSubstNm,  'read_output_configuration')
               call msg("Please correct your output config.")
               call msg("SOURCE_INVENTORY or TRANSPORT_INVENTORY might be good options")
               call set_error("Inventory "//trim(chSubstNm)//" is not allowed for "//trim(chVar), 'read_output_configuration')
@@ -6849,7 +6787,22 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
         iInventory = iNoSubstanceRelation
         speciesTmp = species_missing
       endif    ! substance name or inventory label
-
+      !
+      ! Check for duplicates
+      !
+      iTmp = fu_get_SILAM_quantity(chVar)
+      do iAvTmp = 1, size(arQ)
+        if(arQ(iAvTmp) == int_missing)then
+          arQ(iAvTmp) = iTmp    ! OK, new quantity
+          arQ(iAvTmp+1) = int_missing
+          exit
+        endif
+        if(arQ(iAvTmp) == iTmp)then
+          call set_error('Duplicate output quantity:' + chVar,'read_output_configuration')
+          return
+        endif
+      end do
+      
       !
       !  Decode the type of averaging
       !
@@ -6889,8 +6842,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
         if(index(chAveraging, '.') == 0) chAveraging = fu_connect_strings(chAveraging,'.')
         read(unit = chAveraging, fmt=*, iostat=io_status) arTmp(1)
         if(io_status /= 0)then
-          call set_error(fu_connect_strings('Can not get averaging period:', &
-                                          & chAveraging), &
+          call set_error('Cannot get averaging period:' + chAveraging, &
                        & 'read_output_configuration')
           return
         endif
@@ -6911,8 +6863,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
           intAvTmp = model_time_step * real(abs(nint(intAvTmp / model_time_step)))
         endif
       else
-        call set_error(fu_connect_strings('Unknown averaging type:',chAveraging), &
-                     & 'read_output_configuration')
+        call set_error('Unknown averaging type:' + chAveraging, 'read_output_configuration')
         return
       endif     ! Types of averaging
 
@@ -6977,7 +6928,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
       ! the resulting output variables to the output list.
       ! Note that the consideration covers also the variables not attributed to any inventory or species
       !
-
       iInventoryTmp = iInventory
       do iSp = 1, max(1, nCustomSpecies)
 
@@ -6992,15 +6942,15 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
            if(error)return
 
            iTmp =  fu_get_SILAM_quantity(chVar)
-           if(fu_SILAM_dispersion_quantity(iTmp))then
+           if(fu_SILAM_disp_grid_quantity(iTmp))then
              !
              ! Dispersion quantity is to be sent to dispersion list
              !
              if(iDispVar > size(OutDef%Rules%DispOutLst%ptrItem)) &
                          & call expand_output_list(OutDef%Rules%DispOutLst, 2)
-             OutDef%Rules%ifRunDispersion = .true.
+             ! dispersion_stack quantity can be produced without running dispersion
+             if(fu_if_cloud_mass_map_quantity(iTmp) == silja_true) OutDef%Rules%ifRunDispersion = .true.
              OutDef%Rules%DispOutLst%ptrItem(iDispVar)%quantity = iTmp
-             OutDef%Rules%DispOutLst%ptrItem(iDispVar)%request = iRTmp
              OutDef%Rules%DispOutLst%ptrItem(iDispVar)%AvType = iAvTmp
              OutDef%Rules%DispOutLst%ptrItem(iDispVar)%AvPeriod = intAvTmp
              OutDef%Rules%DispOutLst%ptrItem(iDispVar)%species = speciesTmp  ! missing if no substance defined
@@ -7021,7 +6971,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
              OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%species = speciesTmp
              OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%chSpecies_string = chSubstNm  ! just input string 
              OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%iSpeciesListType = iInventoryTmp
-             OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%request = iRTmp
              OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%AvType = iAvTmp
              OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%AvPeriod = intAvTmp
              OutDef%Rules%MeteoOutLst%ptrItem(iMeteoVar)%iVerticalTreatment = iVerticalTreatment
@@ -7038,7 +6987,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
          if (iInventory /= iCustomInventory) exit !No need to loop over custom inventary
        enddo
 
-
     end do    ! Cycle through the file
 
     call msg('done read_output_configuration')
@@ -7048,6 +6996,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     call free_work_array(spSupplem%sp)
     call free_work_array(sp%sp)
     call free_work_array(arTmp)
+    call free_work_array(arQ)
     call destroy_namelist(nlOutCfg)
     deallocate(ptrVars)
 
@@ -7100,8 +7049,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     character(len=10),dimension(3), parameter :: chTypes = (/'Not needed','Desirable ','Mandatory '/)
     character(len=2),dimension(3), parameter :: XD = (/'XD','2D','3D'/)
 
-
-    
     if (.not. allocated(list%ptrItem)) then
        call msg("----Unallocated list-----")
        return
@@ -7111,10 +7058,9 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     call msg('The list of output variables is:')
     do i=1,size(list%ptrItem)
       if(list%ptrItem(i)%quantity == int_missing .or. list%ptrItem(i)%quantity < 1)cycle
-         j=2
-         if (list%ptrItem(i)%if3D) j=3
-      call msg(chTypes(list%ptrItem(i)%request+1) + ':' + &
-             & fu_quantity_string(list%ptrItem(i)%quantity)+"," + XD(j) + ',' + &
+      j=2
+      if (list%ptrItem(i)%if3D) j=3
+      call msg(fu_quantity_string(list%ptrItem(i)%quantity)+"," + XD(j) + ',' + &
              & fu_str(list%ptrItem(i)%species), list%ptrItem(i)%AvType)
     end do
     call msg('End of output list')
@@ -7224,7 +7170,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
                                   & level_missing,&
                                   & level_missing, &
                                   & output_grid, &
-                                  & (/2/), &
                                   & (/silja_false/))
     else
       call set_missing(shList)
@@ -7250,7 +7195,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     type(silja_shopping_list) :: shList
     integer, parameter, dimension(:) :: &
             rainlist(1:3)=(/large_scale_rain_int_flag, convective_rain_int_flag, & 
-                      & total_precipitation_rate_flag/)
+                      & total_precipitation_int_flag/)
 
     ! So far, only dx, dy
     !
@@ -7262,7 +7207,6 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
                                     & level_missing,&
                                     & level_missing, &
                                     & output_grid, &
-                                    & (/2,2/), &
                                     & (/silja_true, silja_true/))
     else
       shList = fu_set_shopping_list(met_src_missing, &
@@ -7272,10 +7216,9 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
                                     & level_missing,&
                                     & level_missing, &
                                     & output_grid, &
-                                    & (/2,2,2/), &
                                     & (/silja_true, silja_true, silja_false/))
     endif
-!    call add_shopping_quantities(shList, rainlist, (/2,2,2/), &
+!    call add_shopping_quantities(shList, rainlist, &
 !                        &(/silja_true, silja_true, silja_true/))
 
   end function fu_output_st_shopping_list
@@ -7366,41 +7309,35 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
   end function fu_traj_set
 
   !-----------------------------------------------------------------------------------------
-  integer function fu_model_output_request(OutDef)
+  subroutine get_output_quantities(OutDef, qArrMet, qArrDisp)
+    !
+    ! Returns two lists of output quantities
+    !
     implicit none
-    type(silam_output_definition), intent(in) :: OutDef
-    integer :: i
-    fu_model_output_request = 0
-    if (allocated(outDef%rules%dispOutLst%ptrItem)) then
-      do i=1,size(OutDef%rules%DispOutLst%ptrItem)
-        if(OutDef%rules%DispOutLst%ptrItem(i)%quantity == int_missing)exit
-        if(fu_silam_dispersion_quantity(OutDef%rules%DispOutLst%ptrItem(i)%quantity)) &
-             & fu_model_output_request= max(fu_model_output_request, &
-                                          & OutDef%Rules%DispOutLst%ptrItem(i)%request)
-      end do
-    end if
-    if (allocated(outDef%rules%meteoOutLst%ptrItem)) then
-      do i=1,size(OutDef%rules%MeteoOutLst%ptrItem)
-        if(OutDef%rules%MeteoOutLst%ptrItem(i)%quantity == int_missing)exit
-        if(fu_silam_dispersion_quantity(OutDef%rules%MeteoOutLst%ptrItem(i)%quantity)) &
-             & fu_model_output_request= max(fu_model_output_request, &
-                                          & OutDef%Rules%MeteoOutLst%ptrItem(i)%request)
-      end do
-    end if
-
-  end function fu_model_output_request
-
-  !-----------------------------------------------------------------------------------------
-  subroutine get_output_quantities(OutDef, qArr)
-    implicit none
-    integer, dimension(:), intent(out) :: qArr  ! return array of quantities
+    integer, dimension(:), intent(out) :: qArrMet, qArrDisp  ! return array of quantities
     type(silam_output_definition), target, intent(in) :: OutDef
     integer :: iTmp, jTmp
-     jTmp = size(OutDef%rules%DispOutLst%ptrItem)
-    do iTmp = 1, jTmp
-      qArr(iTmp) = OutDef%rules%DispOutLst%ptrItem(iTmp)%quantity
-    end do
-    qArr(jTmp+1) = int_missing !Put end marker
+    !
+    ! Met quantities
+    qArrMet(1) = int_missing
+    if(allocated(OutDef%rules%MeteoOutLst%ptrItem))then
+      jTmp = size(OutDef%rules%MeteoOutLst%ptrItem)
+      do iTmp = 1, jTmp
+        qArrMet(iTmp) = OutDef%rules%MeteoOutLst%ptrItem(iTmp)%quantity
+      end do
+      qArrMet(jTmp+1) = int_missing !Put end marker
+    endif
+    
+    ! Dispersion quantities
+    qArrDisp(1) = int_missing
+    if(allocated(OutDef%rules%DispOutLst%ptrItem))then
+      jTmp = size(OutDef%rules%DispOutLst%ptrItem)
+      do iTmp = 1, jTmp
+        qArrDisp(iTmp) = OutDef%rules%DispOutLst%ptrItem(iTmp)%quantity
+      end do
+      qArrDisp(jTmp+1) = int_missing !Put end marker
+    endif
+    
   end subroutine get_output_quantities
 
 

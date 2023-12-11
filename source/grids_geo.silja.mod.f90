@@ -420,8 +420,8 @@ MODULE grids_geo
     ! huuhaa%name = huuhaa)
     INTEGER :: gridtype = int_missing ! the parameters below
     TYPE(silja_lonlat_grid) :: lonlat
-    TYPE(silja_gauss_krueger_grid) :: gk
-    TYPE(silja_ps_grid) :: ps 
+!    TYPE(silja_gauss_krueger_grid) :: gk
+!    TYPE(silja_ps_grid) :: ps 
     type(silam_any_grid) :: ag
   END TYPE silja_grid
 
@@ -432,26 +432,24 @@ MODULE grids_geo
   TYPE(silja_grid), PARAMETER, PUBLIC :: grid_missing = silja_grid('missing',&
                                                                  & int_missing,&
                                                                  & lonlat_grid_missing,&
-                                                                 & gk_grid_missing, &
-                                                                 & ps_grid_missing, &
+!                                                                 & gk_grid_missing, &
+!                                                                 & ps_grid_missing, &
                                                                  & ag_missing)
 
-  type(silja_lonlat_grid), public, parameter :: gridTmp_very_much = silja_lonlat_grid(-180., -90.,360,180,pole_geographical,1.,1.)
-  TYPE(silja_grid), PUBLIC, parameter :: geo_global_grid = silja_grid( &
+  TYPE(silja_grid), PARAMETER, PUBLIC :: geo_global_grid = silja_grid( &
                         & 'global geographical grid',&
                         & lonlat,&
-                        & gridTmp_very_much, & 
-!                        & silja_lonlat_grid(-180., -90.,360,180,pole_geographical,1.,1.), &
-                        & gk_grid_missing, &
-                        & ps_grid_missing, &
+                        & silja_lonlat_grid(-180., -90.,360,180,pole_geographical,1.,1.), &
+!                        & gk_grid_missing, &
+!                        & ps_grid_missing, &
                         & ag_missing)
       
-  TYPE(silja_grid), PUBLIC, parameter :: coarse_geo_global_grid = silja_grid(&
+  TYPE(silja_grid), PARAMETER, PUBLIC :: coarse_geo_global_grid = silja_grid(&
                                                & 'coarse global geographical grid',&
                                                & lonlat,&
                           & silja_lonlat_grid(-180.,-90., 36,18,pole_geographical,10.,10.), &
-                                               & gk_grid_missing, &
-                                               & ps_grid_missing, &
+!                                               & gk_grid_missing, &
+!                                               & ps_grid_missing, &
                                                & ag_missing)
 ! Replaced by grib_scan_mode type in grib_io
 !  INTEGER, PARAMETER, PUBLIC :: hirlam_grib_scanning_mode = 64 
@@ -1405,7 +1403,7 @@ CONTAINS
     !
     ! Have to ensure that lons and lats follow silam standard (-180:180 and -90:90) 
     !
-    if (nx < 5 .or. ny<5) call ooops("smallanygrid")
+    !if (nx < 5 .or. ny<5) call ooops("smallanygrid")
     ifData = .true. 
     if(present(lon))then
       do i = 1, nx*ny
@@ -1945,86 +1943,125 @@ CONTAINS
 
     ! Description:
     ! Prints a report to screen describing  the grid.
+    ! ATTENTION. New FORTRAN compilers have problems with formatting like '(2A)'    
+    ! This is an extention of FORTRAN standard, which may not be supported.
+    ! At least new Intel makes the code that hard-crashed if this sub uses such syntax
+    ! CONFIRMED. Only stars, for whatever reason. Interestingly, even 2(I12,1x)
+    ! cause hard-crash:
+    ! forrtl: severe (8): internal consistency check failure, file for_intrp_fmt.c, line 2748
+    ! No idea, why. In other places formats seem to work.
     ! 
     IMPLICIT NONE
     !
     ! Imported parameters with intent IN:
     TYPE(silja_grid), INTENT(in) :: grid
+    
+    ! Local variables
     integer, dimension(2) :: fUnits
     integer :: iUnit
-    
-    logical :: speak
+!    character(len=fnlen) :: str
     
     fUnits(1:2) = (/run_log_funit, 6/)
 
+    if(.not. fu_grid_defined(grid))then
+      do iUnit = 1,2
+        write(fUnits(iUnit), *)'Undefined grid'
+!        write(fUnits(iUnit), '(A15)')'Undefined grid'
+      enddo
+      return
+    endif
 
     do iUnit = 1,2
+      
       if (smpi_global_rank > 0 .and. iUnit > 1) exit
+      
       SELECT CASE (grid%gridtype)
 
         CASE (lonlat) 
 
-          WRITE (fUnits(iUnit), *) & !'(2A)') 
-                    & '  ------- Grid report of lonlat-grid--', grid%name
+          WRITE (fUnits(iUnit), fmt=*) '  ------- Grid report of lonlat-grid--', grid%name
 
-
-        IF (grid%lonlat%pole == pole_geographical) THEN
-            WRITE(fUnits(iUnit), fmt = *) & !'(A)') 
-                       & '  Grid in geographical lon-lat'
-            WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x), 2(I12,1x))') &
+          IF (grid%lonlat%pole == pole_geographical) THEN
+            WRITE(fUnits(iUnit), fmt = *) '  Grid in geographical lon-lat'
+!            WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x), 2(I12,1x))') &
+            WRITE(fUnits(iUnit), fmt = *) &
                  & '  SW-corner (lon,lat), number of points x,y: ', &
                  & grid%lonlat%sw_corner_modlon,&
                  & grid%lonlat%sw_corner_modlat, &
                  & grid%lonlat%nx, grid%lonlat%ny
+!            write(fUnits(iUnit), fmt = *)'Again... integers'
+!            write(str,  fmt = '(2(I12,1x))') grid%lonlat%nx, grid%lonlat%ny
+!            write(fUnits(iUnit), fmt = *) str
+!            write(fUnits(iUnit), fmt = *) 'directly...'
+!            WRITE(fUnits(iUnit), fmt = '(2(I12,1x))') &
+!!                 & '  SW-corner (lon,lat), number of points x,y: ', &
+!!                 & grid%lonlat%sw_corner_modlon,&
+!!                 & grid%lonlat%sw_corner_modlat, &
+!                 & grid%lonlat%nx, grid%lonlat%ny
+!            write(fUnits(iUnit), fmt = *)'Again 2... reals'
+!            WRITE(fUnits(iUnit), fmt = '(2(F15.7,1x))') &
+!!                 & '  SW-corner (lon,lat), number of points x,y: ', &
+!                 & grid%lonlat%sw_corner_modlon,&
+!                 & grid%lonlat%sw_corner_modlat !, &
+!!                 & grid%lonlat%nx, grid%lonlat%ny
+!            write(fUnits(iUnit), fmt = *)'Again 3... all numbers'
+!            WRITE(fUnits(iUnit), fmt = '(2(F15.7,1x), 2(I12,1x))') &
+!!                 & '  SW-corner (lon,lat), number of points x,y: ', &
+!                 & grid%lonlat%sw_corner_modlon,&
+!                 & grid%lonlat%sw_corner_modlat, &
+!                 & grid%lonlat%nx, grid%lonlat%ny
 
-        ELSE
-          WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x), 2(I12,1x))') &
+          ELSE
+            WRITE(fUnits(iUnit), fmt = *) &
+!            WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x), 2(I12,1x))') &
               & '  modified SW-corner(lon,lat),number of points x,y: ', &
               & grid%lonlat%sw_corner_modlon,&
               & grid%lonlat%sw_corner_modlat, &
               & grid%lonlat%nx, grid%lonlat%ny
 
-          WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x))') &
+!            WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x))') &
+            WRITE(fUnits(iUnit), fmt = *) &
               & '  Grid south pole lon(E) and lat (N):  ',&
               & fu_southpole_lon(grid%lonlat%pole),&
               & fu_southpole_lat(grid%lonlat%pole)
-        END IF
+          END IF
 
-        WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x))')
+          WRITE(fUnits(iUnit), *) &
+!          WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x))') &
                                    & '  Grid_distance x and y degrees: ',&
                                    & grid%lonlat%dx_deg, grid%lonlat%dy_deg
 
         case(anygrid)
 
-        WRITE (fUnits(iUnit), *) & !'(A,I0,A,A,A)') 
+!        WRITE (fUnits(iUnit),'(A100,I0,A,A,A)') &
+        WRITE (fUnits(iUnit),*) &
                                 & '  ------- Grid report of anygrid (', &
                                 & grid%ag%indParam, '): "', trim(grid%name), '"'
-        WRITE(fUnits(iUnit), fmt = *) & !'(A)') 
-                                & '  Grid in geographical lon-lat'
-        WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x), 2(I12,1x))') &
+        WRITE(fUnits(iUnit), fmt = *) '  Grid in geographical lon-lat'
+        WRITE(fUnits(iUnit), fmt = *) &
+!        WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x), 2(I12,1x))') &
             & '  SW-corner (lon,lat), number of points x,y: ', &
             & pAnyGrdParam(grid%ag%indParam)%xc(1) ,&
             & pAnyGrdParam(grid%ag%indParam)%yc(1), &
             & grid%ag%nx, grid%ag%ny
 
         if (allocated(pAnyGrdParam(grid%ag%indParam)%dx)) then
-          WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x))')  &
+          WRITE(fUnits(iUnit), fmt = *)  &
+!          WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x))')  &
                       &' Grid_distance x and y in meters for first gridcell: ',&
                                      & pAnyGrdParam(grid%ag%indParam)%dx(1) , &
                                      & pAnyGrdParam(grid%ag%indParam)%dy(1)
         else
-          WRITE(fUnits(iUnit), fmt = *) & !'(A, 2(F15.7,1x))')  &
+          WRITE(fUnits(iUnit), fmt = *)  &
+!          WRITE(fUnits(iUnit), fmt = '(A100, 2(F15.7,1x))')  &
                       &' Grid_distance x and y in meters for first gridcell: NOT DEFINED'
         endif
 
-
         CASE default
-          WRITE (fUnits(iUnit), *) & !'(A)') 
-                    & '  Grid report: unknown grid, type=', grid%gridtype
+          WRITE (fUnits(iUnit), *)  '  Grid report: unknown grid, type=', grid%gridtype
       END SELECT
 
-      WRITE (fUnits(iUnit), *) & !'(A)') 
-                             & ' ------------ End-of-grid-report ------------'
+      WRITE (fUnits(iUnit),*) ' ------------ End-of-grid-report ------------'
     enddo
 
   END SUBROUTINE print_grid_report
@@ -2050,9 +2087,9 @@ CONTAINS
 
       fu_number_of_gridpoints = grid%lonlat%nx * grid%lonlat%ny
 
-      CASE (polarstereographic)
-
-      fu_number_of_gridpoints = grid%ps%nx * grid%ps%ny
+!      CASE (polarstereographic)
+!
+!      fu_number_of_gridpoints = grid%ps%nx * grid%ps%ny
 
       CASE (anygrid )
 
@@ -2152,9 +2189,9 @@ CONTAINS
       nx = grid%lonlat%nx
       ny = grid%lonlat%ny
 
-      CASE (polarstereographic)
-      nx = grid%ps%nx
-      ny = grid%ps%ny
+!      CASE (polarstereographic)
+!      nx = grid%ps%nx
+!      ny = grid%ps%ny
 
       CASE (anygrid)
       nx = grid%ag%nx
@@ -2204,13 +2241,13 @@ CONTAINS
           grid%lonlat%ny = nyNew
         endif
 
-      CASE (polarstereographic)
-        if(grid%ps%nx * grid%ps%ny < 0.8 * real(nxNew * nyNew) .or. &
-         & grid%ps%nx * grid%ps%ny > 1.2 * real(nxNew * nyNew))then
-          grid%ps%grid_dist_m = grid%ps%grid_dist_m * &
-                              & sqrt(real(grid%ps%nx * grid%ps%ny) / real(nxNew * nyNew))
-          grid%ps%grid_dist_m = nxNew * nyNew
-        endif
+!      CASE (polarstereographic)
+!        if(grid%ps%nx * grid%ps%ny < 0.8 * real(nxNew * nyNew) .or. &
+!         & grid%ps%nx * grid%ps%ny > 1.2 * real(nxNew * nyNew))then
+!          grid%ps%grid_dist_m = grid%ps%grid_dist_m * &
+!                              & sqrt(real(grid%ps%nx * grid%ps%ny) / real(nxNew * nyNew))
+!          grid%ps%grid_dist_m = nxNew * nyNew
+!        endif
 
       CASE (anygrid)
         call set_error('Dimensions of anygrid cannot be adjusted','adjust_grid_dimensions')
@@ -6752,11 +6789,11 @@ call msg('Finished averaging/sum structure')
                 call project_point_to_grid(interpStructPtr%gridTo, real(ix), real(iy), &
                                          & interpStructPtr%gridFrom, xFrom, yFrom)
 
-
+                !! Rotation interpolation always linear
                 interpStructPtr%rotation(1, 1, ix,iy) = fu_2d_interpolation(anyGridParamFrom%cos_map_rot, &
-                                              & xFrom, yFrom, nxFrom, nyFrom, interpStructPtr%interp_type, notAllowed) 
+                                              & xFrom, yFrom, nxFrom, nyFrom, linear, notAllowed) 
                 interpStructPtr%rotation(1, 2, ix,iy) = - fu_2d_interpolation(anyGridParamFrom%sin_map_rot, &
-                                              & xFrom, yFrom, nxFrom, nyFrom, interpStructPtr%interp_type, notAllowed) 
+                                              & xFrom, yFrom, nxFrom, nyFrom, linear, notAllowed) 
                 interpStructPtr%rotation(2, 1, ix,iy) = - interpStructPtr%rotation(1, 2, ix,iy)
                 interpStructPtr%rotation(2, 2, ix,iy) = interpStructPtr%rotation(1, 1, ix,iy)
 
@@ -8948,7 +8985,13 @@ endif
     type(silam_area) :: area
     type(silja_grid) :: grid1, grid2
 
+  
+    
+  
+  
+  
   end subroutine grid_tst
+
 
 END MODULE grids_geo
 

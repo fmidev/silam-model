@@ -13,8 +13,8 @@
 !        R. Sander, Max-Planck Institute for Chemistry, Mainz, Germany
 ! 
 ! File                 : cbm5_strato_SOA_Integrator.f90
-! Time                 : Mon May  3 16:46:41 2021
-! Working directory    : /fmi/scratch/project_2001411/risto/silam_dev-risto-CESM-test/kpp/cbm5_strato_SOA
+! Time                 : Fri Apr  8 13:32:08 2022
+! Working directory    : /home/kouzne/SILAM/silamgit/kpp/cbm5_strato_SOA
 ! Equation file        : cbm5_strato_SOA.kpp
 ! Output root filename : cbm5_strato_SOA
 ! 
@@ -44,14 +44,15 @@
 !    (C)  Adrian Sandu, August 2004                                       !
 !    Virginia Polytechnic Institute and State University                  !
 !    Contact: sandu@cs.vt.edu                                             !
-!    Revised by Philipp Miehe and Adrian Sandu, May 2006                  !                               !
+!    Revised by Philipp Miehe and Adrian Sandu, May 2006                  ! 
 !    This implementation is part of KPP - the Kinetic PreProcessor        !
 !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~!
 
 !
 ! Modified by JV/FMI, Nov 2012
 ! Further modified by RH/FMI, Aug 2017 (in order to equalize the result with SILAM 5.5)
-!
+! Refined/adjusted by RK/FMI 
+
 
 MODULE cbm5_strato_SOA_Integrator
 
@@ -933,28 +934,32 @@ Stage: DO istage = 1, ros_S
 
       ! For the 1st istage the function has been computed previously
        IF ( istage == 1 ) THEN
-         CALL WCOPY(N,Fcn0,1,Fcn,1)
+         !slim: CALL WCOPY(N,Fcn0,1,Fcn,1)
+       Fcn(1:N) = Fcn0(1:N)
       ! istage>1 and a new function evaluation is needed at the current istage
        ELSEIF ( ros_NewF(istage) ) THEN
-         CALL WCOPY(N,Y,1,Ynew,1)
+         !slim: CALL WCOPY(N,Y,1,Ynew,1)
+         Ynew(1:N) = Y(1:N)
          DO j = 1, istage-1
-           CALL WAXPY(N,ros_A((istage-1)*(istage-2)/2+j), &
-            K(N*(j-1)+1),1,Ynew,1)
+           !CALL SAXPY(N,ros_A((istage-1)*(istage-2)/2+j), K(N*(j-1)+1),1,Ynew,1)
+           Ynew(1:N) = Ynew(1:N) + ros_A((istage-1)*(istage-2)/2+j) * K(N*(j-1)+1:N*j)
          END DO
          Tau = T + ros_Alpha(istage)*Direction*H
          !CALL FunTemplate(Tau,Ynew,Fcn)
          call fun(ynew, fix, rconst, fcn)
          ISTATUS(Nfun) = ISTATUS(Nfun) + 1
        END IF ! if istage == 1 elseif ros_NewF(istage)
-
-       CALL WCOPY(N,Fcn,1,K(ioffset+1),1)
+       !slim: CALL WCOPY(N,Fcn,1,K(ioffset+1),1)
+       K(ioffset+1:ioffset+N) = Fcn(1:N)
        DO j = 1, istage-1
          HC = ros_C((istage-1)*(istage-2)/2+j)/(Direction*H)
-         CALL WAXPY(N,HC,K(N*(j-1)+1),1,K(ioffset+1),1)
+!         CALL SAXPY(N,HC,K(N*(j-1)+1),1,K(ioffset+1),1)
+         K(ioffset+1:ioffset+N) = K(ioffset+1:ioffset+N) + HC*K(N*(j-1)+1:N*j)
        END DO
        IF ((.NOT. Autonomous).AND.(ros_Gamma(istage).NE.ZERO)) THEN
          HG = Direction*H*ros_Gamma(istage)
-         CALL WAXPY(N,HG,dFdT,1,K(ioffset+1),1)
+!         CALL SAXPY(N,HG,dFdT,1,K(ioffset+1),1)
+         K(ioffset+1:ioffset+N) =  K(ioffset+1:ioffset+N) + HG*dFdT(1:N)
        END IF
        CALL ros_Solve(Ghimj, Pivot, K(ioffset+1))
 
@@ -962,15 +967,19 @@ Stage: DO istage = 1, ros_S
 
 
 !~~~>  Compute the new solution
-   CALL WCOPY(N,Y,1,Ynew,1)
+   !slim: CALL WCOPY(N,Y,1,Ynew,1)
+   Ynew(1:N) = Y(1:N)
    DO j=1,ros_S
-         CALL WAXPY(N,ros_M(j),K(N*(j-1)+1),1,Ynew,1)
+  !         CALL SAXPY(N,ros_M(j),K(N*(j-1)+1),1,Ynew,1)
+         Ynew(1:N) =  Ynew(1:N) + ros_M(j)*K(N*(j-1)+1:N*j)
    END DO
 
 !~~~>  Compute the error estimation
-   CALL WSCAL(N,ZERO,Yerr,1)
+   !slim: CALL WSCAL(N,ZERO,Yerr,1)
+   Yerr(1:N) = ZERO
    DO j=1,ros_S
-        CALL WAXPY(N,ros_E(j),K(N*(j-1)+1),1,Yerr,1)
+        !CALL SAXPY(N,ros_E(j),K(N*(j-1)+1),1,Yerr,1)
+        Yerr(1:N) = Yerr(1:N) + ros_E(j) * K(N*(j-1)+1:N*j)
    END DO
    
    Err = ros_ErrorNorm ( Y, Ynew, Yerr, AbsTol, RelTol, VectorTol )
@@ -991,7 +1000,8 @@ Stage: DO istage = 1, ros_S
    IF ( (Err <= ONE .and. all_non_neg).OR.(H <= Hmin) ) THEN  !~~~> Accept step
      call sweep_and_add_garbage(Ynew, AbsTol, garbage)
       ISTATUS(Nacc) = ISTATUS(Nacc) + 1
-      CALL WCOPY(N,Ynew,1,Y,1)
+      !slim: CALL WCOPY(N,Ynew,1,Y,1)
+      Y(1:N) = Ynew(1:N)
       T = T + Direction*H
       Hnew = MAX(Hmin,MIN(Hnew,Hmax))
       IF (RejectLastH) THEN  ! No step size increase after a rejected step
@@ -1135,8 +1145,9 @@ Stage: DO istage = 1, ros_S
    Delta = SQRT(Roundoff)*MAX(DeltaMin,ABS(T))
    CALL FunTemplate(T+Delta,Y,dFdT)
    ISTATUS(Nfun) = ISTATUS(Nfun) + 1
-   CALL WAXPY(N,(-ONE),Fcn0,1,dFdT,1)
-   CALL WSCAL(N,(ONE/Delta),dFdT,1)
+   dFdT(1:N) = (dFdT(1:N) - Fcn0(1:N)) / Delta
+ !   CALL SAXPY(N,(-ONE),Fcn0,1,dFdT,1)
+ !  CALL SSCAL(N,(ONE/Delta),dFdT,1)
 
   END SUBROUTINE ros_FunTimeDerivative
 
@@ -1184,15 +1195,17 @@ Stage: DO istage = 1, ros_S
 
 !~~~>    Construct Ghimj = 1/(H*gam) - Jac0
 #ifdef FULL_ALGEBRA    
-     CALL WCOPY(N*N,Jac0,1,Ghimj,1)
-     CALL WSCAL(N*N,(-ONE),Ghimj,1)
+     !slim: CALL WCOPY(N*N,Jac0,1,Ghimj,1)
+     !slim: CALL WSCAL(N*N,(-ONE),Ghimj,1)
+     Ghimj = -Jac0
      ghinv = ONE/(Direction*H*gam)
      DO i=1,N
        Ghimj(i,i) = Ghimj(i,i)+ghinv
      END DO
 #else
-     CALL WCOPY(LU_NONZERO,Jac0,1,Ghimj,1)
-     CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
+     !slim: CALL WCOPY(LU_NONZERO,Jac0,1,Ghimj,1)
+     !slim: CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
+     Ghimj(1:LU_NONZERO) = -Jac0(1:LU_NONZERO)
      ghinv = ONE/(Direction*H*gam)
      DO i=1,N
        Ghimj(LU_DIAG(i)) = Ghimj(LU_DIAG(i))+ghinv

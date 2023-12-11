@@ -51,6 +51,7 @@ MODULE fields ! 2-D scalar-data with identification
   public interpolate_fields_in_time ! Handles different type of field averaging
   public set_valid_time
   public update_field_data
+  public fu_field_stats
 
   ! The private functions and subroutines:
   private set_field_with_data
@@ -295,7 +296,7 @@ CONTAINS
     TYPE(silja_field_id), INTENT(in) :: id
     logical, intent (in) :: ifNew
     logical, intent(in), optional :: ifResetVals
-    TYPE(silja_field), pointer :: pField
+    TYPE(silja_field), target :: pField
     !
     ! Check input parameters.
     !
@@ -568,9 +569,9 @@ CONTAINS
     REAL, DIMENSION(:), POINTER :: fu_grid_data
     !
     ! Imported parameters with intent(inout) or POINTER:
-    TYPE(silja_field), POINTER :: field
+    TYPE(silja_field), target :: field
 
-    IF (defined(field)) THEN  
+    IF (fu_field_defined(field)) THEN  
       fu_grid_data => field%grid_data
     ELSE
       CALL set_error('undefined field given','fu_grid_data')
@@ -652,7 +653,7 @@ CONTAINS
     ! Fields may have different start of accumulation, they do have
     ! different valid time and may have different length of validity
     !
-    if(fu_accumulated(fld_id_past) .or. fu_validity_length(fld_id_past) > zero_interval)then
+    if(fu_accumulated_id(fld_id_past) .or. fu_validity_length(fld_id_past) > zero_interval)then
       accLenPast = fu_accumulation_length(fld_id_past)
       accLenFuture = fu_accumulation_length(fld_id_future)
       validLenPast = fu_validity_length(fld_id_past)
@@ -1177,9 +1178,9 @@ CONTAINS
     TYPE(silja_field_id), POINTER :: id
     !
     ! Imported parameters with intent(inout) or POINTER:
-    TYPE(silja_field), POINTER :: field
+    TYPE(silja_field), target :: field
     
-    if(defined(field))then
+    if(fu_field_defined(field))then
       id => field%id
     else
       call set_error('undefined field','fu_field_id')
@@ -1234,7 +1235,7 @@ CONTAINS
     TYPE(silja_field), POINTER :: field
 
     IF (defined(field)) THEN
-      fu_accumulated_field = fu_accumulated(field%id)
+      fu_accumulated_field = fu_accumulated_id(field%id)
     else
       call set_error('undefined field','fu_accumulated_field')
       fu_accumulated_field = .false.
@@ -1375,6 +1376,30 @@ CONTAINS
     
   end subroutine update_field_data
 
+
+  ! ****************************************************************
+  
+  function fu_field_stats(field) result(stats)
+    !
+    ! Returns statistics of the field data
+    !
+    implicit none
+    
+    ! returned array
+    real, dimension(3) :: stats
+    
+    ! imported parameter
+    TYPE(silja_field), POINTER :: field
+    
+    if(defined(field))then
+      stats(1:3) = (/MINVAL(field%grid_data), &
+                  & (SUM(field%grid_data)/REAL(SIZE(field%grid_data))),&
+                   & MAXVAL(field%grid_data)/)
+    else
+      stats(:) = real_missing
+    endif
+      
+  end function fu_field_stats
 
 
   ! ****************************************************************

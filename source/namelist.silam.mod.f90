@@ -36,7 +36,7 @@ MODULE silam_namelist
   public fu_read_namelist  ! creates the namelist
   public destroy_namelist  ! eliminates the namelist and frees the memory
   public reset_namelist    ! cleans the namelist, so it can be further used
-  public fu_make_missing_namelist  ! Instead of namelist_missing
+  public fu_make_empty_namelist  ! Allocate empty namelist and returmn pointer to it
   public write_namelist      ! output in the form of namelist
   public write_namelist_item
   public fu_create_namelist  ! create an empty namelist
@@ -254,6 +254,19 @@ MODULE silam_namelist
     character(len=clen) :: chName
   end type Tsilam_namelist
 
+
+! Enabloing these lines causes a mysterious error at puhti  GNU Fortran (Spack GCC) 9.4.0
+!  type(Tsilam_namelist), parameter, private  ::  silam_namelist_missing = Tsilam_namelist( &
+!                                  & null(), int_missing, int_missing, int_missing, &
+!                                  & silja_false, "Missing_namelist" &
+!                                  & )
+!  type(Tsilam_namelist), public, save  ::  silam_namelist_missing = silam_namelist_missing_par
+
+!!  type(Tsilam_namelist), parameter, public  ::  silam_namelist_empty = Tsilam_namelist( &
+!!                                  & null(), 0, 0, 0, &
+!!                                  & silja_true, "" &
+!!                                  & )
+
   type Tsilam_namelist_ptr
 !    private
     type(Tsilam_namelist), pointer :: nl
@@ -266,9 +279,21 @@ MODULE silam_namelist
     private
     type(Tsilam_namelist_ptr), dimension(:), pointer :: lists
     integer :: iLastFilledNL, iTotalSize, nAllocated
-    character(len=clen) :: chName
     type(silja_logical) :: defined
+    character(len=clen) :: chName
   end type Tsilam_namelist_group
+
+!!! See note above
+!!  type(Tsilam_namelist_group), parameter, public  ::  silam_namelist_group_missing = Tsilam_namelist_group( &
+!!                                  & null(), int_missing, int_missing, int_missing, &
+!!                                  & silja_false, "Missing_namelist_group" &
+!!                                  & )
+!!  type(Tsilam_namelist_group), parameter, public  ::  silam_namelist_group_empty = Tsilam_namelist_group( &
+!!                                  & null(), 0, 0, 0, &
+!!                                  & silja_true, "" &
+!!                                  & )
+!!
+
 
 !  !
 !  ! A global namelist describing certain internal multi-run options
@@ -529,7 +554,7 @@ CONTAINS
 
   subroutine reset_namelist_group(nlGrp)
     !
-    ! cleans the namelist, so it can be further used
+    ! cleans the namelist group, so it can be further used
     !
     implicit none
 
@@ -596,7 +621,7 @@ CONTAINS
     type(Tsilam_namelist), pointer :: fu_namelist_by_name
 
     ! Imported parameters
-    type(Tsilam_namelist_group), pointer :: nlGrp
+    type(Tsilam_namelist_group), intent(in) :: nlGrp
     character(len=*), intent(in) :: chNm
 
     ! Local variables
@@ -934,9 +959,9 @@ CONTAINS
 
   !********************************************************************
 
-  function fu_make_missing_namelist() result(nl)
+  function fu_make_empty_namelist() result(nl)
     !
-    ! Creates the missing namelist nl 
+    ! Creates the empty namelist and returns the pointer 
     !
     implicit none
 
@@ -952,20 +977,16 @@ CONTAINS
     allocate(nl, stat=i)
     if(i /= 0)then
       call msg_test('Strange allocation status: ',i)
-      call set_error('Failed to allcoate memory for namelist','fu_make_missing_namelist')
+      call set_error('Failed to allcoate memory for namelist','fu_make_empty_namelist')
       return
     endif
     nl%iTotalSize=0
-    nl%iLastFilledItem=0
+    nl%iLastFilledItem=0      ! sign of emptyness
     nl%nAllocated=0 
     nl%chName = ''
-    !
-    ! Add an empty item - probably, not needed
-    !
-    call add_namelist_item(nl)
-    if(error)return
+    nl%defined = silja_true   ! defined but empty
 
-  end function fu_make_missing_namelist
+  end function fu_make_empty_namelist
 
 
   !*********************************************************************************
@@ -2431,7 +2452,7 @@ CONTAINS
     ! Imported parameter
     type(Tsilam_namelist_item), intent(inout) :: nlItem
 
-    call msg(fu_connect_strings(nlItem%chName,' = ', nlItem%chContent))
+    call msg(trim(nlItem%chName) //' = ' // trim(nlItem%chContent))
 
   end subroutine
 
@@ -2447,7 +2468,7 @@ CONTAINS
     ! Imported parameter
     type(Tsilam_nl_item_ptr), intent(inout) :: nlItemPtr
 
-    call msg(fu_connect_strings(nlItemPtr%nli%chName,' = ', nlItemPtr%nli%chContent))
+    call msg(trim(nlItemPtr%nli%chName) //' = ' // trim(nlItemPtr%nli%chContent))
 
   end subroutine
 
@@ -2550,7 +2571,7 @@ CONTAINS
 
     type(Tsilam_namelist), intent(in) :: nl
 
-    call write_namelist(run_log_funit, nl,.true., .true.) ! header and public
+      call write_namelist(run_log_funit, nl,.true., .true.) ! header and public
 
   end subroutine report_namelist
 
@@ -2566,7 +2587,7 @@ CONTAINS
     ! Imported parameter
     type(Tsilam_namelist), intent(in) :: nl
 
-    fu_namelist_defined = (nl%defined == silja_true)
+      fu_namelist_defined = (nl%defined == silja_true)
 
   end function fu_namelist_defined
 

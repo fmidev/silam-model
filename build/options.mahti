@@ -3,7 +3,7 @@ ARCH = linux_gnu
 
 PYTHON = /usr/bin/python3
 
-F90C = mpif90 #gfortran
+F90C = gfortran
 # Flags for optimization, etc.
 OPTIMIZATION = -fopenmp -O3 -ffast-math
 

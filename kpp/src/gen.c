@@ -1702,25 +1702,6 @@ int SUTIL;
 
 
 /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-void GenerateBlas()
-{
-int BLAS;
-
-  if ( useLang == MATLAB_LANG ) return;
-
-  UseFile( linalgFile );
-
-  BLAS = DefFnc( "BLAS_UTIL", 0, "BLAS-LIKE utility functions");  
-  CommentFunctionBegin( BLAS );
-
-  IncludeCode( "%s/util/blas", Home );  
-  
-  CommentFunctionEnd( BLAS );
-  FreeVariable( BLAS );
-}
-
-
-/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 void GenerateDFunDRcoeff()
 {
 
@@ -3183,8 +3164,6 @@ int n;
     }
  }
  
- GenerateBlas();
-
   if( useHessian ) { 
     printf("\nKPP is generating the Hessian:");
     printf("\n    - %s_Hessian\n    - %s_HessianSP",rootFileName,rootFileName);

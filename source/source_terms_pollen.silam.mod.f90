@@ -9,6 +9,7 @@ MODULE source_terms_pollen
   ! Language: ANSI FORTRAN-90 (or close to it)
   !
   use cocktail_basic
+  use source_terms_time_params, only : pollen_source_flag
   use globals, only : DEFAULT_REAL_KIND, r4k, r8k
 
   implicit none
@@ -29,6 +30,7 @@ MODULE source_terms_pollen
   public fu_source_id_nbr
   public typical_species_conc
   public report
+  public fu_tla_size_src_pollen
 
   !
   ! Private routines of the pollen source
@@ -121,7 +123,7 @@ MODULE source_terms_pollen
     
     ! Source
     CHARACTER(len=clen) :: src_nm, sector_nm        ! Name of the area source and sector
-    integer :: src_nbr, id_nbr                      ! A source and id numbers in a WHOLE source list
+    integer :: src_nbr_all_srcs, id_nbr_all_srcs, src_nbr_pollen_srcs    ! A source and id numbers in a WHOLE source list
     type(silja_field), pointer :: mask_src_grid, mask_disp_grid
     TYPE(silja_grid) :: grid
     type(Tsilam_namelist), pointer :: nlInputFiles, nlSourceMask  ! namelist for names of supplementary files
@@ -253,7 +255,8 @@ CONTAINS
 
   subroutine reserve_pollen_source(pollen_src, &   ! Src to initialise
                                  & iSrcNbr, &      ! Src number in the grand list
-                                 & iSrcIdNbr)     ! SrcID number
+                                 & iSrcIdNbr, &    ! SrcID number
+                                 & iSrcNbr_pollen) ! iSrcNbr along pollen sources
     !
     ! Initialises the source:
     ! - stores the reference information: source number and source ID number
@@ -265,7 +268,7 @@ CONTAINS
 
     ! Imported parameters
     type(silam_pollen_source), intent(inout) :: pollen_src
-    integer, intent(in) :: iSrcNbr, iSrcIdNbr
+    integer, intent(in) :: iSrcNbr, iSrcIdNbr, iSrcNbr_pollen
     !
     ! Nullify the basic variables
     !
@@ -279,8 +282,9 @@ CONTAINS
     !
     ! Main source parameters - enough to identify it in the global information list
     !
-    pollen_src%src_nbr = iSrcNbr
-    pollen_src%id_nbr = iSrcIdNbr
+    pollen_src%src_nbr_all_srcs = iSrcNbr
+    pollen_src%id_nbr_all_srcs = iSrcIdNbr
+    pollen_src%src_nbr_pollen_srcs = iSrcNbr_pollen
     !
     ! Finally, mark the source as incomplete
     !
@@ -790,7 +794,7 @@ CONTAINS
     iTmp = fu_merge_integer_to_array(relative_humidity_2m_flag,        q_met_dynamic)
     iTmp = fu_merge_integer_to_array(windspeed_10m_flag,               q_met_dynamic)
     iTmp = fu_merge_integer_to_array(convective_velocity_scale_flag,   q_met_dynamic)
-    iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag,    q_met_st)
+    iTmp = fu_merge_integer_to_array(total_precipitation_int_flag,    q_met_st)
     if(srcPollen%ems2wholeABL)then
       iTmp = fu_merge_integer_to_array(abl_height_m_flag,              q_met_dynamic)
     endif
@@ -956,7 +960,7 @@ CONTAINS
     !
     ! Store the pointer to the source mask in dispersion grid
     !
-    srcPollen%mask_disp_grid => fu_get_field_from_mm_general(dispersionMarketPtr, id, .false.)
+    call get_field_from_mm_general(dispersionMarketPtr, id, srcPollen%mask_disp_grid, .false.)
     if(fu_fails(defined(srcPollen%mask_disp_grid),'Failed to find the source mask in stack','init_emission_pollen'))return
     
     ! Check that all the requested quantities are in the stack.
@@ -964,7 +968,8 @@ CONTAINS
     ! heatsum , pollen ready to fly and the amount of pollen still available for emission.
     ! Note that some of the quantities are specific only for heat-sum type of emission.
     
-    call find_or_create_field(pollen_total_per_m2_flag, dispersionMarketPtr, ifOK, field, pValues)
+    call find_or_create_field(pollen_total_per_m2_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
     
     if(.not. ifOK)then  ! Not there yet
 
@@ -999,37 +1004,44 @@ CONTAINS
     endif  ! pollen_total_per_m2_flag is in market
  
     ! Adding the left pollen 
-    call find_or_create_field(pollen_left_relative_flag, dispersionMarketPtr, ifOK, field, pValues, 1.0)
+    call find_or_create_field(pollen_left_relative_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues, 1.0)
     
 !    ArTmp(1:fs_dispersion) = 0.0
     ! Temperature-related stuff is to be taken only for heat/chill-sum emission type
     if(srcPollen%ifStartHSThr .or. srcPollen%ifEndHSThr)then
-      call find_or_create_field(heatsum_flag, dispersionMarketPtr, ifOK, field, pValues, 0.0)
+      call find_or_create_field(heatsum_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues, 0.0)
     endif
     
     ! Chill sum, make and zero it
     if(srcPollen%ifChillSum)then
-      call find_or_create_field(chillsum_flag, dispersionMarketPtr, ifOK, field, pValues, 0.0)
+      call find_or_create_field(chillsum_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues, 0.0)
     endif
     
     ! Plant growth field
     if(srcPollen%ifSWGrowth)then
-      call find_or_create_field(plant_growth_flag, dispersionMarketPtr, ifOK, field, pValues, 0.0)
+      call find_or_create_field(plant_growth_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues, 0.0)
     endif
     
     ! Adding the pollen ready to fly amount 
-    call find_or_create_field(pollen_rdy_to_fly_flag, dispersionMarketPtr, ifOK, field, pValues, 0.0)
+    call find_or_create_field(pollen_rdy_to_fly_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues, 0.0)
 
     ! Adding the allergen ready to fly amount 
     if(.not. srcPollen%indPolAlrg == int_missing)then
-      call find_or_create_field(allergen_rdy_to_fly_flag, dispersionMarketPtr, ifOK, field, pValues, 0.0)
+      call find_or_create_field(allergen_rdy_to_fly_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues, 0.0)
     endif
      
     ! For backward compatibility, season end thresholds (CD, HS) can be computed from start and length 
     ! Alternatively, season length from start and end
     ! To avoid complex logic analoguous to meteo input, make both in any case
     if(srcPollen%ifEndHSThr)then
-      call find_or_create_field(end_heatsum_threshold_flag, dispersionMarketPtr, ifOK, field, pValues)
+      call find_or_create_field(end_heatsum_threshold_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
   
       if(.not. ifOK)then  ! make it from start and length
 
@@ -1069,7 +1081,8 @@ CONTAINS
       else
         ! end heatsum exists, make duration
         if(srcPollen%ifStartHSThr)then ! Make the season length (no reason apart from filling up the stack)
-          call find_or_create_field(heatsum_start_end_diff_flag, dispersionMarketPtr, ifOK, field, pValues)
+          call find_or_create_field(heatsum_start_end_diff_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
 
           if(ifOK)then
             ! If exists, weird, as all start, end and length are given and might not be consistent
@@ -1117,7 +1130,8 @@ CONTAINS
     
     ! End of season might need to be created still
     if(srcPollen%ifEndCDThr)then
-      call find_or_create_field(end_calday_threshold_flag, dispersionMarketPtr, ifOK, field, pValues)
+      call find_or_create_field(end_calday_threshold_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
 
       if(.not. ifOK)then  ! make it from start and length
 
@@ -1159,7 +1173,8 @@ CONTAINS
     ! Day length number is converted here to calendar day map
     if(srcPollen%ifStartDLThr)then
       ! Start day field
-      call find_or_create_field(start_calday_threshold_flag, dispersionMarketPtr, ifOK, field, pValues)
+      call find_or_create_field(start_calday_threshold_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
       if(ifOK)then
         ! If exists, weird, day length and calendar day must never be together
         call set_error('Start day length and calendar day cannot be both present','init_emission_pollen')
@@ -1181,7 +1196,8 @@ CONTAINS
 !call write_next_field_to_gradsfile(iTmp, fu_id(field), pValues(1:nx_dispersion*ny_dispersion))
       !
       ! End day field
-      call find_or_create_field(end_calday_threshold_flag, dispersionMarketPtr, ifOK, field, pValues)
+      call find_or_create_field(end_calday_threshold_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
       if(ifOK)then
         ! If exists, weird, day length and calendar day must never be together
         call set_error('End day length and calendar day cannot be both present','init_emission_pollen')
@@ -1212,7 +1228,8 @@ CONTAINS
     !
     if((srcPollen%ifStartCDThr .and. srcPollen%ifEndCDThr) .or. srcPollen%ifStartEndGammaThr)then
       ! Make the season length
-      call find_or_create_field(calday_start_end_diff_flag, dispersionMarketPtr, ifOK, field, pValues)
+      call find_or_create_field(calday_start_end_diff_flag, dispersionMarketPtr, &
+                            & srcPollen%species(srcPollen%indPol), start_time, surface_level, ifOK, field, pValues)
       if(.not. ifOK)then
         ! make it
         call find_field_from_stack(met_src_missing, &
@@ -1291,25 +1308,32 @@ CONTAINS
     ! Since the threshold may be computed for sub-areas of the domain, clean the field
     ifOK = .true.
     if(srcPollen%ifStartCDThr .or. srcPollen%ifStartEndGammaThr)then
-      if(fu_fails(clean(start_calday_threshold_flag),'Failed cleaning start_calday_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(start_calday_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning start_calday_threshold_flag','init_emission_pollen'))return
     endif
     if(srcPollen%ifStartHSThr)then
-      if(fu_fails(clean(start_heatsum_threshold_flag),'Failed cleaning start_heatsum_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(start_heatsum_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning start_heatsum_threshold_flag','init_emission_pollen'))return
     endif
     if(srcPollen%ifEndCDThr .or. srcPollen%ifStartEndGammaThr)then
-      if(fu_fails(clean(end_calday_threshold_flag),'Failed cleaning end_calday_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(end_calday_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning end_calday_threshold_flag','init_emission_pollen'))return
     endif
     if(srcPollen%ifEndHSThr)then
-      if(fu_fails(clean(end_heatsum_threshold_flag),'Failed cleaning end_heatsum_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(end_heatsum_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning end_heatsum_threshold_flag','init_emission_pollen'))return
     endif
     if(srcPollen%ifTempThr)then
-      if(fu_fails(clean(temperature_threshold_flag),'Failed cleaning temperature_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(temperature_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning temperature_threshold_flag','init_emission_pollen'))return
     endif
     if(srcPollen%ifDayTempThr)then
-      if(fu_fails(clean(daily_temp_threshold_flag),'Failed cleaning daily_temp_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(daily_temp_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning daily_temp_threshold_flag','init_emission_pollen'))return
     endif
     if(srcPollen%ifSWthr)then
-      if(fu_fails(clean(soil_moisture_threshold_flag),'Failed cleaning soil_moisture_threshold_flag','init_emission_pollen'))return
+      if(fu_fails(clean_negatives(soil_moisture_threshold_flag, fu_stack(dispersionMarketPtr, 1)), &
+                & 'Failed cleaning soil_moisture_threshold_flag','init_emission_pollen'))return
     endif
     
     call free_work_array(strTmp%sp)
@@ -1322,89 +1346,6 @@ open(55,file = 'd:\model\silam_v5_5\ragweed_src_extract\output\src_dump.txt',mod
 write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ mdl_timestep_sec_ dayLength_hours_  T2m_  DailyTempr_ StartCDThr_ HS_in_ HS_out_ PollenLeft_in_ PollenLeft_out_ PollenRdyToFly_in_ PollenRdyToFly_out_ fMassInjected_out_"
 #endif
 
-  contains
-  
-    !=================================================================================
-    
-    subroutine find_or_create_field(quantity, ptrMarket, ifFound, pField, pVals, fill_value)
-      ! 
-      ! Adding the total pollen amount as the climatologic amount and year-specific correction
-    
-      implicit none 
-      
-      ! Imported parameters
-      integer :: quantity
-      type(mini_market_of_stacks), pointer :: ptrMarket
-      logical, intent(out) :: ifFound
-      type(silja_field), pointer :: pField
-      real, dimension(:), pointer :: pVals
-      real, intent(in), optional :: fill_value
-      
-      ! Local variables
-      type(silja_field_id) :: id
-      
-      ! Check for existence (might be initialized and thus should not be overwritten) 
-      id = fu_set_field_id_simple(met_src_missing,&
-                                & quantity, &
-                                & time_missing, &        ! valid time
-                                & surface_level, &
-                                & fu_species_src(srcPollen, quantity, .true.))
-      pField => fu_get_field_from_mm_general(ptrMarket, id, .false.)
-      if(associated(pField))then
-        ifFound= defined(pField)    ! exists already
-      else
-        ifFound = .false.   ! not found in the market
-        !
-        ! If fill_value is given, make it up!
-        !
-        id = fu_set_field_id(met_src_missing,&
-                           & quantity, &
-                           & start_time, &        ! analysis time
-                           & zero_interval, &     ! forecast length
-                           & dispersion_grid,&    ! grid
-                           & surface_level, &     ! level
-                           & zero_interval, &     ! length of accumulation
-                           & zero_interval, &     ! length of validity
-                           & accumulated_flag, &  ! field_kind
-                           & species = fu_species_src(srcPollen, quantity, .true.)) ! species
-        call find_field_data_storage_2d(ptrMarket, id, single_time_stack_flag, pVals)
-        if(error)return
-
-        pField => fu_get_field_from_mm_general(ptrMarket, id, .false.)
-        
-        if(present(fill_value)) pVals(:) = fill_value          
-
-      endif   ! if field is in market
-
-    end subroutine find_or_create_field
-    
-    !================================================================================
-    
-    logical function clean(flag)
-      implicit none
-      integer, intent(in) :: flag
-      logical :: ifOK
-      
-      clean = .false.
-      call find_field_from_stack(met_src_missing, &
-                               & flag,&
-                               & time_missing,&
-                               & fu_stack(dispersionMarketPtr, 1),&
-                               & fieldPtr, &
-                               & ifOK)
-      if(.not. ifOK)then
-        call set_error('Failed to find field in stack','init_emission_pollen')
-        call msg('quantity missing:', flag)
-        return
-      else
-        pTmp1 => fu_grid_data(fieldPtr)
-        do iFlds = 1, fs_dispersion
-          if(pTmp1(iFlds) < 0.) pTmp1(iFlds) = real_missing
-        end do
-      endif
-      clean = .true.
-    end function clean
-  
   end subroutine init_emission_pollen
 
 
@@ -1625,12 +1566,13 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
 
   subroutine compute_emission_for_pollen(srcPollen, &
                                        & met_buf, disp_buf, & 
-                                       & now, timestep, &            
+                                       & now_, timestep_, &            
                                        & pHorizInterpMet2DispStruct, ifHorizInterp, &
                                        & ifSpeciesMoment, &
                                        & emisMap, mapCoordX, mapCoordY, mapCoordZ, &
                                        & fMassInjected, &
-                                       & arSourceIdMapping, ifUseSourceIdMapping)
+                                       & arSourceIdMapping, ifUseSourceIdMapping, &
+                                       & TL_store_emis)
     !
     ! Computes the intermediate heat sums and final emission fields for pollen.
     ! Note: computations are done regardless the land use and forest maps.
@@ -1645,30 +1587,40 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
     ! Imported parameters
     type(Tfield_buffer), pointer ::  met_buf, disp_buf  ! meteo and internal field buffers
     type(silam_pollen_source), target, intent(in) :: srcPollen  ! Also driving rules for pollen
-    type(silja_time), intent(in) :: now                 ! current time
-    type(silja_interval), intent(in) :: timestep        ! model time step
+    type(silja_time), intent(in) :: now_                 ! current time
+    type(silja_interval), intent(in) :: timestep_        ! model time step
     type(THorizInterpStruct), intent(in) :: pHorizInterpMet2DispStruct
     logical, intent(in) :: ifHorizInterp, ifSpeciesMoment
     type(Tmass_map), intent(inout) :: emisMap, mapCoordX, mapCoordY, mapCoordZ  ! pointer to dynamic emission masses
     real(8), dimension(:), intent(inout) :: fMassInjected
     integer, dimension(:,:), intent(in) :: arSourceIdMapping   ! if we want different source indices over the grid
     logical, intent(in) :: ifUseSourceIdMapping             ! if we want different source indices over the grid
+    !type(t_tla_step), intent(inout) :: tla_step
+    real, dimension(:,:,:,:), pointer :: TL_store_emis 
+
     ! Local variables
-    integer :: iMeteo, iDisp, ix, iy, iSp, iLev, iSrcNbr, &
-             & indStartCDThr,indEndCDThr,indStartHSThr,indEndHSThr,indTempThr,indDayTempThr,indSoilWaterThr, &
-             & iDayInYear, indT2m, indDailyTempr, indSoilWater, &
-             & indHS, indStartDay, indTemprCutOff, indCS, &
-             & indHumid, indWind10m, indConvVelocity, indPrecip, &
-             & indAnnualTotalCorr, indPollenLeft, indPollenRdyToFly, &
-             & indAlrgRdyToFly, indPotency, indBLH, indCDDiff, indHSDiff, indPlantGrowth, indPollenTotal
+    integer :: iMeteo, iDisp, ix, iy, iSp, ispEms, iLev, iSrcNbr, iDayInYear, &
+             & indStartCDThr=int_missing,indEndCDThr=int_missing,indStartHSThr=int_missing, &
+             & indEndHSThr=int_missing,indTempThr=int_missing,indDayTempThr=int_missing, &
+             & indSoilWaterThr=int_missing, indT2m=int_missing, indDailyTempr=int_missing, &
+             & indSoilWater=int_missing, indHS=int_missing, indStartDay=int_missing, &
+             & indTemprCutOff=int_missing, indCS=int_missing, indHumid=int_missing, &
+             & indWind10m=int_missing, indConvVelocity=int_missing, indPrecip=int_missing, &
+             & indAnnualTotalCorr=int_missing, indPollenLeft=int_missing, &
+             & indPollenRdyToFly=int_missing, indAlrgRdyToFly=int_missing, indPotency=int_missing, &
+             & indBLH=int_missing, indCDDiff=int_missing, indHSDiff=int_missing, &
+             & indPlantGrowth=int_missing, indPollenTotal=int_missing
+
     real :: fTmp, fHS, fThresh, fCellTotal, fPolAlrg, emsAmntLev, rdyPollen, rdyAllergen, leftPollen, &
           & overlapBottom, overlapTop, dHSdt, fzDisp, levFractDispVert, check, timestep_sec
     real, dimension(:), pointer :: xSize, ySize, fLandFractionMet, pSrcMask
     real, dimension(max_species) :: emsAmnt
-    type(silja_interval) :: HS_aver_period
-    logical :: ifEms, ifSeasonStarted
+    type(silja_interval) :: HS_aver_period, timestep
+    logical :: ifEms, ifSeasonStarted, ifAdjoint
     type(silam_vertical) :: vertTmp
-
+    type(silja_time) :: now
+!    real, dimension(:,:,:,:), pointer :: TL_store_emis_params => NULL()
+    integer, dimension(10) :: arIdx_TLA
 
     fLandFractionMet => fu_grid_data(fraction_of_land_fld)
     pSrcMask => fu_grid_data(srcPollen%mask_disp_grid)
@@ -1678,9 +1630,18 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
     rdyPollen = 0.0
     rdyAllergen = 0.0
     leftPollen = 0.0
-    timestep_sec = fu_sec(timestep)
-    
+    ifAdjoint = fu_sec(timestep_)< 0
+    arIdx_TLA = int_missing
+    ! Source time interval is always positive
+    if (ifAdjoint) then
+      now = now_ + timestep_
+      timestep = timestep_ * (-1)
+    else
+      now = now_
+      timestep = timestep_
+    endif
     if(error)return
+    timestep_sec = fu_sec(timestep)
 
     if(.not. emisMap%gridTemplate == dispersion_grid)then
       call msg('Emission map grid:')
@@ -1691,28 +1652,78 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
                    & 'compute_emission_for_pollen')
       return
     endif
-    
+    !
+    !-----------------------------------------------------------------------------
+    !
+    ! If adjoint is needed then TLA structure is defined and we need to pick or create
+    ! the 4D array for TL storage. Its dimensions correspond to massMap
+    !
+    ! Some quantities are not available from dispersion buffer in adjoint mode: they have memory
+    ! and need to be taken from TLA storage. The indices will be taken accordingly
+    ! Below, however, a simpler way is applied. For assimilating the pollen emission, one do not
+    ! need to compute it. It is enough to store it into the TL trajectory. Do just that.
+    ! 
+    if (associated(TL_store_emis)) then !! have_tla
+      !!! FIXME tla_traj  should be handled above, or passed here
+      !! Currently whole emission massmap is handled above sicne the source is incapable of recovering
+      !! its state on the second pass, by the beginning of the second pass all heatsums are ruined...
+      !
+      !TL_store_emis => fu_get_tla_map(tla_traj, pollen_source_flag * 100 + srcPollen%src_nbr_pollen_srcs)
+      if(ifAdjoint)then
+        !! Just inject whatever was stored  TLA species are just those of this source
+        do iSp = 1, srcPollen%nSpecies
+          ispEms = srcPollen%adaptor%iSp(iSp)
+          emisMap%arM(ispEms,1,:,:,:) = emisMap%arM(ispEms,1,:,:,:) + TL_store_emis(iSp,:,:,:)
+        enddo
+        return
+      else
+        ! Prepare the TL tajectory space
+        if(fu_fails(emisMap%nSrc == 1,'Source dimension in mass map is more than 1','compute_emission_for_pollen'))return
+        TL_store_emis(:,:,:,:) = 0.0
+      endif
+    end if
+    !
+    ! No adjoint calculations below this line. Remaining ifAdjoint checks can be removed
+    ! if the above concept proves working
+    !
+    !
     ! General fields, always needed no matter what method is used
     ! meteo (relative humidity(3D), windspeed, precipitation, convective velocity scale)
+    !
     indHumid =       fu_index(met_buf, relative_humidity_2m_flag, .true.)
     indWind10m =     fu_index(met_buf, windspeed_10m_flag, .true.)
     indConvVelocity =fu_index(met_buf, convective_velocity_scale_flag, .true.)
-    indPrecip =      fu_index(met_buf, total_precipitation_rate_flag, .true.)
+    indPrecip =      fu_index(met_buf, total_precipitation_int_flag, .true.)
     if(srcPollen%ems2wholeABL) indBLH = fu_index(met_buf, abl_height_m_flag, .true.)
-    
+    !
     ! pollen (amount left, annual correction, ready to fly)
-    indPollenLeft   =   fu_get_buffer_index(srcPollen, disp_buf, pollen_left_relative_flag, .true.)
-    indPollenTotal  =   fu_get_buffer_index(srcPollen, disp_buf, pollen_total_per_m2_flag, .true.)
-    indAnnualTotalCorr =fu_get_buffer_index(srcPollen, disp_buf, pollen_correction_flag, .true.)
-    indPollenRdyToFly = fu_get_buffer_index(srcPollen, disp_buf, pollen_rdy_to_fly_flag, .true.) 
-    
-    ! Allergen (pollen potency, allergen ready to fly , nothing for free allergen this far)
-    if(.not. srcPollen%indPolAlrg == int_missing)then 
-      indAlrgRdyToFly = fu_get_buffer_index(srcPollen, disp_buf, allergen_rdy_to_fly_flag, .true.) 
-      indPotency      = fu_get_buffer_index(srcPollen, disp_buf, pollen_potency_flag, .true.) 
+    !
+    if(.not. ifAdjoint) &
+      & indPollenTotal = fu_get_buffer_index(srcPollen, disp_buf, pollen_total_per_m2_flag, .true.)
+!    if(have_tla) &
+!      & indPollenTotal_TLA = fu_merge_integer_to_array(pollen_total_per_m2_flag, arIdx_TLA)
+    indAnnualTotalCorr = fu_get_buffer_index(srcPollen, disp_buf, pollen_correction_flag, .true.)
+    ! Allergen
+    if(.not. srcPollen%indPolAlrg == int_missing) &
+                & indPotency = fu_get_buffer_index(srcPollen, disp_buf, pollen_potency_flag, .true.) 
+!    if(have_tla)then
+!      indPollenLeft_TLA = fu_merge_integer_to_array(pollen_left_relative_flag, arIdx_TLA)
+!      indPollenRdyToFly_TLA = fu_merge_integer_to_array(pollen_rdy_to_fly_flag, arIdx_TLA)
+!    endif
+    if(.not. ifAdjoint)then
+      indPollenLeft   =   fu_get_buffer_index(srcPollen, disp_buf, pollen_left_relative_flag, .true.)
+      indPollenRdyToFly = fu_get_buffer_index(srcPollen, disp_buf, pollen_rdy_to_fly_flag, .true.) 
+    endif
+    if(.not. srcPollen%indPolAlrg == int_missing)then
+!      if(have_tla) &
+!        & indAlrgRdyToFly_TLA = fu_merge_integer_to_array(allergen_rdy_to_fly_flag, arIdx_TLA)
+      if(.not. ifAdjoint) &
+        & indAlrgRdyToFly = fu_get_buffer_index(srcPollen, disp_buf, allergen_rdy_to_fly_flag, .true.)
     endif
     
+    !
     ! Fields depending on the emission computation principle
+    !
     ! Calendar day
     if(srcPollen%ifStartCDThr .or. srcPollen%ifEndCDThr .or. srcPollen%ifStartEndGammaThr)then 
       ! day and start/end thresholds
@@ -1731,7 +1742,8 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
     
     ! Chillsum
     if(srcPollen%ifChillSum)then
-      indCS = fu_get_buffer_index(srcPollen, disp_buf, chillsum_flag, .true.) 
+!      if(have_tla) indCS_TLA = fu_merge_integer_to_array(chillsum_flag, arIdx_TLA)
+      if(.not. ifAdjoint) indCS = fu_get_buffer_index(srcPollen, disp_buf, chillsum_flag, .true.) 
       if(srcPollen%heatsum_params%iChillSumType == csSarvasGeneralised)then
         indT2m = fu_index(met_buf, temperature_2m_flag, .true.)
       endif
@@ -1740,11 +1752,17 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
     ! Heatsum
     if(srcPollen%ifStartHSThr .or. srcPollen%ifEndHSThr)then ! temperature, heatsum stuff, thresholds
       indT2m = fu_index(met_buf, temperature_2m_flag, .true.)
-      indHS = fu_get_buffer_index(srcPollen, disp_buf, heatsum_flag, .true.) 
       indStartDay = fu_get_buffer_index(srcPollen, disp_buf, growth_season_start_day_flag, .true.) 
+!      if(have_tla) &
+!        & indHS_TLA = fu_merge_integer_to_array(heatsum_flag, arIdx_TLA)
+      if(.not. ifAdjoint) &
+        & indHS = fu_get_buffer_index(srcPollen, disp_buf, heatsum_flag, .true.) 
       if(srcPollen%heatsum_params%iHeatSumType == hsDegreeDay .or. &
        & srcPollen%heatsum_params%iHeatSumType == hsBioDay)then  ! daily mean
-        indDailyTempr = fu_index(disp_buf, day_mean_temperature_2m_flag, .true.)
+!        if(have_tla) &
+!          & indDailyTempr_TLA = fu_merge_integer_to_array(day_mean_temperature_2m_flag, arIdx_TLA)
+        if(.not. ifAdjoint) &
+          & indDailyTempr = fu_index(disp_buf, day_mean_temperature_2m_flag, .true.)
       endif
       if(srcPollen%heatsum_params%iHeatSumType == hsDegreeDay .or. &
        & srcPollen%heatsum_params%iHeatSumType == hsDegreeHour)then
@@ -1767,7 +1785,10 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
       indTempThr = fu_get_buffer_index(srcPollen, disp_buf, temperature_threshold_flag, .true.) 
     endif
     if(srcPollen%ifDayTempThr)then   !daily T2m and threshold
-      indDailyTempr = fu_index(disp_buf, day_mean_temperature_2m_flag,.true.)
+!      if(have_tla) &
+!        & indDailyTempr_TLA = fu_merge_integer_to_array(day_mean_temperature_2m_flag, arIdx_TLA)
+      if(.not. ifAdjoint) &
+        & indDailyTempr = fu_index(disp_buf, day_mean_temperature_2m_flag,.true.)
       indDayTempThr = fu_get_buffer_index(srcPollen, disp_buf, daily_temp_threshold_flag, .true.) 
     endif
     ! Soil moisture 
@@ -1778,12 +1799,26 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
     
     ! Soil moisture for plant growth
     if(srcPollen%ifSWGrowth)then 
-      indSoilWater =  fu_index(met_buf, soil_moisture_vol_frac_nwp_flag, .true.)
-      indPlantGrowth =fu_get_buffer_index(srcPollen, disp_buf, plant_growth_flag, .true.)
-      indStartDay =   fu_get_buffer_index(srcPollen, disp_buf, growth_season_start_day_flag, .true.) 
+      indSoilWater = fu_index(met_buf, soil_moisture_vol_frac_nwp_flag, .true.)
+!      if(have_tla) &
+!        & indPlantGrowth_TLA = fu_merge_integer_to_array(plant_growth_flag, arIdx_TLA)
+      if(.not. ifAdjoint) &
+        & indPlantGrowth = fu_get_buffer_index(srcPollen, disp_buf, plant_growth_flag, .true.)
+      indStartDay = fu_get_buffer_index(srcPollen, disp_buf, growth_season_start_day_flag, .true.) 
     endif
-
     if(error)return
+!    !
+!    ! Do we have enough space in n3d in TLA?
+!    !
+!    do ix = 1, size(arIdx_TLA)
+!      if(arIdx_TLA(ix) == int_missing)then
+!        if(ix-1 > nz_dispersion)then
+!          call msg('Fields in pollen TLA:', arIdx_TLA(1:ix-1))
+!          call set_error('Number of fields in pollen TLA > nz_dispersion','compute_emission_for_pollen')
+!          return
+!        endif
+!      endif
+!    end do
 
 #ifdef CAMS_DUMP
 iDayInYear_ = fu_julian_date(now)
@@ -1804,53 +1839,65 @@ PollenRdyToFly_in_ = disp_buf%p2d(indPollenRdyToFly)%present%ptr(iCAMSdisp)
 #endif    
     
     !
-    ! If necessary, update chill sum
+    ! If necessary, update chill sum - only for the forward run
     !
-    if(srcPollen%ifChillSum)then
-      select case(srcPollen%heatsum_params%iChillSumType)
-        case(csSarvasGeneralised)
-          fTmp = fu_min(now) * 60.0 + fu_sec(now)
-          if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
-            call update_chill_sum(met_buf, disp_buf, indCS, indT2m, &
-                                & one_hour, now, timestep, srcPollen%heatsum_params)
-          endif
-        case default
-          call set_error('Unknown chill sum type: >>' + &
+!    if(.not. ifAdjoint)then
+      if(srcPollen%ifChillSum)then
+        select case(srcPollen%heatsum_params%iChillSumType)
+          case(csSarvasGeneralised)
+            fTmp = fu_min(now) * 60.0 + fu_sec(now)
+            if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
+              call update_chill_sum(met_buf, disp_buf, indCS, indT2m, &
+                                  & one_hour, now, timestep, srcPollen%heatsum_params)
+            endif
+          case default
+            call set_error('Unknown chill sum type: >>' + &
                 & fu_str(srcPollen%heatsum_params%iChillSumType) + '<<','compute_emission_for pollen')
-          return
-      end select
-    endif
-    !
-    ! If necessary, update the heatsum, possibly, accounting for the chill sum
-    !
-    if(srcPollen%ifStartHSThr .or. srcPollen%ifEndHSThr)then
-      select case(srcPollen%heatsum_params%iHeatSumType)
-        case(hsDegreeDay)
-          if(fu_abs(now - fu_start_of_day_utc(now)) < timestep)then ! less than timestep to midnight
-            call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indDailyTempr, &
-                               & one_day, now, timestep, srcPollen%heatsum_params)
-          endif
+            return
+        end select
+        ! Store the chill sum to TLA
+!        if(have_tla) TL_store_emis_params(1,indCS_TLA,:,:) = &
+!                   & reshape(disp_buf%p2d(indCS)%present%ptr(:), (/nx_dispersion, ny_dispersion/))
+      endif  ! ifChill sum and not ifAdjoint
+      !
+      ! If necessary, update the heatsum, possibly, accounting for the chill sum
+      !
+      if((srcPollen%ifStartHSThr .or. srcPollen%ifEndHSThr))then ! .and. .not. ifAdjoint)then
+        select case(srcPollen%heatsum_params%iHeatSumType)
+          case(hsDegreeDay)
+            if(fu_abs(now - fu_start_of_day_utc(now)) < timestep)then ! less than timestep to midnight
+              call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indDailyTempr, &
+                                 & one_day, now, timestep, srcPollen%heatsum_params)
+            endif
 
-        case(hsDegreeHour)
-          fTmp = fu_min(now) * 60.0 + fu_sec(now)
-          if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
-            call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indT2m, &
-                               & one_hour, now, timestep, srcPollen%heatsum_params)
-          endif
+          case(hsDegreeHour)
+            fTmp = fu_min(now) * 60.0 + fu_sec(now)
+            if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
+              call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indT2m, &
+                                 & one_hour, now, timestep, srcPollen%heatsum_params)
+            endif
       
-        case(hsBioDay)
-          call update_heat_sum(met_buf, disp_buf, indHS, indStartDay,indT2m, timestep, now, timestep, &
-                             & srcPollen%heatsum_params)
+          case(hsBioDay)
+            call update_heat_sum(met_buf, disp_buf, indHS, indStartDay,indT2m, timestep, now, timestep, &
+                               & srcPollen%heatsum_params)
 
-        case(hsSigmoidPeriodUnits)
-          fTmp = fu_min(now) * 60.0 + fu_sec(now)
-          if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
-            call update_heat_sum(met_buf, disp_buf, &
-                               & indHS, indStartDay, indT2m, &
-                               & one_hour, now, timestep, srcPollen%heatsum_params)
-          endif
-      end select
-    endif
+          case(hsSigmoidPeriodUnits)
+            fTmp = fu_min(now) * 60.0 + fu_sec(now)
+            if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
+              call update_heat_sum(met_buf, disp_buf, &
+                                 & indHS, indStartDay, indT2m, &
+                                 & one_hour, now, timestep, srcPollen%heatsum_params)
+            endif
+          case default
+            call set_error('Unknown heat sum type: >>' + &
+                & fu_str(srcPollen%heatsum_params%iHeatSumType) + '<<','compute_emission_for pollen')
+            return
+        end select
+        ! Store the heat sum to TLA
+!        if(have_tla) TL_store_emis_params(1,indHS_TLA,:,:) = &
+!                   & reshape(disp_buf%p2d(indHS)%present%ptr(:), (/nx_dispersion, ny_dispersion/))
+      endif  ! if heat sum
+!    endif ! not ifAdjoint
 
 #ifdef CAMS_DUMP
 HS_out_ = disp_buf%p2d(indHS)%present%ptr(iCAMSdisp)
@@ -1858,7 +1905,7 @@ fMassInjected_out_ = 0
 #endif
 
     !
-    ! Main emission cycle over the whole grid.
+    ! Main emission cycle over the dispersion grid.
     !
 !    call report(pHorizInterpMet2DispStruct%gridfrom)
 !    call report(pHorizInterpMet2DispStruct%gridto)
@@ -1884,194 +1931,171 @@ fMassInjected_out_ = 0
         
         ! Check against flowering thresholds
         ! First the meteo thresholds, that can zero the heatsum!!!
-        ifEms = .true.
-        if(srcPollen%ifTempThr)then
-          if(met_buf%p2d(indT2m)%present%ptr(iMeteo) < disp_buf%p2d(indTempThr)%present%ptr(iDisp))then
-            ifEms = .false.
-            if(srcPollen%ifStartHSThr .or. srcPollen%ifHSGrowth)then ! Zero the heatsum 
-              disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0               
-            endif     
-            ! If flowering started, zero the pollen left to end the emission in gridcell
-            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
-             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then 
-!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
-!                      call msg("Cutting pollen left ifTempThr"//trim(srcPollen%src_nm)//", cell, value", &
-!                       & real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp))
-                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
-!              endif
+        ! For adjoint, this all is not needed
+        !
+!        if(.not.ifAdjoint)then
+          ifEms = .true.
+          if(srcPollen%ifTempThr)then
+            if(met_buf%p2d(indT2m)%present%ptr(iMeteo) < disp_buf%p2d(indTempThr)%present%ptr(iDisp))then
+              ifEms = .false.
+              if(srcPollen%ifStartHSThr .or. srcPollen%ifHSGrowth)then ! Zero the heatsum 
+                disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0               
+!                if(have_tla) TL_store_emis_params(1,indHS_TLA,ix,iy) = 0.0
+              endif     
+              ! If flowering started, zero the pollen left to end the emission in gridcell
+              if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
+               & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then 
+                disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!                if(have_tla) TL_store_emis_params(1,indPollenLeft_TLA,ix,iy) = 0.0
+              endif
             endif
-          endif
-        endif
-        if(srcPollen%ifDayTempThr)then
-          if(disp_buf%p2d(indDailyTempr)%present%ptr(iDisp) < disp_buf%p2d(indDayTempThr)%present%ptr(iDisp))then
-            ifEms = .false.
-            if(srcPollen%ifStartHSThr .or. srcPollen%ifHSGrowth)then ! Zero the heatsum 
-              disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0               
-            endif     
-            ! If flowering started, zero the pollen left to end the emission in gridcell
-            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
-             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then
-!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
-!                      call msg("Cutting pollen left ifDayTempThr"//trim(srcPollen%src_nm)//", cell, value", &
-!                       & real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp))
-                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
-!              endif
+          endif   ! temperature threshold
+          if(srcPollen%ifDayTempThr)then
+            if(disp_buf%p2d(indDailyTempr)%present%ptr(iDisp) < disp_buf%p2d(indDayTempThr)%present%ptr(iDisp))then
+              ifEms = .false.
+              if(srcPollen%ifStartHSThr .or. srcPollen%ifHSGrowth)then ! Zero the heatsum 
+                disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0               
+!                if(have_tla) TL_store_emis_params(1,indHS_TLA,ix,iy) = 0.0
+              endif     
+              ! If flowering started, zero the pollen left to end the emission in gridcell
+              if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
+               & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then
+                disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!                if(have_tla) TL_store_emis_params(1,indPollenLeft_TLA,ix,iy) = 0.0
+              endif
             endif
-          endif
-        endif
-        if(srcPollen%ifSWThr)then
-          if(met_buf%p2d(indSoilWater)%present%ptr(iMeteo) < disp_buf%p2d(indSoilWaterThr)%present%ptr(iDisp))then
-            ifEms = .false.  
-            ! If flowering started, zero the pollen left to end the emission in gridcell
-            if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
-             & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then 
-!              if (disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) /= 0) then 
-!                      call msg("Cutting pollen left ifSWThr"//trim(srcPollen%src_nm)//", cell, value", &
-!                       & real(iDisp), disp_buf%p2d(indPollenLeft)%future%ptr(iDisp))
-                      disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
-!             endif
+          endif   ! day temperature threshold
+          if(srcPollen%ifSWThr)then
+            if(met_buf%p2d(indSoilWater)%present%ptr(iMeteo) < disp_buf%p2d(indSoilWaterThr)%present%ptr(iDisp))then
+              ifEms = .false.  
+              ! If flowering started, zero the pollen left to end the emission in gridcell
+              if(disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3 .and. &
+               & 1.0 - disp_buf%p2d(indPollenLeft)%present%ptr(iDisp) > 1.0e-3) then 
+                disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 0.0
+!                if(have_tla) TL_store_emis_params(1,indPollenLeft_TLA,ix,iy) = 0.0
+              endif
             endif
-          endif
-        endif
+          endif  ! soil water
 
 #ifdef CAMS_DUMP
-if(ix == ixCAMSdisp .and. iy == iyCAMSdisp)then
- HS_out_ = disp_buf%p2d(indHS)%present%ptr(iCAMSdisp)
-endif
+  if(ix == ixCAMSdisp .and. iy == iyCAMSdisp)then
+   HS_out_ = disp_buf%p2d(indHS)%present%ptr(iCAMSdisp)
+  endif
 #endif        
 
-        ifSeasonStarted = .true.  ! formal, without uncertainty
-        if(srcPollen%ifStartHSThr)then
-          ifSeasonStarted = disp_buf%p2d(indHS)%present%ptr(iDisp) > &
-                          & disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
-          if(disp_buf%p2d(indHS)%present%ptr(iDisp) < &
-                                      & (1. - srcPollen%fUncertainty_HS_relative_start) * &
-                                      & disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)) then
-            ifEms = .false.  ! outside uncertainty too, so no emission
-            ! delaying past calendar day threshold - change its value to preserve distribution function
-            if(srcPollen%ifStartCDThr)then
-              if(iDayInYear > disp_buf%p2d(indStartCDThr)%present%ptr(iDisp))then
-                disp_buf%p2d(indStartCDThr)%future%ptr(iDisp) = fu_julian_date_real(now)
-                if(srcPollen%ifEndCDThr)disp_buf%p2d(indCDDiff)%future%ptr(iDisp) = &
-                                      & max(0.0, disp_buf%p2d(indEndCDThr)%future%ptr(iDisp) - &
-                                               & disp_buf%p2d(indStartCDThr)%future%ptr(iDisp))
-              endif
-            endif  ! ifStart CD threshold
-          endif  ! if not yet enough heat sum
-        endif  ! if start HS threshold
-        if(srcPollen%ifStartCDThr)then
-          ifSeasonStarted = ifSeasonStarted .and. &
-                          & (iDayInYear > disp_buf%p2d(indStartCDThr)%present%ptr(iDisp))
-          if(iDayInYear < disp_buf%p2d(indStartCDThr)%present%ptr(iDisp) - &
-                        & srcPollen%fUncertainty_CD_days_start) &
-           & ifEms = .false.
-        endif
-        if(srcPollen%ifStartEndGammaThr)then
-          !
-          ! So far, do nothing. In principle, starting tail can be checked
-          !
-        endif
-!if(ix == 20 .and. iy == 25)then
-!  if (ifSeasonStarted .and. ifEms)then
-!    call msg('Season check 198-121 season started and emission,ix,iy:',ix,iy)
-!  elseif (ifSeasonStarted) then
-!    call msg('Season check 198-121 season started and but not emission')
-!  elseif (ifEms)then
-!    call msg('Season check 198-121 season NOT started but emission true')
-!  else
-!    call msg('Season check 198-121 season not started and emission is false')
-!  endif
-!endif
-! No need for end checking here: the open-pocket principle serves us here: 
-! uncertainty in the total pollen amount translates into the uncertainty of the season end
-!
-!        if(srcPollen%ifEndHSThr)then
-!          if(disp_buf%p2d(indHS)%present%ptr(iDisp) >= &
-!                                & (1 + srcPollen%fUncertainty_HS_relative) * &
-!                                 & disp_buf%p2d(indEndHSThr)%present%ptr(iDisp)) &
-!           & ifEms = .false.
-!        endif
-!        if(srcPollen%ifEndCDThr)then
-!          if(iDayInYear >= &
-!           & disp_buf%p2d(indEndCDThr)%present%ptr(iDisp) + srcPollen%fUncertainty_CD_days) &
-!           & ifEms = .false.
-!        endif
-        
-        ! If there's pollen waiting in buffer and allergen is requested, 
-        ! potency growth in buffer has to happen before new pollen comes
-        fPolAlrg = 0.0
-        if(srcPollen%indPolAlrg /= int_missing)then
-          if(disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp) > 0.0)then
-            fPolAlrg = fu_make_allergen_in_rdy_pollen(&
-                             & disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp), &
-                             & srcPollen%alrgGrowthRate)
+          ifSeasonStarted = .true.  ! formal, without uncertainty
+          if(srcPollen%ifStartHSThr)then
+            ifSeasonStarted = disp_buf%p2d(indHS)%present%ptr(iDisp) > &
+                            & disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
+            if(disp_buf%p2d(indHS)%present%ptr(iDisp) < &
+                                        & (1. - srcPollen%fUncertainty_HS_relative_start) * &
+                                        & disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)) then
+              ifEms = .false.  ! outside uncertainty too, so no emission
+              ! delaying past calendar day threshold - change its value to preserve distribution function
+              if(srcPollen%ifStartCDThr)then
+                if(iDayInYear > disp_buf%p2d(indStartCDThr)%present%ptr(iDisp))then
+                  disp_buf%p2d(indStartCDThr)%future%ptr(iDisp) = fu_julian_date_real(now)
+                  if(srcPollen%ifEndCDThr)disp_buf%p2d(indCDDiff)%future%ptr(iDisp) = &
+                                        & max(0.0, disp_buf%p2d(indEndCDThr)%future%ptr(iDisp) - &
+                                                 & disp_buf%p2d(indStartCDThr)%future%ptr(iDisp))
+                endif
+              endif  ! ifStart CD threshold
+            endif  ! if not yet enough heat sum
+          endif  ! if start HS threshold
+          if(srcPollen%ifStartCDThr)then
+            ifSeasonStarted = ifSeasonStarted .and. &
+                            & (iDayInYear > disp_buf%p2d(indStartCDThr)%present%ptr(iDisp))
+            if(iDayInYear < disp_buf%p2d(indStartCDThr)%present%ptr(iDisp) - &
+                          & srcPollen%fUncertainty_CD_days_start) &
+             & ifEms = .false.
           endif
-        endif
+          if(srcPollen%ifStartEndGammaThr)then
+            !
+            ! So far, do nothing. In principle, starting tail can be checked
+            !
+          endif
+        
+          ! If there's pollen waiting in buffer and allergen is requested, 
+          ! potency growth in buffer has to happen before new pollen comes
+          fPolAlrg = 0.0
+          if(srcPollen%indPolAlrg /= int_missing)then
+            if(disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp) > 0.0)then
+              fPolAlrg = fu_make_allergen_in_rdy_pollen(&
+                               & disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp), &
+                               & srcPollen%alrgGrowthRate)
+            endif
+          endif
 
-        if((srcPollen%iRipeningType == prHSLinear .or. srcPollen%iRipeningType == prHSNormal))then
-          !
-          ! If ripening is linear with regard to heatsum derivative, have to compute that one
-          !
-          select case(srcPollen%heatsum_params%iHeatSumType)
-          case(hsDegreeDay)
-            dHSdt = max(0.0,(met_buf%p2d(indT2m)%present%ptr(iMeteo) - &
-                                          & disp_buf%p2d(indTemprCutOff)%present%ptr(iDisp))) / 24. ! scale to hour
-          case(hsDegreeHour)
-            dHSdt = max(0.0,(met_buf%p2d(indT2m)%present%ptr(iMeteo) - &
-                                          & disp_buf%p2d(indTemprCutOff)%present%ptr(iDisp)))
-          case(hsSigmoidPeriodUnits)
-            if(met_buf%p2d(indT2m)%present%ptr(iMeteo) >= &
-                                                     & srcPollen%heatsum_params%TemprCutOff)then
-              dHSdt = fu_sigmoid_hsum_response_tempr(met_buf%p2d(indT2m)%present%ptr(iMeteo), &
-                                                   & srcPollen%heatsum_params)
-            else
-              dHSdt = 0.0
-            endif
-          case(hsBioDay)
-            dHSdt = fu_btime_tempr_response(met_buf%p2d(indT2m)%present%ptr(iMeteo)) *  &
-                  & fu_btime_daylen_response(fu_hours(fu_daylength(fu_lat_geographical_from_grid( &
-                                                                              & real(ix), real(iy), &
-                                                                              & dispersion_grid), &
-                                                                & now)), &
-                                           & disp_buf%p2d(indHS)%present%ptr(iDisp))
-          end select
-          dHSdt = dHSdt * fu_hours(timestep)
-        endif 
+          if((srcPollen%iRipeningType == prHSLinear .or. srcPollen%iRipeningType == prHSNormal))then
+            !
+            ! If ripening is linear with regard to heatsum derivative, have to compute that one
+            !
+            select case(srcPollen%heatsum_params%iHeatSumType)
+            case(hsDegreeDay)
+              dHSdt = max(0.0,(met_buf%p2d(indT2m)%present%ptr(iMeteo) - &
+                                            & disp_buf%p2d(indTemprCutOff)%present%ptr(iDisp))) / 24. ! scale to hour
+            case(hsDegreeHour)
+              dHSdt = max(0.0,(met_buf%p2d(indT2m)%present%ptr(iMeteo) - &
+                                            & disp_buf%p2d(indTemprCutOff)%present%ptr(iDisp)))
+            case(hsSigmoidPeriodUnits)
+              if(met_buf%p2d(indT2m)%present%ptr(iMeteo) >= &
+                                                       & srcPollen%heatsum_params%TemprCutOff)then
+                dHSdt = fu_sigmoid_hsum_response_tempr(met_buf%p2d(indT2m)%present%ptr(iMeteo), &
+                                                     & srcPollen%heatsum_params)
+              else
+                dHSdt = 0.0
+              endif
+            case(hsBioDay)
+              dHSdt = fu_btime_tempr_response(met_buf%p2d(indT2m)%present%ptr(iMeteo)) *  &
+                    & fu_btime_daylen_response(fu_hours(fu_daylength(fu_lat_geographical_from_grid( &
+                                                                                & real(ix), real(iy), &
+                                                                                & dispersion_grid), &
+                                                                  & now)), &
+                                             & disp_buf%p2d(indHS)%present%ptr(iDisp))
+            end select
+            dHSdt = dHSdt * fu_hours(timestep)
+          endif 
         
-        ! Total amount of pollen determined by the pre-season conditions
-        if((srcPollen%ifSWGrowth .or. srcPollen%ifHSGrowth) .and. (.not. ifSeasonStarted))then 
-          disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = &
-                              & disp_buf%p2d(indAnnualTotalCorr)%present%ptr(iDisp) * srcPollen%standardPollenTotal
-          if(srcPollen%ifSWGrowth)then  
-            ! Plant response to water in soil
-            if(met_buf%p2d(indSoilWater)%present%ptr(iMeteo) < srcPollen%SWGrowthDeath)then
-              disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp) = 0.0   
-            else 
-              fTmp = fu_plant_growth_SW(met_buf%p2d(indSoilWater)%present%ptr(iMeteo))
-              ! Normalization depending on whether the main driver is time or thermal time
-              if(srcPollen%iRipeningType == prHSLinear .or. srcPollen%iRipeningType == prHSNormal )then
-                fTmp = fTmp * dHSdT / disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
-              elseif(srcPollen%iRipeningType == prCDLinear .or. srcPollen%iRipeningType == prCDNormal &
-                   & .or. srcPollen%iRipeningType == prCDNormDrn)then
-                fTmp = fTmp * fu_sec(timestep) / 86400.0 / &
-                & (disp_buf%p2d(indStartCDThr)%present%ptr(iDisp)-disp_buf%p2d(indStartDay)%present%ptr(iDisp))
+          ! Total amount of pollen determined by the pre-season conditions
+          if((srcPollen%ifSWGrowth .or. srcPollen%ifHSGrowth) .and. (.not. ifSeasonStarted))then 
+            disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = &
+                  & disp_buf%p2d(indAnnualTotalCorr)%present%ptr(iDisp) * srcPollen%standardPollenTotal
+            if(srcPollen%ifSWGrowth)then  
+              ! Plant response to water in soil
+              if(met_buf%p2d(indSoilWater)%present%ptr(iMeteo) < srcPollen%SWGrowthDeath)then
+                disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp) = 0.0   
               else 
-                call set_error('No idea how to normalize plant growth', 'compute_emission_for_pollen')
+                fTmp = fu_plant_growth_SW(met_buf%p2d(indSoilWater)%present%ptr(iMeteo))
+                ! Normalization depending on whether the main driver is time or thermal time
+                if(srcPollen%iRipeningType == prHSLinear .or. srcPollen%iRipeningType == prHSNormal )then
+                  fTmp = fTmp * dHSdT / disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
+                elseif(srcPollen%iRipeningType == prCDLinear .or. srcPollen%iRipeningType == prCDNormal &
+                     & .or. srcPollen%iRipeningType == prCDNormDrn)then
+                  fTmp = fTmp * fu_sec(timestep) / 86400.0 / &
+                  & (disp_buf%p2d(indStartCDThr)%present%ptr(iDisp)-disp_buf%p2d(indStartDay)%present%ptr(iDisp))
+                else 
+                  call set_error('No idea how to normalize plant growth', 'compute_emission_for_pollen')
+                endif
+                if(fTmp < 0.0)then
+                  call set_error('Negative growth','compute_emission_for_pollen')
+                  return
+                endif
+                disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp) = disp_buf%p2d(indPlantGrowth)%present%ptr(iDisp) + fTmp
               endif
-              if(fTmp < 0.0)then
-                call set_error('Negative growth','compute_emission_for_pollen')
-                return
-              endif
-              disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp) = disp_buf%p2d(indPlantGrowth)%present%ptr(iDisp) + fTmp
+              disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = &
+                                              & disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) * &
+                                              & disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp)
+            endif  ! if pre-season growth of the plant
+            if(srcPollen%ifHSGrowth)then  ! Linear to accumulated heatsum
+                disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = &
+                                              & disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) * &
+                                              & disp_buf%p2d(indHS)%present%ptr(iDisp) / &
+                                                    & disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
             endif
-            disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) * &
-                                                           & disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp)
-          endif  ! if pre-season growth of the plant
-          if(srcPollen%ifHSGrowth)then  ! Linear to accumulated heatsum
-              disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) * &
-                         & disp_buf%p2d(indHS)%present%ptr(iDisp) / disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
-          endif
-        endif
+!            if(have_tla) TL_store_emis_params(1,indPollenTotal_TLA,ix,iy) = &
+!                                                  & disp_buf%p2d(indPollenTotal)%future%ptr(iDisp)
+          endif  ! dynamic total seasonal emission: plant growth
+!        endif ! not ifAdjoint
 
         ! Buffered model. Two steps are to be made:
         ! 1. Produce more ready-to-fly-pollen
@@ -2191,12 +2215,15 @@ endif
         
         ! If necessary, new allergen needs to be added to buffer
         if((.not. (srcPollen%indPolAlrg == int_missing)) .and. (fPolAlrg > 0.0))then
-            disp_buf%p2d(indAlrgRdyToFly)%future%ptr(iDisp) = &
+          disp_buf%p2d(indAlrgRdyToFly)%future%ptr(iDisp) = &
                                          & disp_buf%p2d(indAlrgRdyToFly)%future%ptr(iDisp) + fPolAlrg
+!          if(have_tla) TL_store_emis_params(1,indAlrgRdyToFly_TLA,ix,iy) = &
+!                                               & disp_buf%p2d(indAlrgRdyToFly)%future%ptr(iDisp)
         endif
         
         !
         ! Release whatever needs to be released. 
+        !
         if(disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp) < 1.0e-6)cycle ! speedup
 
         if(srcPollen%iReleaseType == relInst)then 
@@ -2219,6 +2246,7 @@ endif
             ! So, we take the linear discharge model: dm/dt=-alpha(meteo)*m
             ! and roughly estimate alpha from a statement: in case of very good conditions,
             ! all ready-to-fly pollen must be released within one time step.
+            !
             fTmp = fu_pollen_emis_from_buffer(fTmp, &                                             ! humidity
                                           & met_buf%p2d(indWind10m)%present%ptr(iMeteo), &      ! 10m wind speed
                                           & met_buf%p2d(indConvVelocity)%present%ptr(iMeteo), & ! conv velocity scale
@@ -2326,12 +2354,17 @@ endif
             if(ifUseSourceIdMapping)then
               iSrcNbr = arSourceIdMapping(ix,iy)
             else
-              iSrcNbr = srcPollen%id_nbr
+              iSrcNbr = srcPollen%id_nbr_all_srcs
             endif
             emisMap%arM(srcPollen%adaptor%iSp(iSp),iSrcNbr,iLev,ix,iy) = &
                         & emisMap%arM(srcPollen%adaptor%iSp(iSp),iSrcNbr,iLev,ix,iy) + emsAmntLev
             emisMap%ifColumnValid(iSrcNbr,ix,iy) = .true.
             emisMap%ifGridValid(iLev,iSrcNbr) = .true.
+            !
+            ! Store it into the TL trajectory if needed. Huom! iSp without adaptor
+            !
+            if(associated(TL_store_emis)) &
+              & TL_store_emis(iSp,iLev,ix,iy) = TL_store_emis(iSp,iLev,ix,iy) + emsAmntLev
  
             fCellTotal = fCellTotal + emsAmntLev
             emsAmnt(iSp) = emsAmnt(iSp) + emsAmntLev
@@ -3256,7 +3289,7 @@ call msg('Sigmoid parameters new setup')
       call set_error('Undefined source given','fu_source_id_nbr_of_pollen_src')
       return
     endif
-    fu_source_id_nbr_of_pollen_src = pollen_src%id_nbr
+    fu_source_id_nbr_of_pollen_src = pollen_src%id_nbr_all_srcs
 
   end function fu_source_id_nbr_of_pollen_src
 
@@ -3280,7 +3313,7 @@ call msg('Sigmoid parameters new setup')
 
     ! Stupidity check
     if(.not.(pollen_src%defined == silja_false))then
-      fu_source_nbr_of_pollen_src = pollen_src%src_nbr
+      fu_source_nbr_of_pollen_src = pollen_src%src_nbr_all_srcs
     else
       fu_source_nbr_of_pollen_src = int_missing
       call set_error('Undefined source given','fu_source_nbr_of_pollen_src')
@@ -3455,6 +3488,22 @@ call msg('Sigmoid parameters new setup')
     call msg('')
     
   end subroutine report_pollen_src
+
+   !*******************************************************
+  
+  integer function fu_tla_size_src_pollen(srcPollen) result(n)
+      implicit none
+      type(silam_pollen_source), intent(in) :: srcPollen
+      character(len = *), parameter :: sub_name = ' fu_tla_size_src_pollen'
+
+      if(srcPollen%ifStartHSThr .or. srcPollen%ifEndHSThr)then
+         n = srcPollen%nSpecies !! Emiited amounts stored
+       else
+         n = 0
+       endif
+
+    ! code
+  end function  fu_tla_size_src_pollen
 
 
 END MODULE source_terms_pollen

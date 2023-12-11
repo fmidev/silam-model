@@ -43,6 +43,7 @@ MODULE silam_levels
   public arrange_levels_in_vertical
   public set_missing
   public create_levels_from_namelist_v2
+  public fu_set_layer_covering_vertical
   public fu_central_level_of_layer
   PUBLIC defined
   PUBLIC report
@@ -2028,6 +2029,29 @@ CONTAINS
   end subroutine create_levels_from_namelist_v2
 
 
+  !****************************************************************
+  
+  function fu_set_layer_covering_vertical(vertical)result(layer)
+    !
+    ! Sets a layer covering vertical from its bottom to top
+    !
+    implicit none
+
+    ! Imported values and result
+    type(silam_vertical), intent(in) :: vertical
+    type(silja_level) :: layer
+    
+    if(fu_fails(defined(vertical),'Undefined vertical given','fu_set_layer_covering_vertical'))return
+    
+    ! Copy the first layer and set the top coefs to those of the last layer
+    layer = vertical%levs(1)
+    layer%number2 = vertical%levs(vertical%nLevs)%number2
+    layer%a2 = vertical%levs(vertical%nLevs)%a2
+    layer%b2 = vertical%levs(vertical%nLevs)%b2
+
+  end function fu_set_layer_covering_vertical
+  
+  
   !****************************************************************
 
   subroutine set_level_in_vertical(vertical, iLev, level)
@@ -5127,9 +5151,7 @@ CONTAINS
                   return
                 end if
               end do
-#ifdef DEBUG
-              call ooops("Wrong height column in " // sub_name)
-#endif
+              call set_error("Starnge height_column values", 'fu_find_height')
               return
             endif
           endif
@@ -7539,8 +7561,6 @@ call msg('Suggestion with relief:',i)
       RETURN
     END IF
 
-
-
     fUnits(1:2) = (/6, run_log_funit/)
    
     do iUnit = 1,2
@@ -7594,13 +7614,13 @@ call msg('Suggestion with relief:',i)
 
       case(entire_atmosphere_single_layer)
         if(vertical%Nlevs /= 1)then
-                WRITE(funits(iUnit),'(I4, A)') vertical%Nlevs, ' layers between depth levels'
+          WRITE(funits(iUnit),'(I4, A)') vertical%Nlevs, ' layers between depth levels'
         else
-                WRITE(funits(iUnit),'(I4, A)') 'One layer of entire atmosphere'
+          WRITE(funits(iUnit),'(A)') 'One layer of entire atmosphere'
         endif
 
       CASE default
-              WRITE(funits(iUnit),'(I4, A)') vertical%Nlevs, ' levels of unknown type ',vertical%vert_type
+              WRITE(funits(iUnit),'(I4, A, I4)') vertical%Nlevs, ' levels of unknown type ',vertical%vert_type
 
     END SELECT
     enddo

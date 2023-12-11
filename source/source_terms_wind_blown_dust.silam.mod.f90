@@ -319,7 +319,7 @@ CONTAINS
     !
     ! Add needed dynamic quantities. Always precipitation, the rest depends on the method
     !
-    iTmp = fu_merge_integer_to_array(total_precipitation_rate_flag,  q_met_st)
+    iTmp = fu_merge_integer_to_array(total_precipitation_int_flag,  q_met_st)
     iTmp = fu_merge_integer_to_array(water_eq_snow_depth_flag, q_met_dynamic)
 
     select case(wb_dust_src%emisMethod)
@@ -575,7 +575,7 @@ CONTAINS
                                   & alluvial_sedim_index_flag, &
                                   & time_missing, &        ! valid time
                                   & level_missing)
-        fieldPtr => fu_get_field_from_mm_general(dispersionMarketPtr, id, .false.)
+        call get_field_from_mm_general(dispersionMarketPtr, id, fieldPtr, .false.)
         if(.not. associated(fieldPtr))then
           call set_error('Alluvial sediment map is missing but needed','init_emission_wb_dust')
           return
@@ -586,7 +586,7 @@ CONTAINS
              & dust_emis_0_flag, &
              & time_missing, &        ! valid time                                                                                                                                                                                                                                                                        
              & level_missing)
-        fieldPtr => fu_get_field_from_mm_general(dispersionMarketPtr, id, .false.)
+        call get_field_from_mm_general(dispersionMarketPtr, id, fieldPtr, .false.)
         if(.not. associated(fieldPtr))then
           call set_error('Dust emission map is missing but needed','init_emission_wb_dust')
           return

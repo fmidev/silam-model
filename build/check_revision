@@ -36,6 +36,7 @@ def getRevisionSVN(directory):
         svn = subprocess.Popen('svn info', cwd=directory, stdout=subprocess.PIPE, universal_newlines=True, shell=True)
 
         for line in svn.stdout:
+#            print(line)
             # Get branch name from Relative URL
             if line.startswith('Relative URL:'):
                 a = line.split('/')
@@ -80,9 +81,12 @@ def getRevisionGIT(directory):
 
         gitlog = subprocess.Popen("git log", cwd=directory, stdout=subprocess.PIPE, 
                                         universal_newlines=True, shell=True)
+        gitrevnow = ""
         for line in gitlog.stdout:
             if line.startswith('commit'):
-                gitrev = line.split()[-1]
+                gitrev = line.split()[-1] ### Latest svn revision
+                if len(gitrevnow) == 0:
+                    gitrevnow = gitrev ## Assume first line is current git revision
                 continue
             a=line.split()
             if len(a) == 3:
@@ -99,13 +103,14 @@ def getRevisionGIT(directory):
 
         if revno is None:
             raise RevisionError('Failed to read revision from git')
-        revstr = "%s GIT-SVN (r%s)"%(branchname, revno)
+        revstr = "%s GIT-SVN (r%s, aka %s)"%(branchname, revno, gitrev[0:8])
+
         diffcmd = "git diff %s"%(gitrev)
     except Exception as e:
         print (e)
         raise
 
-    return branchname, revstr, diffcmd
+    return branchname, revstr, gitrevnow, diffcmd
 
 def getRevisionDummy(directory):
     ## Failsafe thing
@@ -155,7 +160,7 @@ end module revision
         os.unlink(revfilename)
     os.rename(tmpfname, revfilename)
 
-def writeDiff(diff_f90_filename, revstr, diffcmd):
+def writeDiff(diff_f90_filename, revstr, gitrevnow, diffcmd):
     tmpfname=diff_f90_filename+".tmp"
 
 
@@ -171,7 +176,13 @@ def writeDiff(diff_f90_filename, revstr, diffcmd):
         if not whoami:
              whoami = "No info"
 
-        pardict = dict(REV=revstr,  HOST=host, DATE=now, CWD=cwd, WHOAMI=whoami[:-1])     
+        pardict = dict(REV=revstr,   HOST=host, DATE=now, CWD=cwd, WHOAMI=whoami[:-1], 
+                GITSTR="", DIFFCMD=diffcmd)
+
+        ## Add info on latest git revision if relevant
+        if len(gitrevnow) > 0:
+            pardict["GITSTR"] = 'call msg("Compile-time GIT HEAD commit: %s")'%(gitrevnow,)
+
         diff_f90.write("""
 ! automatically generated, by check_revision script. Will be overwritten at next recompile.
 module svndiff
@@ -191,9 +202,11 @@ contains
     call msg("The binary was compiled at %(HOST)s  on  %(DATE)s")
     call msg("Compile-time CWD: %(CWD)s")
     call msg("Compile-time WHOAMI: %(WHOAMI)s")
+    call msg("command used for diff: %(DIFFCMD)s")
+    %(GITSTR)s
 
 """ % pardict)
-           
+
 
         svncmd=diffcmd + ' .'
         for dir in [os.path.join(directory,'..','build'), directory]:
@@ -250,13 +263,14 @@ def writeBranch(branch, branchfname):
 revision_f90_filename = os.path.join(directory, 'revision.mod.f90')
 diff_f90_filename = os.path.join(directory, 'svndiff.mod.f90')
 branch_filename = os.path.join(directory, '..','build','Makefile.branch')
+gitrevnow = ""
 
 if os.path.exists( os.path.join(directory, '..','.svn')):
     print ("SVN detected")
     branch, revstr, diffcmd =  getRevisionSVN(directory)
 elif os.path.exists( os.path.join(directory, '..','.git')):
     print ("GIT detected")
-    branch, revstr, diffcmd =  getRevisionGIT(directory)
+    branch, revstr, gitrevnow, diffcmd =  getRevisionGIT(directory)
 else:
     print ("Silam source seems to be out of revstr control...")
     branch, revstr, diffcmd = getRevisionDummy(directory)
@@ -264,6 +278,7 @@ else:
 print ("Detected branch:", branch)
 print ("Detected revision:", revstr)
 print ("Diffcmd:", diffcmd)
+print ("Latest git commit", gitrevnow)
 
 writeBranch(branch, branch_filename)
 
@@ -271,7 +286,7 @@ if not isSameRevision(revstr, revision_f90_filename):
     writeRevision(revstr, revision_f90_filename)
 
 
-writeDiff(diff_f90_filename, revstr, diffcmd)
+writeDiff(diff_f90_filename, revstr, gitrevnow, diffcmd)
 
 
 

@@ -126,8 +126,6 @@ CONTAINS
     character(len=fnlen) :: chTmp
     logical :: ifFound
     character(len=*), parameter :: subname = 'fill_soil_NO_src_from_namelist'
-
-    call msg('dbg filling soil no source from namelist')
     !
     ! Names
     !
@@ -351,7 +349,7 @@ CONTAINS
          & soil_NO_emis_0_flag, &
          & time_missing, &        ! valid time
          & level_missing)
-        fieldPtr => fu_get_field_from_mm_general(dispersionMarketPtr, id, .false.)
+        call get_field_from_mm_general(dispersionMarketPtr, id, fieldPtr, .false.)
         if(.not. associated(fieldPtr))then
           call set_error('Soil NO emission map is missing but needed','init_emission_soil_NO')
           return

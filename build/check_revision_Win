@@ -25,6 +25,7 @@ silamversion="SILAM v5_7"
 # Compilation should pass
 revision = None
 revno="0"
+print(1)
 try:
     #Get latest of revisions of  and see diff from it
     for d in [directory, os.path.join(directory, '..', 'build')]:
@@ -44,6 +45,7 @@ try:
 except:
     pass
 
+print(2)
 try:
     if revision is None: # Try last revision
         print ("Trying "+directory+"/../build/last.revision")
@@ -69,7 +71,14 @@ if os.path.exists(revision_f90_real_filename):
     # Read the previous revision from the first line of the f90 file.
     revision_f90_old = open(revision_f90_real_filename, 'r')
     try:
-        old_revision = revision_f90_old.readline().split()[-1]
+        string_old_revision = revision_f90_old.readline()
+        if "Unknown" in string_old_revision: old_revision = None
+        else: old_revision = revision_f90_old.readline().split()[-1]
+#        print(string_old_revision)
+#        print(string_old_revision.split()[-1])
+
+#        old_revision = revision_f90_old.readline().split()[-1]
+    
     except (IndexError, ValueError):
         print ('Failed to get the previous revision')
     else:
@@ -77,6 +86,7 @@ if os.path.exists(revision_f90_real_filename):
 
     revision_f90_old.close()
     
+print(3)
 revision_is_valid = old_revision is not None and old_revision == revision.split()[-1]
 if not revision_is_valid:
     with open(revision_f90_filename, 'w') as revision_f90:
@@ -105,6 +115,7 @@ diff_f90_real_filename = diff_f90_filename.replace('.tmp','')
 # code, while svndiff.mod.f90 is updated each time something is changed and should be used
 # only from top level.
 
+print(4)
 with open(diff_f90_filename, 'w') as diff_f90:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
     host =  socket.gethostname()
@@ -155,8 +166,10 @@ with open(diff_f90_filename, 'w') as diff_f90:
 
         """ % pardict)
        
+    print(5)
 
     svncmd=svnbin+" diff -r"+revno
+    print(svncmd)
     for dir in [os.path.join(directory,'..','build'), directory]:
       try:
         with  subprocess.Popen(svncmd, shell=True, stdout=subprocess.PIPE, cwd=dir ).stdout as inf:

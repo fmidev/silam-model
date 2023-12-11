@@ -44,6 +44,7 @@ MODULE pollution_cloud
   public set_cloud_initial_conditions
   public prepare_transdep
   public check_cloud_species
+  public set_boundary_scaling
   PUBLIC defined
   public fu_species_transport
   public fu_nbr_of_species_transport
@@ -102,11 +103,10 @@ MODULE pollution_cloud
   public set_3_sources
   public fu_boundarystructures
   public fu_boundaryBuffer
+  public fu_cloud_valid_time
+  public set_cloud_valid_time
   
   public check_species
-
-  public init_tla
-
 
   ! Private functions
 
@@ -194,6 +194,9 @@ MODULE pollution_cloud
     !
     ! General part
     !
+
+    TYPE(silja_time) :: valid_time = time_missing !!! valid time when all processes are complete
+                          !!! time_missing when some are at the timestep start, some at timestep end
     TYPE(silja_time) :: earliest_start
     TYPE(silja_time) :: latest_start
     type(silam_species), dimension(:), pointer :: speciesEmission => null(), &
@@ -264,9 +267,10 @@ MODULE pollution_cloud
     integer :: diffusionMethod         ! diffusion method
     integer :: advectionType_default   ! If not stated, use this dynamics type
     integer :: simulation_type         ! Eulerian / Lagrangian / hybrid
-    logical :: ifMolecDiff ! if use gravitationa separation of gases 
-                           ! Works only on hybrid vertical and at pressures upt to tens of Pa
+    logical :: ifMolecDiff ! if use gravitational separation of gases 
+                           ! Works only on hybrid vertical and at pressures up to tens of Pa
     logical :: ifSubgridDiff ! Diffusion affects also vertical CM
+    integer :: cloud_metric = cloud_metric_geometry_flag
     type(TLagr2Euler_projectionRules) :: projectionRules
   end type Tdynamics_rules
   public Tdynamics_rules
@@ -411,7 +415,7 @@ CONTAINS
 
   !*********************************************************************
   
-  subroutine reset_cloud_data_structures(cloud, ifMomentsToo)
+  subroutine reset_cloud_data_structures(cloud, ifOnesToo)
     !
     ! Zeroes main data storage, prepares the cloud to re-use. Needed for 
     ! switching between forward and adjoint runs in the data assimilation iteration loop
@@ -420,7 +424,7 @@ CONTAINS
 
     ! Imported parameters with intent INOUT or POINTER:
     TYPE(silam_pollution_cloud), intent(inout) :: cloud
-    logical, intent(in) :: ifMomentsToo
+    logical, intent(in) :: ifOnesToo
       
     !
     ! Lagrangian environment
@@ -464,22 +468,34 @@ CONTAINS
        if (associated(cloud%pBoundaryBuffer%bBottom)) cloud%pBoundaryBuffer%bBottom = 0.0
     endif
 
-    if(ifMomentsToo)then
-      call reset_if_possible(cloud%mapPx_emis)
-      call reset_if_possible(cloud%mapPy_emis)
-      call reset_if_possible(cloud%mapPz_emis)
-      call reset_if_possible(cloud%mapPx_conc)
-      call reset_if_possible(cloud%mapPy_conc)
-      call reset_if_possible(cloud%mapPz_conc)
-    endif
+    call reset_if_possible(cloud%mapPx_emis)
+    call reset_if_possible(cloud%mapPy_emis)
+    call reset_if_possible(cloud%mapPz_emis)
+    call reset_if_possible(cloud%mapPx_conc)
+    call reset_if_possible(cloud%mapPy_conc)
+    call reset_if_possible(cloud%mapPz_conc)
     
   contains
     
-    subroutine reset_if_possible(p_mass_map)
+    subroutine reset_if_possible(map)
       implicit none
-      type(Tmass_map), intent(inout) :: p_mass_map
+      type(Tmass_map), intent(inout) :: map
+      integer :: iSpOnes
 
-      if ( defined(p_mass_map)) p_mass_map%arm = 0.0
+      if ( defined(map)) then
+        if (ifOnesToo) then
+           map%arm = 0.0
+        else
+          iSpOnes = select_single_species(map%species, map%nSpecies, &
+                          & 'ones', in_gas_phase, real_missing)
+          if (iSpOnes > 0) then
+            if (iSpOnes > 1)            map%arm(1:iSpOnes-1,:,:,:,:) = 0.0
+            if (iSpOnes < map%nSpecies) map%arm(iSpOnes+1:, :,:,:,:) = 0.0
+          else
+            map%arm = 0.0
+          endif
+        endif
+      endif
     end subroutine reset_if_possible
 
   end subroutine reset_cloud_data_structures
@@ -827,7 +843,7 @@ CONTAINS
                                     & meteo_grid, dispersion_grid, meteo_vertical, dispersion_vertical, &
                                     & iAccuracy, ifRandomise)
     else  ! No Lagrangian dynamics
-      call set_lpset_missing(cloud%lpSet)
+      cloud%lpSet = lagrange_particles_set_missing
     endif  ! If Lagrangian present
     if(error)return
 
@@ -1094,7 +1110,8 @@ CONTAINS
                                 & chemRules, dynRules, &
                                 & now, &
                                 & timestep, residence_interval, &
-                                & fInjectedMass, dispersionMarketPtr)
+                                & fInjectedMass, dispersionMarketPtr, &
+                                & tla_traj)
     !
     ! Computes the now-time emission rates and translates them to masses of 
     ! lagrangian particles which are about to start during this timestep.
@@ -1116,6 +1133,7 @@ CONTAINS
     type(silja_interval), intent(in) :: timestep, residence_interval
     real(r8k), dimension(:), INTENT(inout) :: fInjectedMass
     type(mini_market_of_stacks), pointer :: dispersionMarketPtr
+    type(t_tla_trajectory), intent(in) :: tla_traj
 
     ! Local variables
     logical :: ifDynamic ! Whether emission is dynamic at all
@@ -1168,12 +1186,10 @@ CONTAINS
     subroutine set_dynamic_emission_std_eul()
       implicit none
       
-      call start_count('reset_emission_massmap')
       call reset_map_to_val(cld%mapEmis, 0.0)
       call reset_map_to_val(cld%mapPx_emis, 0.0)
       call reset_map_to_val(cld%mapPy_emis, 0.0)
       call reset_map_to_val(cld%mapPz_emis, 0.0)
-      call stop_count('reset_emission_massmap')
       if (error) return
 
       ! Inject the emission to emission mass map
@@ -1184,7 +1200,8 @@ CONTAINS
                                   & .not. fu_if_bulk_eulerian_advection(dynRules%advMethod_Eulerian),&
                                   & fInjectedMass, &
                                   & cld%interpCoefMeteo2DispHoriz, cld%ifMeteo2DispHorizInterp, &
-                                  & cld%interpCoefMeteo2DispVert, cld%ifMeteo2DispVertInterp)
+                                  & cld%interpCoefMeteo2DispVert, cld%ifMeteo2DispVertInterp, &
+                                  & tla_traj)
       if(error)return
 
 
@@ -1229,8 +1246,14 @@ CONTAINS
                                     & .not. fu_if_bulk_eulerian_advection(dynRules%advMethod_Eulerian),&
                                     & fInjectedMass, &
                                     & cld%interpCoefMeteo2DispHoriz, cld%ifMeteo2DispHorizInterp, &
-                                    & cld%interpCoefMeteo2DispVert, cld%ifMeteo2DispVertInterp)
+                                    & cld%interpCoefMeteo2DispVert, cld%ifMeteo2DispVertInterp, &
+                                    & tla_traj)
         if (defined(cld%emission_processor)) then
+          
+#ifdef DEBUG
+          call report(cld%emission_processor, 'Processing emission after inject_emission_eulerian')
+#endif
+          
           call process_emission_forward(cld%emission_processor,&
                                       & cld%mapEmis, cld%mapPx_emis, cld%mapPy_emis, cld%mapPz_emis, now, timestep)
         end if
@@ -1253,20 +1276,23 @@ CONTAINS
         ! Adjoint integration. Emission field needed only if it is to be adjusted.
         !
         call reset_map_to_val(cld%mapEmis, 0.0)
-        if (fu_type(cld%emission_processor) /= processor_void) then
+        if (fu_type(cld%emission_processor) /= processor_void_flag) then
           call inject_emission_eulerian(em_source, &
                                       & cld%mapEmis, cld%mapPx_emis, cld%mapPy_emis, cld%mapPz_emis, &
                                       & met_buf, disp_buf, now, timestep, &
                                       & .not. fu_if_bulk_eulerian_advection(dynRules%advMethod_Eulerian),&
                                       & fInjectedMass, &
                                       & cld%interpCoefMeteo2DispHoriz, cld%ifMeteo2DispHorizInterp, &
-                                      & cld%interpCoefMeteo2DispVert, cld%ifMeteo2DispVertInterp)
-          call process_emission_adjoint(cld%mapEmis, cld%mapConc, cld%emission_processor, now, timestep)
+                                      & cld%interpCoefMeteo2DispVert, cld%ifMeteo2DispVertInterp, &
+                                      & tla_traj)
+          call process_emission_adjoint(cld%mapEmis, cld%mapConc, dynRules%cloud_metric, disp_buf, &
+                              &  cld%emission_processor, now, timestep)
         end if
-        call reset_map_to_val(cld%mapEmis, 0.0)
-        call reset_map_to_val(cld%mapPx_emis, 0.0)
-        call reset_map_to_val(cld%mapPy_emis, 0.0)
-        call reset_map_to_val(cld%mapPz_emis, 0.0)
+        !No need to reset massmaps
+        !call reset_map_to_val(cld%mapEmis, 0.0)
+        !call reset_map_to_val(cld%mapPx_emis, 0.0)
+        !call reset_map_to_val(cld%mapPy_emis, 0.0)
+        !call reset_map_to_val(cld%mapPz_emis, 0.0)
         !cld%mapEmis%arm = 0.0
       end if
       
@@ -1353,6 +1379,8 @@ CONTAINS
                               & rulesIniBoundary, &
                               & now, direction, &
                               & meteoMarketPtr, dispersionMarketPtr)
+
+    call set_cloud_valid_time(cloud, now)  !! Cloud has defined validity time
 
   end subroutine set_cloud_initial_conditions
 
@@ -1481,7 +1509,8 @@ CONTAINS
       !
       if(fu_ifBoundary(IniBoundaryRules))then
         !! Should be valid for mid-timestep
-        call boundary_conditions_now(cloud%boundaryStructures, cloud%pBoundaryBuffer, now + timestep*0.5)
+         call boundary_conditions_now(cloud%boundaryStructures, cloud%pBoundaryBuffer, now + &
+              & timestep*0.5 + fu_meteo_time_shift(wdr))
         if(error)return
       endif
 #ifdef DEBUG
@@ -1531,7 +1560,7 @@ endif
   ! ***************************************************************
 
   subroutine transform_pollution_cloud_v5(cld, now, timestep, &
-                                        & tla_step, &
+                                        & tla_traj, &
                                         & met_buf, disp_buf, &
                                         & meteo_input, &
                                         & wdr, &
@@ -1548,7 +1577,7 @@ endif
     ! Imported parameters with intent IN:
     TYPE(silja_time), INTENT(in) :: now
     TYPE(silja_interval), INTENT(in) :: timestep
-    type(t_tla_step), intent(inout) :: tla_step
+    type(t_tla_trajectory), intent(in) :: tla_traj
     type(Tmeteo_input), pointer :: meteo_input
     TYPE(silja_wdr), INTENT(in) :: wdr
     type(Tchem_rules), intent(inout) :: chemRules
@@ -1566,8 +1595,8 @@ endif
     ! Transformations themselves are the same for both Lagrangian and Eulerian clouds
     !
     if (debug_level > 0) then
-      if (defined(cld%mapConc)) &
-       & call msg('Grand total of concentration map before transform_maps:',sum(cld%mapConc%arM(:,:,:,:,:)))
+      if (defined(cld%mapConc)) call msg('Grand total of concentration map before transform_maps:',&
+        & sum(cld%mapConc%arM(:,:,:,:,:)))
     end if
 
     !----------------------------------------------------------------------------
@@ -1604,29 +1633,6 @@ endif
     elseif(dynRules%simulation_type == eulerian_flag .or. &
          & dynRules%simulation_type == hybrid_flag)then
 
-      ! Wet deposition has been moved to the main chemistry loop,
-      ! so make_wet_deposition_map is no longer called!!!
-      !
-      ! Call the transformation of the cloud%mapConc.
-      ! Since cloud%mapXCoord, cloud%mapYCoord, and cloud%mapZCoord contain the coordinates of
-      ! centres of masses, not momentums, chemistry and radioactive decay will not affect them
-      !
-      !call start_count("wet_deposition_map")
-      !call make_wet_deposition_map(cld%mapConc, cld%mapWetDep, cld%garbage_mass, &
-      !                           & met_buf, disp_buf, tla_step, &
-      !                           & cld%interpCoefMeteo2DispHoriz, cld%interpCoefMeteo2DispVert, &
-      !                           & cld%ifMeteo2DispHorizInterp, cld%ifMeteo2DispVertInterp, &
-      !                           & met_buf%weight_past, chemRules, fu_sec(timestep), now)
-      !call stop_count("wet_deposition_map")
-      !if(error)return
-
-!#ifdef DEBUG
-!     if (fu_interval_positive(timestep) .and. defined(cld%mapConc)) then
-!        call msg('Grand total of concentration map after make_wet_deposition_map:', & 
-!               & sum(cld%mapConc%arM(:,:,:,:,:)))
-!        call check_masses(cld,'after wet dep', fu_low_mass_threshold(chemRules))
-!      end if
-!#endif
       !
       ! If the optical density structure is prepared, it has to be filled-in
       !
@@ -1701,7 +1707,6 @@ endif
         call transform_lagrangian_part(cld%lpSet, &
                                      & cld%mapDryDep, cld%mapWetDep, &
                                      & cld%garbage_mass, &
-                                     & tla_step, &
                                      & met_buf, disp_buf, &
                                      & meteo_input, &
                                      & cld%interpCoefMeteo2DispHoriz, cld%interpCoefMeteo2DispVert, &
@@ -1719,7 +1724,7 @@ endif
                           & cld%mapReactRate, &
                           & cld%pBoundaryBuffer, &
                           & cld%garbage_mass, &
-                          & tla_step, &
+                          & tla_traj, &
                           & met_buf, disp_buf, &
                           & meteo_input, &
                           & cld%interpCoefMeteo2DispHoriz, cld%interpCoefMeteo2DispVert, &
@@ -2061,7 +2066,7 @@ endif
 
         ifInCloud = silja_true
 
-      case(heatsum_flag, chillsum_flag, start_heatsum_threshold_flag, daily_temp_threshold_flag, &
+         case(heatsum_flag, chillsum_flag, start_heatsum_threshold_flag, daily_temp_threshold_flag, &
          & soil_moisture_threshold_flag, &
          & start_calday_threshold_flag, end_calday_threshold_flag, &
          & pollen_rdy_to_fly_flag, allergen_rdy_to_fly_flag, &
@@ -2079,16 +2084,18 @@ endif
          & cell_size_z_flag, &
          & cell_size_x_flag, &
          & cell_size_y_flag, &
-         & dispersion_u_flag, &
-         & dispersion_v_flag, &
-         & dispersion_w_flag, &
          & disp_cell_airmass_flag, &
          & disp_flux_celleast_flag, disp_flux_cellnorth_flag,  disp_flux_celltop_flag, &
          & disp_flux_cellt_rt_flag,disp_flux_celle_rt_flag,disp_flux_celln_rt_flag, &
          & large_scale_rain_int_flag, &
          & convective_rain_int_flag, &
-         & total_precipitation_rate_flag, &
-         & air_density_flag)
+         & total_precipitation_int_flag, &
+         & air_density_flag, &
+         & FDI_KBDI_moisture_deficit_flag, FDI_KBDI_drought_factor_flag, &
+         & FDI_SDI_fire_danger_flag, FDI_grass_mean_fire_danger_flag, &
+         & FDI_grass_max_fire_danger_flag, FDI_FWI_fine_fuel_moist_flag, &
+         & FDI_FWI_duff_moist_flag, FDI_FWI_drought_flag, &
+         & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag)
 
         ifInCloud = silja_false
 
@@ -2181,7 +2188,7 @@ endif
         !
         id = fu_set_field_id_simple(met_src_missing, quantity, time_missing, level_missing, species)
         
-        pField => fu_get_field_from_mm_general(pDispersionMarket, id, .false.)
+        call get_field_from_mm_general(pDispersionMarket, id, pField, .false.)
         
         if(associated(pField))then
           fu_if_variable_available = defined(pField)
@@ -3531,7 +3538,7 @@ endif
 
   !**********************************************************************
 
-  subroutine report_total_masses_of_cloud(cloud, iStep, ifActive)
+  subroutine report_total_masses_of_cloud(cloud, iStep)
     !
     ! Prints total masses of all species for all sources consisting the cloud
     !
@@ -3540,7 +3547,6 @@ endif
     ! Imported parameters
     TYPE(silam_pollution_cloud), INTENT(in) :: cloud
     integer, intent(in) :: iStep
-    logical, intent(in) :: ifActive
 
     ! Local variables
     integer :: iSrc, nSrc, nSp, nop_active, bufsz
@@ -3604,7 +3610,7 @@ endif
     !
     
     if (smpi_adv_tasks > 1) then !Report this subdomain separately
-      call report_total_mass("THIS_SUBDOMAIN MASS REPORT", vals, cloud%speciesTransport, &
+      call report_total_mass("THIS_SUBDOMAIN MASS REPORT", cloud%valid_time, vals, cloud%speciesTransport, &
                   & nSrc, nSp, iStep, nop_active)
       call smpi_reduce_add(work(1:bufsz), work(bufsz+1:2*bufsz), 0, smpi_adv_comm, ifOk)
       vals(1:nSrc,1:nSp,1:9) => work(bufsz+1:2*bufsz) 
@@ -3612,7 +3618,7 @@ endif
     
     ! Whole mpi report
     if(smpi_adv_rank == 0) then
-      call report_total_mass("TOTAL MASS REPORT", vals, cloud%speciesTransport, &
+      call report_total_mass("TOTAL MASS REPORT", cloud%valid_time, vals, cloud%speciesTransport, &
                    & nSrc, nSp, iStep, nop_active)
     endif
 
@@ -3621,9 +3627,10 @@ endif
     !call report_total_n_cb4()
 
   contains
-  subroutine report_total_mass(title, vals, species, nSrc, nSp, iStep, nop_active)
+  subroutine report_total_mass(title, time, vals, species, nSrc, nSp, iStep, nop_active)
     implicit none
-    character(len=*), intent(in) :: title
+    character(len=*), intent(in) :: title  
+    TYPE(silja_time), INTENT(in) :: time
     real, dimension(:,:,:), intent(in) :: vals !(iSrc,iSp,iVal)
     type(silam_species), dimension(:), intent(in) :: species
     integer, intent(in) :: nSrc, nSp
@@ -3654,9 +3661,9 @@ endif
     !!call msg('========== TOTAL MASS REPORT ============')
     call msg('========== '//title//' ============')
     if (nop_active >= 0) then
-      call msg('Model time step, active particles: ',iStep, nop_active)
+      call msg('Cloud time: '//fu_str(time)//', time step, active particles: ',iStep, nop_active)
     else
-      call msg('Model time step: ',iStep)
+      call msg('Cloud time: '//fu_str(time)//', time step: ',iStep )
     endif
 
     fUnits(1:2) = (/run_log_funit, 6/)
@@ -3803,7 +3810,7 @@ endif
 !        else
 !          write(fUnits(iUnit), '(5A)')' Species       x<1       x>xMax      ', chTmp1, '     ' ,chTmp2, '      z<1       z>zMax'
 !        endif
-         write(fUnits(iUnit), '(A14,'+fu_str(nCols)+'100(1x,A10))') ' Species        ',colheads(1:nCols)
+         write(fUnits(iUnit), '(A14,'+fu_str(nCols)+'100(1x,A11))') ' Species        ',colheads(1:nCols)
 
         do iSpecies = 1, cloud%nSpTransport
           
@@ -3826,7 +3833,7 @@ endif
             pTmp(nCols+2) =  cloud%vert_mass_M(iSrc,iSpecies,incout)
             nCols=nCols+2
 
-            write(fUnits(iUnit), '(A14,'+fu_str(nCols)+'(1x,E10.5))') &
+            write(fUnits(iUnit), '(A14,'+fu_str(nCols)+'(1x,E11.5))') &
                    & fu_str(cloud%speciesTransport(iSpecies)),  pTmp(1:nCols)
            !! call msg("",pTmp(1:nCols))
             !!write(fUnits(iUnit), '(A14, 100(E10.5,1x),E10.5)')
@@ -3895,13 +3902,6 @@ endif
   end subroutine report_inout_mass_cld
 
 
-
-  !==============================================================================================
-  !
-  ! The emission processors: used with D/A, these operate on the
-  ! emission map before it is injected into the tranport mass map.
-  ! The actual operations are defined in the source_apportionment module.
-
   function fu_boundaryStructures(cloud) result(bStructs)
     implicit none
     type(silam_pollution_cloud), intent(in) :: cloud
@@ -3915,6 +3915,27 @@ endif
     type(TboundaryBuffer), pointer :: bBuffer
     bBuffer => cloud%pBoundaryBuffer
   end function fu_boundaryBuffer
+
+  function fu_cloud_valid_time(cloud) result(t)
+    implicit none
+    type(silam_pollution_cloud), intent(in) :: cloud
+    type(silja_time) :: t
+    t = cloud%valid_time
+  end function fu_cloud_valid_time
+
+  subroutine set_cloud_valid_time(cloud, time)
+    implicit none
+    type(silam_pollution_cloud), intent(inout) :: cloud
+    type(silja_time) :: time
+    cloud%valid_time = time
+  end subroutine set_cloud_valid_time
+
+
+  !==============================================================================================
+  !
+  ! The emission processors: used with D/A, these operate on the
+  ! emission map before it is injected into the tranport mass map.
+  ! The actual operations are defined in the source_apportionment module.
 
   function fu_emission_processor_ptr(cloud) result(proc_ptr)
     implicit none
@@ -3951,20 +3972,15 @@ endif
 
   end subroutine set_3_sources
 
-  subroutine init_tla(cloud, chemrules, traj, num_steps)
+  subroutine set_boundary_scaling(cloud, scale_factor)
     implicit none
-    type(silam_pollution_cloud), intent(in) :: cloud
-    type(Tchem_rules), intent(in) :: chemrules
-    type(t_tla_trajectory), intent(out) :: traj
-    integer, intent(in) :: num_steps
 
-    call get_tla_chemistry(chemrules, traj)
-    if (error) return
+    type(silam_pollution_cloud), intent(inout) :: cloud
+    real, dimension(:), pointer, intent(in) :: scale_factor
 
-    if (.not. defined(traj)) return ! no need to allocate
-    call alloc_tla_trajs(traj, cloud%mapConc%nx, cloud%mapConc%ny, cloud%mapConc%n3d, &
-                       & cloud%mapConc%nSpecies, num_steps)
-    
-  end subroutine init_tla
+    cloud%pBoundaryBuffer%scale_factor => scale_factor
+    cloud%pBoundaryBuffer%perturb_boundaries = .true.
+
+  end subroutine set_boundary_scaling
 
 END MODULE pollution_cloud
