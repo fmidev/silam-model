@@ -3,7 +3,7 @@
 This is a full-featured source code of the Silam model
 with striped revision history
 
-## BUILDING SILAM v5.8 in Ubuntu 18.04, 20.04
+## BUILDING SILAM v5.9 in Ubuntu 18.04, 20.04, 22.04
 
 Get the source code
 
