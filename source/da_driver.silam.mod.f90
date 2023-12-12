@@ -1241,17 +1241,16 @@ contains
 
     real :: refcost
     integer :: stat, iter, iz(5), nsubiter = 3000, iterstat, &
-         & nsim = 2500, icom, niter = 2500, imode(2)
+             & nsim = 2500, icom, niter = 2500, imode(2)
     !integer :: optimization_problem_size, worksize_optimizer
     real, dimension(1) :: rzs, rcomarr
     real(optimizer_precision), dimension(1) :: dzs
     integer, dimension(1) :: izs
     real(optimizer_precision) :: epsg, df1
-
+    real, dimension(10) :: fit_params = real_missing
     real, dimension(2) :: evalstat
     real, dimension(:,:),allocatable ::  cost_bgr,  cost_obs, control_vals_store
     real, dimension(:), allocatable :: costs, gradnorms
-
     integer :: contr_size, worksize_optimizer
     real(optimizer_precision), dimension(:), allocatable :: control_dp, gradient_dp, optimizer_work
     real, dimension(:), pointer :: mdl_obs_values, control_values, gradient_values
@@ -1268,7 +1267,6 @@ contains
      eval_cnt=0; getgrad_cnt=0; copy2dp_cnt=0; copy2sp_cnt=0; opt_cnt=0;
      gradnorm_cnt=0;
      CALL SYSTEM_CLOCK(count_start)
-
 
     best_iter = int_missing
 
@@ -1287,14 +1285,12 @@ contains
     
     numerics = model%rules%darules%numerics
 
-
     mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
     control_values => fu_values_ptr(control)
     nsim = numerics%maxIterations
     niter = numerics%maxIterations
     nsubiter = numerics%maxIterations
     epsg = numerics%grad_rel_tol
-
     
     call msg("Allocating optimizer stuff for contr_size,nsim", contr_size,nsim)
     if(ifMaster) then 
@@ -1306,10 +1302,7 @@ contains
     else 
       allocate(cost_bgr(2,0:nsim),  cost_obs(2,0:nsim),  costs(0:nsim), stat=iTmp)
     endif
-    if (iTmp /= 0) then
-        call set_error("Allocation failed..", sub_name)
-        return
-    endif
+    if(fu_fails(iTmp == 0,"Allocation failed..", sub_name))return
 
     call init_control_from_cloud(gradient, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
     gradient_values => fu_values_ptr(gradient)
@@ -1355,7 +1348,6 @@ contains
           call control_to_file(control, background, model%rules%darules, chFnm)
         end if
 
-
         CALL SYSTEM_CLOCK(count1)
         gradnorms(iter) = sqrt(dot_product(gradient_values, gradient_values)) 
         CALL SYSTEM_CLOCK(count2)
@@ -1380,19 +1372,18 @@ contains
           imode = (/0,0/)
           impres = 5
 
-
-          !  !!FIXME Have no clue what is this comment about
-          ! Careful with FP constants - the interface is implicit!
-          !
         else  
           icom = 2
           imode = (/0,1/)
           impres=2
         endif
 
-        best_iter = minloc(costs(0:iter),1) - 1 !!! Minimal-cost iteration
-        if (iter > 3) then 
-          if (best_iter + 2 < iter) then !! Two iterations worse than old one
+        !
+        ! This guarantees overfit in almost all cases, so can be used as an ultimate stop
+        best_iter = minloc(costs(0:iter),1) - 1 !!! Minimal-cost iteration, costs is bckgr+obs deviation
+        !
+        if (iter > 4) then 
+          if (best_iter + 3 < iter) then !! Three iterations worse than the best one
               icom = -1  !! Do not call m1qn3
               iterstat = 10 !! Termination status (not one from m1ql)
           endif
@@ -1402,12 +1393,12 @@ contains
               if (all(refcost > costs(iter-2:iter-1))) then !! 
                 icom = -1  !! Do not call m1qn3
                 iterstat = 11 !! Termination status (not one from m1ql)
-                best_iter = iter-2  
+                best_iter = iter-2  ! wrong again, same reason as above.
               endif
           endif
-        endif
+        endif  ! iter > 4
 
-        if (icom > 0) then  !! New iteration neded
+        if (icom > 0) then  !! New iteration needed
           CALL SYSTEM_CLOCK(count1)
           gradient_dp = gradient_values
           CALL SYSTEM_CLOCK(count2)
@@ -1439,6 +1430,13 @@ contains
           CALL SYSTEM_CLOCK(count2)
           opt_cnt =  opt_cnt + count2 - count1
         endif
+        !
+        ! If iterations over, get the optimal one and put it in best_iter, which until now was
+        ! used for determining the ultimate stop of iterations (and guaranteed the overfit)
+        !
+        if(icom < 0) call best_iter_L_curve(iter, cost_obs(1,0:iter), &
+                                          & cost_bgr(1,0:iter)+cost_bgr(2,0:iter), best_iter, &
+                                          & fit_params)
       endif !! ifMaster
     
       ! Bcast iteration status from master
@@ -1477,7 +1475,7 @@ contains
       end if
     end do
 
-    call da_msg('Best iteration found   = ', ival=best_iter)
+    call da_msg('Best iteration found in quasi_newton = ', ival=best_iter)
     control_values(:) = control_vals_store(:,best_iter) !!restore best_iter control
    
 
@@ -1521,8 +1519,7 @@ contains
     logical, intent(in) :: report_iterates
 
     ! Local variables
-    integer :: best_iter, eval_count
-    integer, parameter :: max_iter=100
+    integer :: best_iter, eval_count, max_iter, iTmp
     integer :: iterCost, outputlev, iPurpose
     !integer :: optimization_problem_size, worksize_optimizer
     real, dimension(1) :: rzs
@@ -1544,8 +1541,8 @@ contains
     logical, dimension(4) :: l_bfgs_b_lsave 
     type(DA_numericalParameters) :: numerics
     type(da_control) :: gradient
-    real, dimension(2,0:max_iter) :: cost_bgr, cost_obs
-    real, dimension(0:max_iter) :: cost
+    real, dimension(:,:), allocatable :: cost_bgr, cost_obs
+    real, dimension(:), allocatable :: cost
     character(len=fnlen) :: output_dir, chOutFNm   !log_str, 
     real, dimension(10) :: fit_params
     real, dimension(:,:), allocatable :: contol_vals_store
@@ -1571,17 +1568,18 @@ contains
     contr_size = fu_size(control)
     worksize_optimizer = (2*num_corrects + 5) * contr_size + 11*num_corrects**2 + 8 * num_corrects
     numerics = model%rules%darules%numerics
+    max_iter = numerics%maxIterations
     best_iter = int_missing
     fit_params(:) = real_missing
 
-    allocate(control_dp(contr_size), gradient_dp(contr_size), optimizer_work(worksize_optimizer), &
-           & l_bfgs_b_iwa(3*contr_size), &
-           & lower_bounds(contr_size), upper_bounds(contr_size), bound_def(contr_size))
-
     call da_msg("allocating control store, size: " &
                     &//trim(fu_str(contr_size))//"x"//trim(fu_str(max_iter+1)))
-
-    allocate(contol_vals_store(contr_size,0:max_iter))
+    allocate(control_dp(contr_size), gradient_dp(contr_size), optimizer_work(worksize_optimizer), &
+           & l_bfgs_b_iwa(3*contr_size), &
+           & lower_bounds(contr_size), upper_bounds(contr_size), bound_def(contr_size), &
+           & cost_bgr(2,0:max_iter),  cost_obs(2,0:max_iter), cost(0:max_iter), &
+           & contol_vals_store(contr_size,0:max_iter), stat=iTmp)
+    if(fu_fails(iTmp == 0,'Allocation failed.',sub_name))return
 
     mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
     control_values => fu_values_ptr(control)
@@ -1692,17 +1690,27 @@ contains
         call da_msg('||grad|| = ', gradient_norm)
         !
         ! Should we break the iterations?
+        ! This one guarantees most cases, can be used as ultimate stop. cost is bckgr + obs deviation
+        best_iter = minloc(cost(0:iterCost),1) - 1 !!! Minimal-cost iteration
         !
-        !
-        ! Check if L-curve computations suggest to end. For now just evaluates
-        ! Should be done before other breaks, so best_iter is valid
-        !
-        if(iterCost > 5)then
-          !! OBS! We do not evaluate 0th iteration here, then best_iter index is the right one
-          call best_iter_L_curve(iterCost, cost_obs(1,1:iterCost), cost_bgr(1,1:iterCost)+cost_bgr(2,1:iterCost), &
-                               & best_iter, fit_params)
-          call da_msg('Best iteration this-far found:' + fu_str(best_iter))
-        endif
+        if (iterCost > 4) then 
+          !
+          ! We are done if: 
+          ! - Three last iterations are worse than the best one in total cost
+          ! - last two iterations were within 5% from the absolute best one
+          ! Should it materialise, overwrite the task in order to exit          
+          !
+          if (best_iter + 3 < iterCost)then
+            task = 'FG3BAD'
+          elseif(all(1.05*cost(best_iter) > cost(iterCost-2:iterCost-1))) then
+            task = 'FGSLOW'
+          endif
+          !
+          ! Get the optimal iteration instead of minimal-cost iteration
+          !
+          call best_iter_L_curve(iterCost, cost_obs(1,0:iterCost), &
+                               & cost_bgr(1,0:iterCost)+cost_bgr(2,0:iterCost), best_iter, fit_params)
+        endif  ! iterCost > 4
         if(error)return
 
         if (outputlev > da_out_first_last_flag) then
@@ -1747,6 +1755,12 @@ contains
         call da_msg('L-BFGS-B had an error')
         call set_error('L-BFGS-B had an error', sub_name)
         return
+      elseif(task(1:6) == 'FG3BAD') then    ! <<<<<<-----------------------------------------------
+        call da_msg('Three iterations without improvement 3BAD')
+        exit
+      elseif(task(1:6) == 'FGSLOW') then    ! <<<<<<-----------------------------------------------
+        call da_msg('Three iterations with slow improvement SLOW')
+        exit
       else                                  ! <<<<<<-----------------------------------------------
         call set_error('Strange task:' + task, sub_name)
         return

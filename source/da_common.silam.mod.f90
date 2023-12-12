@@ -4316,7 +4316,7 @@ module da_common
   subroutine best_iter_L_curve(nIter, obs_err, bckgr_err, best_iter, fit_params)
     !
     ! Implementis L-curve truncated-iterations formalism
-    ! Stop criterion: critical_derivative = -0.1
+    ! Stop criterion: critical_derivative
     ! Fitting now is done via simplex downhill minimization of RMSE.
     !
     implicit none
@@ -4328,7 +4328,7 @@ module da_common
     real, dimension(:), intent(inout) :: fit_params
 
     ! Local variables
-    real, parameter :: critical_derivative = -0.1
+    real, parameter :: critical_derivative = -0.05
     integer, parameter :: nParams = 2
     real, dimension(nParams+1,nParams) :: P  ! array of simplex vectors
     real, dimension(:), allocatable :: obs_err_rel, bckgr_err_rel, cartDistRel
@@ -4337,7 +4337,7 @@ module da_common
     integer :: iter
     
     allocate(obs_err_rel(nIter), bckgr_err_rel(nIter), cartDistRel(nIter), stat=iter)
-      if (fu_fails(iter == 0, 'Allocate failed', 'best_iter_L_curve')) return
+    if (fu_fails(iter == 0, 'Allocate failed', 'best_iter_L_curve')) return
     !
     ! Normalise and find the best fitting
     !
