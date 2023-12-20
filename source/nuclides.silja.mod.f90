@@ -509,7 +509,7 @@ CONTAINS
     implicit none
     
     ! Imported parameters
-    type(silam_nuclide), pointer :: pN
+    type(silam_nuclide), intent(in) :: pN
 
     ! Local variables
     type(silam_sp) :: sp

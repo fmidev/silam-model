@@ -9,7 +9,7 @@ OPTIMIZATION = -O0 -fopenmp
 # omp_lib. But that doesn't work, so it is no longer here.
 DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888  -DDEBUG
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input  -DWITH_BZIP2 -D USE_PROJ4
+PREPROCESS = -x f95-cpp-input  -DWITH_BZIP2 -D USE_PROJ6
 
 LIBDIR = /lustre/apps/silam
 # netcdf install directory

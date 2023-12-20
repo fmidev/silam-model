@@ -80,9 +80,8 @@ MODULE source_terms_bomb
   private fu_fireball_radius
   private get_horizontal_coverage_and_mom_4_corners
   private set_cocktail_bomb_source
-  private set_two_modes_bomb
+  private set_modes_bomb
   private init_bomb_derived_params
-  private get_bomb_bins_from_2_lognorm_modes
 
   ! Generic names and operator-interfaces of some functions:
 
@@ -143,6 +142,7 @@ MODULE source_terms_bomb
     module procedure create_src_cont_grd_b_src
   end interface
 
+  integer, private, parameter :: n_modes = 3
   !
   ! The bomb source
   !
@@ -156,7 +156,8 @@ MODULE source_terms_bomb
     type(silam_species), dimension(:), pointer :: species
     ! activities are in same order as in cocktail.
     ! height_frac in same order as vertical
-    real, dimension(:), pointer :: activities, height_frac
+    real, dimension(:,:), pointer :: activities, height_frac
+    real, dimension(n_modes) :: mu, sigma
     type(chemical_adaptor) :: adaptor2Trn
     type(Taerosol) :: aerosolSrc       ! storage place for the requested bins
     REAL :: total_yield, blast_height_m, fission_fraction, venting_fraction, &
@@ -316,7 +317,7 @@ CONTAINS
     type(silam_bomb_source), intent(in) :: b_src
     type(silam_species), dimension(:), pointer :: species
     integer, intent(out) :: nspecies
-    real, dimension(:) :: amounts
+    real, dimension(:, :) :: amounts
     type(silja_time), intent(in), optional :: start
     type(silja_interval), intent(in), optional :: duration
     type(silja_level), intent(in), optional :: layer_  ! if defined, include only fraction emitted in it
@@ -325,7 +326,7 @@ CONTAINS
     real :: amount, fOverlap
     type(silja_level) :: layer
     type(chemical_adaptor) :: adaptor
-    integer :: iSpecies, nSpeciesSrc
+    integer :: iSpecies, nSpeciesSrc, iMode
     type(silam_species), dimension(:), pointer :: speciesSrc
     !
     ! The blast is assumed to last one minute. Check the overlap
@@ -348,37 +349,41 @@ CONTAINS
     !
     ! Get the relative amount in layer (if specified).
     !
-    if (present(layer_)) then
-      layer = layer_
-      amount = b_src%height_frac(nint(fu_level_index(layer,b_src%vert)))
-      if(error)return
-    else
-      amount = 1.0
-    end if
+    do iMode = 1,n_modes
+      if (present(layer_)) then
+        layer = layer_
+        amount = b_src%height_frac(nint(fu_level_index(layer,b_src%vert)), iMode)
+        if(error)return
+      else
+        amount = 1.0
+      end if
 
-    call msg('Emission for bomb source: ' + fu_name(b_src) + ':', amount)
+      call msg('Emission for bomb source mode: ' + fu_name(b_src) + ':', amount)
 
-    if(amount == 0.) return
-    !
-    ! Conversion into the species units is comparatively straightforward.
-    !
-    nullify(species)
-    nSpecies = 0
-    call add_source_species_b_src(b_src, species, nSpecies)
-    amounts(1:nSpecies) = 0.0
-    !
-    ! Now explore the descriptors
-    !
-    if (fOverlap > 0.0) then
-       do iSpecies = 1, nSpecies
+      if(amount == 0.) return
+      !
+      ! Conversion into the species units is comparatively straightforward.
+      !
+      if (iMode == 1) then
+        nullify(species)
+        nSpecies = 0
+        call add_source_species_b_src(b_src, species, nSpecies)
+        amounts(1:nSpecies, 1:n_modes) = 0.0
+      end if
+      !
+      ! Now explore the descriptors
+      !
+      if (fOverlap > 0.0) then
+        do iSpecies = 1, nSpecies
           !call set_error('Scaling from yield to total emission is not properly introduced', &
           !     & 'inject_emission_bomb_source')
           !call unset_error('inject_emission_bomb_source')
-          amounts(iSpecies) = amount * &               !Fraction of activity in level (or 1.0 if level not given)
-                            & b_src%activities(iSpecies) * &!Total activity of species 
+          amounts(iSpecies, iMode) = amount * &               !Fraction of activity in level (or 1.0 if level not given)
+                            & b_src%activities(iSpecies, iMode) * &!Total activity of species 
                             & fOverlap                      !Fraction of overlap of time and bomb (0 or 1)
-       end do
-    end if
+        end do
+      end if
+    end do
   end subroutine total_bomb_src_species_unit
 
   
@@ -398,13 +403,21 @@ CONTAINS
     type(silam_vertical), intent(in) :: vertical
     !Local variables
     real :: stem_bottom, stem_top, hat_top, stem_radius, hat_radius
-    real :: base_surge_radius, tot_frac, fraction, forced_act, dummy_sum
-    real :: hatFractions(3) = (/0.3, 0.3, 0.18/) !KDFOC3
-    real :: stemFractions(3) = (/0.02, 0.05, 0.15/)
-    !Stem and Hat thirds are the layers that consist of the activity 
+    real :: base_surge_radius, tot_frac, forced_act, dummy_sum
+    real, dimension(n_modes) :: fractions
+    !real :: hatFractions(9) = (/0.3, 0.3, 0.18, 0.32, 0.26, 0.14, 0.06, 0.04, 0.02/) !KDFOC3
+    !real :: stemFractions(9) = (/0.02, 0.05, 0.15, 0.04, 0.09, 0.15, 0.4, 0.3, 0.18/)
+    
+    !real :: hatFractions(9) = (/0.3, 0.3, 0.18, 0.3, 0.3, 0.18, 0.06, 0.04, 0.02/) !KDFOC3
+    !real :: stemFractions(9) = (/0.02, 0.05, 0.15, 0.02, 0.05, 0.15, 0.4, 0.3, 0.18/)
+
+    real :: hatFractions(9) = (/0.3, 0.3, 0.18, 0.3, 0.3, 0.18, 0.3, 0.3, 0.18/) !KDFOC3
+    real :: stemFractions(9) = (/0.02, 0.05, 0.15, 0.02, 0.05, 0.15, 0.02, 0.05, 0.15/)
+    
+    !Stem and Hat thirds are the layers that consist of the activity
     !fractions in the same order as fractions above
     type(silja_level) :: levBaseSurge, levStemThirds(3), levHatThirds(3), level
-    integer :: i, iLev, nlevels
+    integer :: i, iLev, nlevels, stat, iMode
     !Vertical stored
     character(len=*), parameter :: sub_name = 'initialize_vertical_fraction'
     b_src%vert = vertical
@@ -414,12 +427,12 @@ CONTAINS
     if (.not. defined(vertical)) call set_error('Undefined vertical given',sub_name)
     if (error) return
     !
-    !Check that lower bound of lowest level is 0.0. 
+    !Check that lower bound of lowest level is 0.0.
     !Error if not (will have to tweak this if SILAM sometimes has different lowest bound).
     !
     if (fu_leveltype(vertical) /= layer_btw_2_height) then
           call msg("Vertical for bomb initialize_vertical_fraction")
-          call report(vertical,.True.) 
+          call report(vertical,.True.)
           call msg("bottom value", fu_bottom_of_layer_value(fu_level(vertical,1)))
           call set_error("Bomb source works on z vertical only..", sub_name)
     endif
@@ -450,76 +463,93 @@ CONTAINS
     !Simultaneously get height distribution of the levels that are represented.
     !
     nlevels = fu_NbrOfLevels(vertical)
-    call enlarge_array(b_src%height_frac,nlevels)
-    b_src%height_frac = 0.0
+
+    !call enlarge_array(b_src%height_frac,nlevels)
+    allocate(b_src%height_frac(nlevels, n_modes), stat=stat)
+
+    if (b_src%location_switch == blast_on_surface)then
+      stemFractions = stemFractions * b_src%fireball_buried_fraction
+      hatFractions(1:3) = hatFractions(1:3) /(sum(hatFractions(1:3)) + sum(stemFractions(1:3)))
+      hatFractions(4:6) = hatFractions(4:6) /(sum(hatFractions(4:6)) + sum(stemFractions(4:6)))
+      hatFractions(7:9) = hatFractions(7:9) /(sum(hatFractions(7:9)) + sum(stemFractions(7:9)))
+    end if
+
+    b_src%height_frac(:,:) = 0.0
     do iLev = 1,nlevels
       level = fu_level(vertical, iLev)
-      fraction = 0.0
+      fractions(:) = 0.0
       select case(b_src%location_switch)
         case (blast_in_air)                       !Air burst: only hat present
-          tot_frac = sum(hatFractions)
-          do i = 1,3
-             fraction = fraction + ((hatFractions(i)/tot_frac) * fu_vert_overlap_fraction(levHatThirds(i), level))
+          tot_frac = sum(hatFractions(1:3)) 
+          do i = 1,3                              !Air burst: only finest mode
+            fractions(1) = fractions(1) + ((hatFractions(i)/tot_frac) * fu_vert_overlap_fraction(levHatThirds(i), level))
           end do
-          b_src%height_frac(iLev) = b_src%height_frac(iLev) + fraction
         case (blast_underground)                  !Underground burst: hat, stem and base surge
           tot_frac = (1.0 - b_src%venting_fraction) + 1.0
           do i = 1,3
-             fraction = fraction + ((stemFractions(i)/tot_frac) * fu_vert_overlap_fraction(levStemThirds(i), level)) + &
-                                 & ((hatFractions(i) /tot_frac) * fu_vert_overlap_fraction(levHatThirds(i),  level))
+             do iMode = 1, n_modes
+              fractions(iMode) = fractions(iMode) + ((stemFractions(i+(iMode-1)*3)/tot_frac) * fu_vert_overlap_fraction(levStemThirds(i), level)) + &
+                     & ((hatFractions(i+(iMode-1)*3) /tot_frac) * fu_vert_overlap_fraction(levHatThirds(i),  level))
+            end do
           end do
-          fraction = fraction + (((1.0 - b_src%venting_fraction)/tot_frac) * fu_vert_overlap_fraction(levBaseSurge, level))
-          b_src%height_frac(iLev) = b_src%height_frac(iLev) + fraction
+          fractions(:) = fractions(:) + (((1.0 - b_src%venting_fraction)/tot_frac) * fu_vert_overlap_fraction(levBaseSurge, level))
         case (blast_on_surface)                    !Surface burst: hat and stem
           do i = 1,3
-             fraction = fraction + (stemFractions(i) * fu_vert_overlap_fraction(levStemThirds(i), level)) + &
-                                 & (hatFractions(i)  * fu_vert_overlap_fraction(levHatThirds(i),  level))
-          end do
-          b_src%height_frac(iLev) = b_src%height_frac(iLev) + fraction
+            do iMode = 1, n_modes
+              fractions(iMode) = fractions(iMode) + (stemFractions(i+(iMode-1)*3) * fu_vert_overlap_fraction(levStemThirds(i), level)) + &
+                  & (hatFractions(i+(iMode-1)*3)  * fu_vert_overlap_fraction(levHatThirds(i),  level))
+            end do
+          end do 
         case default
           call set_error('Unknown blast location switch:' + fu_str(b_src%location_switch), sub_name)
       end select
-      if(fu_fails(b_src%height_frac(iLev) >= 0.0, 'About to inject negative mass to a level',sub_name))return
+      b_src%height_frac(iLev,:) = b_src%height_frac(iLev,:) + fractions(:) 
+      if(fu_fails(any(b_src%height_frac(iLev,:) >= 0.0), 'About to inject negative mass to a level',sub_name))return
     end do  ! iLev
-    
+
     !
     ! Stuff beyond the projection
     !
 
-    forced_act = sum(b_src%height_frac) !! Total of fractions numerics can lead to negatives
-    if (abs(1.0 - forced_act) < 2e-7) then 
-      forced_act = 0
-    else
-      forced_act = 1.0 - forced_act
-    endif
-    !
-    ! Error if activity forced too much, warning if quite a lot
-    !
-    if (forced_act > 0.01) then
-       call msg_warning('Some of the activity is above SILAM top and is forced to the highest SILAM level',sub_name)
-       call msg('The fraction of stuff forced from bwyond the domain',forced_act)
-       if (forced_act > 0.5) then
-         call msg("Mushroom heights: stem_bottom, stem_top, hat_top", (/stem_bottom, stem_top, hat_top/))
-         call msg("Dispersion vertical:")
-         call report(vertical, .True.)
-         call set_error('Too much stuff emitted beyond the dispersion vertical', sub_name)
+    do iMode = 1, n_modes
+      if (b_src%location_switch == blast_in_air .and. iMode > 1) cycle
+      if (b_src%location_switch == blast_underground .and. iMode == 1) cycle
 
-       endif
-    end if
-    !
-    ! Force the remaining fraction of the bomb the the highest SILAM level
-    !
-    b_src%height_frac(nlevels) = b_src%height_frac(nlevels) + forced_act
+      forced_act = sum(b_src%height_frac(:,iMode)) !! Total of fractions numerics can lead to negatives
+      if (abs(1.0 - forced_act) < 2e-7) then 
+        forced_act = 0
+      else
+        forced_act = 1.0 - forced_act
+      endif
+      !
+      ! Error if activity forced too much, warning if quite a lot
+      !
+      if (forced_act > 0.01) then
+        call msg_warning('Some of the activity is above SILAM top and is forced to the highest SILAM level',sub_name)
+        call msg('The fraction of stuff forced from beyond the domain', forced_act)
+        if (forced_act > 0.5) then
+          call msg("Mushroom heights: stem_bottom, stem_top, hat_top", (/stem_bottom, stem_top, hat_top/))
+          call msg("Dispersion vertical:")
+          call report(vertical, .True.)
+          call set_error('Too much stuff emitted beyond the dispersion vertical', sub_name)
 
-    !
-    if (.not. abs(sum(b_src%height_frac) - 1.0) < 0.001)  then
-        call msg("bomb fraction per levels", b_src%height_frac(i))
+        endif
+      end if
+      !
+      ! Force the remaining fraction of the bomb the the highest SILAM level
+      !
+      b_src%height_frac(nlevels,iMode) = b_src%height_frac(nlevels,iMode) + forced_act
+
+      !
+      if (.not. abs(sum(b_src%height_frac(:,iMode)) - 1.0) < 0.001)  then
+        call msg("bomb fraction per levels", b_src%height_frac(:,iMode))
         call set_error('Fraction total not 1',sub_name)
 
         return
-    endif
-
-    if (any(b_src%height_frac(:) < 0.)) then
+      endif
+    end do
+   
+    if (any(b_src%height_frac(1:nlevels,1:n_modes) < 0.)) then
       call set_error("Negative Fraction", sub_name)
     endif
        
@@ -627,8 +657,6 @@ CONTAINS
       call set_error("only BOMB_SOURCE_4 is supported", sub_name)
       return
     endif
-
-
     
     !
     !  Name of the source should come
@@ -689,12 +717,17 @@ CONTAINS
     !  this doesn't underestimate it.
     ! -Would be unrealistic to assume that user would have any idea what the fission
     !  fraction is in a situation; thus it is not a parameter that a user could give.
-    if (b_src%total_yield > 700.0) then
-       b_src%fission_fraction = 0.5
-    else if (b_src%total_yield < 300.0) then
-       b_src%fission_fraction = 1.0
-    else
-       b_src%fission_fraction = 0.5 + 0.5*((b_src%total_yield-300.0)/(700.0-300.0))
+
+    b_src%fission_fraction = fu_content_real(nlSrc,'fission_fraction')
+
+    if (b_src%fission_fraction == real_missing) then
+       if (b_src%total_yield > 50.0) then
+          b_src%fission_fraction = 0.5
+       else if (b_src%total_yield < 10.0) then
+          b_src%fission_fraction = 1.0
+       else
+          b_src%fission_fraction = 0.5 + 0.5*(50-b_src%total_yield)/(50-10)
+       end if
     end if
     !
     ! Aerosol modes are in the namelist, get them
@@ -771,18 +804,36 @@ CONTAINS
       case(blast_on_surface)                        !Surface burst
         !Hat and stem are created
         stem_bottom = 0.0
-        IF (b_src%total_yield <= 20) THEN
-          stem_top = 1670.0*b_src%total_yield**0.477
+
+        ! FROM KDFOC3
+        IF (b_src%total_yield <= 2) THEN
+           hat_top = 3730.0*b_src%total_yield**0.229
+           stem_top = hat_top - 1740*b_src%total_yield**0.240
+        ELSE IF (b_src%total_yield <= 20) THEN
+           hat_top = 3335.0*b_src%total_yield**0.393
+           stem_top = hat_top - 1720*b_src%total_yield**0.261
         ELSE
-          stem_top = 4450.1*b_src%total_yield**0.159
+           hat_top = 6360.3*b_src%total_yield**0.177
+           stem_top = hat_top - 2040*b_src%total_yield**0.204
         END IF
+
+        ! These were the old formulas, but they don't have any source stated
+        ! IF (b_src%total_yield <= 2) THEN
+        !    stem_top = 1670.0*b_src%total_yield**0.477
+        ! IF (b_src%total_yield <= 20) THEN
+        !   stem_top = 1670.0*b_src%total_yield**0.477
+        ! ELSE
+        !   stem_top = 4450.1*b_src%total_yield**0.159
+        ! END IF
        
-        IF (b_src%total_yield <= 20) THEN
-          hat_top = 3365.0*b_src%total_yield**0.38
-        ELSE
-          hat_top = 6370.3*b_src%total_yield**0.177
-        END IF
+        ! IF (b_src%total_yield <= 20) THEN
+        !   hat_top = 3365.0*b_src%total_yield**0.38
+        ! ELSE
+        !   hat_top = 6370.3*b_src%total_yield**0.177
+        ! END IF
+        
         hat_radius = 970.0*b_src%total_yield**0.42
+
         ! Radius of stem is calculated by linear interpolation from known stem radii
         ! for 20 kt and 1 Mt. For small explosions, this may lead to greater radius
         ! of stem than that of cloud, which is avoided by forcing stem radius to that
@@ -865,7 +916,8 @@ CONTAINS
     type(silam_vertical) :: vertSrc
 !    type(Tcocktail_descr) :: cocktail_descr
     integer :: iOut, nx, ny, nSpecies !, iDescr
-    real, dimension(:), pointer :: fractions, amounts
+    real, dimension(:), pointer :: fractions
+    real, dimension(:,:), pointer :: amounts
     type(silam_species), dimension(:), pointer :: species
 !    integer, dimension(:), pointer :: species_index
 !    logical :: ifFound
@@ -915,7 +967,7 @@ CONTAINS
     !
     ! Linear variation goes between time slots. Let's read the start time
     !
-    amounts => fu_work_array()
+    amounts => fu_work_array_2d()
     !
     !
     nullify(species)
@@ -926,7 +978,7 @@ CONTAINS
                                    & fu_accumulation_length(id), &
                                    & fu_level(id))
     if(error)return
-    if(amounts(1) < 1e-10)then  ! quite arbitrary but small anyway
+    if(sum(amounts(1,1:n_modes)) < 1e-10)then  ! quite arbitrary but small anyway
       call free_work_array(amounts)
       return
     endif
@@ -961,7 +1013,7 @@ CONTAINS
 !    end do
 
     nx = fu_index(fu_species(id), species, nSpecies)
-    if (nx /= int_missing) dataPtr(iOut) = dataPtr(iOut) + amounts(nx)
+    if (nx /= int_missing) dataPtr(iOut) = dataPtr(iOut) + sum(amounts(nx, 1:n_modes))
     
     call free_work_array(amounts)
 !    call free_work_array(species_index)
@@ -1114,11 +1166,11 @@ CONTAINS
     real :: stem_bottom, stem_top, hat_top, land, momin, momout, cnc
     real :: stem_radius, hat_radius, base_surge_radius
     real :: base_surge_stem_r, stem_hat_r
-    real :: fDist, xShift, yShift, fTmp, fCellArea, fDX, fDY
+    real :: fDist, xShift, yShift, fCellArea, fDX, fDY, fTmp
     real :: fStemBottomLev, fStemTopLev, fHatTopLev, activityInLevel, trueFissionYield
     real, dimension(:,:,:), pointer :: cell_fraction_in_cloud, momX, momY
-    integer :: ix, iy, iTmp, iDistCells, ixSrc, iySrc, iLev, iSpecies, nSpecies, iEmisSpecies, iC
-    real, dimension(:), pointer :: amounts
+    integer :: ix, iy, iTmp, iDistCells, ixSrc, iySrc, iLev, iSpecies, nSpecies, iEmisSpecies, iC, iMode
+    real, dimension(:,:), pointer :: amounts
     type(chemical_adaptor) :: adaptor
     type(silam_species), dimension(:), pointer :: species
     real, dimension(5) :: allRadii
@@ -1126,11 +1178,11 @@ CONTAINS
     
     if(.not. b_src%if_inside_domain)return  ! either not this MPI subdomain or out of whole domain
     
-    amounts => fu_work_array()
+    amounts => fu_work_array_2d()
     if(error)return
     call total_bomb_src_species_unit(b_src, species, nspecies, amounts, now, timestep)
     !
-    if(sum(amounts(1:nSpecies)) < 1e-10)then
+    if(sum(amounts(1:nSpecies, 1:n_modes)) < 1e-10)then
       call free_work_array(amounts)
       return
     endif
@@ -1159,7 +1211,7 @@ CONTAINS
       !
       call init_bomb_derived_params(b_src, .true.)
       !
-      amounts => fu_work_array()
+      amounts => fu_work_array_2d()
       if(error)return
       call total_bomb_src_species_unit(b_src, species, nspecies, amounts, now, timestep)
       !
@@ -1167,13 +1219,13 @@ CONTAINS
       !
       trueFissionYield = b_src%total_yield * (b_src%fission_fraction + &
                                             & (1.0 - b_src%fission_fraction) * 0.02)
-      amounts(:) = amounts(:)*trueFissionYield/b_src%fission_yield
+      amounts(1:nspecies,1:n_modes) = amounts(1:nspecies,1:n_modes)*trueFissionYield/b_src%fission_yield
       !
       ! Remove induced activity if there is any
       !
       do i = 1,nspecies
          if (if_activation_isotope(fu_name(species(i)%material))) then
-            amounts(i) = 0.0
+            amounts(i, 1:n_modes) = 0.0
          end if
       end do
     else 
@@ -1183,7 +1235,7 @@ CONTAINS
       call msg('Bomb over land, land fraction:',land)
       !
       call init_bomb_derived_params(b_src, .false.)
-      amounts => fu_work_array()
+      amounts => fu_work_array_2d()
       if(error)return
       call total_bomb_src_species_unit(b_src, species, nspecies, amounts, now, timestep)
     end if  ! land or water ?
@@ -1247,37 +1299,38 @@ CONTAINS
                           & mapEmis%vertTemplate)
     !
     do iLev = 1, fu_NbrOfLevels(mapEmis%vertTemplate)
-       activityInLevel = b_src%height_frac(iLev) !fraction
-       !
-       ! What part of the cloud is this level
-       !
-       if (activityInLevel == 0.0) cycle !Not in cloud
-       if (activityInLevel < 0.0) call set_error('About to inject negative mass','inject_emission_euler_b_src')
-       if (error) return
-       if ((base_surge_radius > 0.0) .and. (iLev+0.5 <= fStemBottomLev)) then !Base surge cloud
-          iC = 1
-       else if ((iLev-0.5 >= fStemBottomLev) .and. (iLev+0.5 <= fStemTopLev)) then !Stem
-          iC = 3
-       else if (iLev-0.5 >= fStemTopLev) then !Hat
-          iC = 5
-       else !Level is belong in two different sections of the cloud
-          if ((iLev+0.5 > fStemBottomLev) .and. (iLev-0.5 < fStemBottomLev)) then !Combination of base surge and stem
+       do iMode = 1, n_modes
+         activityInLevel = b_src%height_frac(iLev, iMode) !fraction
+         !
+         ! What part of the cloud is this level
+         !
+         if (activityInLevel == 0.0) cycle !Not in cloud
+         if (activityInLevel < 0.0) call set_error('About to inject negative mass','inject_emission_euler_b_src')
+         if (error) return
+         if ((base_surge_radius > 0.0) .and. (iLev+0.5 <= fStemBottomLev)) then !Base surge cloud
+           iC = 1
+         else if ((iLev-0.5 >= fStemBottomLev) .and. (iLev+0.5 <= fStemTopLev)) then !Stem
+           iC = 3
+         else if (iLev-0.5 >= fStemTopLev) then !Hat
+           iC = 5
+         else !Level is belong in two different sections of the cloud
+           if ((iLev+0.5 > fStemBottomLev) .and. (iLev-0.5 < fStemBottomLev)) then !Combination of base surge and stem
              iC = 2
-          else if ((iLev+0.5 > fStemTopLev) .and. (iLev-0.5 < fStemTopLev)) then !Combination of stem and hat
+           else if ((iLev+0.5 > fStemTopLev) .and. (iLev-0.5 < fStemTopLev)) then !Combination of stem and hat
              iC = 4
-          end if
-       end if
-       if (iLev == fu_NbrOfLevels(mapEmis%vertTemplate)) iC = 5 !Force highest level as hat
-       if (sum(cell_fraction_in_cloud(:,:,iC)) == 0.0) call set_error('If there is activity then it should be in some grid cells', &
+           end if
+         end if
+         if (iLev == fu_NbrOfLevels(mapEmis%vertTemplate)) iC = 5 !Force highest level as hat
+         if (sum(cell_fraction_in_cloud(:,:,iC)) == 0.0) call set_error('If there is activity then it should be in some grid cells', &
                                                                     & 'inject_emission_euler_b_src')
-       if (error) return
-       !
-       ! Inject the specific substances directly into mapEmis using pEmisCocktailMapping, which is
-       ! the coding rule for species in the map. Total released stuff goes into the coordinate
-       ! map as a scaling factor for momentum.
-       !
-       Y : do iy = -iDistCells, iDistCells
-          do ix = -iDistCells, iDistCells
+         if (error) return
+         !
+         ! Inject the specific substances directly into mapEmis using pEmisCocktailMapping, which is
+         ! the coding rule for species in the map. Total released stuff goes into the coordinate
+         ! map as a scaling factor for momentum.
+         !
+         Y : do iy = -iDistCells, iDistCells
+           do ix = -iDistCells, iDistCells
              !
              ! Cycle with zero activity and when trying to reach out of bounds
              !
@@ -1289,8 +1342,8 @@ CONTAINS
              !
              !fCellTotal = 0.
              do iSpecies = 1, nSpecies
-                if (amounts(iSpecies) <= 0.0) cycle
-                fTmp = amounts(iSpecies) * &           !total(species)
+                if (amounts(iSpecies, iMode) <= 0.0) cycle
+                fTmp = amounts(iSpecies, iMode) * &           !total(species)
                      & activityInLevel * &             !relative fraction in level
                      & cell_fraction_in_cloud(ix,iy,iC)!relative fraction in cell
                 iEmisSpecies = adaptor%iSp(iSpecies)
@@ -1319,21 +1372,26 @@ CONTAINS
              ! Note that we store coordinates inside each grid cell, relative for horizontal grid
              ! and absolute for vertical one
              !
-             fTmp = sum(amounts(1:nSpecies)) * activityInLevel * cell_fraction_in_cloud(ix,iy,iC)
-             if (.not. ifSpeciesMoment) then
-                mapCoordX%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) = &
+            
+              ! division by 1e10 to prevent overflow
+              fTmp = (sum(amounts(1:nSpecies, iMode))/1e10)**2 * activityInLevel * cell_fraction_in_cloud(ix,iy,iC) / (sum(amounts(1:nSpecies, 1:n_modes))/1e20)
+              
+               if (.not. ifSpeciesMoment) then
+                 mapCoordX%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) = mapCoordX%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) + &
                      & fTmp * momX(ix,iy,iC)
-                mapCoordY%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) = &
+                 mapCoordY%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) = mapCoordY%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) + &
                      & fTmp * momY(ix,iy,iC)
-                !
-                ! Here we simply assume that all emitted is set into the centre of the layer
-                !
-                mapCoordZ%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) = 0.0
-             end if
-             mapEmis%ifColumnValid(b_src%id_nbr, ix+ixSrc, iy+iySrc) = .true.
-             mapEmis%ifGridValid(iLev, b_src%id_nbr) = .true.
-          end do   ! ix
-       end do Y    ! iy
+                 !
+                 ! Here we simply assume that all emitted is set into the centre of the layer
+                 !
+                 mapCoordZ%arM(1, b_src%id_nbr, iLev, ix+ixSrc, iy+iySrc) = 0.0
+               end if
+               mapEmis%ifColumnValid(b_src%id_nbr, ix+ixSrc, iy+iySrc) = .true.
+               mapEmis%ifGridValid(iLev, b_src%id_nbr) = .true.
+             
+           end do   ! ix
+        end do Y    ! iy
+      end do        ! iMode
     end do  ! iLev
 !call report(mapEmis)
     call msg('=============================================================')
@@ -1385,7 +1443,7 @@ CONTAINS
     real :: fTimeScale, fWeightPastSrc, factor, timestep_sec, fDx, fDy, stem_mass_fract
     real :: fStemBottomPressure, fStemTopPressure, fHatTopPressure
     real, dimension(:), pointer ::  xSize, ySize
-    real, dimension(max_species) :: amounts
+    real, dimension(max_species, n_modes) :: amounts
     real, dimension(max_levels) :: meteo_heights, meteo_pressure
     integer, dimension(:), pointer :: nPartInLev
     logical :: ifFound
@@ -1466,7 +1524,8 @@ CONTAINS
     !
     nP = 1
     do iSpSrc = 1, nSpeciesSrc
-      nP = max(nP, int(amounts(iSpSrc) / arParticleMass(b_src%adaptor2Trn%iSp(iSpSrc))))
+      !FIXME: only first mode here
+      nP = max(nP, int(amounts(iSpSrc,1) / arParticleMass(b_src%adaptor2Trn%iSp(iSpSrc))))
 !call msg('fMassTmp(iSpTransp), arParticleMass(iSpTransp)', fMassTmp(iSpTransp), arParticleMass(iSpTransp))
 !call msg('ratio:',fMassTmp(iSpTransp) / arParticleMass(iSpTransp), nP)
     end do
@@ -1535,7 +1594,8 @@ call msg('Enlarging the number of particles, 1:',  lpset%nop + max(lpset%nop*5/4
       ! Simialrly, MassTimeCommon is mass of a descriptor cocktail, which needs to be explored
       !
       do iSpSrc = 1, nSpeciesSrc
-        arMass(b_src%adaptor2trn%iSp(iSpSrc), iParticle) = amounts(iSpSrc) / real(nP)
+        !FIXME: only first mode here
+        arMass(b_src%adaptor2trn%iSp(iSpSrc), iParticle) = amounts(iSpSrc, 1) / real(nP)
       end do
 !call msg('12')
 
@@ -1986,14 +2046,14 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     ! Local variables
     integer :: n, i, m
     type(silam_species) :: species_tmp
-    real, dimension(max_species) :: act_fractTmp
-    real :: totalFraction
+    real, dimension(max_species, n_modes) :: act_fractTmp
     type(silam_material), pointer :: tmp_material
-    real, dimension(2) :: act_frac_bomb_modes
+    real, dimension(n_modes) :: act_frac_bomb_modes, totalFraction
     integer :: iBombMode
     type(Tblast_nuclide), dimension(:), allocatable :: blast_nuclides
-    type(Taerosol_mode), dimension(2) :: aerModesBomb
-    real :: fTmp
+    type(Taerosol_mode), dimension(n_modes) :: aerModesBomb
+    real :: fTmp, integr
+    real(r8k) :: erf_input_min, erf_input_max
     !
     if(fu_fails(fu_true(b_src%defined),'Source not defined','set_cocktail_bomb_source'))return
     !
@@ -2015,7 +2075,7 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !
     ! Get the lognormal distributions for the given elevation of the blast
     !
-    call set_two_modes_bomb(b_src, aerModesBomb, act_frac_bomb_modes)
+    call set_modes_bomb(b_src, aerModesBomb, act_frac_bomb_modes)
     if(error)return
     !
     ! scan the nuclides released by the blast, explore the aerosol bins for the particulates
@@ -2036,47 +2096,71 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
       ! gas or aerosol?
       if (fu_true(fu_if_gas(fu_get_material_ptr(trim(blast_nuclides(n)%nuc_name))))) then 
         !set gas 
-          call set_species(species_tmp, tmp_material, in_gas_phase)
-          call addSpecies(b_src%species, b_src%nSpecies, (/species_tmp/), 1)
-        act_fractTmp(b_src%nSpecies) = blast_nuclides(n)%bq_per_kt * b_src%fission_yield ! activity is determined by fission yield, not total yield
+        call set_species(species_tmp, tmp_material, in_gas_phase)
+        call addSpecies(b_src%species, b_src%nSpecies, (/species_tmp/), 1)
+        act_fractTmp(b_src%nSpecies, 1) = blast_nuclides(n)%bq_per_kt * b_src%fission_yield ! activity is determined by fission yield, not total yield
+        act_fractTmp(b_src%nSpecies, 2:n_modes) = 0.0  
       else 
         ! if it can be aerosol set aerosol(s) 
         ! evidently wrong for multi-phase species but for now this is the solution
         ! only a fraction of total amount that falls within specified modes goes to SILAM
-        totalFraction = 0.0   ! will accumulate amounts for the modes  of the material
+        totalFraction(:) = 0.0   ! will accumulate amounts for the modes  of the material
         do i = 1,(b_src%aerosolSrc%n_modes)      ! Loop over bins of the required aerosol
           ! add the species
           call set_species(species_tmp, tmp_material,b_src%aerosolSrc%modes(i))
           call addSpecies(b_src%species, b_src%nSpecies, (/species_tmp/), 1)
 
-          act_fractTmp(b_src%nSpecies) = 0
-          do iBombMode = 1, 2
+          act_fractTmp(b_src%nSpecies, 1:n_modes) = 0
+          do iBombMode = 1, n_modes
             fTmp = act_frac_bomb_modes(iBombMode) 
-            if (fTmp > 0) act_fractTmp(b_src%nSpecies) = act_fractTmp(b_src%nSpecies) + &
-                                         & fTmp * fu_integrate_volume(fu_min_d(b_src%aerosolSrc%modes(i)), &
-                                                             & fu_max_d(b_src%aerosolSrc%modes(i)), &
-                                                             & aerModesBomb(iBombMode)) 
-          end do
-           ! collect what included
-          totalFraction = totalFraction + act_fractTmp(b_src%nSpecies)
-          ! ... and its activity
-          act_fractTmp(b_src%nSpecies) = act_fractTmp(b_src%nSpecies) * &
-                                       & blast_nuclides(n)%bq_per_kt * b_src%fission_yield
-        end do  ! b_src%aerosolSrc bins
+            !if (fTmp > 0) act_fractTmp(b_src%nSpecies) = act_fractTmp(b_src%nSpecies) + &
+            !                             & fTmp * fu_integrate_volume(fu_min_d(b_src%aerosolSrc%modes(i)), &
+            !                                                 & fu_max_d(b_src%aerosolSrc%modes(i)), &
+            !                                                 & aerModesBomb(iBombMode))
 
-        ! If something is left behind, dump it to the log file
-        if(totalFraction < 1.0)then
-          call msg('>> Accounted fraction and amount for:' + trim(blast_nuclides(n)%nuc_name),&
-                 & totalFraction, &
-                 & totalFraction * blast_nuclides(n)%bq_per_kt * b_src%fission_yield)
-        endif
+            ! integr = fu_integrate_volume(fu_min_d(b_src%aerosolSrc%modes(i)), &
+            !                              & fu_max_d(b_src%aerosolSrc%modes(i)), &
+            !                              & aerModesBomb(iBombMode))
+
+            ! if (fTmp > 0) act_fractTmp(b_src%nSpecies, iBombMode) = act_fractTmp(b_src%nSpecies, iBombMode) + &
+            !                              & fTmp * fu_integrate_volume(fu_min_d(b_src%aerosolSrc%modes(i)), &
+            !                              & fu_max_d(b_src%aerosolSrc%modes(i)), &
+            !                              & aerModesBomb(iBombMode))
+
+            ! Cumulative lognormal distribution (fraction of total) under the given radius
+            if (fTmp > 0) then
+               ! Error function input has to be real 8 kind
+               !erf_input_min = (log(0.5e6*fu_min_d(b_src%aerosolSrc%modes(i))) - log(b_src%mu(iBombMode)))/(b_src%sigma(iBombMode)*2**0.5)
+               erf_input_min = log(0.5e6*fu_min_d(b_src%aerosolSrc%modes(i)) / b_src%mu(iBombMode))/(b_src%sigma(iBombMode)*2**0.5)
+               !erf_input_max = (log(0.5e6*fu_max_d(b_src%aerosolSrc%modes(i))) - log(b_src%mu(iBombMode)))/(b_src%sigma(iBombMode)*2**0.5)
+               erf_input_max = log(0.5e6*fu_max_d(b_src%aerosolSrc%modes(i)) / b_src%mu(iBombMode))/(b_src%sigma(iBombMode)*2**0.5)
+               act_fractTmp(b_src%nSpecies, iBombMode) = fTmp*0.5*(erf(erf_input_max) - erf(erf_input_min))
+
+            end if
+            !collect what included
+            totalFraction(iBombMode) = totalFraction(iBombMode) + act_fractTmp(b_src%nSpecies, iBombMode)
+            !... and its activity
+            act_fractTmp(b_src%nSpecies, iBombMode) = act_fractTmp(b_src%nSpecies, iBombMode) * &
+                 & blast_nuclides(n)%bq_per_kt * b_src%fission_yield
+            
+            !call msg('DBG Activities for ' + trim(blast_nuclides(n)%nuc_name) + ' bin nr, binmin, binmax, mu, mode nr, mode fract, bin amt', &
+            !     (/i+0.0, 0.5e6*fu_min_d(b_src%aerosolSrc%modes(i)), 0.5e6*fu_max_d(b_src%aerosolSrc%modes(i)), &
+            !     b_src%mu(iBombMode), iBombMode+0.0, fTmp, act_fractTmp(b_src%nSpecies, iBombMode) /)) 
+          end do ! bomb mode
+          ! If something is left behind, dump it to the log file
+          if(totalFraction(n_modes) < 1.0)then
+            call msg('>> Accounted fraction and amount for:' + trim(blast_nuclides(n)%nuc_name),&
+                 & totalFraction(n_modes), &
+                 & totalFraction(n_modes) * blast_nuclides(n)%bq_per_kt * b_src%fission_yield)
+          endif
+        end do  ! b_src%aerosolSrc bins 
       end if  ! gas or aerosol
     end do  ! sizeof blast_nuclides
     !
     ! Allocate the main activity split and copy them from the temporary
     !
-    allocate(b_src%activities(b_src%nSpecies))
-    b_src%activities(1:b_src%nSpecies) = act_fractTmp(1:b_src%nSpecies)
+    allocate(b_src%activities(b_src%nSpecies, n_modes))
+    b_src%activities(1:b_src%nSpecies, 1:n_modes) = act_fractTmp(1:b_src%nSpecies, 1:n_modes)
     deallocate(blast_nuclides)
 
   end subroutine set_cocktail_bomb_source
@@ -2084,7 +2168,7 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
 
   !============================================================================
   
-  subroutine set_two_modes_bomb(b_src, aerModesBomb, act_frac)
+  subroutine set_modes_bomb(b_src, aerModesBomb, act_frac)
     !
     ! Determines correct aerosol activity distribution based on bomb source.
     ! Is based on KDFOC3 model.
@@ -2092,57 +2176,74 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !
     implicit none
     !Input
-    type(silam_bomb_source), intent(in) :: b_src
+    type(silam_bomb_source), intent(inout) :: b_src
     !Output
-    real, dimension(2), intent(out) :: act_frac !1 is for smaller and 2 is for larger diameter
-    type(Taerosol_mode), dimension(2), intent(out) :: aerModesBomb
+    real, dimension(n_modes), intent(out) :: act_frac !1 is for smaller and 2 is for larger diameter
+    type(Taerosol_mode), dimension(n_modes), intent(out) :: aerModesBomb
     
     ! Local parameters
     ! from KDFOC3: A Nuclear Fallout Assessment Capability 1993 p.26-28
-    real, dimension(2), parameter :: KDFOC_surf_r = (/14.44, 151.41/)
-    real, dimension(2), parameter :: KDFOC_buri_r = (/90.02, 298.87/)
-    real, dimension(2), parameter :: KDFOC_surf_s = (/4.01, 2.69/)
-    real, dimension(2), parameter :: KDFOC_buri_s = (/2.01, 1.82/)
-    real, dimension(2), parameter :: KDFOC_uL = (/0.23, 0.65/) !surface, buried
+    real, dimension(3), parameter :: surf_r = (/ 4.4, 14.44, 151.41/)
+    !real, dimension(3), parameter :: surf_r = (/ 0.42, 14.44, 151.41/)
+    real, dimension(3), parameter :: buri_r = (/ 0.0, 90.02, 298.87/)
+    real, dimension(3), parameter :: surf_s = (/ 1.5, 4.01, 2.69/)
+    !real, dimension(3), parameter :: surf_s = (/ 2.0, 4.01, 2.69/)
+    real, dimension(3), parameter :: buri_s = (/ 0.0, 2.01, 1.82/)
+    !real, dimension(3), parameter :: surf_act = (/0.19, 0.58, 0.23/)
+    real, dimension(3), parameter :: surf_act = (/0.25, 0.54, 0.21/)
+    
+    !real, dimension(3), parameter :: surf_act = (/0.19, 0.5, 0.31/)
+    !real, dimension(3), parameter :: surf_act = (/0.19, 0.45, 0.36/)
+    !real, dimension(3), parameter :: surf_act = (/0.19, 0.36, 0.45/)
+    !real, dimension(3), parameter :: surf_act = (/0.19, 0.58, 0.23/)
+
+    !real, dimension(3), parameter :: surf_act = (/0.0, 0.0, 1.0/)
+    !real, dimension(3), parameter :: surf_act = (/0.0, 1.0, 0.0/)
+    !real, dimension(3), parameter :: surf_act = (/1.0, 0.0, 0.0/)
+    real, dimension(3), parameter :: buri_act = (/0.00, 0.35, 0.65/)
+    
+    !real, dimension(2), parameter :: KDFOC_surf_r = (/14.44, 151.41/)
+    !real, dimension(2), parameter :: KDFOC_buri_r = (/90.02, 298.87/)
+    !real, dimension(2), parameter :: KDFOC_surf_s = (/4.01, 2.69/)
+    !real, dimension(2), parameter :: KDFOC_buri_s = (/2.01, 1.82/)
+    !real, dimension(2), parameter :: KDFOC_uL = (/0.23, 0.65/) !surface, buried
     ! MATCH for airburst
-    real, parameter :: MATCH_rA = 4.4, MATCH_sA = 1.5
+    !real, parameter :: MATCH_rA = 4.4, MATCH_sA = 1.5
     
     ! Implications of Atmospheric Test Fallout Data for Nuclear Winter, 
     ! Baker, 1987 and LANL report: User Guide fro the Air Force Nuclear Weapons Center Dust 
     ! Cloud Calculator Version 1.0, St Ledger, John W. 2015
-    real, dimension(2), parameter :: BAKER_r = (/0.42, 9.34/)  ! radius, um
-    real, dimension(2), parameter :: BAKER_s = (/2.0, 4.0/)  
-    real, parameter :: BAKER_uL = 0.75
+    !real, dimension(2), parameter :: BAKER_r = (/0.42, 9.34/)  ! radius, um
+    !real, dimension(2), parameter :: BAKER_s = (/2.0, 4.0/)  
+    !real, parameter :: BAKER_uL = 0.75
     
     ! Local variables
     real :: fTmp
-    real, dimension(2) :: modes_r, stds
+    real, dimension(n_modes) :: modes_r, stds
     integer :: iMode
+    character(len=*), parameter :: sub_name = 'set_modes_bomb'
     
     modes_r = real_missing
     stds = real_missing
     act_frac = real_missing
     !
-    ! Have two lognormal modes, scan both. Explcit coefs for activity is not an accident
+    ! Explcit coefs for activity is not an accident
     !
-    if (b_src%dist_type == 'KDFOC3') then
-      select case(b_src%location_switch)
-        case(blast_underground)
-          if (b_src%blast_height_m <= -15.0) then !deep underground
-            modes_r(:) = KDFOC_buri_r(:)
-            stds(:) = KDFOC_buri_s(:)
-            act_frac(2) = KDFOC_uL(2)
-            act_frac(1) = 1.0 - act_frac(2)
-          else   ! (b_src%blast_height_m <= 0.0) then !shallow underground
+    select case(b_src%location_switch)
+      case(blast_underground)
+        if (b_src%blast_height_m <= -15.0) then !deep underground
+          modes_r(:) = buri_r(:)
+          stds(:) = buri_s(:)
+          act_frac(:) = buri_act(:)
+        else   ! (b_src%blast_height_m <= 0.0) then !shallow underground
             ! Linear change from surface burst mean and s to deep one in shallow bursts
-            fTmp = b_src%blast_height_m / (-15.)
-            modes_r(:) = KDFOC_surf_r(:) - ((KDFOC_buri_r(:) + KDFOC_surf_r(:)) * fTmp)
-            stds(:) = KDFOC_buri_s(:) - ((KDFOC_surf_s(:) - KDFOC_buri_s(:)) * (1.0 - fTmp))
-            act_frac(2) = KDFOC_uL(1) + ((KDFOC_uL(2) - KDFOC_uL(1)) * fTmp)
-            act_frac(1) = 1.0 - act_frac(2)
-          endif
-          
-        case(blast_in_air)  !Air burst, fireball doesn't touch the ground
+          fTmp = b_src%blast_height_m / (-15.)
+          modes_r(:) = surf_r(:) - ((buri_r(:) + surf_r(:)) * fTmp)
+          stds(:) = buri_s(:) - ((surf_s(:) - buri_s(:)) * (1.0 - fTmp))
+          act_frac(:) = surf_act(1) + ((surf_act(:) - buri_act(:)) * fTmp)
+        endif
+
+      case(blast_in_air)  !Air burst, fireball doesn't touch the ground
           !KDFOC3 description doesn't handle this case, but MATCH model that is based partly
           !on it makes bins from the given lognormal distribution. When handling air bursts it
           !concentrates all of the activity to the two smallest ones r = 2.2 and 4.4(micrometers).
@@ -2150,46 +2251,31 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
           !but make the system continuous from surface bursts.
           !-> In air bursts the larger lognormal distribution will disappear and the smaller
           !is centered in d = 4.4(r=2.2) with standard deviation 1.0 (resulting in a reasonable distribution).
-          modes_r(1) = MATCH_rA
-          modes_r(2) = 0.0
-          stds(1) = MATCH_sA
-          stds(2) = 0.0
+          modes_r(1) = surf_r(1)
+          modes_r(2:n_modes) = 0.0
+          stds(1) = surf_s(1)
+          stds(2:n_modes) = 0.0
           act_frac(1) = 1.0
-          act_frac(2) = 0.0
-
-        case(blast_on_surface)
+          act_frac(2:n_modes) = 0.0
+          
+       case(blast_on_surface)
           ! Fireball touches the ground, linear interpolation between surface and air burst, based on fireball fraction
-          modes_r(:) = MATCH_rA + (KDFOC_surf_r(:) - MATCH_rA) * b_src%fireball_buried_fraction
-          stds(1) = MATCH_sA + (KDFOC_surf_s(1) - 1.0)*b_src%fireball_buried_fraction
-          stds(2) = KDFOC_surf_s(2)
-          act_frac(1) = KDFOC_uL(1) + ((1.0 - KDFOC_uL(1))*(1.0 - b_src%fireball_buried_fraction))
-          act_frac(2) = 1.0 - act_frac(1)
-        case default
-          call set_error('Unknown blast height / type','set_two_modes_bomb')
+          modes_r(:) = surf_r(:)
+          stds(:) = surf_s(:)
+          act_frac(:) = surf_act(:) * b_src%fireball_buried_fraction + &
+               (/1.0, 0.0, 0.0/) * (1.0 - b_src%fireball_buried_fraction)
+       case default
+          call set_error('Unknown blast height / type', sub_name)
           return
-      end select
-        
-    else if (b_src%dist_type == 'BAKER') then
-      
-      select case(b_src%location_switch)
-        case(blast_in_air)
-          modes_r(1) = BAKER_r(1)
-          modes_r(2) = 0.0
-          stds(1) = BAKER_s(1)
-          stds(2) = 0.0
-          act_frac(1) = 1.0
-          act_frac(2) = 0.0
-        case default  ! surface and underground
-          modes_r(1:2) = BAKER_r(1:2)
-          stds(1:2) = BAKER_s(1:2)
-          act_frac(1) = b_src%fireball_buried_fraction*(1.0 - BAKER_uL)
-          act_frac(2) = 1.0 - act_frac(1)
-      end select
-    end if  ! types of parameterizations
+       end select
 
-    do iMode = 1, 2
+    b_src%mu(:) = modes_r(:)
+    b_src%sigma(:) = stds(:)   
+
+    do iMode = 1, n_modes
       if (modes_r(iMode) > 0) then
         fTmp = 2*modes_r(iMode) * 1e-6 ! diameter im meters
+         
         call set_aerosol_mode(aerModesBomb(iMode), &
                    &'BombMode'//trim(b_src%dist_type)//trim(fu_str(iMode)), &     ! mode, chNm, 
                    & fTmp, &      ! fp1
@@ -2204,22 +2290,22 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
       call report(aerModesBomb(iMode))
     end do
     
-    if (sum(act_frac) > 1.00001) call set_error('Mass fraction sum illegal','set_two_modes_bomb')
-    if (any(abs(act_frac) > 1.00001)) call set_error('Fraction cant be over unity','set_two_modes_bomb')
+    if (sum(act_frac) > 1.00001) call set_error('Mass fraction sum illegal', sub_name)
+    if (any(abs(act_frac) > 1.00001)) call set_error('Fraction cant be over unity', sub_name)
     if (error) return
     call msg('=============================================================')
     if (b_src%location_switch == blast_in_air) call msg('Air blast, no, Distribution type: '//trim(b_src%dist_type))
     if (b_src%location_switch == blast_on_surface) call msg('Surface blast, Distribution type: '//trim(b_src%dist_type))
     if (b_src%location_switch == blast_underground) call msg('Underground blast, Distribution type: '//trim(b_src%dist_type))
     call msg('|LOGNORMAL DISTRIBUTIONS CREATED. Small        Larger')
-    call msg(' |Radii (in micrometers)         :',(/modes_r(1), modes_r(2)/))
-    call msg(' |Standard deviations            :',(/stds(1), stds(2)/))
-    call msg(' |Activity fractions             :',(/act_frac(1), act_frac(2)/))
+    call msg(' |Radii (in micrometers)         :',(/modes_r(:)/))
+    call msg(' |Standard deviations            :',(/stds(:)/))
+    call msg(' |Activity fractions             :',(/act_frac(:)/))
     call msg('=============================================================')
     
-  end subroutine set_two_modes_bomb
- 
+  end subroutine set_modes_bomb
 
+  
   !============================================================================
   
   subroutine init_bomb_derived_params(b_src, ifWater)
@@ -2277,74 +2363,74 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
   end subroutine init_bomb_derived_params
 
   
-  !============================================================================
+  ! !============================================================================
 
-  subroutine get_bomb_bins_from_2_lognorm_modes(nbins, min_d, max_d, mu1, mu2, s1, s2, f1, f2, &
-                                              & diameters, total_fractions)
-    !
-    ! Creates number of bins requested from two lognormal modes.
-    ! - Larger than max_d will be thrown out/instant deposition.
-    ! - If nbins is 10, 9 bins will be created and the tenth 'bin' will be
-    !   values higher than max_d and not included because SILAM
-    !   can't handle too large aerosols (FIXME Really???).
-    ! - Smaller than min_d will be included in smallest bin.
-    ! - Routine returns the representing bins and corresponding activity fractions.
-    ! - The ratio of the sizes of parallel bins is constant.
-    ! - Takes diameters, deals internally with radii and returns diameters.
-    !
-    implicit none
-    !Input
-    real, intent(in) :: min_d, max_d !Diameters
-    integer, intent(in) :: nbins
-    real, intent(in) :: mu1, mu2, s1, s2, f1, f2 !1 -> smaller mode, 2 -> larger
-    !Output
-    real, dimension(nbins), intent(out) :: total_fractions
-    real, dimension(nbins-1), intent(out) :: diameters
+  ! subroutine get_bomb_bins_from_lognorm_modes(nbins, min_d, max_d, mu, s, f, &
+  !                                             & diameters, total_fractions)
+  !   !
+  !   ! Creates number of bins requested from two lognormal modes.
+  !   ! - Larger than max_d will be thrown out/instant deposition.
+  !   ! - If nbins is 10, 9 bins will be created and the tenth 'bin' will be
+  !   !   values higher than max_d and not included because SILAM
+  !   !   can't handle too large aerosols (FIXME Really???).
+  !   ! - Smaller than min_d will be included in smallest bin.
+  !   ! - Routine returns the representing bins and corresponding activity fractions.
+  !   ! - The ratio of the sizes of parallel bins is constant.
+  !   ! - Takes diameters, deals internally with radii and returns diameters.
+  !   !
+  !   implicit none
+  !   !Input
+  !   real, intent(in) :: min_d, max_d !Diameters
+  !   integer, intent(in) :: nbins
     
-    !Internal
-    real :: factor, min_r, max_r, fractions1, fractions2, radius
-    real(r8k) :: erf_input1, erf_input2
-    integer :: i, j
-    real, dimension(nbins) :: bounds
-    ! Handle with radii inside the subroutine
-    min_r = min_d*0.5
-    max_r = max_d*0.5
-    ! Ratio between parallel bins
-    factor = (max_r/min_r)**(1.0/(nbins-1))
-    ! Bounds based on ratio
-    do i = 1,nbins
-       bounds(i) = min_r*(factor**(i-1))
-    end do
-    ! From two lognormal distributions get fractions for each bin
-    ! Representing diameter is the average within a bin
-    do i = 1,(nbins-1)
-       ! Total from both with given fractions f1 and f2 of the modes (not bins)
-       total_fractions(i)  = 0.
-       if (f1 > 0) then
-         ! Error function input has to be real 8 kind
-         erf_input1 = (log(bounds(i+1)) - log(mu1))/(log(s1)*(2.0**(1.0/2.0)))
-         ! Cumulative lognormal distribution (fraction of total) under the given radius
-         fractions1 = (1.0 + ERF(erf_input1))/(2.0)
-         total_fractions(i) = total_fractions(i) + fractions1*f1
-       endif
-       if (f2 > 0) then
-         erf_input2 = (log(bounds(i+1)) - log(mu2))/(log(s2)*(2.0**(1.0/2.0)))
-         fractions2 = (1.0 + ERF(erf_input2))/(2.0)
-         total_fractions(i) = total_fractions(i) + fractions2*f2
-       endif
-
-       ! Not the cumulative
-       if (i > 1) then
-          total_fractions(i) = total_fractions(i) - sum(total_fractions(:(i-1)))
-       end if
-       ! Radius as average
-       radius = (bounds(i) + bounds(i+1))/2.0
-       ! Diameter outputted
-       diameters(i) = radius * 2.0
-    end do
-    ! 'Thrash' bin gets rest of the fraction
-    total_fractions(nbins) = 1.0 - sum(total_fractions(:(nbins - 1)))
-  end subroutine get_bomb_bins_from_2_lognorm_modes
+  !   real, dimension(n_modes), intent(in) :: mu, s, f
+    
+  !   !Output
+  !   real, dimension(nbins), intent(out) :: total_fractions
+  !   real, dimension(nbins-1), intent(out) :: diameters
+    
+  !   !Internal
+  !   real, dimension(n_modes) :: fractions
+  !   real(r8k), dimension(n_modes) :: erf_input
+  !   real :: factor, min_r, max_r, radius
+  !   integer :: i, j, iMode
+  !   real, dimension(nbins) :: bounds
+  !   ! Handle with radii inside the subroutine
+  !   min_r = min_d*0.5
+  !   max_r = max_d*0.5
+  !   ! Ratio between parallel bins
+  !   factor = (max_r/min_r)**(1.0/(nbins-1))
+  !   ! Bounds based on ratio
+  !   do i = 1,nbins
+  !      bounds(i) = min_r*(factor**(i-1))
+  !   end do
+  !   ! From two lognormal distributions get fractions for each bin
+  !   ! Representing diameter is the average within a bin
+  !   do i = 1,(nbins-1)
+  !      ! Total from both with given fractions f of the modes (not bins)
+  !      total_fractions(i)  = 0.
+  !      do iMode = 1, n_modes
+  !        if (f(iMode) > 0) then
+  !          ! Error function input has to be real 8 kind
+  !          erf_input(iMode) = (log(bounds(i+1)) - log(mu(iMode)))/(log(s(iMode))*(2.0**(1.0/2.0)))
+  !          ! Cumulative lognormal distribution (fraction of total) under the given radius
+  !          fractions(iMode) = (1.0 + ERF(erf_input(iMode))/(2.0)
+  !          total_fractions(i) = total_fractions(i) + fractions(iMode)*f(iMode)
+  !        end if
+  !      endif
+      
+  !      ! Not the cumulative
+  !      if (i > 1) then
+  !         total_fractions(i) = total_fractions(i) - sum(total_fractions(:(i-1)))
+  !      end if
+  !      ! Radius as average
+  !      radius = (bounds(i) + bounds(i+1))/2.0
+  !      ! Diameter outputted
+  !      diameters(i) = radius * 2.0
+  !   end do
+  !   ! 'Thrash' bin gets rest of the fraction
+  !   total_fractions(nbins) = 1.0 - sum(total_fractions(:(nbins - 1)))
+  ! end subroutine get_bomb_bins_from_lognorm_modes
   
 
 END MODULE source_terms_bomb

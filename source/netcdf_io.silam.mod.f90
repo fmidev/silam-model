@@ -153,11 +153,8 @@ MODULE netcdf_io
     real :: offset=0., scaleFactor=1.
     real :: offset_nc = 0., scaleFactor_nc = 1.
     character(len = nf90_max_name) :: stagger = '', axis='', positive_direction='', calendar=''
-
     real :: missing_value=real_missing, valid_min=real_missing, valid_max=real_missing
-
     character(len = nf90_max_name) :: standard_name='', long_name='', coordinates='', bounds='', compress=''
- 
   END TYPE netcdf_variable
   
   type netcdf_dim
@@ -566,14 +563,10 @@ CONTAINS
   end subroutine flush_nf90mpi_buf
 
 #endif
- !
- !
- ! Main routines
- !
-
-
-
-
+  !
+  !
+  ! Main routines
+  !
   !*******************************************
 
   integer function open_netcdf_file_o(fname, myOutGrid, vertical, timeValid, &
@@ -729,7 +722,6 @@ CONTAINS
          call def_var_nc(nf, "rp", nf90_char, zeroints, zeroints , iTmp, .false.) !varId=iTmp, no collective
          if (error) return
 
-         
          call  put_chatt_nc(nf, iTmp, "rp", "grid_mapping_name",  "rotated_latitude_longitude")
          call  put_fatt_nc(nf, iTmp, "rp", "grid_north_pole_latitude", -pole_y)
          call  put_fatt_nc(nf, iTmp, "rp", "grid_north_pole_longitude", mod(pole_x+360., 360.) - 180.)
@@ -890,14 +882,10 @@ CONTAINS
       chunks3d =  (/iTmp, jTmp, 1 , 1/)
       chunks2d =  (/iTmp, jTmp, 1 /)
     endif
-    
-       
-
     !
     ! Define variables, assign variable attributes
     ! Dimension variables:
-    
-
+    !
     SELECT CASE(fu_gridtype(grid))
 
     CASE(lonlat)
@@ -1046,10 +1034,9 @@ CONTAINS
     call put_chatt_nc(nf, nf%ntime%tVarId, "time var",  "axis",  "T")
     call put_chatt_nc(nf, nf%ntime%tVarId, "time var",  "calendar",  "standard")
     call put_chatt_nc(nf, nf%ntime%tVarId, "time var",  "standard_name",  "time")
-
-
-      
+    !
     ! Output variables:
+    !
     nf%n_vars = 0
     !
     ! There can be three lists: meteorological variables, dispersion variables from stack
@@ -1103,7 +1090,7 @@ CONTAINS
         endif
 
         call def_var_nc(nf, nf%nvars(nf%n_vars)%chVarNm, nf90_float, &
-           & dimidsXd, chunksXd, nf%nvars(nf%n_vars)%varId, nf%ifmpiio)
+                      & dimidsXd, chunksXd, nf%nvars(nf%n_vars)%varId, nf%ifmpiio)
         if (fu_fails(.not. error, "def_var_nc main vars", sub_name)) return
 
         call put_fatt_nc(nf, nf%nvars(nf%n_vars)%varId, nf%nvars(nf%n_vars)%chVarNm, &
@@ -1486,7 +1473,6 @@ CONTAINS
       return
     endif
 
-    
     istat = nf90_open(fname, NF90_NOWRITE, nf%unit_bin)
     if (istat /= 0)then 
       call msg_warning(fu_connect_strings('Netcdf error1:', nf90_strerror(iStat)),sub_name)
@@ -1611,7 +1597,6 @@ CONTAINS
               endif
           end select
 
-
          if(fu_str_u_case(trim(adjustl(attName))) == 'DY') dy = fAtt(1)
 
        case default
@@ -1700,8 +1685,6 @@ CONTAINS
       !
       ! Checking explicitly coefficients for vertical.
       !
-
-
       call get_items(nlPtr, 'a', ptrItems, nVals)
       if (nVals > 0)then
         do iTmp = 1, nVals
@@ -1820,8 +1803,6 @@ CONTAINS
         enddo
       endif
 
-
-
       call get_items(nlPtr, 'P0', ptrItems, nVals)
       if (nVals > 0)then
         do iTmp = 1, nVals
@@ -1914,7 +1895,6 @@ CONTAINS
           enddo
         enddo
       endif
-
 
       call get_items(nlPtr, 'gridvar', ptrItems, nVals)
       if(nVals > 0)then
@@ -2025,17 +2005,18 @@ CONTAINS
                                        & lstVType(iTmp), lstlevValue(iTmp), lstSubst(iTmp), &
                                        & lstMode(iTmp), lstWavelen(iTmp),  lstFactor(iTmp), lstOffset(iTmp) 
         enddo
-
       endif ! if nVals > 0
 
     else
-
+      !
+      ! nametable not found, proceed without
+      !
       chTmp = fu_str_u_case(trim(nf%title))
       if(chTmp == 'SILAM_OUTPUT' .or. chTmp=='SILAM_EMIS')then
         nf%ntime%time_label_position = end_of_period  !!!Silam averages this way
       else
         nf%nTime%time_label_position = instant_fields  !! Others must be instant
-        call msg_warning(fu_connect_strings('File not in nametable: ', nf%title), sub_name)
+        call msg_warning('Nametable: '//trim(nf%title)//', is not in nametable file and not SILAM_OUTPUT or SILAM_EMIS', sub_name)
         call msg('Proceed without nametable')
       endif
 
@@ -2057,7 +2038,7 @@ CONTAINS
       iStat = nf90_inquire_variable(nf%unit_bin, iVar, nf%nVars(iVar)%chVarNm, nf%nVars(iVar)%xtype, &
                                   & nf%nVars(iVar)%n_dims, nf%nVars(iVar)%dimids, nAtts)
       if(iStat /= 0)then
-        call msg_warning(fu_connect_strings('Cannot get the variable,',nf90_strerror(iStat)))
+        call msg_warning('Cannot get the variable: '//trim(nf90_strerror(iStat)))
         cycle
       endif
       
@@ -2080,6 +2061,7 @@ CONTAINS
 
       if( chTmp == 'SILAM_OUTPUT_UG' .or. chTmp == 'SILAM_OUTPUT' .or. chTmp=='SILAM_EMIS')then
         !
+        if(ifMsgs) call msg('SILAM-type input: '//trim(chTmp))
         nf%nVars(iVar)%if3D = .false.
         nf%nVars(iVar)%n_levs = int_missing
         do iTmp = 1, nf%nVars(iVar)%n_dims
@@ -2095,34 +2077,29 @@ CONTAINS
                                           & nf%nVars(iVar)%quantity, &
                                           & species, &
                                           & .false.)  ! can be non-SILAM quantity
-
-        ifSpeciesFromAtts = defined(species)
-
-
         if(error)return
-
+        ifSpeciesFromAtts = defined(species)
         if(ifMsgs) call msg("Variable "//trim(nf%nVars(iVar)%chVarNm)//" "//fu_quantity_short_string(nf%nVars(iVar)%quantity)+':'+fu_str(species))
       else
         !
         ! Not SILAM output
         ! Compare the variable name to the name table and find the SILAM quantity
         !
+        if(ifMsgs) call msg('Non-SILAM-type input: '//trim(chTmp))
         if (allocated(lstVarName)) then
           do iTmp = 1, size(lstVarName)
             if(trim(nf%nVars(iVar)%chVarNm) == trim(lstVarName(iTmp)))then
-               nf%nVars(iVar)%quantity = fu_get_silam_quantity(lstSilamQ(iTmp))
-               if(error)then
-                 call set_error("Failed to parse variable listed in the nametable",sub_name)
-                 return
-               endif
+              nf%nVars(iVar)%quantity = fu_get_silam_quantity(lstSilamQ(iTmp))
+              if(error)then
+                call set_error("Failed to parse variable listed in the nametable",sub_name)
+                return
+              endif
 
-                if(ifMsgs) call msg(fu_connect_strings('Found variable:', &
-                                            & nf%nVars(iVar)%chVarNm,  ', silam quantity: '), &
-                          & nf%nVars(iVar)%quantity)
+              if(ifMsgs) call msg('Found variable:' + nf%nVars(iVar)%chVarNm + ', silam quantity:', &
+                                  & nf%nVars(iVar)%quantity)
 
-
-               jTmp = fu_str2leveltype(lstVType(iTmp))
-               if(jTmp /= any_level .and. jTmp /= no_level) then
+              jTmp = fu_str2leveltype(lstVType(iTmp))
+              if(jTmp /= any_level .and. jTmp /= no_level) then
                  nf%nVars(iVar)%n_levs = 1
                  if (jTmp == int_missing) then
                     call set_error('Strange type of level:'//trim(lstVType(iTmp)),  sub_name)
@@ -2136,21 +2113,21 @@ CONTAINS
                  endif
                     
                   if(error)return
-               endif
+              endif
 
-               substance_name = ''
-               mean_diameter = real_missing
-               wavelength = real_missing
-               if(lstSubst(iTmp) /= 'XXX')substance_name = lstSubst(iTmp)
-               if(lstMode(iTmp) /= -1.)mean_diameter = lstMode(iTmp)
-               if(lstWavelen(iTmp) /= -1.) wavelength = lstWavelen(iTmp)
-               if ((mean_diameter > 0.0) .and. (mean_diameter < 1.0)) then
+              substance_name = ''
+              mean_diameter = real_missing
+              wavelength = real_missing
+              if(lstSubst(iTmp) /= 'XXX')substance_name = lstSubst(iTmp)
+              if(lstMode(iTmp) /= -1.)mean_diameter = lstMode(iTmp)
+              if(lstWavelen(iTmp) /= -1.) wavelength = lstWavelen(iTmp)
+              if ((mean_diameter > 0.0) .and. (mean_diameter < 1.0)) then
                  aerosol_mode = fu_set_mode(fixed_diameter_flag, &
                                           & mean_diameter, mean_diameter, mean_diameter)               
-               else
+              else
                   aerosol_mode = in_gas_phase
-               end if
-               if (substance_name /= '') then
+              end if
+              if (substance_name /= '') then
                 if(nf%ifCocktails)then
                  species = species_missing
                   nf%nVars(iVar)%chCocktailNm = substance_name
@@ -2160,13 +2137,13 @@ CONTAINS
               else
                 species = species_missing
               endif
-               if (error) return
-               if (ifMsgs) call msg("Substance name:"+ substance_name)
-               exit
-             endif
+              if (error) return
+              if (ifMsgs) call msg("Substance name:"+ substance_name)
+              exit
+            endif
           enddo
-        endif !associated lstVarName
-      endif !Mot a silam output
+        endif !associated lstVarName: non-SILAM input must be defined via nametable!
+      endif ! if silam output
 
 
       ! Variable attributes
@@ -2181,7 +2158,7 @@ CONTAINS
       do iTmp = 1, nAtts
         iStat = nf90_inq_attname(nf%unit_bin, iVar, iTmp, attName)
         if (istat /= 0)then 
-          call msg_warning(fu_connect_strings('Netcdf error8:', nf90_strerror(iStat)),sub_name)
+          call msg_warning('Netcdf error8:' + nf90_strerror(iStat),sub_name)
           call msg_warning('Failed to inquire attribute name',sub_name)
         else  
 
@@ -2257,7 +2234,7 @@ CONTAINS
             case('positive')
                nf%nVars(iVar)%positive_direction = chAtt
             case('calendar')
-               nf%nVars(iVar)%calendar = chAtt    
+               nf%nVars(iVar)%calendar = chAtt
             case('missing_value', '_FillValue')
                if(any (xType == (/nf90_int, NF90_USHORT, NF90_SHORT, NF90_UINT, NF90_INT64, &
                                 & NF90_UINT64, nf90_float, nf90_double, NF90_BYTE/)))then
@@ -2341,7 +2318,6 @@ CONTAINS
                                     & //trim(nf%nVars(iVar)%chVarNm))
         endif
       endif
-
       
       !!! Final setup of species and conversions
       if (ifSpeciesFromAtts) then 
@@ -2384,7 +2360,7 @@ CONTAINS
 
       else
         nf%nVars(iVar)%species = species  
-      endif
+      endif   ! if species from atts
 
       ! Dimension var-s. Now try CF: same name as dim, right units, t - unlimited dim, 
       ! standard name attribute for z to get the vertical type
@@ -2498,7 +2474,6 @@ CONTAINS
               call set_error("Failed", sub_name)
             endif
           endif
-
 
           if(nf%nDims(iDim)%defined) exit   ! go for the next variable
 
@@ -2661,8 +2636,6 @@ CONTAINS
           else
             nf%nTime%step = zero_interval  !Still valid in arithmetics
           endif
-
-
 
           if(nf%nTime%analysis_time == time_missing)then
             if(nf%nTime%analysis_t_from == dim_start)then
@@ -3012,9 +2985,7 @@ CONTAINS
           
           endif
         else
-          call msg_warning(fu_connect_strings('Failed to attribute the dimension variable:', &
-                                            & pDim%varName), &
-                         & sub_name)
+          call msg_warning('Failed to attribute the dimension variable: '//trim(pDim%varName), sub_name)
         endif !t, z, x, y
       else        
         ! Try to identify undefined z dim vithout dim var
@@ -3044,7 +3015,7 @@ CONTAINS
     enddo  !!iTmp DimLoop 
 
 
-   ! Check the availibility of vars (availible if silam quantity and dims defined)
+   ! Check the availibility of vars (available if silam quantity and dims defined)
    ! If not availible, set quantity to int_missing
    ! Set silam verticals and grid pointers for variables
 
@@ -3062,7 +3033,8 @@ CONTAINS
       do iDim = 1, nf%nVars(iVar)%n_Dims
         if(.not. nf%nDims(nf%nVars(iVar)%dimIds(iDim))%defined)then
           if(ifMsgs)then
-            call msg_warning(fu_connect_strings('Variable with undefined dimension:', nf%nDims(nf%nVars(iVar)%dimIds(iDim))%dimName),sub_name)
+            call msg_warning('Variable with undefined dimension: ' // &
+                & trim(nf%nDims(nf%nVars(iVar)%dimIds(iDim))%dimName) ,sub_name)
           endif
           nf%nVars(iVar)%quantity = int_missing
           exit
@@ -3233,10 +3205,6 @@ CONTAINS
                                     & pole_geographical, & !! WRF has POLE_LAT attrinute, but for NORHERN pole
                                     & dx, dy)
 !!                                  nf%nGrids(iTmp)%sPole_lat and nf%nGrids(iTmp)%sPole_lon are wrong here!
-
-
-
-
           else
           ! True ANYGRID
             nf%nGrids(iTmp)%sGrid = fu_set_any_grid('anygridformnc', nx, ny)
@@ -4228,7 +4196,6 @@ CONTAINS
     !
     ! Loose copy from id_list_from_netcdf_file
     !
-
     implicit none
     integer, intent(in) :: iUnit
     type(silja_field_id), intent(out) :: id_out

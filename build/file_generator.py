@@ -32,7 +32,7 @@ def generate(file_template, files_out, substitutions):
     
     # The replacement lists are required to have the same length as files_out.
 
-    values = substitutions.values()
+    values = list(substitutions.values())
 
     if isinstance(files_out, str):
         files_out = (files_out,)
@@ -58,7 +58,7 @@ def generate(file_template, files_out, substitutions):
         
         for line_in in f_in:
             line = line_in
-            for (key, val) in substitutions.items():
+            for (key, val) in list(substitutions.items()):
                 if key in line_in:
                     line = line.replace(key, str(val[i]))
 

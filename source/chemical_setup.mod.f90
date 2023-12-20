@@ -2222,6 +2222,12 @@ call msg('Flip...')
       write(unit=strModeSize,fmt='(i2,X)')nint(fTmp)  ! "xx"
     elseif(fTmp < 999.5)then
       write(unit=strModeSize,fmt='(i3)')nint(fTmp)  ! "xxx"
+    elseif(fTmp < 9999.5)then
+      write(unit=strModeSize,fmt='(i4)')nint(fTmp)  ! "xxxx"
+    elseif(fTmp < 99999.5)then
+      write(unit=strModeSize,fmt='(i5)')nint(fTmp)  ! "xxxxx"
+    elseif(fTmp < 999999.5)then
+      write(unit=strModeSize,fmt='(i6)')nint(fTmp)  ! "xxxxxx"
     else
       call msg('Too large mode size:', fAerosolModeSize)
       call set_error('Too large mode size','fu_aerosol_mode_size_to_str')

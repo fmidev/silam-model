@@ -4371,29 +4371,62 @@ module da_common
     !
     obs_err_rel(1:nIter) = obs_err(1:nIter) / maxval(obs_err(1:nIter))
     bckgr_err_rel(1:nIter) = bckgr_err(1:nIter) / maxval(bckgr_err(1:nIter))
+    
+    ! ---------------- this is for log-10 RMSE function
+    !!
+    !! Define the simplex starting points. For fu_L_curve_log10_fit_RMSE, parameters
+    !! with values of ~0.5 and ~10 are acceptable. Two other vectors are around this one
+    !!
+    !if(any(fit_params(1:nParams) == real_missing))then
+    !  fit_params(1) = 0.5  ! for the curve fu_L_curve_log10_fit_RMSE, this is a good guess
+    !  fit_params(2) = 10.
+    !endif
+    !P(:,1) = fit_params(1)
+    !P(:,2) = fit_params(2)
+    !P(2,1) = fit_params(1) * 1.1
+    !P(3,2) = fit_params(2) * 1.1
+    !!
+    !! find the best fit
+    !!
+    !call L_curve_fit(fu_L_curve_log10_fit_RMSE,  nIter, nParams, bckgr_err_rel(1:nIter), &
+    !               & log10(obs_err_rel(1:nIter)), P, fit_params)
+    !if(error)return
     !
-    ! Define the simplex starting points. For fu_L_curve_log10_fit_RMSE, parameters
-    ! with values of ~0.5 and ~10 are acceptable. Two other vectors are around this one
+    !! critical point on the curve determined via critical derivative
+    !!
+    !xFitCritRel = -1.0 / fit_params(2) * log(-critical_derivative / fit_params(1) / fit_params(2))
+    !yFitCritRel = 10**fu_L_curve_log10(xFitCritRel, fit_params(1), fit_params(2))
+    !
+    !-------------- end of log10-RMSE fit
+    
+    
+    ! ---------------- this is for 1/x type function with log-transformed coefs
+    !
+    ! Define the simplex starting points. For fu_L_curve_1_over_x, parameters
+    ! with values of a~0 and b~-4 are acceptable. Two other vectors are around this one
     !
     if(any(fit_params(1:nParams) == real_missing))then
-      fit_params(1) = 0.5  ! for the curve fu_L_curve_log10_fit_RMSE, this is a good guess
-      fit_params(2) = 10.
+      fit_params(1) = 0.  ! for the curve fu_L_curve_1_over_x, this is a good guess
+      fit_params(2) = -4.
     endif
     P(:,1) = fit_params(1)
     P(:,2) = fit_params(2)
-    P(2,1) = fit_params(1) * 1.1
-    P(3,2) = fit_params(2) * 1.1
+    P(2,1) = fit_params(1) + 0.02
+    P(3,2) = fit_params(2) + 0.02
     !
     ! find the best fit
     !
-    call L_curve_fit(fu_L_curve_log10_fit_RMSE,  nIter, nParams, bckgr_err_rel(1:nIter), &
-                   & log10(obs_err_rel(1:nIter)), P, fit_params)
+    call L_curve_fit(fu_L_curve_1_over_x_fit_RMSE,  nIter, nParams, bckgr_err_rel(1:nIter), &
+                   & obs_err_rel(1:nIter), P, fit_params)
     if(error)return
-    
+    !
     ! critical point on the curve determined via critical derivative
     !
-    xFitCritRel = -1.0 / fit_params(2) * log(-critical_derivative / fit_params(1) / fit_params(2))
-    yFitCritRel = 10**fu_L_curve_log10(xFitCritRel, fit_params(1), fit_params(2))
+    xFitCritRel = sqrt(- fit_params(1) * fit_params(2) / critical_derivative) - fit_params(2)
+    yFitCritRel = fu_L_curve_1_over_x(xFitCritRel, fit_params(1), fit_params(2))
+    !
+    !-------------- end of fu_L_curve_1_over_x fit
+    !
     !
     ! Cartesian distance from this point and the nearest iteration
     !
@@ -4577,5 +4610,59 @@ module da_common
     endif
     
   end function fu_L_curve_log10
+
+
+  !***************************************************************
+  
+  real function fu_L_curve_1_over_x_fit_RMSE(arParams, arExtraInput)result(RMSE)
+    !
+    ! A function to call from the minimization routine. It calculates RMSE of the fit:
+    ! obs_err = fu_L_curve_log10(bckgr_err)
+    !
+    implicit none
+    
+    ! Imported parameters
+    real, dimension(:), intent(in) :: arParams, arExtraInput  ! (/params/), (/nVals,bckgr_err,obs_err/)
+    
+    ! Local variables
+    integer :: nIter, iVal
+    
+    ! How many iterations to fit?
+    nIter = nint(arExtraInput(1))
+    !
+    ! Get the RMSE of the fit: sum( (obs_err - fit(bckg_err)) **2 )
+    !
+    RMSE = 0
+    do iVal = 1, nIter
+      RMSE = RMSE + (arExtraInput(nIter+1+iVal) - fu_L_curve_1_over_x(arExtraInput(1+iVal), &
+                                                                    & arParams(1), arParams(2))) ** 2
+    end do
+    return
+  end function fu_L_curve_1_over_x_fit_RMSE
+  
+
+  !***************************************************************
+
+  real function fu_L_curve_1_over_x(bckgr_err, a, b)
+    !
+    ! L-curve itself, computes one value, function type is 1/x with shifts and scales
+    ! Since a, b are strictly positive, let's make them log-transformed
+    ! A typical value of a ~ 0.99, b ~ 0.001
+    !
+    implicit none
+    
+    ! Imported parameters
+    real, intent(in) :: bckgr_err
+    real, intent(in) :: a, b
+    
+    ! Local variables
+    real :: fTmp
+    
+    ! The function is with 3 parameters but we require it to pass through (0,1), so just a and b
+!    fu_L_curve_1_over_x = a * b /(bckgr_err + b) + (1. - a)
+    ! in log-transformed view:
+    fu_L_curve_1_over_x = exp(a + b) /(bckgr_err + exp(b)) + (1. - exp(a))
+  
+  end function fu_L_curve_1_over_x
 
 end module da_common

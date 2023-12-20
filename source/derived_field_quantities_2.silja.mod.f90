@@ -2402,11 +2402,12 @@ CONTAINS
       real, dimension(:), pointer :: ground_virt_pot_temperature, t_up, t_down, h2d_up, h2d_down, &
                                    & p_up, p_down, q_up, q_down
       integer :: i, iCount, iLev
-      real :: theta_up, theta_down, theta_virt_up, theta_virt_down, slope_vpt
+      real :: theta_virt_up, theta_virt_down, slope_vpt
       
 !      real, parameter :: a = 0.5, b=1.2
       !real, parameter :: a = 0.5, b = 5.0, slope_limit = 0.005 ! repo
       real, parameter :: a = 0.5, b = 1.2, slope_limit = 0.005
+      logical :: ifWet
 
       ground_virt_pot_temperature => fu_work_array(fs_meteo)
       p_up => fu_work_array(fs_meteo)
@@ -2419,6 +2420,8 @@ CONTAINS
         ground_virt_pot_temperature(1:fs_meteo) = ground_virt_pot_temperature(1:fs_meteo) + a
       end where
 
+      ifWet = associated(q3d)
+
       iCount = 0
 
       DO iLev = 1, (nz_meteo-1)
@@ -2427,8 +2430,11 @@ CONTAINS
         t_down => fu_grid_data_from_3d(t3d, iLev)
         h2d_up => fu_grid_data_from_3d(height3d, iLev+1)
         h2d_down => fu_grid_data_from_3d(height3d, iLev)
-        q_up  => fu_grid_data_from_3d(q3d, iLev+1)
-        q_down  => fu_grid_data_from_3d(q3d, iLev)
+        
+        if (ifWet) then
+          q_up  => fu_grid_data_from_3d(q3d, iLev+1)
+          q_down  => fu_grid_data_from_3d(q3d, iLev)
+        endif
         IF (error) EXIT
 
         ! potential temperature is easier to calculate than store
@@ -2436,10 +2442,10 @@ CONTAINS
         CALL pressure_on_level(t3d, iLev+1, p_up)  ! It really computes the values
 
         DO i = 1, fs_meteo
-          theta_up = t_up(i)*((std_pressure_sl/p_up(i))**R_per_c_dryair)
-          theta_virt_up = theta_up * (1.0 + 0.62 * q_up(i))
-          theta_down = t_down(i)*((std_pressure_sl/p_down(i))**R_per_c_dryair)
-          theta_virt_down = theta_down * (1.0 + 0.62 * q_down(i))
+          theta_virt_up = t_up(i)*((std_pressure_sl/p_up(i))**R_per_c_dryair) !! Actually theta_down so far
+          if (ifWet) theta_virt_up = theta_virt_up * (1.0 + 0.62 * q_up(i))
+          theta_virt_down = t_down(i)*((std_pressure_sl/p_down(i))**R_per_c_dryair) !! Actually theta_up so far
+          if (ifWet) theta_virt_down = theta_virt_down * (1.0 + 0.62 * q_down(i))
           IF (abl_height(i)<= 0. .and. abs(abl_height(i)-anint(abl_height(i))) < 0.001) THEN
             IF (theta_virt_up > ground_virt_pot_temperature(i)) THEN
               if(theta_virt_down > ground_virt_pot_temperature(i))then
@@ -5233,8 +5239,8 @@ CONTAINS
     f_vpd = 51.5*vpd**(-.65)
 
     ! the c4 plants are adapted to dry climates, so speculatively (and to improve the O3 bias in India)
-    ! the scaling factor for c4 plants accounting for the relative humidity is set to a constant
-    f_vpd_c4 = 2.2
+    ! the scaling factor for c4 plants is set to a higher value than for c3 plants
+    f_vpd_c4 = 75*vpd**(-.65)
 
     ! Added dependence on soil moisture.
     ! Roughly matches some published values, but the scatter was so significant
@@ -5245,13 +5251,9 @@ CONTAINS
 
     ! the scaling factor accounting for soil moisture, optimized for CB5 (high g_sto) or CB4 (low g_sto)
     if (if_high_stomatal_conductance) then
-       !f_sm = 1.2 * (0.2 + max(2.3*sm, 0.4)) !  1.5 * (0.2 + max(2.3*sm, 0.4))
-       !f_sm =  max(1.28*sm, 0.17) + 0.5     !max(1.5*sm, 0.2) + 0.64
-       !f_sm = max(1.5*sm, 0.2) + 0.64
        f_sm =  max(1.18*sm, 0.15) + 0.48
     else
-       f_sm = 0.2 + 4.5*max(sm-0.1, 0.)
-       f_sm = min(f_sm, 2.0)
+       f_sm =  max(0.85*sm, 0.08) + 0.4
     end if
     
     ! SILAM invention to leave some conductance

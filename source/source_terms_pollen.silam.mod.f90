@@ -817,6 +817,7 @@ CONTAINS
         iTmp = fu_merge_integer_to_array(temperature_2m_flag,          q_met_dynamic)
         iTmp = fu_merge_integer_to_array(heatsum_flag,                 q_disp_st)
         iTmp = fu_merge_integer_to_array(growth_season_start_day_flag, q_disp_st)
+        iTmp = fu_merge_integer_to_array(growth_season_end_day_flag,   q_disp_st)
         if(srcPollen%heatsum_params%iHeatSumType == hsDegreeDay .or. &
          & srcPollen%heatsum_params%iHeatSumType == hsBioDay)then
           iTmp = fu_merge_integer_to_array(day_mean_temperature_2m_flag, q_disp_st)
@@ -864,6 +865,7 @@ CONTAINS
         iTmp = fu_merge_integer_to_array(soil_moisture_vol_frac_nwp_flag,   q_met_dynamic)
         iTmp = fu_merge_integer_to_array(plant_growth_flag,            q_disp_st)
         iTmp = fu_merge_integer_to_array(growth_season_start_day_flag, q_disp_st)
+        iTmp = fu_merge_integer_to_array(growth_season_end_day_flag, q_disp_st)
     endif
      
   end subroutine add_input_needs_pollen_source
@@ -1380,13 +1382,13 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
       
       ! We have two types of quantities so far: those, which are universal for all pollen sources,
       ! and those, which are related to the pollen or allergen release of the specific taxon. 
-      case (pollen_rdy_to_fly_flag, pollen_correction_flag, ln_emission_scaling_flag, &
+    case (pollen_rdy_to_fly_flag, pollen_correction_flag, ln_emission_scaling_flag, &
           & pollen_left_relative_flag, pollen_total_per_m2_flag, &
           & start_calday_threshold_flag, end_calday_threshold_flag, &
           & start_heatsum_threshold_flag, end_heatsum_threshold_flag, &
           & temperature_threshold_flag, daily_temp_threshold_flag, soil_moisture_threshold_flag, &
-          & heatsum_flag, chillsum_flag, growth_season_start_day_flag, heatsum_cutoff_tempr_flag, &
-          & emission_mask_flag, & !fraction_of_land_flag, &
+          & heatsum_flag, chillsum_flag, growth_season_start_day_flag, growth_season_end_day_flag, &
+          & heatsum_cutoff_tempr_flag, emission_mask_flag, & !fraction_of_land_flag, &
           & pollen_potency_flag, &
           & heatsum_start_end_diff_flag, calday_start_end_diff_flag, plant_growth_flag)
         species_src = pollen_src%species(pollen_src%indPol)
@@ -1613,9 +1615,9 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
              & indEndHSThr=int_missing,indTempThr=int_missing,indDayTempThr=int_missing, &
              & indSoilWaterThr=int_missing, indT2m=int_missing, indDailyTempr=int_missing, &
              & indSoilWater=int_missing, indHS=int_missing, indStartDay=int_missing, &
-             & indTemprCutOff=int_missing, indCS=int_missing, indHumid=int_missing, &
-             & indWind10m=int_missing, indConvVelocity=int_missing, indPrecip=int_missing, &
-             & indAnnualTotalCorr=int_missing, indPollenLeft=int_missing, &
+             & indEndDay=int_missing, indTemprCutOff=int_missing, indCS=int_missing, &
+             & indHumid=int_missing, indWind10m=int_missing, indConvVelocity=int_missing, &
+             & indPrecip=int_missing, indAnnualTotalCorr=int_missing, indPollenLeft=int_missing, &
              & indPollenRdyToFly=int_missing, indAlrgRdyToFly=int_missing, indPotency=int_missing, &
              & indBLH=int_missing, indCDDiff=int_missing, indHSDiff=int_missing, &
              & indPlantGrowth=int_missing, indPollenTotal=int_missing
@@ -1762,6 +1764,7 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
     if(srcPollen%ifStartHSThr .or. srcPollen%ifEndHSThr)then ! temperature, heatsum stuff, thresholds
       indT2m = fu_index(met_buf, temperature_2m_flag, .true.)
       indStartDay = fu_get_buffer_index(srcPollen, disp_buf, growth_season_start_day_flag, .true.) 
+      indEndDay = fu_get_buffer_index(srcPollen, disp_buf, growth_season_end_day_flag, .true.) 
 !      if(have_tla) &
 !        & indHS_TLA = fu_merge_integer_to_array(heatsum_flag, arIdx_TLA)
       if(.not. ifAdjoint) &
@@ -1814,6 +1817,7 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
       if(.not. ifAdjoint) &
         & indPlantGrowth = fu_get_buffer_index(srcPollen, disp_buf, plant_growth_flag, .true.)
       indStartDay = fu_get_buffer_index(srcPollen, disp_buf, growth_season_start_day_flag, .true.) 
+      indStartDay = fu_get_buffer_index(srcPollen, disp_buf, growth_season_end_day_flag, .true.) 
     endif
     if(error)return
 !    !
@@ -1875,26 +1879,26 @@ PollenRdyToFly_in_ = disp_buf%p2d(indPollenRdyToFly)%present%ptr(iCAMSdisp)
         select case(srcPollen%heatsum_params%iHeatSumType)
           case(hsDegreeDay)
             if(fu_abs(now - fu_start_of_day_utc(now)) < timestep)then ! less than timestep to midnight
-              call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indDailyTempr, &
+              call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indEndDay, indDailyTempr, &
                                  & one_day, now, timestep, srcPollen%heatsum_params)
             endif
 
           case(hsDegreeHour)
             fTmp = fu_min(now) * 60.0 + fu_sec(now)
             if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
-              call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indT2m, &
+              call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indEndDay, indT2m, &
                                  & one_hour, now, timestep, srcPollen%heatsum_params)
             endif
       
           case(hsBioDay)
-            call update_heat_sum(met_buf, disp_buf, indHS, indStartDay,indT2m, timestep, now, timestep, &
+            call update_heat_sum(met_buf, disp_buf, indHS, indStartDay, indEndDay, indT2m, timestep, now, timestep, &
                                & srcPollen%heatsum_params)
 
           case(hsSigmoidPeriodUnits)
             fTmp = fu_min(now) * 60.0 + fu_sec(now)
             if(fTmp < timestep_sec .or. (fTmp + timestep_sec > 3600))then ! less than timestep to round hour
               call update_heat_sum(met_buf, disp_buf, &
-                                 & indHS, indStartDay, indT2m, &
+                                 & indHS, indStartDay, indEndDay, indT2m, &
                                  & one_hour, now, timestep, srcPollen%heatsum_params)
             endif
           case default
@@ -1918,6 +1922,8 @@ fMassInjected_out_ = 0
     !
 !    call report(pHorizInterpMet2DispStruct%gridfrom)
 !    call report(pHorizInterpMet2DispStruct%gridto)
+    
+    iDayInYear = fu_julian_date(now)
 
     do iy = 1, ny_dispersion
       do ix = 1, nx_dispersion
@@ -1942,6 +1948,15 @@ fMassInjected_out_ = 0
         ! First the meteo thresholds, that can zero the heatsum!!!
         ! For adjoint, this all is not needed
         !
+        ! Outside the season? Then zero everything
+        if(.not. fu_if_season(iDayInYear, nint(disp_buf%p2d(indStartDay)%present%ptr(iDisp)), &
+                                        & nint(disp_buf%p2d(indEndDay)%present%ptr(iDisp))))then
+          disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0  ! no heatsum outside the season
+          disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 1.0  ! reset to prepare to the next season
+          disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp) = 0.0  ! reset
+          cycle
+        endif
+
 !        if(.not.ifAdjoint)then
           ifEms = .true.
           if(srcPollen%ifTempThr)then
@@ -2065,23 +2080,36 @@ fMassInjected_out_ = 0
             dHSdt = dHSdt * fu_hours(timestep)
           endif 
         
-          ! Total amount of pollen determined by the pre-season conditions
+          ! Total amount of pollen to release is determined by the pre-season conditions
           if((srcPollen%ifSWGrowth .or. srcPollen%ifHSGrowth) .and. (.not. ifSeasonStarted))then 
             disp_buf%p2d(indPollenTotal)%future%ptr(iDisp) = &
                   & disp_buf%p2d(indAnnualTotalCorr)%present%ptr(iDisp) * srcPollen%standardPollenTotal
             if(srcPollen%ifSWGrowth)then  
               ! Plant response to water in soil
               if(met_buf%p2d(indSoilWater)%present%ptr(iMeteo) < srcPollen%SWGrowthDeath)then
+                ! no water: no growth
                 disp_buf%p2d(indPlantGrowth)%future%ptr(iDisp) = 0.0   
               else 
                 fTmp = fu_plant_growth_SW(met_buf%p2d(indSoilWater)%present%ptr(iMeteo))
                 ! Normalization depending on whether the main driver is time or thermal time
                 if(srcPollen%iRipeningType == prHSLinear .or. srcPollen%iRipeningType == prHSNormal )then
+                  ! thermal time                  
                   fTmp = fTmp * dHSdT / disp_buf%p2d(indStartHSThr)%present%ptr(iDisp)
                 elseif(srcPollen%iRipeningType == prCDLinear .or. srcPollen%iRipeningType == prCDNormal &
                      & .or. srcPollen%iRipeningType == prCDNormDrn)then
-                  fTmp = fTmp * fu_sec(timestep) / 86400.0 / &
-                  & (disp_buf%p2d(indStartCDThr)%present%ptr(iDisp)-disp_buf%p2d(indStartDay)%present%ptr(iDisp))
+                  ! calendar day
+                  if(disp_buf%p2d(indStartCDThr)%present%ptr(iDisp) > &
+                                           & disp_buf%p2d(indStartDay)%present%ptr(iDisp))then
+                    ! both dates are on same side of 1 Jan
+                    fTmp = fTmp * fu_sec(timestep) / 86400.0 / &
+                                          & (disp_buf%p2d(indStartCDThr)%present%ptr(iDisp) - &
+                                           & disp_buf%p2d(indStartDay)%present%ptr(iDisp))
+                  else
+                    ! StartCDThresh is after 1 Jan, StartDay is before, add 365 to get them aligned
+                    fTmp = fTmp * fu_sec(timestep) / 86400.0 / &
+                                          & (disp_buf%p2d(indStartCDThr)%present%ptr(iDisp) - &
+                                           & disp_buf%p2d(indStartDay)%present%ptr(iDisp) + 365)
+                  endif
                 else 
                   call set_error('No idea how to normalize plant growth', 'compute_emission_for_pollen')
                 endif
@@ -2968,15 +2996,18 @@ call msg('Updated chill sum. Present and future sum:', sum(disp_buf%p2d(indCS)%p
     !================================================================================
 
     subroutine update_heat_sum(met_buf, disp_buf, &
-                             & indHS, indHS_StartDay, indTempr, &
+                             & indHS, indHS_StartDay, indHS_EndDay, indTempr, &
                              & aver_interval, mdl_now, mdl_timestep, heatsum_params)
       !
-      ! Updates the heat sum of all types
+      ! Updates the heat sum of all types.
+      ! The growth season is from StartDay to EndDay, both are maps of Julian days. 
+      ! Outside this interval nothing is accumulated and no emission is allowed, fields are zeroed. 
+      ! The StartDay > EndDay is OK, the season starts before 1 Jan and ends after it.
       !
       implicit none
 
       ! Imported parameters
-      integer, intent(in) :: indHS, indHS_StartDay, indTempr
+      integer, intent(in) :: indHS, indHS_StartDay, indHS_EndDay, indTempr
       type(Tfield_buffer), pointer :: met_buf, disp_buf
       type(silja_interval), intent(in) :: aver_interval, mdl_timestep
       type(silja_time), intent(in) :: mdl_now
@@ -3005,8 +3036,12 @@ call msg('Updated chill sum. Present and future sum:', sum(disp_buf%p2d(indCS)%p
           do iyDsp = 1, ny_dispersion
             do ixDsp = 1, nx_dispersion
               iDisp = ixDsp + (iyDsp-1) * nx_dispersion
-              ! Too early to do anything?
-              if(iDayInYear < disp_buf%p2d(indHS_StartDay)%present%ptr(iDisp))cycle
+              ! Outside the season? 
+              if(.not. fu_if_season(iDayInYear, nint(disp_buf%p2d(indHS_StartDay)%present%ptr(iDisp)), &
+                                              & nint(disp_buf%p2d(indHS_EndDay)%present%ptr(iDisp))))then
+                disp_buf%p2d(indHS)%present%ptr(iDisp) = 0.0  ! no heatsum outside the season
+                cycle
+              endif
               !
               ! If we are late enough in the course of the year, sum up the
               ! temperature into the degree-day or degree-hour. 
@@ -3029,8 +3064,12 @@ call msg('Updated chill sum. Present and future sum:', sum(disp_buf%p2d(indCS)%p
           do iyDsp = 1, ny_dispersion
             do ixDsp = 1, nx_dispersion
               iDisp = ixDsp + (iyDsp-1) * nx_dispersion
-              ! Too early to do anything?
-              if(iDayInYear < disp_buf%p2d(indHS_StartDay)%present%ptr(iDisp))cycle
+              ! Outside the season? 
+              if(.not. fu_if_season(iDayInYear, nint(disp_buf%p2d(indHS_StartDay)%present%ptr(iDisp)), &
+                                              & nint(disp_buf%p2d(indHS_EndDay)%present%ptr(iDisp))))then
+                disp_buf%p2d(indHS)%present%ptr(iDisp) = 0.0  ! no heatsum outside the season
+                cycle
+              endif
               iMet =  fu_grid_index(nx_meteo, ixDsp, iyDsp, pHorizInterpMet2DispStruct)
               ! T2m
               fTempr = met_buf%p2d(indTempr)%present%ptr(iMet)
@@ -3050,9 +3089,12 @@ call msg('Updated chill sum. Present and future sum:', sum(disp_buf%p2d(indCS)%p
           do iyDsp = 1, ny_dispersion
             do ixDsp = 1, nx_dispersion
               iDisp = ixDsp + (iyDsp-1) * nx_dispersion
-              !
-              ! Too early to do anything?
-              if(iDayInYear < disp_buf%p2d(indHS_StartDay)%present%ptr(iDisp))cycle
+              ! Outside the season? 
+              if(.not. fu_if_season(iDayInYear, nint(disp_buf%p2d(indHS_StartDay)%present%ptr(iDisp)), &
+                                              & nint(disp_buf%p2d(indHS_EndDay)%present%ptr(iDisp))))then
+                disp_buf%p2d(indHS)%present%ptr(iDisp) = 0.0  ! no heatsum outside the season
+                cycle
+              endif
               !
               ! If we are late enough in the course of the year, sum up the heatsum
               !
@@ -3093,6 +3135,30 @@ call msg('Updated heat sum. Present and future sum:', sum(disp_buf%p2d(indHS)%pr
 !pause
     end subroutine update_heat_sum
 
+    !===========================================================================
+  
+    logical function fu_if_season(iDayInYear, iStartDay, iEndDay)
+      !
+      ! Season is given by two parameters: StartDay and EndDay, both Julian days
+      ! Outside the season, NOTHING is allowed. Heatsum is zeroed, pollen left is reset, etc.
+      ! The season can start and end at any day, covering 1 Jan if Southern Hemisphere or
+      ! winter-flowering species.
+      !
+      implicit none
+      
+      ! imported variables
+      integer, intent(in) :: iDayInYear, iStartDay, iEndDay
+      
+      ! Is 1 jan inside the season?
+      if(iStartDay < iEndDay)then
+        ! outside
+        fu_if_season = iDayInYear >= iStartDay .and. iDayInYear <= iEndDay
+      else
+        ! inside: winter flowering or Southern Hemisphere
+        fu_if_season = iDayInYear >= iStartDay .or. iDayInYear <= iEndDay
+      endif
+    end function fu_if_season
+  
     !================================================================================
 
     real function fu_sigmoid_hsum_response_tempr(fTempr_K, sig_params) result(dHSdt)
@@ -3269,7 +3335,7 @@ call msg('Sigmoid parameters new setup')
       case(heatsum_flag, chillsum_flag, & 
          & start_calday_threshold_flag, end_calday_threshold_flag, &
          & start_heatsum_threshold_flag, end_heatsum_threshold_flag, &
-         & growth_season_start_day_flag, heatsum_cutoff_tempr_flag, &
+         & growth_season_start_day_flag, growth_season_end_day_flag, heatsum_cutoff_tempr_flag, &
          & temperature_threshold_flag, daily_temp_threshold_flag, soil_moisture_threshold_flag, &
          & pollen_left_relative_flag, pollen_total_per_m2_flag, pollen_correction_flag, pollen_rdy_to_fly_flag, &
          & heatsum_start_end_diff_flag, calday_start_end_diff_flag, plant_growth_flag)

@@ -89,6 +89,8 @@ MODULE source_terms_time_params
   INTEGER, PARAMETER, PUBLIC :: dms_source_flag = 2110
   INTEGER, PARAMETER, PUBLIC :: volcano_source_flag = 2111
   INTEGER, PARAMETER, PUBLIC :: soil_NO_source_flag = 2112
+  INTEGER, PARAMETER, PUBLIC :: road_dust_source_flag = 2113
+  INTEGER, PARAMETER, PUBLIC :: NH3_source_flag = 2114
 
   ! Vertical distribution:
   INTEGER, PARAMETER, PUBLIC :: vertically_even_distribution = 1

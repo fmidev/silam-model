@@ -57,7 +57,7 @@ contains
   subroutine run_dispersion(cloud, em_source, wdr, simrules, &
                           & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
                           & disp_dyn_shopping_list, disp_stat_shopping_list, &
-                          & outDef, &
+                          & outDef, OutVars, &
                           & meteo_ptr, disp_buf_ptr, obs_ptrs, pMeteo_input, output_buf_ptr, &
                           & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, outputMarketPtr, &
                           & tla_traj, perturbations)
@@ -81,6 +81,7 @@ contains
                                               & meteo_full_dyn_shopping_list, &
                                               & disp_dyn_shopping_list, disp_stat_shopping_list
     type(silam_output_definition), pointer :: outDef
+    type(TOutputVariables), intent(inout) :: OutVars
     type(silam_source), pointer :: em_source
     type(Tfield_buffer), pointer :: meteo_ptr, disp_buf_ptr, output_buf_ptr
     type(Tmeteo_input), pointer :: pMeteo_input
@@ -226,7 +227,7 @@ contains
       if (simrules%if_make_output) then 
         call collect_output( meteo_ptr,  &
                           & disp_buf_ptr, output_buf_ptr, cloud, now, &
-                          & OutDef, wdr, simRules%timestep, simrules%dynamicsRules%simulation_type, &
+                          & OutDef, OutVars, wdr, simRules%timestep, simrules%dynamicsRules%simulation_type, &
                           & first_output_step, .false.)
         first_output_step = .false.
         have_done_output = .true.
@@ -273,7 +274,7 @@ contains
       reftime = now + simrules%timestep / 2. + fu_meteo_time_shift(wdr)
 
       ! check if should read meteo
-      ifNeedNewData = .not. fu_if_time_covered_by_maket(meteoMarketPtr, reftime)
+      ifNeedNewData = .not. fu_if_time_covered_by_market(meteoMarketPtr, reftime)
       if(error)return
 
       CALL SYSTEM_CLOCK(time_counters(6))  !! Count time
@@ -399,7 +400,7 @@ contains
           ! if EnKF perturbs meteodata by shifting them
           !
           reftime = now + simrules%timestep / 2. + fu_meteo_time_shift(wdr)
-          ifNeedNewData = .not. fu_if_time_covered_by_maket(BCMarketPtr, reftime)
+          ifNeedNewData = .not. fu_if_time_covered_by_market(BCMarketPtr, reftime)
           ifNeedNewData = (now == simrules%startTime .or. ifNeedNewData) !! start of the run, read no matter what
 
           if (ifNeedNewData) then
@@ -791,17 +792,6 @@ contains
 
       endif ! if run dispersion
 
-      !
-      ! Store passed time and set new time of loop. If the file is not needed,
-      ! the unit will be int_missing
-      !
-      if(info_funit /= int_missing)then
-        write(info_funit,*) step_count,'  ', trim(fu_str(now))
-        call flush(info_funit)
-      endif
-
-      first_step = .false.
-    
 !      !Some estimate of load imbalance
 !     if (smpi_global_tasks > 1) then
 !        command_string = 'End-loop barrier'

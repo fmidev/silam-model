@@ -693,8 +693,9 @@ CONTAINS
                                & disp_dyn_shopping_list, disp_st_shopping_list
     TYPE(silja_time) :: now, out_time, nwp_lim1, nwp_lim2, nwp_lim1_prev, nwp_lim2_prev, &
                       & ParticleResetTime
-    INTEGER :: i, t, grib_unit, iSource, list, met_src, &
-             & u_ind, v_ind, nParticlesToReset
+    INTEGER :: i, t, grib_unit, iSource, list, met_src, u_ind, v_ind, nParticlesToReset
+    type(TOutputVariables), target :: OutVars
+    type(TOutputVariables), pointer :: pOutVars
     CHARACTER (LEN=fnlen) :: command_string = ' '
     LOGICAL :: first_step = .true., ifOK, lTmp
     ! quantities can have species attached, so size can be large
@@ -921,7 +922,7 @@ CONTAINS
     call free_work_array(q_disp_dyn)
     call free_work_array(q_disp_st)
     call free_work_array(q_out_met)
-    call free_work_array(q_out_disp)
+    call free_work_array(q_out_disp) 
     !
     ! Having model input needs, we can initialize all IO structures,
     ! pre- and post-processors
@@ -931,7 +932,7 @@ CONTAINS
                       & disp_dyn_shopping_list, disp_st_shopping_list, &
                       & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, &
                       & meteo_ptr, disp_buf_ptr, out_buf_ptr, &
-                      & OutDef, &
+                      & OutDef, OutVars, &
                       & traj_set, &  !Container for trajectories
                       & wdr, simRules%diagnosticRules, &
                       & simRules%chemicalRules, &
@@ -1012,7 +1013,7 @@ CONTAINS
                                     & simRules%dynamicsRules%smoother_factor,& 
                                     & fu_nbr_of_sources(cloud), &
                                     & fu_nbr_of_species_transport(cloud), &
-                                    & fu_nbr_of_species_aerosol(cloud), &
+                                    & fu_nbr_of_species_aerosol(cloud), &  ! nPassengers
                                     &  simRules%dynamicsRules%ifMolecDiff, &
                                     &  simRules%dynamicsRules%ifSubgridDiff )
       endif
@@ -1100,9 +1101,11 @@ CONTAINS
     
     ! So we are initialized. If defined, data assimilation will happen here.
     !
+    pOutVars => OutVars
+
     if (simRules%daRules%defined) then
       call msg('Starting data assimilation')
-      call pack_model(cloud, em_source, simrules, outDef, &
+      call pack_model(cloud, em_source, simrules, outDef, pOutVars, &
                     & meteo_ptr, disp_buf_ptr, out_buf_ptr, &
                     & meteoMarketPtr, dispersionMarketPtr, boundaryMarketPtr, outputMarketPtr, &
                     & wdr, met_dyn_shopping_list, met_dyn_full_shopping_list, &
@@ -1143,7 +1146,7 @@ CONTAINS
                         & met_dyn_shopping_list, met_dyn_full_shopping_list, &
                         & disp_dyn_shopping_list, &
                         & disp_st_shopping_list, &
-                        & outDef, &
+                        & outDef, OutVars, &
                         & meteo_ptr, disp_buf_ptr, daPointers, &
                         & pMeteo_input, out_buf_ptr, &
                         & meteoMarketPtr, dispersionMarketPtr, boundaryMarketPtr, outputMarketPtr, tla_traj)
@@ -1167,7 +1170,7 @@ CONTAINS
      if (simrules%if_make_output) then 
       call collect_output(meteo_ptr,  disp_buf_ptr, out_buf_ptr, cloud, &
                         & simrules%startTime + simrules%periodToCompute, &
-                        & OutDef, wdr, simRules%timestep, simrules%dynamicsRules%simulation_type, &
+                        & OutDef, OutVars, wdr, simRules%timestep, simrules%dynamicsRules%simulation_type, &
                         & .false., & ! Not the first output
                         & .true.)   ! Very last output  
     end if

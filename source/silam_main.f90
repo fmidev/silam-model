@@ -1,7 +1,7 @@
 PROGRAM silam_main
 
   ! Description: 
-  ! Silam version 5.3.1 model main program
+  ! Silam version 6.1 model main program
   !
   ! Input information:
   ! One input file name

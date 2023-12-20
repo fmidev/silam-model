@@ -162,8 +162,7 @@ CONTAINS
   subroutine advect_eulerian_cloud(advection_method, &
                                  & mapConc, mapPx_conc, mapPy_conc, mapPz_conc, mapAerosol, &
                                  & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, &
-                                 & interpCoefMeteo2DispHoriz, interpCoefMeteo2DispVert, &
-                                 & ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp, &
+                                 & interpCoefMeteo2DispHoriz,  ifMeteo2DispHorizInterp, &
                                  & IniBoundaryRules, pBoundaryBuffer, &
                                  & met_buf, disp_buf, &
                                  & now, timestep_sec, weight_past, &
@@ -183,8 +182,7 @@ CONTAINS
          & mapDryDep, mapCnc2m
     real, dimension(:,:), intent(in) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0
     type(THorizInterpStruct), pointer :: interpCoefMeteo2DispHoriz
-    type(TVertInterpStruct), pointer :: interpCoefMeteo2DispVert
-    logical, intent(in) :: ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp
+    logical, intent(in) :: ifMeteo2DispHorizInterp
     type(Tini_boundary_rules), intent(in) :: IniBoundaryRules
     type(TboundaryBuffer), pointer :: pBoundaryBuffer
     real, dimension(:,:), pointer :: garbage_mass                          ! (nSrc,nSpecies)
@@ -242,8 +240,7 @@ CONTAINS
                              & mapPx_conc, mapPy_conc, mapPz_conc, &
                              & mapAerosol, &
                              & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, &
-                             & interpCoefMeteo2DispHoriz, interpCoefMeteo2DispVert, &
-                             & ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp, &
+                             & interpCoefMeteo2DispHoriz, ifMeteo2DispHorizInterp, &
                              & met_buf, disp_buf, &
                              & timestep_sec, weight_past, now, &
                              & garbage_mass, &
@@ -284,8 +281,7 @@ CONTAINS
                              & mapPx_conc, mapPy_conc, mapPz_conc, &
                              & mapAerosol, &
                              & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, &
-                             & interpCoefMeteo2DispHoriz, interpCoefMeteo2DispVert, &
-                             & ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp, &
+                             & interpCoefMeteo2DispHoriz, ifMeteo2DispHorizInterp, &
                              & met_buf, disp_buf, &
                              & timestep_sec, weight_past, now, &
                              & garbage_mass, &

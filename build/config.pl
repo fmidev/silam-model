@@ -43,6 +43,8 @@ my @fixed_files = qw(fortran_libraries m1qn3);
 my %specials = (qr/cbm4_integrator/i => '-O1',
 #		qr/cbm4/ => '$(PREPROCESS)',
 		qr/netcdf/ => '-O0',
+		qr/fishpack/ => '-fno-fast-math',
+    qr/photolysis/ => '-fno-fast-math', ## Caused hardly-trackable FPE  with some setups at puhti
 #		qr/advection/ => '$(PREPROCESS)',
 #    		qr/globals/ => '$(PREPROCESS)',
 #                qr/diffusion_3d/ => '$(PREPROCESS)'
@@ -167,17 +169,12 @@ SOURCEFILE: foreach my $file_path(@sourcefiles) {
     # Now write the commands.
     if (defined($fmake)) {
 	unless ($is_program) {
-	    print $fmake "\n\t\$(F90C) \$(FFLAGS) \$(PREPROCESS) -c $special $fixed $openmp -o \$(OBJDIR)${modname}.mod.o \$(SRCDIR)${fn}";
+	    print $fmake "\n\t\$(F90C) \$(FFLAGS) \$(PREPROCESS) -c $special $fixed $openmp -o \$(OBJDIR)${modname}.mod.o -J\$(OBJDIR) \$(SRCDIR)${fn}";
 	    #print $fmake "|revision \n\t\$(F90C) \$(FFLAGS) -c $special $fixed $openmp -o \$(OBJDIR)${modname}.mod.o \$(SRCDIR)${fn}";
 	    #print $fh_make_simple "|revision \n\t\$(F90C) \$(FFLAGS) -c $special $fixed $openmp -o \$(OBJDIR)${modname}.mod.o \$(SRCDIR)${fn}";
 	    print $fh_make_simple "\n\t\$(F90C) \$(FFLAGS) \$(PREPROCESS) -c $special $fixed $openmp -o \$(OBJDIR)${modname}.mod.o \$(SRCDIR)${fn}";
-	    if ($use_semicolon) {
-		print $fmake "&& mv ${modname}.mod \$(OBJDIR)";
+      #	print $fmake "&& mv ${modname}.mod \$(OBJDIR)";
 		print $fh_make_simple "&& mv ${modname}.mod \$(OBJDIR)";
-	    } else {
-		print $fmake "\n\tmv *.mod \$(OBJDIR)";
-		print $fh_make_simple "\n\tmv *.mod \$(OBJDIR)";
-	    }
 	} else { 
 	    print $fmake "\n\t\$(F90C) \$(FFLAGS) \$(PREPROCESS)  -c $special $fixed $openmp -o \$(OBJDIR)${modname}.o \$(SRCDIR)${fn}";
 	    print $fh_make_simple "\n\t\$(F90C) \$(FFLAGS) \$(PREPROCESS) -c $special $fixed $openmp -o \$(OBJDIR)${modname}.o \$(SRCDIR)${fn}";

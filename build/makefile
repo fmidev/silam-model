@@ -13,11 +13,14 @@ PROGRAM ?= $(BRANCH)
 
 PYTHON ?= python3
 
+
 # The setup variable: if defined, compiler options will be read from
 # options.$(SETUP), and the executable will be named as $(PROGRAM).$(SETUP)
 SETUP = 
 
 SILAM_ROOT = ../
+SHELL  := env TMPDIR=$(TMPDIR) $(SHELL)
+TMPDIR ?= $(SILAM_ROOT)
 # directory with makefiles
 BUILDDIR = $(SILAM_ROOT)build/
 
@@ -29,7 +32,7 @@ PROGRAM := $(PROGRAM)$(ENDING)
 # source code.
 SRCDIR = $(SILAM_ROOT)source/
 # object and .mod files
-OBJDIR = $(SILAM_ROOT)obj/$(SETUP)/
+OBJDIR = $(TMPDIR)/obj/$(SETUP)/
 # directory for the executable
 BINDIR = $(SILAM_ROOT)bin/
 
@@ -93,34 +96,35 @@ ascii2nc: expand config_ascii2nc last.revision
 clean:
 	rm -f $(OBJDIR)*.o $(OBJDIR)*.mod $(BINDIR)$(PROGRAM)
 
-config: 	
-	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
-	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(MODEL_MAIN) $(ARCH) \
-	rm $(BUILDDIR)/sourcelist
+config:
+	mkdir -p $(OBJDIR) $(BINDIR)	
+	ls -1 $(SRCDIR)*.f90 > $(OBJDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(OBJDIR)/sourcelist $(MODEL_MAIN) $(ARCH) \
+	rm $(OBJDIR)/sourcelist
 	@echo Config OK.
 
 config_box:
-	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
-	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(BOX_MAIN) $(ARCH)
-	rm $(BUILDDIR)/sourcelist
+	ls -1 $(SRCDIR)*.f90 > $(OBJDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(OBJDIR)/sourcelist $(BOX_MAIN) $(ARCH)
+	rm $(OBJDIR)/sourcelist
 	@echo Config OK.
 
 config_grads2grib:
-	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
-	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(GRADS2GRIB_MAIN) $(ARCH) \
-	rm $(BUILDDIR)/sourcelist
+	ls -1 $(SRCDIR)*.f90 > $(OBJDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(OBJDIR)/sourcelist $(GRADS2GRIB_MAIN) $(ARCH) \
+	rm $(OBJDIR)/sourcelist
 	@echo Config OK.
 
 config_is4fires:
-	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
-	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(IS4FIRES_MAIN) $(ARCH) \
-	rm $(BUILDDIR)/sourcelist
+	ls -1 $(SRCDIR)*.f90 > $(OBJDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(OBJDIR)/sourcelist $(IS4FIRES_MAIN) $(ARCH) \
+	rm $(OBJDIR)/sourcelist
 	@echo Config OK.
 
 config_ascii2nc:
-	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
-	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(ASCII2NC_MAIN) $(ARCH) \
-	rm $(BUILDDIR)/sourcelist
+	ls -1 $(SRCDIR)*.f90 > $(OBJDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(OBJDIR)/sourcelist $(ASCII2NC_MAIN) $(ARCH) \
+	rm $(OBJDIR)/sourcelist
 	@echo Config OK.
 
 
@@ -175,7 +179,7 @@ cbm4_SOA :
 	--silam-dir=$(SRCDIR) --SOA  -u photolysis  cbm4_SOA
 
 cbm5_strato_SOA : 
-	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5013 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm5_strato_SOA \
+	KPP_HOME=$(KPP_DIR) $(PYTHON) kpp2silam.py --transf-id=5014 $(KPP2SILAM_FLAGS) --kpp-dir=$(KPP_DIR)/cbm5_strato_SOA \
 	--silam-dir=$(SRCDIR) --SOA -u photolysis --strato cbm5_strato_SOA 
 
 

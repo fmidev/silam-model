@@ -254,6 +254,7 @@ call msg('Writing lpSet link:', iLink)
 
     ! Local variables
     integer :: iz, ix, iy,  iSpecies, i1d, iFieldKind, fs
+    real :: species_trim_factor, quantum
    !    integer :: iSrc No loop over sources
     logical :: ifVertInterp, ifHorizInterp
     type(field_3d_data_ptr) :: Field3dTmp
@@ -371,8 +372,15 @@ call msg('Writing lpSet link:', iLink)
             ! ... and write the stuff down to the file, with cleaning afterwards
             !
             if (trimfactor > 0) then
+               species_trim_factor = fu_min_precision_factor(fu_material(pMM%species(iSpecies)))
+               species_trim_factor = max(species_trim_factor, trimfactor)
+               quantum = 0.
+               if (pMM%quantity == volume_mixing_ratio_flag) &
+                   quantum = molcncEC2vmr * fu_low_conc_threshold_material(fu_material(pMM%species(iSpecies)))
                DO iz = 1, fu_nbrOfLevels(vertOut)
-                     call trim_precision(field3dTmp%p2d(iz)%ptr(1:fs), trimfactor, real_missing)
+                     call trim_precision(field3dTmp%p2d(iz)%ptr(1:fs), species_trim_factor, real_missing)
+                     if (quantum > 0.) &
+                       & call trim_precision_abs(field3dTmp%p2d(iz)%ptr(1:fs), quantum, real_missing)
                END DO  ! iz
             endif
             DO iz = 1, fu_nbrOfLevels(vertOut)
@@ -422,6 +430,16 @@ call msg('Writing lpSet link:', iLink)
               !
               ! Prepare field ids for all levels.
               !
+              if (trimfactor > 0) then
+                 species_trim_factor = fu_min_precision_factor(fu_material(pMM%species(iSpecies)))
+                 species_trim_factor = max(species_trim_factor, trimfactor)
+                 quantum = 0.
+                 if (pMM%quantity == volume_mixing_ratio_flag) then
+                     quantum = molcncEC2vmr * fu_low_conc_threshold_material(fu_material(pMM%species(iSpecies)))
+                 elseif (pMM%quantity == optical_column_depth_flag) then
+                   quantum = 1./1024. ! ocd
+                 endif
+              endif
               do iz = 1, pMM%n3d
                 field3dTmp%p2d(1)%idPtr = fu_set_field_id(fmi_silam_src, &
                                              & pMM%quantity, &
@@ -449,7 +467,9 @@ call msg('Writing lpSet link:', iLink)
                 ! ... and write the stuff down to the file
                 !
                 if (trimfactor > 0) then
-                    call trim_precision(field3dTmp%p2d(1)%ptr(1:fs), trimfactor, real_missing)
+                    call trim_precision(field3dTmp%p2d(1)%ptr(1:fs), species_trim_factor, real_missing)
+                     if (quantum > 0.) &
+                       & call trim_precision_abs(field3dTmp%p2d(iz)%ptr(1:fs), quantum, real_missing)
                 endif
 
                 if(iGrads /= int_missing) CALL write_next_field_to_gradsfile(iGrads, &
@@ -485,6 +505,16 @@ call msg('Writing lpSet link:', iLink)
               !
               ! Prepare field ids for all levels
               !
+              if (trimfactor > 0) then
+                 species_trim_factor = fu_min_precision_factor(fu_material(pMM%species(iSpecies)))
+                 species_trim_factor = max(species_trim_factor, trimfactor)
+                 quantum = 0.
+                 if (pMM%quantity == volume_mixing_ratio_flag) then
+                     quantum = molcncEC2vmr * fu_low_conc_threshold_material(fu_material(pMM%species(iSpecies)))
+                 elseif (pMM%quantity == optical_column_depth_flag) then
+                   quantum = 1./1024. ! ocd
+                 endif
+              endif
               do iz = 1, pMM%n3d
                 field3dTmp%p2d(1)%idPtr = fu_set_field_id(fmi_silam_src, &
                                              & pMM%quantity, &
@@ -512,7 +542,9 @@ call msg('Writing lpSet link:', iLink)
                 ! ... and write the stuff down to the file
                 !
                 if (trimfactor > 0) then
-                    call trim_precision(field3dTmp%p2d(1)%ptr(1:fs), trimfactor, real_missing)
+                    call trim_precision(field3dTmp%p2d(1)%ptr(1:fs), species_trim_factor, real_missing)
+                    if (quantum > 0.) &
+                       & call trim_precision_abs(field3dTmp%p2d(1)%ptr(1:fs), quantum, real_missing)
                 endif
 
                 if(iGrads /= int_missing) CALL write_next_field_to_gradsfile(iGrads, &
@@ -1710,11 +1742,11 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
     type(silja_grid), pointer :: pGrid
     type(Tmass_map), pointer :: pMap
     type(silam_vertical) :: vertIn, vertTmp
-    type(silam_sp) :: spTmp
     type(silam_species) :: species
     type(silja_time), dimension(:), pointer ::  timeLst
     type(silja_field_id),dimension(:), pointer :: idList
     type(silam_vertical), dimension(:), pointer :: verticals
+    character (len=fnlen) :: chTmp
     character(len = *), parameter :: sub_name = 'update_mass_map_from_file'
     
     
@@ -2129,7 +2161,13 @@ call msg('Ave of GRADS, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%g
             
             call get_netcdf_verticals(uIn, fu_quantity(id), fu_species(id), verticals, nTmp)
             if (nTmp /= 1)then
-              call set_error('Strange number of verticals for a variable', sub_name)
+              chTmp = 'Strange number of verticals for a variable: '//trim(fu_str(nTmp))
+              call msg_warning(chTmp, sub_name)
+              call report(id)
+              do iTmp = 1,nTmp
+                call report(verticals(iTmp))
+              end do
+              call set_error(chTmp, sub_name)
               return
             endif
    
@@ -2319,20 +2357,10 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
       
         call msg('Making test field (update_mass_map_from_file):' + chFName)
 
-        spTmp%sp => fu_work_string()
-        
         ! Find the right map - need the quantity
-        read(unit=chFName, iostat=uIn, fmt=*) spTmp%sp
-        if(fu_fails(uIn == 0,'Cannot read quantity name from:'+chFName, sub_name))return
-        call decode_id_params_from_io_str(spTmp%sp, &     ! string to decode
-                                        & .false., &      ! ifMultiLevel
-                                        & iVar, &         ! decoded quantity
-                                        & species, &      ! decoded species
-                                        & .true.)         ! scream if fail
-        call free_work_array(spTmp%sp)
-        if(fu_fails(iVar /= int_missing,'Strange quantity name in:' + chFName, sub_name))return
 
-        id = fu_set_field_id_simple(fmi_silam_src, iVar, timeOfMap, surface_level, species)
+        call make_test_field(chFName,  id,  dataIn,  timeOfMap,  zero_interval, dispersion_grid)
+
 
         call find_mass_map_4_input_id(ptrMap, nMaps, timeOfMap, id, iMap, &
                                     & iSubst, iMode, iWave, conversion_type)

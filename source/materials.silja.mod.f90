@@ -57,6 +57,7 @@ MODULE materials
 
   public fu_name
   public fu_mole_mass
+  public fu_min_precision_factor
   public fu_dry_part_density
   public fu_wet_particle_features
   public fu_half_life
@@ -74,7 +75,6 @@ MODULE materials
   public fu_n_opt_subst
   public fu_names_opt_subst
   public fu_fractions_opt_subst
-  public fu_low_mass_threshold
   public fu_basic_mass_unit
   public fu_set_named_amount
   public fu_pollen_taxon_name
@@ -86,6 +86,7 @@ MODULE materials
   public pollen_break_chem_reacts_ptr
   public set_pollen_taxon_name
   public set_pollen_material_type 
+  public fu_low_conc_threshold_material
 
   public fu_deliquescence_humidity
 !  ! temporary fix to make this work with passive substance
@@ -124,7 +125,6 @@ MODULE materials
 !  private fu_unit_type
   private fu_factor_to_basic_unit_mater
   private fu_check_new_material
-  private fu_low_mass_threshold_material
   private fu_del_humid_of_material
   private fu_wet_particle_simple
   private fu_wet_particle_Kelvin
@@ -215,10 +215,6 @@ MODULE materials
     module procedure report_reaction_data
     module procedure report_pollen_data
     module procedure report_optical_data
-  end interface
-
-  interface fu_low_mass_threshold
-     module procedure fu_low_mass_threshold_material
   end interface
 
   interface fu_wet_particle_features
@@ -351,8 +347,8 @@ MODULE materials
     TYPE(silam_nuclide), pointer         :: nuc_data  => null()
     type(Tpollen_material), pointer :: pollen  => null()
     type(Toptical_features), pointer:: optic_data  => null()
-    real :: low_mass_thrsh = real_missing
-    character(len=substNmLen) :: chLow_mass_thrsh_unit = ''
+    real :: low_conc_thrsh = real_missing
+    real :: min_precision_factor = real_missing  !! Some substances like ones or N2O or CH4 need higher precision -- force it
   END TYPE silam_material
 
 !  type(silam_material), public, parameter :: material_missing = silam_material( &
@@ -461,7 +457,8 @@ CONTAINS
     material%defined = silja_false
     material%ifAerosolPossible = .false.
     material%ifGasPossible = .false.
-    material%low_mass_thrsh = real_missing
+    material%low_conc_thrsh = real_missing
+    material%min_precision_factor = real_missing
     material%aerosol_param = aerosol_param_missing
     material%gas_dep_param = gas_depositon_missing
     nullify(material%reaction_data)
@@ -680,42 +677,25 @@ CONTAINS
       !
       integer :: iStat, iTmp, nItems
       type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
-      type(silam_sp) :: sp
+      character(len=fnlen) :: sp
       character (len=*), parameter ::sub_name = "set_substance"
 
       ifDefaultDep = .False.
-
-      sp%sp => fu_work_string()
 
       !
       ! Basic parameters
       !
       pSubst%name = fu_content(nlSubst,'chemical_name')
       pSubst%mole_mass = fu_set_named_value(fu_content(nlSubst,'molar_mass'))
-      call set_named_value_and_unit(fu_content(nlSubst,'low_concentration_threshold'), &
-                                  & pSubst%low_mass_thrsh, &
-                                  & pSubst%chLow_mass_thrsh_unit)
+
       if(error)return
 
-      !RISTO: To get the low_concentration_thresholds to moles/m3 in module midAtm something like this is needed. But this does not work:
-      !pSubst%low_mass_thrsh = pSubst%low_mass_thrsh * &
-      !                      & fu_factor_to_basic_unit_mater(pSubst%chLow_mass_thrsh_unit, fu_basic_mass_unit(pSubst), pSubst)
-      !
-      !RISTO TEST: The lines below just illustrates that the low concentration threshold does not work in proper units, but
-      !            rather takes the numerical value from silam_chemical.dat and uses the basic unit for the species.
-      !chDescrUnit = fu_basic_mass_unit(cocktail_descr) + '/sec'
-      !write(*,"(A,3X,A10,3X,F8.6,3X,E12.4,3X,A8,3X,A8,3X,A11)") 'RISTOTEST  : ', &
-      !     & trim(pSubst%name), pSubst%mole_mass, pSubst%low_mass_thrsh, trim(pSubst%chLow_mass_thrsh_unit), &
-      !     & trim(fu_basic_mass_unit(pSubst)), trim(fu_basic_mass_unit(pSubst)+'/m3')
-      !
-      !The following attemp to change to correct units does not work either!!!
-      !pSubst%low_mass_thrsh = pSubst%low_mass_thrsh * fu_conversion_factor_material(pSubst%chLow_mass_thrsh_unit, fu_basic_mass_unit(pSubst) + '/m3', pSubst)
-      !pSubst%chLow_mass_thrsh_unit = fu_basic_mass_unit(pSubst) + '/m3'
-      !write(*,"(A,3X,A10,3X,F8.6,3X,E12.4,3X,A8,3X,A8,3X,A11)") 'RISTOTEST2 : ', &
-      !     & trim(pSubst%name), pSubst%mole_mass, pSubst%low_mass_thrsh, trim(pSubst%chLow_mass_thrsh_unit), &
-      !     & trim(fu_basic_mass_unit(pSubst)), trim(fu_basic_mass_unit(pSubst)+'/m3')
-      !fu_conversion_factor_material(chUnitFrom, chUnitTo, material)
-      !END RISTO TEST
+      sp = fu_content(nlSubst, 'min_precision_factor')
+      if (len_trim(sp) > 0) then
+        pSubst%min_precision_factor = fu_content_real(nlSubst, 'min_precision_factor')
+      else
+        pSubst%min_precision_factor = real_missing
+      endif
 
       !
       ! Somewhat clumsy: gas or aerosol
@@ -816,13 +796,13 @@ CONTAINS
         !
         call get_items(nlSubst, 'reaction_first_order', pItems, nItems)
         do iTmp = 1, nItems
-          sp%sp = fu_content(pItems(iTmp))
-          if(len_trim(sp%sp) < 1)then
+          sp = fu_content(pItems(iTmp))
+          if(len_trim(sp) < 1)then
             pSubst%reaction_data%reaction(iTmp)%alpha = real_missing
             pSubst%reaction_data%reaction(iTmp)%beta = real_missing
             pSubst%reaction_data%reaction(iTmp)%activation_energy_NPT = real_missing
           else
-            read(unit=sp%sp,fmt=*,iostat=iStat)pSubst%reaction_data%reaction(iTmp)%alpha, &
+            read(unit=sp,fmt=*,iostat=iStat)pSubst%reaction_data%reaction(iTmp)%alpha, &
                                              & pSubst%reaction_data%reaction(iTmp)%beta, &
                                              & pSubst%reaction_data%reaction(iTmp)%activation_energy_NPT
           endif
@@ -834,14 +814,14 @@ CONTAINS
         !
         call get_items(nlSubst, 'reaction_second_order', pItems, nItems)
         do iTmp = 1, nItems
-          sp%sp = fu_content(pItems(iTmp))
-          if(len_trim(sp%sp) < 1)then
+          sp = fu_content(pItems(iTmp))
+          if(len_trim(sp) < 1)then
             pSubst%reaction_data%reaction(iTmp)%alpha = real_missing
             pSubst%reaction_data%reaction(iTmp)%beta = real_missing
             pSubst%reaction_data%reaction(iTmp)%activation_energy_NPT = real_missing
             pSubst%reaction_data%reaction(iTmp)%reaction_agent1 = ''
           else
-            read(unit=sp%sp,fmt=*,iostat=iStat)pSubst%reaction_data%reaction(iTmp)%reaction_agent1, &
+            read(unit=sp,fmt=*,iostat=iStat)pSubst%reaction_data%reaction(iTmp)%reaction_agent1, &
                                              & pSubst%reaction_data%reaction(iTmp)%alpha, &
                                              & pSubst%reaction_data%reaction(iTmp)%beta, &
                                              & pSubst%reaction_data%reaction(iTmp)%activation_energy_NPT
@@ -853,15 +833,15 @@ CONTAINS
         !
         call get_items(nlSubst, 'reaction_third_order', pItems, nItems)
         do iTmp = 1, nItems
-          sp%sp = fu_content(pItems(iTmp))
-          if(len_trim(sp%sp) < 1)then
+          sp = fu_content(pItems(iTmp))
+          if(len_trim(sp) < 1)then
             pSubst%reaction_data%reaction(iTmp)%alpha = real_missing
             pSubst%reaction_data%reaction(iTmp)%beta = real_missing
             pSubst%reaction_data%reaction(iTmp)%activation_energy_NPT = real_missing
             pSubst%reaction_data%reaction(iTmp)%reaction_agent1 = ''
             pSubst%reaction_data%reaction(iTmp)%reaction_agent2 = ''
           else
-            read(unit=sp%sp,fmt=*,iostat=iStat)pSubst%reaction_data%reaction(iTmp)%reaction_agent1, &
+            read(unit=sp,fmt=*,iostat=iStat)pSubst%reaction_data%reaction(iTmp)%reaction_agent1, &
                                              & pSubst%reaction_data%reaction(iTmp)%reaction_agent2, &
                                              & pSubst%reaction_data%reaction(iTmp)%alpha, &
                                              & pSubst%reaction_data%reaction(iTmp)%beta, &
@@ -930,12 +910,12 @@ CONTAINS
       !
       ! Radiological data - for radioactive nuclides only
       !
-      sp%sp = fu_content(nlSubst,'half_life_period')
-      if(len_trim(sp%sp) > 0)then
+      sp = fu_content(nlSubst,'half_life_period')
+      if(len_trim(sp) > 0)then
         allocate(pSubst%nuc_data, stat=iStat)
         if(fu_fails(iStat == 0, 'Failed to allocate nuclide data',sub_name))return
         
-        call set_nuclide_from_namelist(nlSubst, pSubst%nuc_data) !, sp%sp, sp%sp, sp%sp)
+        call set_nuclide_from_namelist(nlSubst, pSubst%nuc_data) !, sp, sp, sp)
         !
         ! For now, we shall no distinguish the details of deposition features of nuclides
         ! Just check if they are deposible or not
@@ -967,22 +947,22 @@ CONTAINS
       !
       ! Pollen data. Nullify pointer if absent
       !
-      sp%sp = fu_content(nlSubst,'pollen_material_type')
-      if(len_trim(sp%sp) > 0)then
+      sp = fu_content(nlSubst,'pollen_material_type')
+      if(len_trim(sp) > 0)then
         allocate(pSubst%pollen, stat=iStat)
         if(iStat /= 0)then
           call set_error('Failed to allocate pollen data',sub_name)
           return
         endif
-        if(fu_str_u_case(sp%sp) == 'POLLEN_GRAINS')then
+        if(fu_str_u_case(sp) == 'POLLEN_GRAINS')then
           pSubst%pollen%material_type = pollenGrains
-        elseif(fu_str_u_case(sp%sp) == 'POLLEN_ALLERGEN')then
+        elseif(fu_str_u_case(sp) == 'POLLEN_ALLERGEN')then
           pSubst%pollen%material_type = pollenAllergen
-        elseif(fu_str_u_case(sp%sp) == 'FREE_ALLERGEN')then
+        elseif(fu_str_u_case(sp) == 'FREE_ALLERGEN')then
           pSubst%pollen%material_type = freeAllergen
         else
           pSubst%pollen%material_type = int_missing
-          call set_error(fu_connect_strings('Unknown pollen material type:',sp%sp),sub_name)
+          call set_error(fu_connect_strings('Unknown pollen material type:',sp),sub_name)
           return
         endif
         
@@ -1015,8 +995,8 @@ CONTAINS
               return
             endif
             do iTmp = 1, nItems
-              sp%sp = fu_content(pItems(iTmp))
-              read(unit=sp%sp,fmt=*,iostat=iStat)pSubst%pollen%break_agents(nItems), &
+              sp = fu_content(pItems(iTmp))
+              read(unit=sp,fmt=*,iostat=iStat)pSubst%pollen%break_agents(nItems), &
                                                & pSubst%pollen%break_rates(nItems)
             end do
           else
@@ -1031,8 +1011,8 @@ CONTAINS
       !
       ! Optical data
       !
-      sp%sp = fu_content(nlSubst,'number_of_reference_subst_in_mixture')
-      if(len_trim(sp%sp) > 0)then
+      sp = fu_content(nlSubst,'number_of_reference_subst_in_mixture')
+      if(len_trim(sp) > 0)then
         iTmp = fu_content_int(nlSubst,'number_of_reference_subst_in_mixture')
         allocate(pSubst%optic_data, stat=iStat)
         if(iStat /= 0)then
@@ -1046,19 +1026,24 @@ CONTAINS
           call set_error('Failed to allocate optical features arrays',sub_name)
           return
         endif
-        sp%sp = fu_content(nlSubst,'names_of_ref_subst_in_mixture')
-        read(unit=sp%sp,fmt=*,iostat=iStat) &
+        sp = fu_content(nlSubst,'names_of_ref_subst_in_mixture')
+        read(unit=sp,fmt=*,iostat=iStat) &
                 & (pSubst%optic_data%chOpticStdSubst(jTmp),jTmp = 1,pSubst%optic_data%nOptSubst)
-        sp%sp = fu_content(nlSubst,'fractions_of_ref_subst_in_mixture')
-        read(unit=sp%sp,fmt=*,iostat=iStat) &
+        sp = fu_content(nlSubst,'fractions_of_ref_subst_in_mixture')
+        read(unit=sp,fmt=*,iostat=iStat) &
                 & (pSubst%optic_data%fractionOptStdSubst(jTmp),jTmp = 1,pSubst%optic_data%nOptSubst)
       else
         nullify(pSubst%optic_data)
       endif
 
+      !!! Should be set after pllen_material, otherwise fu_basic_mass_unit produces nonsense
+      call set_named_value_and_unit(fu_content(nlSubst,'low_concentration_threshold'), &
+                                  & pSubst%low_conc_thrsh,  sp)
+      pSubst%low_conc_thrsh = pSubst%low_conc_thrsh & 
+                       & * fu_conversion_factor_material(sp, fu_basic_mass_unit(pSubst) + '/m3', pSubst)
+
+
       pSubst%defined = silja_true
-      
-      call free_work_array(sp%sp)
       
     end subroutine set_substance
 
@@ -1457,7 +1442,7 @@ CONTAINS
       call write_namelist_item('LIST',material%name)
       call write_namelist_item('chemical_name',material%name)
       call write_namelist_item('molar_mass',material%mole_mass)
-      write(unit=sp%sp,fmt='(E9.3,1x,A10)')material%low_mass_thrsh, trim(material%chLow_mass_thrsh_unit)
+      write(unit=sp%sp,fmt='(E9.3,1x,A10)')material%low_conc_thrsh, trim(fu_basic_mass_unit_material(material))//"/m3"
       call write_namelist_item('low_concentration_threshold',sp%sp)
       
       if(material%ifAerosolPossible)then
@@ -1864,6 +1849,13 @@ CONTAINS
     type(silam_material), intent(in) :: material
     mass = material%mole_mass
   end function fu_mole_mass_of_material
+
+  !=======================================================================
+  real function fu_min_precision_factor(material) result (factor)
+    implicit none
+    type(silam_material), intent(in) :: material
+    factor = material%min_precision_factor
+  end function fu_min_precision_factor
 
   !=======================================================================
   real function fu_dry_part_dens_of_material(material) result (dens)
@@ -2522,7 +2514,7 @@ CONTAINS
 
   !******************************************************************************
 
-  function fu_low_mass_threshold_material(material) result(thrsh)
+  function fu_low_conc_threshold_material(material) result(thrsh)
     ! 
     ! Return the low mass threshold for the material. This is the last
     ! resort for defining one for the species.
@@ -2530,8 +2522,8 @@ CONTAINS
     implicit none
     type(silam_material), intent(in) :: material
     real :: thrsh
-    thrsh = material%low_mass_thrsh
-  end function fu_low_mass_threshold_material
+    thrsh = material%low_conc_thrsh
+  end function fu_low_conc_threshold_material
 
   !************************************************************************************
 

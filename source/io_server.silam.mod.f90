@@ -135,6 +135,8 @@ module io_server
     type(TOutputList) :: MeteoOutLst, DispOutLst, MassMapOutLst  ! Lists of output quantities
     type(silja_time) :: ini_time             ! Start of simulations
     TYPE(silja_interval) :: timestep, dump_timestep  ! output timesteps - main and for technical dump
+    logical :: if0thDump !! dump immediately after init: needed for debug only
+    integer :: lastDump !! last dump number, no dumps after that..
     TYPE(silja_interval) :: rates_dump_timestep !Dump step for reaction rates
     integer :: iOutTimesType                 ! REGULAR or special occasions
 !    TYPE(silja_grid) :: grid                 ! horizontal grid of output
@@ -160,7 +162,9 @@ module io_server
 
   TYPE (TOutputRules) , public, parameter :: OutputRules_missing = &
         & TOutputRules(OutputList_missing, OutputList_missing, OutputList_missing,&
-              & time_missing, interval_missing,  interval_missing, interval_missing, int_missing,&
+              & time_missing, interval_missing,  interval_missing, &
+              & .false. , int_missing, &
+              & interval_missing, int_missing,&
               & .False.,.False.,silja_undefined, silja_undefined, &
               & .False.,.False.,.False., int_missing, &
               & int_missing, int_missing, int_missing, int_missing,&
@@ -216,12 +220,13 @@ module io_server
 !    real, dimension(:), pointer :: dx, dy, dz ! Sizes of the output grid cells - permanent data
 !    type(field_3d_data_ptr) :: field3d, cnc_air   ! nn 1d array pointers and 1d array of field ids
     type(silja_time) :: lastOutputTime, LastDumpOutputTime, LastRatesDumpOutputTime
+    integer :: nextDumpNo
     integer :: iNbrCollection ! How many times variables were collected to output stacks
     type(THorizInterpStruct), pointer :: interpCoefMeteo2OutHoriz, & ! meteofields to output ones
                                        & interpCoefDisp2OutHoriz  ! dispersion fields o output ones
     type(TVertInterpStruct), pointer :: interpCoefMeteo2OutVert, interpCoefDisp2OutVert
   end type TOutputVariables
-  private TOutputVariables
+!  private TOutputVariables
   !
   ! Output definition uses the above structures:
   !
@@ -235,7 +240,7 @@ module io_server
   type(silam_output_definition) , public, parameter :: output_definition_missing = &
                 & silam_output_definition(OutputParams_missing,OutputRules_missing)
 
-  type(TOutputVariables), private, target, save :: OutVars
+!  type(TOutputVariables), private, target, save :: OutVars
 
 CONTAINS
 
@@ -371,7 +376,7 @@ CONTAINS
     OV%dispStack = stack_missing
     OV%meteoTmpStack = stack_missing
     if(allocated(OV%dispTmpStack)) deallocate(OV%dispTmpStack)
-    nullify(OutVars%pMeteoStack)
+    nullify(OV%pMeteoStack)
     call set_MML_missing(OV%MassMapLinks)
     call set_LMML_missing(OV%Lagr2MMLinks)
     OV%lastOutputTime = time_missing
@@ -481,14 +486,8 @@ CONTAINS
                                            & (index(strTmp,'M') > 0), dx, dy)
 
     elseif(fu_str_u_case(fu_content(nlSetup,'grid_method')) == 'CUSTOM_GRID')then
-      !
-      ! CUSTOM output grid: non-negotiable
-      !
-        output_grid = fu_set_grid(nlSetup)
+        output_grid = fu_set_grid(nlSetup) !Set it here
     elseif(fu_str_u_case(fu_content(nlSetup,'grid_method')) == 'METEO_GRID')then
-      !
-      ! Output grid is a derivative of emission or meteorology
-      !
       output_grid = grid_missing  ! Cannot determine it now. Leave for later
     else
       call set_error('Unknown output grid type:' + fu_content(nlSetup,'grid_method'), &
@@ -519,11 +518,20 @@ CONTAINS
     !
     ! There can be some dump requested
     !
-    call msg('Dump Interval:' + fu_content(nlSetup,'dump_time_step'), &
-           & len_trim(fu_content(nlSetup,'dump_time_step')))
-    if(len_trim(fu_content(nlSetup,'dump_time_step')) > 0)then
-      OutDef%Rules%dump_timestep = fu_set_named_interval(fu_content(nlSetup,'dump_time_step')) * &
-                                 & real(time_sign)
+
+    strTmp = fu_content(nlSetup,'dump_time_step')
+    iTmp = len_trim(strTmp)
+    call msg('Dump Interval: ' // trim(strTmp),  iTmp)
+    if (iTmp > 0) then
+      OutDef%Rules%dump_timestep = fu_set_named_interval(strTmp) * real(time_sign)
+      OutDef%Rules%if0thDump = ( fu_str_u_case(fu_content(nlSetup,'if_0th_dump')) == 'YES') !! Disable by default
+      strTmp = fu_content(nlSetup,'last_dump_no')
+      iTmp = len_trim(strTmp) 
+      if (iTmp > 0) then
+        OutDef%Rules%lastDump = fu_content_int(nlSetup,'last_dump_no') 
+      else
+        OutDef%Rules%lastDump = int_missing
+      endif
     else
       OutDef%Rules%dump_timestep = interval_missing
     endif
@@ -911,6 +919,106 @@ CONTAINS
     
 
   !*****************************************************************************
+
+!!    !*******************************************************
+!!   
+!!   subroutine set_grids_and_verticals(nlSetupGrp, wdr)
+!!       !
+!!       ! Slightly dumber part of  global_io_init that decides on grids and verticals
+!!       !
+!! 
+!!       implicit none
+!!       character(len = *), parameter :: sub_name = 'grids_and_verticals'
+!!     ! code
+!! 
+!! 
+!!   end subroutine grids_and_verticals
+!! 
+ !*******************************************************
+
+  subroutine swap_log_file(OutDef, wdr)
+    !
+    ! Prepare the log file. It will be opened in the directory of the first output,
+    ! which means the first source, if they are split.
+    ! Then, the currently collected log information will be copied to the new log file
+    ! and the old log will be deleted
+    !
+    implicit none
+    type(silam_output_definition), intent(in) :: OutDef
+    type(silja_wdr), intent(in) :: wdr
+
+    integer :: iTmp, al_status, ii, jj
+    character(len=fnlen) :: strTmp
+    character (len=3) :: taskNumber
+
+
+    character(len = *), parameter :: sub_name = 'swap_log_file'
+  ! codename
+    strTmp = fu_FNm(OutDef%Rules%outTemplate, &
+                     & fu_start_time(wdr), &    ! ini_time
+                     & fu_start_time(wdr), &    ! anal_time
+                     & zero_interval, & ! forecast length
+                     & OutDef%Params%chCaseNm, &
+                     & 'ALL_SRCS')   !log is the same for all sources
+                   !OutDef%Params%chSrcNm(1)) cannot use source name - can be timezone-related 
+    if(error)return                                                           ! and defined later
+
+    !---------------------------------------------------------------
+    !
+    ! Having a common log file for MPI parallel runs is not practical,
+    ! so for them we open a log file with the task number added just
+    ! before the .log suffix.
+    !
+    iTmp = index(strTmp,dir_slash,.true.)
+    call create_directory_tree(strTmp(1:iTmp-1))
+    if(error)then
+      call msg('Failed creating the directory from:' + strTmp)
+      call msg('Note dir_slash:' + dir_slash)
+      return
+    endif
+    run_log_name = strTmp(1:iTmp) + 'run_' + strTmp(iTmp+1:len_trim(strTmp))
+
+    if(smpi_is_mpi_version())then
+      write(taskNumber,'(I3.3)') smpi_global_rank
+      ii = int(silja_time_to_real8(fu_wallclock()))
+      ! Just use what we have to ensure that the string is the same
+      call msg("Synchronizing tmp file prefix", ii)
+      call smpi_allreduce_max_int(ii, jj, MPI_COMM_WORLD)
+      run_log_tmp_name = run_log_name+'_' + &
+                & fu_str(real8_to_silja_time(real(jj,kind=8)),.false.)+ '_' + taskNumber
+      run_log_name = run_log_name + '_' + taskNumber
+    else
+       run_log_tmp_name=run_log_name+'_'+ fu_str(fu_wallclock(),.false.)
+    endif
+    run_log_name=run_log_name+'.log'
+    run_log_tmp_name=run_log_tmp_name+'.tmp.log'
+    call msg("Preparing to swap log file to: "//trim(run_log_tmp_name))
+
+    iTmp = fu_next_free_unit()
+    open(iTmp, file = run_log_tmp_name, iostat = al_status)
+    if(al_status /= 0)then
+      call msg("Can't open for writing: "//trim(run_log_tmp_name))
+      call set_error('Failed to open run.log file','global_io_init')
+      return
+    endif
+
+    call copy_text_file(run_log_funit, iTmp)  ! Copy currently open log file
+
+    close(run_log_funit,status = 'delete',  iostat = al_status)
+
+    if(al_status /= 0)then  !!! Failed to close
+      call msg("Can't delete file..., al_status = ", al_status)
+      run_log_name=""
+      inquire(unit=run_log_funit, NAME=run_log_name) !! going to crash anyway. Reuse variable to get the name..
+      call msg("Can't delete file: "//trim(run_log_name))
+      call set_error('Failed to remove old run.log file','global_io_init')
+      return
+    endif
+    run_log_funit = iTmp
+
+  end subroutine swap_log_file
+
+
   !*****************************************************************************
 
   subroutine global_io_init(input_shopping_list, full_shopping_list, &
@@ -918,7 +1026,7 @@ CONTAINS
                           & disp_dyn_shopping_list, disp_stat_shopping_list, &
                           & meteoMarketPtr, dispersionMarketPtr, outputMarketPtr, &
                           & met_buf, disp_buf, out_buf, &
-                          & OutDef, &
+                          & OutDef, OutVars, &
                           & traj_set, &  !Container for trajectories
                           & wdr, diagnostic_rules, &
                           & chemRules, dynRules, &
@@ -947,6 +1055,7 @@ CONTAINS
     integer, intent(in) :: iAccuracy
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, outputMarketPtr
     type(silam_output_definition), pointer :: OutDef
+    type(TOutputVariables), intent(inout) :: OutVars
     type(silja_wdr), pointer :: wdr
     type(Tdiagnostic_rules), intent(inout) :: diagnostic_rules
     type(Tchem_rules), intent(inout) :: chemRules
@@ -971,7 +1080,6 @@ CONTAINS
     real, dimension(:), pointer :: pTmp
     type(Tsilam_namelist), pointer :: nlSetup, nlPtr
     character (len=5) :: chTmp
-    character (len=3) :: taskNumber
     character (len=clen) :: chOutGridType, chDispGridType
     type(silam_vertical) :: vertTmp
     type(silam_vertical), pointer :: pVertTmp
@@ -1080,104 +1188,9 @@ CONTAINS
         exit
       endif
     end do
-    !
-    ! Prepare the log file. It will be opened in the directory of the first output,
-    ! which means the first source, if they are split.
-    ! Then, the currently collected log information will be copied to the new log file
-    ! and the old log will be deleted
-    !
-    strTmp%sp = fu_FNm(OutDef%Rules%outTemplate, &
-                     & fu_start_time(wdr), &    ! ini_time
-                     & fu_start_time(wdr), &    ! anal_time
-                     & zero_interval, & ! forecast length
-                     & OutDef%Params%chCaseNm, &
-                     & 'ALL_SRCS')   !log is the same for all sources
-                   !OutDef%Params%chSrcNm(1)) cannot use source name - can be timezone-related 
-    if(error)return                                                           ! and defined later
 
-    !---------------------------------------------------------------
-    !
-    ! Having a common log file for MPI parallel runs is not practical,
-    ! so for them we open a log file with the task number added just
-    ! before the .log suffix.
-    !
-    iTmp = index(strTmp%sp,dir_slash,.true.)
-    call create_directory_tree(strTmp%sp(1:iTmp-1))
-    if(error)then
-      call msg('Failed creating the directory from:' + strTmp%sp)
-      call msg('Note dir_slash:' + dir_slash)
-      return
-    endif
-    run_log_name = strTmp%sp(1:iTmp) + 'run_' + strTmp%sp(iTmp+1:len_trim(strTmp%sp))
-
-    if(smpi_is_mpi_version())then
-      call msg("Synchronizing tmp file prefix", i)
-      write(taskNumber,'(I3.3)') smpi_global_rank
-      i = int(silja_time_to_real8(fu_wallclock()))
-      ! Just use what we have to ensure that the string is the same
-      call msg("Synchronizing tmp file prefix", i)
-      call smpi_allreduce_max_int(i, j, MPI_COMM_WORLD)
-      run_log_tmp_name = run_log_name+'_' + &
-                & fu_str(real8_to_silja_time(real(j,kind=8)),.false.)+ '_' + taskNumber
-      run_log_name = run_log_name + '_' + taskNumber
-    else
-       run_log_tmp_name=run_log_name+'_'+ fu_str(fu_wallclock(),.false.)
-    endif
-    run_log_name=run_log_name+'.log'
-    run_log_tmp_name=run_log_tmp_name+'.tmp.log'
-    call msg("Preparing to swap log file to: "//trim(run_log_tmp_name))
-
-    iTmp = fu_next_free_unit()
-    open(iTmp, file = run_log_tmp_name, iostat = al_status)
-    if(al_status /= 0)then
-      call msg("Can't open for writing: "//trim(run_log_tmp_name))
-      call set_error('Failed to open run.log file','global_io_init')
-      return
-    endif
-    call copy_text_file(run_log_funit, iTmp)  ! Copy currently open log file
-
-    close(run_log_funit,status = 'delete',  iostat = al_status)
-
-    if(al_status /= 0)then  !!! Failed to close
-      call msg("Can't delete file..., al_status = ", al_status)
-      run_log_name=""
-      inquire(unit=run_log_funit, NAME=run_log_name) !! going to crash anyway. Reuse variable to get the name..
-      call msg("Can't delete file: "//trim(run_log_name))
-      call set_error('Failed to remove old run.log file','global_io_init')
-      return
-    endif
-    run_log_funit = iTmp
-
-    !
-    ! Time info file can be requested from the control file
-    !
-    nlSetup => fu_namelist(nlSetupGrp,'general_parameters')
-    if(.not. associated(nlSetup))then
-      call set_error('Failed to find general_parameters namelist in setup group','global_io_init')
-      return
-    endif
-    strTmp%sp = fu_content(nlSetup,'time_info_file_name')
-    if(len_trim(strTmp%sp) > 0)then
-      info_funit = fu_next_free_unit()
-      open(info_funit, file = strTmp%sp(1:iTmp) + strTmp%sp, iostat = al_status)
-      if(al_status /= 0)then
-        !
-        ! It looks like info_file is open with another application. Create a new one with 
-        ! some random value at the end
-        !
-        call random_number(fTmp)
-        if(fTmp < 0.1) fTmp = fTmp + 0.1
-        write(unit=chTmp,fmt='(I4)')int(fTmp*10000.)
-        open(info_funit, file = strTmp%sp(1:iTmp) + strTmp%sp + chTmp, iostat = al_status)
-        if(al_status /= 0)then  ! The problem is more serious, randomised file name does not help
-          call set_error('Failed to open info_file_<random_number>','global_io_init')
-          return
-        endif
-      endif
-    else
-      info_funit = int_missing
-    endif  ! time info_file is requested
-
+    !! move log file to the output directory
+    call swap_log_file(OutDef, wdr)
     !
     ! Grids available: emission, meteorology, output and internal
     !
@@ -1312,8 +1325,6 @@ CONTAINS
       ! to be kept in memory
       !
       if(defined(DA_time_window))then
-        !nTimeNodesNeeded = int(DA_time_window / fu_obstime_interval(wdr) + 0.5) + 6
-        !nTimeNodesNeeded = max(min(nTimeNodesNeeded, max_times), 2)
         nTimeNodesNeeded = ceiling(DA_time_window / fu_obstime_interval(wdr)) + 2
       else
         nTimeNodesNeeded = 2   !3  ! no data assimilation
@@ -1664,6 +1675,8 @@ CONTAINS
 
     if(defined(OutDef%Rules%dump_timestep)) &
         & OutVars%LastDumpOutputTime = OutDef%Rules%ini_time - OutDef%Rules%dump_timestep
+    OutVars%nextDumpNo = 0
+
     if(defined(OutDef%Rules%rates_dump_timestep)) &
         & OutVars%LastRatesDumpOutputTime = OutDef%Rules%ini_time - OutDef%Rules%rates_dump_timestep
 
@@ -1719,7 +1732,7 @@ CONTAINS
           !
           ! Ini time appeared to be the special occasion time.
           !
-          OutDef%Rules%timestep = timestep  ! just for the cirrent moment
+          OutDef%Rules%timestep = timestep  ! just for the current moment
           OutVars%LastOutputTime = OutDef%Rules%ini_time - timestep
         else
           !
@@ -2106,7 +2119,6 @@ CONTAINS
       CALL source_to_initial_cloud(em_source, cloud, chemRules, dynRules, &
                                  & OutDef%Rules%ini_time, fu_period_to_compute(wdr), timestep, &
                                  & meteoMarketPtr, &
-                                 & output_gridPtr, &
                                  & iAccuracy, fu_if_randomise(wdr))
       IF (error) RETURN
 
@@ -2355,7 +2367,7 @@ CONTAINS
                               & static_shopping_list, &
                               & cloud, &
                               & em_source, &
-                              & OutDef, chemRules, dynRules, &
+                              & OutDef, OutVars, chemRules, dynRules, &
                               & fu_namelist(nlSetupGrp,'STANDARD_SETUP'), &
                               & DispersionMarketPtr, met_buf, &
                               & timestep) ! Of the model
@@ -2441,6 +2453,7 @@ CONTAINS
       ! The function is called twice - before and after initializing the meteo. The first call
       ! is to understand whether we need meteo-dependent transformations and corresponding input
       !
+      !  dispersion_vertical
       implicit none
       
       ! Imported parameters
@@ -2800,7 +2813,7 @@ CONTAINS
   !*****************************************************************************
 
   subroutine tune_output_parameters(wdr, meteoVarLst, meteoVarLstST, PCld, em_source, &
-                                  & OutDef, chemRules, dynRules, nlStdSetup, &
+                                  & OutDef, OutVars, chemRules, dynRules, nlStdSetup, &
                                   & pDispersionMarket, met_buf, &
                                   & model_time_step)
     !
@@ -2819,6 +2832,7 @@ CONTAINS
     type(silam_pollution_cloud), pointer :: PCld
     type(silam_source), pointer :: em_source
     type(silam_output_definition), intent(inout), target :: OutDef
+    type(TOutputVariables), intent(inout), target :: OutVars
     type(silja_interval), intent(in) :: model_time_step
     type(Tchem_rules), intent(in) :: chemRules
     type(Tdynamics_rules), intent(in) :: dynRules
@@ -2832,7 +2846,7 @@ CONTAINS
              & ifDD_all_cumulative, ifDD_all_rate, ifWD_all_cumulative, ifWD_all_rate
     type(silja_stack), pointer :: stackPtr
     character(len=clen) :: chTmp
-    type(ToutputVariables), pointer :: ov
+!    type(ToutputVariables), pointer :: ov
 !    type(silam_species), dimension(:), pointer :: ptrSpecies
 
 !    call msg("tune_output_parameters got meteoVarLstST:")
@@ -2861,7 +2875,6 @@ CONTAINS
       return
     endif
 
-    ov => OutVars
     !
     ! Nullify the MassMapLinks and Lagrangian-mass map links
     !
@@ -2997,7 +3010,7 @@ CONTAINS
       ! dry_deposition_flag, wet_deposition_flag
       ! Note that masses can be in Eulerian and Lagrangian environments
       !
-      call init_mass_output(OutDef, PCld, em_source, nlStdSetup, chemRules, dynRules%simulation_type, &
+      call init_mass_output(OutDef, OutVars, PCld, em_source, nlStdSetup, chemRules, dynRules%simulation_type, &
                           & model_time_step)
       if(error)return
       !
@@ -3078,11 +3091,14 @@ CONTAINS
                     & 'meteo_output', &  ! Stack name
                     & .false., &         ! single time
                     & .false., &         ! sinlge met_src
-                    & i3D+1, &           ! Nbr of 3d fields
+                    & i3D, &           ! Nbr of 3d fields
+!                    & i3D+1, &           ! Nbr of 3d fields
                     & wdr, &             ! weather data rules
                     & OutVars%meteoStack)  ! Stack itself
       if(error)return
 
+!call msg_test('tune_output_parameters, meteostack')
+!call report(OutVars%meteoStack)
       !
       ! We need an extra tmp stack if the interpolation from the meteo_grid 
       ! to the output grid is needed. Otherwise, the data can be accumulated 
@@ -3090,6 +3106,7 @@ CONTAINS
       ! interpolation
       !
       if(output_grid == meteo_grid)then
+!call msg_test('output_grid == meteo_grid, resetting pointer')
         OutVars%pMeteoStack => OutVars%meteoStack
       else
         CALL init_stack(i2D + 1, &              ! Nbr of fields
@@ -3101,6 +3118,8 @@ CONTAINS
                       & OutVars%meteoTmpStack)  ! Stack itself
         IF (error) RETURN
         OutVars%pMeteoStack => OutVars%meteoTmpStack
+!call msg_test('output_grid /= meteo_grid, new stack')
+!call report(OutVars%pMeteoStack)
       endif   ! output grid == meteo_grid
       !
       ! The output stack should be filled-in by empty fields but with proper
@@ -3805,7 +3824,7 @@ CONTAINS
   !*****************************************************************************
 
   subroutine collect_output(metBuf, dispBuf, outBuf, &
-                          & PCld, now, OutDef, wdr, model_time_step, simulation_type, ifFirstStep, ifLastOutput) 
+                          & PCld, now, OutDef, OutVars, wdr, model_time_step, simulation_type, ifFirstStep, ifLastOutput) 
     !
     ! Collects the instant data and accumulates them into the output stack
     ! Useful for e.g., averaging of some fields.
@@ -3830,6 +3849,7 @@ CONTAINS
     type(silam_pollution_cloud), pointer :: PCld
     type(silja_time), intent(in) :: now
     type(silam_output_definition), intent(inout), target :: OutDef
+    type(TOutputVariables), intent(inout), target :: OutVars
     type(silja_wdr), intent(in), optional :: wdr
     type(silja_interval), intent(in) :: model_time_step
     integer, intent(in) :: simulation_type
@@ -3912,11 +3932,23 @@ CONTAINS
       !
       call msg_test('Writing the output')
       call start_count('write_output')
+
+!call msg_test('Before writing the output, reporting all stacks')
+!call msg_test('pMeteoStack')
+!call report(OV%pMeteoStack)
+!call msg_test('MeteoStack')
+!call report(OV%MeteoStack)
+
 !call check_stack_fields_ranges(OutVars%MeteoTmpStack)
-      call write_output(metBuf, PCld, now, OutDef, wdr, model_time_step)
+      call write_output(metBuf, PCld, now, OutDef, OutVars, wdr, model_time_step)
       call stop_count('write_output')
       if (error) return
       call msg_test('Writing finished')
+!call msg_test('AFTRE writing the output, reporting all stacks')
+!call msg_test('After WO pMeteoStack')
+!call report(OV%pMeteoStack)
+!call msg_test('AFTER WOMeteoStack')
+!call report(OV%MeteoStack)
       !
       ! Collect and report total masses
       !
@@ -3939,36 +3971,51 @@ CONTAINS
       !
       if(ifDumpOutputTime)then
 
-        if(fu_fails(fu_if_eulerian_present(simulation_type),'Dump is not defined for Lagrangian runs',sub_name))return
-        if(fu_fails(fu_ifRunDispersion(OutDef),'No dump if no-dispersion run',sub_name))return
-        call msg('Dumping the concentration mass map')
+        !! Skip 0th dump?
+        if ( OutVars%nextDumpNo == 0 .and. .not. OutDef%Rules%if0thDump ) &
+                   & ifDumpOutputTime = .FALSE. 
+
+        !! No more dumps?
+        if ( OutDef%Rules%lastDump > 0 .and. OutVars%nextDumpNo > OutDef%Rules%lastDump) &
+                   & ifDumpOutputTime = .FALSE.
         
-        do iSourceId = 1, size(OutDef%Params%chSrcNm)
 
-          if(len_trim(OutDef%Params%chSrcNm(iSourceId)) < 1)exit  ! all done
+        if (ifDumpOutputTime) then !! Dump still needed?
+          if(fu_fails(fu_if_eulerian_present(simulation_type),'Dump is not defined for Lagrangian runs',sub_name))return
+          if(fu_fails(fu_ifRunDispersion(OutDef),'No dump if no-dispersion run',sub_name))return
+          call msg('Dumping the concentration mass map, dump no', OutVars%nextDumpNo)
+          
+          do iSourceId = 1, size(OutDef%Params%chSrcNm)
 
-          !
-          ! Get binary file name from templates. 
-          !
-          sp = fu_FNm(OutDef%Rules%outTemplate, &
-                       & OutDef%Rules%ini_time, &  ! ini_time
-                       & OutDef%Rules%ini_time, &  ! anal_time, here it's the same
-                       & now - OutDef%Rules%ini_time, &          ! forecast length
-                       & OutDef%Params%chCaseNm, OutDef%Params%chSrcNm(iSourceId)) + '_' + &
-                       & trim(fu_str(now,.false.)) + '_dump.grads'
-          if(error)return
+            if(len_trim(OutDef%Params%chSrcNm(iSourceId)) < 1)exit  ! all done
 
-          !        call mass_map_to_grads_file(fu_concMM_ptr(PCld), iSourceId, sp%sp, now, 1.0)
-          call many_mass_maps_to_grads_file((/fu_concMM_ptr(PCld), &
-                                            & fu_advection_moment_X_MM_ptr(PCld), &
-                                            & fu_advection_moment_Y_MM_ptr(PCld), &
-                                            & fu_advection_moment_Z_MM_ptr(PCld)/), &
-                                            & iSourceId, sp, now, OutDef%Rules%DumpTrimfactor)
-          if(error)return
+            !
+            ! Get binary file name from templates. 
+            !
+            sp = fu_FNm(OutDef%Rules%outTemplate, &
+                         & OutDef%Rules%ini_time, &  ! ini_time
+                         & OutDef%Rules%ini_time, &  ! anal_time, here it's the same
+                         & now - OutDef%Rules%ini_time, &          ! forecast length
+                         & OutDef%Params%chCaseNm, OutDef%Params%chSrcNm(iSourceId)) + '_' + &
+                         & trim(fu_str(now,.false.)) + '_dump.grads'
+            if(error)return
 
-        end do  ! iSrc
+            !        call mass_map_to_grads_file(fu_concMM_ptr(PCld), iSourceId, sp%sp, now, 1.0)
+            call many_mass_maps_to_grads_file((/fu_concMM_ptr(PCld), &
+                                              & fu_advection_moment_X_MM_ptr(PCld), &
+                                              & fu_advection_moment_Y_MM_ptr(PCld), &
+                                              & fu_advection_moment_Z_MM_ptr(PCld)/), &
+                                              & iSourceId, sp, now, OutDef%Rules%DumpTrimfactor)
+            if(error)return
+
+          end do  ! iSrc     
+        else
+          call msg('NOT Dumping the concentration mass map skipping dump no', OutVars%nextDumpNo)
+        endif
 
         OutVars%LastDumpOutputTime = now
+        OutVars%nextDumpNo = OutVars%nextDumpNo + 1
+
 
       endif  ! if dump output time
 
@@ -4009,7 +4056,7 @@ CONTAINS
       !
       ! Prepare target IDs and fields in temporary stack for further
       ! output. Actions with individual fields depend on their types
-      ! Note that meteorology is all taken with the meteo_time_shift - in both duffers
+      ! Note that meteorology is all taken with the meteo_time_shift - in both buffers
       !
       call start_new_output_period_lst(OutDef%Rules%MeteoOutLst, &
                                      & OutVars%LastOutputTime + OutDef%Rules%timestep + meteo_time_shift, &  ! next output time
@@ -4029,7 +4076,13 @@ CONTAINS
       !
       if(associated(OutVars%pMeteoStack))then  ! can be null
         if(defined(OutVars%pMeteoStack))then
+!call msg_test('calling prepare_new_averaging_period')
+!call report(OutVars%pMeteoStack)
           call prepare_new_averaging_period(OutVars%pMeteoStack)
+!call msg_test('done prepare_new_averaging_period')
+!call report(OutVars%pMeteoStack)
+!call msg('')
+          
         endif
       endif
 
@@ -4119,6 +4172,8 @@ CONTAINS
                               & avtype, & 
                               & OD, ifRandomise)  ! Overall set of rules and supplementary information
         if(error) exit  !MUST die on error here!
+!call msg_test('after collect_field_data, OV%pMeteoStack')
+!call report(OV%pMeteoStack)
         !call unset_error('collect_buffers')
       end do  ! Scan through the meteo output list
       call stop_count('collect_met_field_data')
@@ -4446,7 +4501,7 @@ CONTAINS
 
   !*****************************************************************************
 
-  subroutine write_output(metBuf, PCld, now, OutDef, wdr, model_time_step)
+  subroutine write_output(metBuf, PCld, now, OutDef, OutVars, wdr, model_time_step)
     !
     ! Transfers the collected data to the output stacks, if needed, then
     ! writes the output stacks to files and prepares the stacks for future
@@ -4465,6 +4520,7 @@ CONTAINS
     type(silam_pollution_cloud), intent(in) :: PCld
     type(silja_time), intent(in) :: now
     type(silam_output_definition), intent(inout), target :: OutDef
+    type(TOutputVariables), intent(inout), target :: OutVars
     type(silja_wdr), intent(in), optional :: wdr
     type(silja_interval), intent(in) :: model_time_step
 
@@ -4515,23 +4571,31 @@ CONTAINS
     ! Copy all fields from temporary meteostack to the output one, with interpolation
     !
 !call msg_test('Write output 1')
+!call msg_test('Reporting both stacks, first MeteoTmpStack')
+!call report(OutVars%MeteoTmpStack)
+!call msg_test('Meteostack')
+!call report(OutVars%MeteoStack)
+
+
 !call msg('Checking stack range before final output collection')
 !call check_stack_fields_ranges(OutVars%MeteoStack)
 !call check_stack_fields_ranges(OutVars%MeteoTmpStack)
 !call msg('Finished')
     if(defined(OutVars%MeteoTmpStack))then
       if(.not. meteo_grid == output_grid)then
+!call msg_test('Calling copy_stack_grid_interpolation')
         call copy_stack_grid_interpolation(OutVars%MeteoTmpStack, &  !stackFrom
                                          & OutVars%MeteoStack, &  ! stackTo, 
                                          & output_grid, &   !gridNew
                                          & .false., &  ! No copy of internal fields
                                          & setMissVal, &
                                          & fu_if_randomise(wdr))  ! out of grid value
+!call msg_test('After copy_stack_grid_interpolation')
         if(error)return
       endif !meteo_grid == OutDef%Params%grid
 
-  !      call arrange_fields_in_stack(OutVars%MeteoStack)
-  !      if(error)return
+      call arrange_fields_in_stack(OutVars%MeteoStack, .false.)
+      if(error)return
     endif
 
 !call msg('Checking stack range after final output collection')
@@ -4680,12 +4744,14 @@ CONTAINS
 
         do iSource = 1, size(OutDef%Params%chSrcNm)
           IF(OutDef%Rules%ifGRADS)THEN !----------------- GrADS
+!call msg('In write_output, calling:  do_file_manip_grads')
             CALL do_file_manip_grads(OutDef, now, 1, iFileManipulation)
+!call msg('In write_output, done:  do_file_manip_grads')
             iGrads = OutDef%params%grads_funit(iSource)
           END IF
 
           IF(OutDef%Rules%iNETCDF /= int_missing)THEN !----------------- NETCDF
-!call msg('In write_output, calling:  stack_to_netcdf_file')
+!call msg('In write_output, calling:  do_file_manip_netcdf')
             call do_file_manip_netcdf(OutDef, now, 1, iFileManipulation, OutDef%Rules%iNETCDF)
             iNetcdf = OutDef%Params%netcdf_funit(iSource)
           END IF
@@ -5196,7 +5262,7 @@ CONTAINS
     ! Local declarations
     integer :: i
     character(len=4),dimension(3:4) :: chTypes = (/'.nc ','.nc4'/)
-    character(len=6) :: tasksuff !Topology suffix for filename
+    character(len=8) :: tasksuff !Topology suffix for filename
     integer :: my_xc, my_yc, size_x, size_y
 
     ! Actions with the files: continue to write to currently open, take new binary
@@ -5223,7 +5289,7 @@ CONTAINS
                 
                 tasksuff = "      "  !No need for separate filenames on subdomains
         else
-                 WRITE(tasksuff, fmt = '(A, I2.2, A, I2.2)') '_',my_xc,'_', my_yc
+                 WRITE(tasksuff, fmt = '(A, I3.3, A, I3.3)') '_',my_xc,'_', my_yc
         endif
 
         OutDef%Params%netcdf_fNm(iSource) = &
@@ -5278,7 +5344,7 @@ CONTAINS
 
   !*****************************************************************************
 
-  subroutine init_mass_output(OutDef, PCld, em_source, nlStdSetup, chemRules, &
+  subroutine init_mass_output(OutDef, OutVars, PCld, em_source, nlStdSetup, chemRules, &
                             & simulation_type, model_time_step)
     !
     ! Looks through the dispersion output list, selects the 3D instant Mass-Map based
@@ -5294,6 +5360,7 @@ CONTAINS
 
     ! Imported parameters
     type(silam_output_definition), intent(inout) :: OutDef
+    type(TOutputVariables), intent(inout) :: OutVars
     type(silam_source), pointer :: em_source
     type(silam_pollution_cloud), pointer :: PCld
     type(Tsilam_namelist), pointer :: nlStdSetup
@@ -5410,6 +5477,7 @@ CONTAINS
           call add_intermediate_mass_map(fu_concMM_ptr(PCld), &            ! Transport species
                                        & fu_species_transport(PCld), &
                                        & quantity, &
+                                       & OutVars, &
                                        & pSpeciesOut, &
                                        & OutDef%Rules%MassMapOutLst%ptrItem(iVarIni), &
                                        & OutDef%Rules%ini_time, &
@@ -5419,6 +5487,7 @@ CONTAINS
           call add_intermediate_mass_map(fu_aerosolMM_ptr(PCld) , &         ! Aerosol species
                                        & fu_species_aerosol(PCld), &
                                        & quantity, &
+                                       & OutVars, &
                                        & pSpeciesOut, &
                                        & OutDef%Rules%MassMapOutLst%ptrItem(iVarIni), &
                                        & OutDef%Rules%ini_time, &
@@ -5426,16 +5495,17 @@ CONTAINS
                                        & model_time_step, &
                                        & ifQuantityMassMapAddedTmp)
           ifQuantityMassMapAdded = ifQuantityMassMapAdded .or. ifQuantityMassMapAddedTmp
-          call add_intermediate_mass_map(fu_shortlivedMM_ptr(PCld), &      ! Short-living species
-                                       & fu_species_short_lived(PCld), &
-                                       & quantity, &
-                                       & pSpeciesOut, &
-                                       & OutDef%Rules%MassMapOutLst%ptrItem(iVarIni), &
-                                       & OutDef%Rules%ini_time, &
-                                       & OutDef%Rules%timestep, &
-                                       & model_time_step, &
-                                       & ifQuantityMassMapAddedTmp)
-          ifQuantityMassMapAdded = ifQuantityMassMapAdded .or. ifQuantityMassMapAddedTmp
+!          call add_intermediate_mass_map(fu_shortlivedMM_ptr(PCld), &      ! Short-living species
+!                                       & fu_species_short_lived(PCld), &
+!                                       & quantity, &
+!                                       & OutVars, &
+!                                       & pSpeciesOut, &
+!                                       & OutDef%Rules%MassMapOutLst%ptrItem(iVarIni), &
+!                                       & OutDef%Rules%ini_time, &
+!                                       & OutDef%Rules%timestep, &
+!                                       & model_time_step, &
+!                                       & ifQuantityMassMapAddedTmp)
+!          ifQuantityMassMapAdded = ifQuantityMassMapAdded .or. ifQuantityMassMapAddedTmp
           if(fu_fails(ifQuantityMassMapAdded,'Failed adding mass map for MassMapIn:' + &
                                        & fu_quantity_string(quantity),'init_mass_output'))return
         endif  ! Eulerian link needed
@@ -5545,6 +5615,7 @@ CONTAINS
         call add_intermediate_mass_map(pMassMapIn, &
                                      & pSpeciesIn, &
                                      & quantity, &
+                                     & OutVars, &
                                      & pSpeciesOut, &
                                      & OutDef%Rules%MassMapOutLst%ptrItem(iVarIni), &
                                      & OutDef%Rules%ini_time, &
@@ -5609,7 +5680,7 @@ CONTAINS
 
     !===========================================================================
     
-    subroutine add_intermediate_mass_map(pMassMapIn, pSpeciesIn, quantity, &
+    subroutine add_intermediate_mass_map(pMassMapIn, pSpeciesIn, quantity, OutVars, &
                                        & pSpeciesOut, pOutItem, &
                                        & ini_time, &
                                        & output_time_step, &
@@ -5623,6 +5694,7 @@ CONTAINS
 
       ! Imported parameters
       type(Tmass_map), pointer :: pMassMapIn
+      type(TOutputVariables), intent(inout) :: OutVars
       type(silam_species), dimension(:), pointer :: pSpeciesIn, pSpeciesOut
       integer, intent(in) :: quantity
       type(TOutputLstItem), intent(in) :: pOutItem   
@@ -7235,7 +7307,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
 
   !*****************************************************************************
   
-  subroutine align_OutDef_initial_time_with_shift(OutDef, wdr)
+  subroutine align_OutDef_initial_time_with_shift(OutDef, OutVars, wdr)
     !
     ! There can be time shift required from the meteo data interface. Output must
     ! comply to it. Here we align these definitions.
@@ -7244,6 +7316,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     
     ! Imported parameters
     type(silam_output_definition), target, intent(inout) :: OutDef
+    type(TOutputVariables), target, intent(inout) :: OutVars
     type(silja_wdr), intent(in) :: wdr
     
     ! Local variables

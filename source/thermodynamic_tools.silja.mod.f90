@@ -41,6 +41,7 @@ MODULE thermodynamic_tools
   PUBLIC fu_specificheat_of_watervapour
   PUBLIC fu_specificheat_of_air
   PUBLIC fu_saturat_watervapourpressure
+  public QSat      ! same as above but more details, e.g., derivatives
   PUBLIC fu_air_density
   PUBLIC fu_watervapour_densityprofile
   PUBLIC fu_dynamic_viscosity
@@ -292,9 +293,7 @@ CONTAINS
     !  valid for RANGE -40 C to +50 C
     !
     ! Method:
-    ! The original Goff-Gratch-formulation
-    ! ( in its  1946 modification). Function originally published in :
-    ! 
+    ! The original Goff-Gratch-formulation ( in its  1946 modification).
     !
     ! All units: NOT SI
     !
@@ -315,9 +314,7 @@ CONTAINS
     !----------------------------------------
     !
     ! 1. Check the input  temperature.
-    !    ------------------------------------
-    
-		
+    !
     IF(temperature.lt.100)THEN
       ! Only kelvin is acceptable
       local_temperature1=temperature+273.16
@@ -325,12 +322,6 @@ CONTAINS
       local_temperature1=temperature
     END IF
 
-    !----------------------------------------
-    !
-    ! 2. Start computing 
-    !    ----------------
-    
-	
     local_temperature2= local_temperature1/273.16
     local_temperature3= 1./local_temperature2
 
@@ -339,17 +330,103 @@ CONTAINS
     local_vapour1= 1.0 - 10.**local_vapour1
     local_vapour2= 10.**local_vapour2 - 1.
 
-    water_vapour= 10.79574*(1.0 - local_temperature3) - 5.0280&
-	&*(LOG10(local_temperature2))
-    water_vapour=water_vapour + 1.50475E-4*local_vapour1 + 0.42873E-3&
-	&*local_vapour2
+    water_vapour= 10.79574*(1. - local_temperature3) - 5.0280 * (LOG10(local_temperature2))
+    water_vapour=water_vapour + 1.50475E-4 * local_vapour1 + 0.42873E-3 * local_vapour2
 
     fu_saturat_watervapourpressure = 10.**(water_vapour + 0.78614)  ! in hPa
 
   END FUNCTION fu_saturat_watervapourpressure
 
+  
+  !*********************************************************************
+  
+  subroutine QSat (T, p, qs, es, qsdT, esdT)
+    !
+    ! !DESCRIPTION:
+    ! Computes saturation mixing ratio and (optionally) the change in saturation mixing
+    ! ratio with respect to temperature. Mixing ratio and specific humidity are
+    ! approximately equal and can be treated as the same.
+    ! Reference:  Polynomial approximations from:
+    !             Piotr J. Flatau, et al.,1992:  Polynomial fits to saturation
+    !             vapor pressure.  Journal of Applied Meteorology, 31, 1507-1513.
+    !
+    implicit none
 
- ! ****************************************************************
+    integer, parameter :: r8=REAL64
+    real*8, parameter :: SHR_CONST_TKFRZ   = 273.15_R8  ! freezing water temperature
+    
+    ! For water vapor (temperature range 0C-100C)
+    real*8, parameter :: a0 = 6.11213476_real64, a1 = 0.444007856_real64, a2 = 0.143064234e-01_real64
+    real*8, parameter :: a3 = 0.264461437e-03_r8, a4 =  0.305903558e-05_r8, a5 = 0.196237241e-07_r8
+    real*8, parameter :: a6 = 0.892344772e-10_r8, a7 = -0.373208410e-12_r8, a8 = 0.209339997e-15_r8
+    ! For derivative:water vapor
+    real*8, parameter :: b0 =  0.444017302_r8, b1 =  0.286064092e-01_r8, b2 =  0.794683137e-03_r8
+    real*8, parameter :: b3 =  0.121211669e-04_r8, b4 =  0.103354611e-06_r8, b5 = 0.404125005e-09_r8
+    real*8, parameter :: b6 = -0.788037859e-12_r8, b7 = -0.114596802e-13_r8, b8 = 0.381294516e-16_r8
+    ! For ice (temperature range -75C-0C)
+    real*8, parameter :: c0 = 6.11123516_r8, c1 =  0.503109514_r8, c2 =  0.188369801e-01_r8
+    real*8, parameter :: c3 = 0.420547422e-03_r8, c4 =  0.614396778e-05_r8, c5 =  0.602780717e-07_r8
+    real*8, parameter :: c6 = 0.387940929e-09_r8, c7 = 0.149436277e-11_r8, c8 =  0.262655803e-14_r8
+    ! For derivative:ice
+    real*8, parameter :: d0 = 0.503277922_r8, d1 =  0.377289173e-01_r8, d2 =  0.126801703e-02_r8
+    real*8, parameter :: d3 = 0.249468427e-04_r8, d4 = 0.313703411e-06_r8, d5 = 0.257180651e-08_r8
+    real*8, parameter :: d6 = 0.133268878e-10_r8, d7 = 0.394116744e-13_r8, d8 = 0.498070196e-16_r8
+    !
+    ! !ARGUMENTS:
+    real*8, intent(in)  :: T        ! temperature (K)
+    real*8, intent(in)  :: p        ! surface atmospheric pressure (pa)
+    real*8, intent(out) :: qs       ! humidity (kg/kg)
+    real*8, intent(out), optional :: es       ! vapor pressure (pa)
+    real*8, intent(out), optional :: qsdT     ! d(qs)/d(T)
+    real*8, intent(out), optional :: esdT     ! d(es)/d(T)
+    !
+    ! !LOCAL VARIABLES:
+    real*8 :: es_local    ! local version of es (in case es is not present)
+    real*8 :: esdT_local  ! local version of esdT (in case esdT is not present)
+    real*8 :: td,vp,vp1,vp2
+    !-----------------------------------------------------------------------
+
+    td = min(100.0_r8, max(-75.0_r8, T - SHR_CONST_TKFRZ))
+
+    if (td >= 0.0_r8) then
+       es_local = a0 + td*(a1 + td*(a2 + td*(a3 + td*(a4 &
+            + td*(a5 + td*(a6 + td*(a7 + td*a8)))))))
+    else
+       es_local = c0 + td*(c1 + td*(c2 + td*(c3 + td*(c4 &
+            + td*(c5 + td*(c6 + td*(c7 + td*c8)))))))
+    endif
+
+    es_local = es_local * 100._r8            ! pa
+    vp    = 1.0_r8   / (p - 0.378_r8*es_local)
+    vp1   = 0.622_r8 * vp
+    qs    = es_local * vp1             ! kg/kg
+    if (present(es)) then
+       es = es_local
+    end if
+
+    if (present(qsdT) .or. present(esdT)) then
+       if (td >= 0.0_r8) then
+          esdT_local = b0 + td*(b1 + td*(b2 + td*(b3 + td*(b4 &
+               + td*(b5 + td*(b6 + td*(b7 + td*b8)))))))
+       else
+          esdT_local = d0 + td*(d1 + td*(d2 + td*(d3 + td*(d4 &
+               + td*(d5 + td*(d6 + td*(d7 + td*d8)))))))
+       end if
+
+       esdT_local = esdT_local * 100._r8            ! pa/K
+       vp2 = vp1 * vp
+       if (present(qsdT)) then
+          qsdT = esdT_local * vp2 * p         ! 1 / K
+       end if
+       if (present(esdT)) then
+          esdT = esdT_local
+       end if
+    end if
+
+  end subroutine QSat
+
+
+  ! ****************************************************************
 
   REAL FUNCTION fu_latentheat_of_vaporization(temperature)
     

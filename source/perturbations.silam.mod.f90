@@ -191,6 +191,7 @@ CONTAINS
           allocate(perturbations(ind_pert)%scale(pert_size), perturbations(ind_pert)%offset(pert_size), &
                & perturbations(ind_pert)%storage(pert_size), stat=stat)
           if (fu_fails(stat == 0, 'Allocate failed 0', sub_name)) return
+          perturbations(ind_pert)%storage(1:pert_size) = real_missing 
           perturbations(ind_pert)%offset(1:pert_size) = 0.0
           perturbations(ind_pert)%scale(1:pert_size) = rules%emission_stdev
           perturbations(ind_pert)%correlation_time = rules%emis_corr_time
@@ -222,6 +223,7 @@ CONTAINS
           allocate(perturbations(ind_pert)%scale(pert_size), perturbations(ind_pert)%offset(pert_size), &
                & perturbations(ind_pert)%storage(pert_size), stat=stat)
           if (fu_fails(stat == 0, 'Allocate failed 0', sub_name)) return
+          perturbations(ind_pert)%storage(1:pert_size) = real_missing 
           perturbations(ind_pert)%offset(1:pert_size) = 0.0
           perturbations(ind_pert)%scale(1:pert_size) = rules%boundary_stdev
 
@@ -282,6 +284,7 @@ CONTAINS
           allocate(perturbations(ind_pert)%address(num_contr_species), perturbations(ind_pert)%storage(1), &
                  & stat=stat)
           if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
+          perturbations(ind_pert)%storage(1) = real_missing 
           perturbations(ind_pert)%address = fu_isp_emis_ctrl(backgr_invalid)
           perturbations(ind_pert)%defined = .true.        
           perturbations(ind_pert)%distribution = distr_lognormal

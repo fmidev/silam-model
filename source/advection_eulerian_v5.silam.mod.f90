@@ -128,8 +128,8 @@ MODULE advection_eulerian_v5
     real, dimension(:,:),   allocatable :: Vd !(1:nspecies, 1:nsources) 
     real, dimension(:), allocatable   ::   rho_over_R, g_over_deltaP !0:nzMax+1
     real, dimension(:), allocatable :: cm_relax_diff ! (1:nz) CM relaxation factor for subgrid diffusion
-    real, dimension(:), allocatable     ::  A, B, C, P !0:nzMax+1
-    real, dimension(:,:), allocatable   ::  Q !0:npass 0:nzMax+1
+    real(r8k), dimension(:), allocatable     ::  A, B, C, P !0:nzMax+1
+    real(r8k), dimension(:,:), allocatable   ::  Q !0:npass 0:nzMax+1
     real(r8k), dimension(:,:,:), allocatable ::  bottom_mass, top_mass   ! 1:nsources, 1:nspecies, 1:2 in/out
     type(silja_logical) :: defined = silja_false
   end type T_Galp_v5_thread_stuff
@@ -307,8 +307,8 @@ CONTAINS
     if(any(adv_mpi_neighbours/=int_missing))then
        ! Each thread can fill only 1/nThreads fraction of wings
       allocate(MPI_stuff( & ! 9 data pieces for each species-in-cell
-                       & (nsources * nspecies * nz_dispersion * nxy + 1) * &
-                       & max(wing_depth_e, wing_depth_n, wing_depth_s, wing_depth_w) * 9 / nThreads, &     
+                       & nsources * nspecies * (nz_dispersion * nxy / nThreads + 1) * &
+                       & max(wing_depth_e, wing_depth_n, wing_depth_s, wing_depth_w) * 9, &     
                        & 2, &                         ! left:right
                        & 0:nThreads-1), &              ! OMP threads
              & nMPIsend(2, 0:nThreads-1, 2),& !left:right, OMP threads, our:their
@@ -2074,8 +2074,7 @@ nPass = 0
                                            & moment_x, moment_y, moment_z, &
                                            & pAerosolFlds, & ! Not needed here
                                            & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, &
-                                           & pHorizInterpStruct, pVertInterpStruct, &
-                                           & ifHorizInterp, ifVertInterp, &
+                                           & pHorizInterpStruct,  ifHorizInterp,  &
                                            & pMetBuf, pDispBuf, &
                                            & seconds, weight_past, now, &
                                            & garbage, &
@@ -2094,8 +2093,7 @@ nPass = 0
     type(Tmass_map), intent(inout) :: pDispFlds, pDryDep, pAerosolFlds, &
                                     &  moment_x, moment_y, moment_z, pCnc2m  ! Might be unassociated
     type(THorizInterpStruct), pointer :: pHorizInterpStruct
-    type(TVertInterpStruct), pointer :: pVertInterpStruct
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
+    logical, intent(in) :: ifHorizInterp
     type(Tfield_buffer), intent(in) :: pMetBuf, pDispBuf
     real, dimension(:,:), intent(in) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0
     real, intent(in) :: seconds, weight_past
@@ -2190,14 +2188,6 @@ nPass = 0
     end if
 
     depRules => fu_deposition_rules(chem_rules)
-
-    if(.not. fu_ifMeteoGrd(pVertInterpStruct) .and. &
-         & .not.(fu_grid(pVertInterpStruct) == dispersion_grid))then
-      call set_error('Neither meteo nor dispersion grid in vertical interpolation strcucture', &
-                   & 'adv_diffusion_vertical_v5')
-      return
-    endif
-
     
     call verify_deposition(pDispFlds%species, nspecies, deprules)
     if (error) return
@@ -2259,7 +2249,7 @@ nPass = 0
     !$OMP        & ps_ind,  temper_ind, rh_ind, zSize_ind, ifSettlingNeeded, do_vert_diff, &
     !$OMP        & nspecies,  leveltype, nSrc, top_mass, bottom_mass,  spthread, nthreads,&
     !$OMP        & seconds_abs, timeSign,  pDispFlds, moment_x, moment_y, moment_z, pDryDep, &
-    !$OMP        & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, pMetBuf,&
+    !$OMP        & pHorizInterpStruct, ifHorizInterp,  pMetBuf,&
     !$OMP        & pDispBuf, pBBuf, seconds, weight_past, garbage, chem_rules, nx_dispersion, &
     !$OMP        & ny_dispersion, nx_meteo,  fs_meteo, nz_meteo, disp_layer_top_m, a_met, b_met, &
     !$OMP        & arMinAdvMass, depRules, nz_dispersion, have_negatives, wdr,  ifAllMoments, &
@@ -2585,6 +2575,7 @@ endif
               if(error) then
 !$OMP CRITICAL(v4bark)
                  call msg("Trouble with Z, ix, iy",ix, iy)
+                 call msg("Isp",ispecies, iy)
                  call msg("mystuff%vSettling(ispecies,0:nz_dispersion)", mystuff%vSettling(ispecies,0:nz_dispersion))
                  call msg("mystuff%wind_right(0:nz_dispersion)", mystuff%wind_right(0:nz_dispersion) )
 
@@ -2619,6 +2610,7 @@ if(ifTalk)call msg('Column valid??',(/ix,iy,iLev,iSpecies, iSrc/))
                endif
 
         do iOrder = 1,2
+          if (error) cycle
 
           if ((iOrder == 1) .eqv. ifAdvFirst) then
 if(ifTalk)call msg('Prior to advect_mass:',(/ix,iy,iLev,iSpecies/))
@@ -3405,14 +3397,14 @@ call msg('Done')
       real, intent(in) :: seconds_abs
       integer, intent(in) :: iLevmin, iLevMax, nPass
       logical, intent(in) :: ifReport
-      real :: fMAfter, fMbefore, fMBeforeAbs
-      real :: xminuscur, xminusnext, xplusprev, xpluscur, fTmp, Tau
+      real(r8k) :: fMAfter, fMbefore, fMBeforeAbs
+      real(r8k) :: xminuscur, xminusnext, xplusprev, xpluscur, fTmp, Tau
       integer  :: iLevMet,iLev,  iTmp, jTmp, iPass 
       integer, intent (in) :: N_time_steps
       
       ! No need to output  Just not to torture stack... 
-      real, dimension(0:), intent(out) :: A, B, C, P
-      real, dimension(0:,0:), intent(out) :: Q 
+      real(r8k), dimension(0:), intent(out) :: A, B, C, P
+      real(r8k), dimension(0:,0:), intent(out) :: Q 
 
       Tau = seconds_abs / real(max(1,N_time_steps))
       
@@ -4531,7 +4523,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
          alpha = 12 * fZC 
 
      !Still within the domain?
-     if (BL_abs + loopx >= xr(nCells))  then 
+     if (BL_abs + loopx >= xr(nCells))  then   !! Completely out of domain
         if (ifLoop) then
           loopx = loopx - xr(nCells)
           ixto = 1
@@ -5036,7 +5028,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
       real, dimension(0:, 0:), intent(inout) :: passengers
       integer, intent(in) ::  nz
       ! No need to output  Just use it as scratch 
-      real, dimension(0:,0:), intent(out) :: Q 
+      real(r8k), dimension(0:,0:), intent(out) :: Q 
 
       integer  :: iLev 
 

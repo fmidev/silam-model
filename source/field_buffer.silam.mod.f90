@@ -4595,6 +4595,8 @@ call msg('')
     logical :: if_horiz_interp, if_vert_interp, if_vert_interp_forward, ifOK
     type(silja_grid) :: grid
     type(silam_vertical) :: vertFrom_borders, vertTo_borders
+
+    interp_col_data = real_missing !! Prevernt garbage there
     
     !
     ! Stupidity check
@@ -4914,6 +4916,8 @@ call msg('')
       !$OMP        & if_vert_interp, vertFrom_borders) &
       !$OMP & PRIVATE(iyInterp, ixInterp, ilev, level, fLev, interp_col_data, interp_surf_data, &
       !$OMP         & zx, weights, indices)
+
+    interp_col_data = real_missing !! initialize  other threads as well
 
       !$OMP DO COLLAPSE(2)
       do iyInterp = 1, nyInterp

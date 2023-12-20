@@ -1210,6 +1210,7 @@ CONTAINS
     INTEGER :: igf, iLev, iSpecies, ix, iy, iSrcStart, iSrcEnd, iSrcTmp
     type(silja_field_id) :: idTmp
     real, dimension(:), pointer :: arTmp
+    real :: species_trim_factor
     character(len=substNmLen)  :: cocktail_name
 
     ! Checking
@@ -1226,7 +1227,7 @@ CONTAINS
       iSrcStart = iSrc
       iSrcEnd = iSrc
     endif
-    arTmp => fu_work_array()
+    arTmp => fu_work_array(pMap%ny*pMap%nx)
     if(error)return
 
     igf = int_missing
@@ -1253,6 +1254,12 @@ CONTAINS
     !
     do iSrcTmp = iSrcStart, iSrcEnd
       do iSpecies = 1, pMap%nSpecies
+        if (trim_factor /= real_missing) then
+           species_trim_factor = fu_min_precision_factor(fu_material(pMap%species(iSpecies)))
+           species_trim_factor = max(species_trim_factor, trim_factor)
+        else
+           species_trim_factor = real_missing
+        endif
         do iLev = 1, pMap%n3D
           !
           ! Make the 1D vector of the data to store
@@ -1263,8 +1270,8 @@ CONTAINS
             end do
           end do
 
-          if (trim_factor /= real_missing) &
-            & call trim_precision(arTmp(1:pMap%ny*pMap%nx), trim_factor, real_missing)
+          if (species_trim_factor /= real_missing) &
+            & call trim_precision(arTmp(1:pMap%ny*pMap%nx), species_trim_factor, real_missing)
           !
           ! Set the field id
           !

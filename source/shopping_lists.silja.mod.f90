@@ -1708,9 +1708,9 @@ CONTAINS
 
   !****************************************************************
 
-  logical function fu_field_id_in_list_of_vars(id, list, indexId)
+  logical function fu_field_id_in_list_of_vars(id, shlist, indexId)
     !
-    ! Checks if the given field id is in the list of shopping
+    ! Checks if the given field id is in the shlist of shopping
     ! variables. Should be called only if the logical switch
     ! useVariables is true. Otherwise - use the old way shown in
     ! fu_field_id_in_list
@@ -1719,7 +1719,7 @@ CONTAINS
 
     ! Imported parameters with intent(in):
     TYPE(silja_field_id), INTENT(in) :: id
-    TYPE(silja_shopping_list), INTENT(in) :: list
+    TYPE(silja_shopping_list), INTENT(in) :: shlist
     integer, intent(out), optional :: indexId
 
     ! Local variables
@@ -1731,8 +1731,8 @@ CONTAINS
       RETURN
     END IF
 
-    IF (.NOT.defined(list)) THEN
-      CALL set_error('shopping-list not defined','fu_field_id_in_list_of_vars')
+    IF (.NOT.defined(shlist)) THEN
+      CALL set_error('shopping-shlist not defined','fu_field_id_in_list_of_vars')
       RETURN
     END IF
     fu_field_id_in_list_of_vars = .false.
@@ -1763,48 +1763,48 @@ CONTAINS
     !
     ! Variables are checked one-by-one
     !
-    do iV = 1, size(list%vars)
-      if(.not.defined(list%vars(iV))) return ! List is over...
+    do iV = 1, size(shlist%vars)
+      if(.not.defined(shlist%vars(iV))) return ! shlist is over...
 
       !  Quantity must correspond (unless accept all)
       !
-      if(list%vars(iV)%quantity /= accept_all_quantities) then
-        if(fu_quantity(id) /= list%vars(iV)%quantity) cycle
+      if(shlist%vars(iV)%quantity /= accept_all_quantities) then
+        if(fu_quantity(id) /= shlist%vars(iV)%quantity) cycle
       end if
 
       ! Grid must Arakawa-correspond and have proper coverage unless accept all
       !
-      if(.not.(list%vars(iV)%grid == grid_missing))then
-        if(.not.fu_grids_arakawa_correspond(list%vars(iV)%grid, gridTmp))cycle
-        if(.not.fu_if_grid_covered(list%vars(iV)%grid, gridTmp)) cycle
+      if(.not.(shlist%vars(iV)%grid == grid_missing))then
+        if(.not.fu_grids_arakawa_correspond(shlist%vars(iV)%grid, gridTmp))cycle
+        if(.not.fu_if_grid_covered(shlist%vars(iV)%grid, gridTmp)) cycle
       end if
 
       !  Level must belong to vertial unless accept all verticals
       !
-      if(defined(list%vars(iV)%vertical))then
-        if(.not.fu_level_belongs_to_vertical(fu_level(id), list%vars(iV)%vertical)) cycle
+      if(defined(shlist%vars(iV)%vertical))then
+        if(.not.fu_level_belongs_to_vertical(fu_level(id), shlist%vars(iV)%vertical)) cycle
       end if
 
       ! Meteo data source must correspond unless accept all sources
       !
-      if(.not.(list%vars(iV)%mds == met_src_missing)) then 
-         if(.not.(list%vars(iV)%mds == fu_met_src(id)))cycle
+      if(.not.(shlist%vars(iV)%mds == met_src_missing)) then 
+         if(.not.(shlist%vars(iV)%mds == fu_met_src(id)))cycle
       end if
 
       !
       ! If substance name and mode value are present, they also must be checked.
       !
-      if(trim(list%vars(iV)%chCocktailNm) /= '')then
-         if(.not.(list%vars(iV)%chCocktailNm == fu_cocktail_name(id)))cycle        
+      if(trim(shlist%vars(iV)%chCocktailNm) /= '')then
+         if(.not.(shlist%vars(iV)%chCocktailNm == fu_cocktail_name(id)))cycle        
       endif
 
-      if(defined(list%vars(iV)%species))then
-        if(.not. (list%vars(iV)%species == fu_species(id))) cycle
+      if(defined(shlist%vars(iV)%species))then
+        if(.not. (shlist%vars(iV)%species == fu_species(id))) cycle
       else
         if(defined(fu_species(id))) cycle
       endif
 
-      ! All is passed => id is in the list of variables
+      ! All is passed => id is in the shlist of variables
       !
       fu_field_id_in_list_of_vars = .true.
       if(present(indexId))then

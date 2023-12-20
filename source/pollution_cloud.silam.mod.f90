@@ -360,12 +360,6 @@ CONTAINS
                             & cloud%speciesAerosol, cloud%nSpAerosol, &
                             & cloud%nReactions)          ! output
     if(error)return
-
-    !
-    ! Some of the settings may be incompatible with time steps. Verify it here
-    !
-    call verify_sources(em_source, timestart, timestep)
-    if(error)return
     
     cloud%defined = fu_set_true()
 
@@ -560,7 +554,6 @@ CONTAINS
                                    & chemRules, dynRules, &
                                    & calc_start, calc_dur, timestep, &
                                    & meteoMarket, &
-                                   & pOutputGrid, &
                                    & iAccuracy, ifRandomise)
     !
     ! Creates the storage for all masses and moments in pollution cloud to be used 
@@ -582,7 +575,6 @@ CONTAINS
     type(Tchem_rules), intent(inout) :: chemRules
     type(Tdynamics_rules), intent(in) :: dynRules
     type(mini_market_of_stacks), intent(in) :: meteoMarket
-    type(silja_grid), pointer :: pOutputGrid
     integer, intent(in) :: iAccuracy
     logical, intent(in) :: ifRandomise
 
@@ -1538,8 +1530,7 @@ endif
                                & cloud%mapPx_conc, cloud%mapPy_conc, cloud%mapPz_conc, &
                                & cloud%mapAerosol, &
                                & cloud%aer_att_surf, cloud%cld_att_surf, cloud%tau_aer, cloud%tau_cld, &
-                               & cloud%interpCoefMeteo2DispHoriz, cloud%interpCoefMeteo2DispVert, &
-                               & cloud%ifMeteo2DispHorizInterp, cloud%ifMeteo2DispVertInterp, &
+                               & cloud%interpCoefMeteo2DispHoriz,  cloud%ifMeteo2DispHorizInterp, &
                                & IniBoundaryRules, cloud%pBoundaryBuffer, &
                                & met_buf, &
                                & disp_buf, &
@@ -1651,7 +1642,7 @@ endif
       if(cld%ifMakeOpticalDensity)then
         call start_count("optical_density")
         call make_optical_dens_map(cld%mapConc, &
-                                 & met_buf, &
+                                 & met_buf, disp_buf, &
                                  & cld%interpCoefMeteo2DispHoriz, cld%interpCoefMeteo2DispVert, &
                                  & cld%ifMeteo2DispHorizInterp, cld%ifMeteo2DispVertInterp, &
                                  & cld%mapOptDns, &
@@ -1668,7 +1659,7 @@ endif
         !
         call start_count("optical_column_depth")
         call make_optical_column_depth_map(cld%mapConc, &
-                                           & met_buf, &
+                                           & met_buf, disp_buf, &
                                            & cld%interpCoefMeteo2DispHoriz, &
                                            & cld%interpCoefMeteo2DispVert, &
                                            & cld%ifMeteo2DispHorizInterp, &
@@ -2090,7 +2081,6 @@ endif
          & pollen_left_relative_flag, pollen_total_per_m2_flag, pollen_correction_flag, &
          & pollen_potency_flag, plant_growth_flag,  &
          & physiography_field_set_flag, &
-         & Vd_correction_DMAT_flag, &
          & interp_met2disp_coef_flag, &
          & interp_met2out_coef_flag, &
          & interp_disp2out_coef_flag,&
@@ -2108,7 +2098,8 @@ endif
          & FDI_SDI_fire_danger_flag, FDI_grass_mean_fire_danger_flag, &
          & FDI_grass_max_fire_danger_flag, FDI_FWI_fine_fuel_moist_flag, &
          & FDI_FWI_duff_moist_flag, FDI_FWI_drought_flag, &
-         & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag)
+         & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag, &
+         & road_wetness_flag, n_snowless_days_flag)
 
         ifInCloud = silja_false
 

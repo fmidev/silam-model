@@ -112,10 +112,11 @@ MODULE optical_density
     private
     logical :: ifRelHumidDep
     logical :: ifTDep
+    logical :: ifUseOnes
     type(silja_logical) :: defined
   end type Toptical_density_rules
 
-  type (Toptical_density_rules), parameter :: optical_density_rules_missing=Toptical_density_rules(.false.,.false.,silja_false)
+  type (Toptical_density_rules), parameter :: optical_density_rules_missing=Toptical_density_rules(.false.,.false., .false., silja_false)
 
   type Toptical_properties
     private
@@ -155,6 +156,9 @@ CONTAINS
                                 & 'optical_coefficients_depend_on_relative_humidity')) == 'NO')
     rulesOptDns%ifTDep = &
       & .not.(fu_str_u_case(fu_content(nlSetup,'optical_coefficients_depend_on_temperature')) == 'NO')
+
+    rulesOptDns%ifUseOnes = &
+      & (fu_str_u_case(fu_content(nlSetup,'optical_column_adjust_for_ones')) == 'YES')
     rulesOptDns%defined = silja_true
   end subroutine set_optical_density_rules
 
@@ -585,6 +589,7 @@ CONTAINS
       call set_error('Failed to allocate the extinction coefficient structure', subname)
       return
     endif
+    call msg('Memusage after allocate inside init_optical_LUT  kB', fu_system_mem_usage() )
     XS_lut%coef(:, :) = 0 !(iSp, iMet)
     XS_lut%ifRHDepSp(:) = .false.
     XS_lut%ifTDepSp(:) = .false.
@@ -871,9 +876,12 @@ species:  do iSpecies = 1, nspeciesLst
 
     call init_optical_LUT(Photo_ext, extinction_flag , speciesTransport, nSpeciesTransport, wavelength)
     if (error) call set_error("after init_optical_LUT Photo_ext", subname)
+    call msg('Memusage after init_optical_LUT Photo_ext  kB', fu_system_mem_usage() )
+
 
     call init_optical_LUT(Photo_scat, scatter_flag , speciesTransport, nSpeciesTransport, wavelength)
     if (error) call set_error("after init_optical_LUT Photo_scat,", subname)
+    call msg('Memusage after init_optical_LUT Photo_scat  kB', fu_system_mem_usage() )
 
     do iTmp=1,nSpeciesTransport
       call report(speciesTransport(iTmp)) 
@@ -1016,7 +1024,7 @@ species:  do iSpecies = 1, nspeciesLst
 
   !************************************************************************************
 
-  subroutine make_optical_dens_map(pDispFlds, met_buf, &
+  subroutine make_optical_dens_map(pDispFlds, met_buf, disp_buf,&
                                  & interpCoefMet2DispHoriz, interpCoefMet2DispVert, &
                                  & ifInterpMet2DispHoriz, ifInterpMet2DispVert, &
                                  & pOptDns, rulesOptDns, ChemRunSetup)
@@ -1034,7 +1042,7 @@ species:  do iSpecies = 1, nspeciesLst
     type(THorizInterpStruct), intent(in) :: interpCoefMet2DispHoriz
     type(TVertInterpStruct), intent(in) :: interpCoefMet2DispVert
     logical, intent(in) :: ifInterpMet2DispHoriz, ifInterpMet2DispVert
-    TYPE(Tfield_buffer), intent(in), target :: met_buf
+    TYPE(Tfield_buffer), intent(in), target :: met_buf, disp_buf
     type(TChemicalRunSetup), intent(in) :: ChemRunSetup
 
     integer, dimension(:), pointer :: mdl_in_q
@@ -1044,12 +1052,19 @@ species:  do iSpecies = 1, nspeciesLst
     type(Toptical_density_rules), intent(in) :: rulesOptDns
     real, dimension(max_species) :: arrOptDens
     real :: relHumid, tmpr
+    character (len=*), parameter :: sub_name="make_optical_column_dens_map"
 
+    if(rulesOptDns%ifUseOnes)then
+       call set_error("Adjustment for ones not implemeted here (yet?)", sub_name)
+      !!! There is no OPNEMP here either. Should be straightforward to implement bith once someone meeds it
+
+
+    endif
      mdl_in_q => met_buf%buffer_quantities
      if(rulesOptDns%ifRelHumidDep)then 
        iQ = fu_index(mdl_in_q, relative_humidity_flag)
        if(iQ <= 0)then
-         call set_error('No relative humidity','make_optical_column_dens_map')
+         call set_error('No relative humidity',sub_name)
          return
        endif
        ptrRelHumid => met_buf%p4d(iQ)
@@ -1057,7 +1072,7 @@ species:  do iSpecies = 1, nspeciesLst
      if (rulesOptDns%ifTDep)then
       iQ = fu_index(mdl_in_q, temperature_flag)
        if(iQ <= 0)then
-         call set_error('No temperature','make_optical_column_depth_map')
+         call set_error('No temperature',sub_name)
          return
        endif
        ptrTemp => met_buf%p4d(iQ)
@@ -1120,7 +1135,7 @@ species:  do iSpecies = 1, nspeciesLst
 !*******************************************************************************
 
 
-  subroutine make_optical_column_depth_map(pDispFlds, met_buf, &
+  subroutine make_optical_column_depth_map(pDispFlds, met_buf, disp_buf, &
                                          & interpCoefMet2DispHoriz, interpCoefMet2DispVert, &
                                          & ifInterpMet2DispHoriz, ifInterpMet2DispVert, &
                                          & pOpticColDepth, rulesOptDns, ChemRunSetup, pOpticDensity)
@@ -1137,32 +1152,53 @@ species:  do iSpecies = 1, nspeciesLst
     type(THorizInterpStruct), intent(in) :: interpCoefMet2DispHoriz
     type(TVertInterpStruct), intent(in) :: interpCoefMet2DispVert
     logical, intent(in) :: ifInterpMet2DispHoriz, ifInterpMet2DispVert
-    TYPE(Tfield_buffer), intent(in), target :: met_buf
+    TYPE(Tfield_buffer), intent(in), target :: met_buf, disp_buf
     type(TChemicalRunSetup), intent(in) :: ChemRunSetup
     type(Tmass_map), intent(in) :: pOpticDensity !! Can be mass_map_missing
 
-    integer, dimension(:), pointer :: mdl_in_q
-    integer :: ix, iy, iSrc, iWave, iQ, nSpeciesOpt, iLev, iSpeciesOpt, iSpeciesTr, iSpTo
-    type(field_4d_data_ptr), pointer :: ptrRelHumid, ptrTemp
-    real :: RelHumid, tmpr
+    integer :: ix, iy, iSrc, iWave, iQ, nSpeciesOpt, iLev, iSpeciesOpt, iSpeciesTr, iSpTo, i1d
+    type(field_4d_data_ptr), pointer :: ptrRelHumid, ptrTemp, ptrAirMass
+    real :: RelHumid, tmpr, mass_air, ones_corr
+    real, pointer :: fPtr
     type(Toptical_density_rules), intent(in) :: rulesOptDns
-    real, dimension(max_species) :: arrOptColDepth
+    integer, save :: ispOnes = int_missing
+
+    character (len=*), parameter :: sub_name="make_optical_column_depth_map"
 
 
 
-    mdl_in_q => met_buf%buffer_quantities
-    if(rulesOptDns%ifRelHumidDep)then 
-      iQ = fu_index(mdl_in_q, relative_humidity_flag)
+
+    if(rulesOptDns%ifUseOnes)then 
+      if (ispOnes < 1) then !! Do we ned to initialise it?
+        call msg("make_optical_column_depth_map will use ones")
+        iSpOnes = select_single_species(pDispFlds%species, pDispFlds%nSpecies, &
+                          & 'ones', in_gas_phase, real_missing)
+        if (error .or. (iSpOnes < 1)) then
+          call set_error("Couldn't find 'ones' species", sub_name)
+          return
+        endif
+      endif
+
+      iQ = fu_index(disp_buf%buffer_quantities, disp_cell_airmass_flag)
       if(iQ <= 0)then
-        call set_error('No relative humidity','make_optical_column_depth_map')
+        call set_error('No disp_cell_airmass_flag',sub_name)
+        return
+      endif
+      ptrAirMass => disp_buf%p4d(iQ)
+    endif
+
+    if(rulesOptDns%ifRelHumidDep)then 
+      iQ = fu_index(met_buf%buffer_quantities, relative_humidity_flag)
+      if(iQ <= 0)then
+        call set_error('No relative humidity',sub_name)
         return
       endif
       ptrRelHumid => met_buf%p4d(iQ)
     endif
     if (rulesOptDns%ifTDep)then
-      iQ = fu_index(mdl_in_q, temperature_flag)
+      iQ = fu_index(met_buf%buffer_quantities, temperature_flag)
       if(iQ <= 0)then
-        call set_error('No temperature','make_optical_column_depth_map')
+        call set_error('No temperature', sub_name)
         return
       endif
       ptrTemp => met_buf%p4d(iQ)
@@ -1170,27 +1206,27 @@ species:  do iSpecies = 1, nspeciesLst
 
 
      nSpeciesOpt = pOpticColDepth%nSpecies
-     !$OMP PARALLEL default(none) private(ix,iy,isrc,arrOptColDepth, iLev, relHumid, tmpr, iSpeciesTr, iSpeciesOpt, iSpTo) &
+     !$OMP PARALLEL default(none) private(ix,iy,isrc, iLev, relHumid, tmpr, iSpeciesTr, &
+     !$OMP & iSpeciesOpt, iSpTo, fPtr, mass_air, ones_corr, i1d) &
      !$OMP & shared(pOpticColDepth, pOpticDensity, pDispFlds, ptrRelHumid, &
      !$OMP & ptrTemp, ifInterpMet2DispHoriz, ifInterpMet2DispVert, &
-     !$OMP & interpCoefMet2DispHoriz, interpCoefMet2DispVert, met_buf, &
-     !$OMP & ChemRunSetup,rulesOptDns, nSpeciesOpt, nx_meteo)
+     !$OMP & interpCoefMet2DispHoriz, interpCoefMet2DispVert, met_buf, disp_buf, ptrAirMass,&
+     !$OMP & ChemRunSetup,rulesOptDns, nSpeciesOpt, nx_meteo, ispOnes, nx_dispersion)
 
-     ! Now fill it from the transport cocktail
-     !
-
+     ones_corr = 1.
      !
      if(defined(pOpticDensity))then
        !
        ! Just sum-up the optical density 
        !!!!!!!!!!!!Safe now, as optical depth and density are computed both for all species. 
        !!!!!!!!!!!!Later some checking has to be introduced!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !!!  Adjustment for ones should be done in make_optical_column_density_map not here
        !$OMP DO collapse(2)
        do iy = 1, pOpticColDepth%ny
         do ix = 1, pOpticColDepth%nx
          do iSrc  = 1, pOpticColDepth%nSrc       !
-          call sum_opt_dns_to_col_depth(pOpticDensity, arrOptColDepth, ix, iy, iSrc) ! 
-          pOpticColDepth%arM(1:nSpeciesOpt, iSrc, 1, ix, iy) = arrOptColDepth(1:nSpeciesOpt)
+          call sum_opt_dns_to_col_depth(pOpticDensity,  &
+                                      & pOpticColDepth%arM(1:nSpeciesOpt, iSrc, 1, ix, iy), ix, iy, iSrc) ! 
           end do ! iSrc
         end do ! ix
        end do ! iy   
@@ -1204,39 +1240,44 @@ species:  do iSpecies = 1, nspeciesLst
        !$OMP DO collapse(2)
        do iy = 1, pOpticColDepth%ny
         do ix = 1, pOpticColDepth%nx
-         do iSrc  = 1, pOpticColDepth%nSrc
+          pOpticColDepth%arM(1:nSpeciesOpt, 1:pOpticColDepth%nSrc, 1, ix, iy) = 0
+          do iLev = 1, pDispFlds%n3D
+            if(rulesOptDns%ifRelHumidDep)then
+              relHumid = fu_get_value(ptrRelHumid, nx_meteo, ix, iy, iLev, met_buf%weight_past, &  
+                                    & interpCoefMet2DispHoriz, interpCoefMet2DispVert, &
+                                    & ifInterpMet2DispHoriz, ifInterpMet2DispVert)
+            endif
+            if (rulesOptDns%ifTDep)then
+              tmpr = fu_get_value(ptrTemp, nx_meteo, ix, iy, iLev, met_buf%weight_past, &  
+                                & interpCoefMet2DispHoriz, interpCoefMet2DispVert, &
+                                & ifInterpMet2DispHoriz, ifInterpMet2DispVert)
+            endif
+            
+            if(rulesOptDns%ifUseOnes)then
+              i1d = ix + nx_dispersion*(iy-1)
+              mass_air = ptrAirMass%past%p2d(iLev)%ptr(i1d) * met_buf%weight_past + &
+                       & ptrAirMass%future%p2d(iLev)%ptr(i1d) * (1.0-met_buf%weight_past)
+            endif
 
-             
-             arrOptColDepth(1:nSpeciesOpt) = 0
-
-                 
-             do iLev = 1, pDispFlds%n3D
-               if(rulesOptDns%ifRelHumidDep)then
-                 relHumid = fu_get_value(ptrRelHumid, nx_meteo, ix, iy, iLev, met_buf%weight_past, &  
-                                       & interpCoefMet2DispHoriz, interpCoefMet2DispVert, &
-                                       & ifInterpMet2DispHoriz, ifInterpMet2DispVert)
-               endif
-               if (rulesOptDns%ifTDep)then
-                 tmpr = fu_get_value(ptrTemp, nx_meteo, ix, iy, iLev, met_buf%weight_past, &  
-                                   & interpCoefMet2DispHoriz, interpCoefMet2DispVert, &
-                                   & ifInterpMet2DispHoriz, ifInterpMet2DispVert)
-               endif
-
-               do iSpeciesTr = 1, pDispFlds%nSpecies  ! scan the transport cocktail
-                 !
-                 ! Contribute to the right optical species pointed by the ChemRunSetup
-                 !
-                 do iSpTo = 1, chemRunSetup%refsTransp2opt(iSpeciesTr)%nrefSpecies   
-                   iSpeciesOpt = chemRunSetup%refsTransp2opt(iSpeciesTr)%indSpeciesTo(iSpTo)
+            do iSrc  = 1, pOpticColDepth%nSrc
+              if(rulesOptDns%ifUseOnes)then
+                ones_corr = mass_air / pDispFlds%arM(iSpOnes,iSrc,iLev,ix,iy)
+              endif
+              do iSpeciesTr = 1, pDispFlds%nSpecies  ! scan the transport cocktail
+                !
+                ! Contribute to the right optical species pointed by the ChemRunSetup
+                !
+                
+                do iSpTo = 1, chemRunSetup%refsTransp2opt(iSpeciesTr)%nrefSpecies   
+                  iSpeciesOpt = chemRunSetup%refsTransp2opt(iSpeciesTr)%indSpeciesTo(iSpTo)
                   
-                   arrOptColDepth(iSpeciesOpt) = arrOptColDepth(iSpeciesOpt) + &  
-                                              &  pDispFlds%arM(iSpeciesTr,iSrc,iLev,ix,iy) * &
-                                              &  fu_Extinction_coef(iSpeciesOpt, relHumid, tmpr )
-                 end do  ! iSpTo for the given iSpeciesTr
-               end do  ! iSpeciesTr - of transport cocktail
-             enddo ! level
-             pOpticColDepth%arM(1:nSpeciesOpt, iSrc, 1, ix, iy) = arrOptColDepth(1:nSpeciesOpt)
-          end do ! iSrc
+                  fPtr => pOpticColDepth%arM(iSpeciesOpt, iSrc, 1, ix, iy)
+                  fPtr  = fPtr +     pDispFlds%arM(iSpeciesTr,iSrc,iLev,ix,iy) * ones_corr * &
+                                      fu_Extinction_coef(iSpeciesOpt, relHumid, tmpr )
+                end do  ! iSpTo for the given iSpeciesTr
+              end do  ! iSpeciesTr - of transport cocktail
+            end do ! iSrc
+          enddo ! level
         end do ! ix
        end do ! iy
        !$OMP END DO

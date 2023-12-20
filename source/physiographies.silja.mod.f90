@@ -1552,7 +1552,7 @@ call msg('Physiography reads:' + fnames(i)%sp)
   
   !****************************************************************************
   
-  subroutine make_time_zone_mapping(arSourceIdMapping, chSplitNames, meteoMarketPtr, gridMapping, groups, nGroups)
+  subroutine make_time_zone_mapping(arSourceIdMapping, chSplitNames, meteoMarket, gridMapping, groups, nGroups)
     !
     ! Maps the time zones and their groups as a filled set of indices.
     ! Called once, so efficiency does not matter
@@ -1560,11 +1560,11 @@ call msg('Physiography reads:' + fnames(i)%sp)
     implicit none
     
     ! imported parameters
-    integer, dimension(:,:), intent(inout) :: arSourceIdMapping  ! map of indices
-    character(len=10), dimension(:), intent(inout) :: chSplitNames    ! list of names assigned to indices
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
+    integer, dimension(:,:), intent(out) :: arSourceIdMapping  ! map of indices
+    character(len=10), dimension(:), intent(out) :: chSplitNames    ! list of names assigned to indices
+    type(mini_market_of_stacks), intent(in) :: meteoMarket
     type(silja_grid), intent(in) :: gridMapping
-    type(Tsilam_nl_item_ptr), dimension(:), pointer :: groups  ! just items in the namelist
+    type(Tsilam_nl_item_ptr), dimension(:), intent(in) :: groups  ! just items in the namelist
     integer, intent(in) :: nGroups
     
     ! local variables
@@ -1579,7 +1579,7 @@ call msg('Physiography reads:' + fnames(i)%sp)
     !
     ! Get the time zone map and prepare supplementary variables
     !
-    TZidxFld => fu_sm_simple_field(meteoMarketPtr, met_src_missing, timezone_index_flag, &
+    TZidxFld => fu_sm_simple_field(meteoMarket, met_src_missing, timezone_index_flag, &
                                  & level_missing, single_time_stack_flag)
     tz_data => fu_grid_data(TZidxFld)
     ! Note two different nearest-points. One is for interpolation method, one for out-of-grid handling

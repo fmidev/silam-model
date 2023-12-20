@@ -26,6 +26,8 @@ module chemistry_manager
   use chem_dep_acid_basic
   use chem_dep_cbm5_SOA
   use chem_dep_cbm5_strato_SOA
+  use chem_dep_cbm7_SOA
+  use chem_dep_cbm7_strato_SOA
   use chem_dep_radioactive
   use aer_dyn_basic
   use aer_dyn_simple
@@ -114,6 +116,7 @@ module chemistry_manager
     integer :: nTransformations=int_missing, nAerosolDynamics=int_missing
     character(len=fnlen) :: filename_photo_lut = char_missing
     logical :: need_photo_lut = .false.
+    logical :: need_cb7_photo_lut = .false.      ! For backward compactibility of the old CB5 text-based phototables. 
     logical :: useDynamicAlbedo = .false.        ! By default use static albedo for photolysis
     real :: defaultStaticAlbedo = 0.3            ! Some default value   
     integer :: PhotoO3col = int_missing          ! Use O3 column to calculate photolysis 
@@ -131,6 +134,8 @@ module chemistry_manager
 !    !type(Tchem_rules_POP) :: rulesPOP
     type(Tchem_rules_cbm5_SOA) :: rulesCBM5_SOA
     type(Tchem_rules_cbm5_strato_SOA) :: rulesCBM5_strato_SOA
+    type(Tchem_rules_cbm7_SOA) :: rulesCBM7_SOA
+    type(Tchem_rules_cbm7_strato_SOA) :: rulesCBM7_strato_SOA
     type(Tchem_rules_AerDynBasic) :: rulesAerDynBasic
     type(Tchem_rules_AerDynSimple) :: rulesAerDynSimple
     type(Tchem_rules_AerDynMidAtm) :: rulesAerDynMidAtmosph
@@ -169,6 +174,8 @@ module chemistry_manager
   public transformation_radioactive
   public transformation_cbm5_SOA
   public transformation_cbm5_strato_SOA
+  public transformation_cbm7_SOA
+  public transformation_cbm7_strato_SOA
 
   public aerosol_dynamics_basic
   public aerosol_dynamics_simple
@@ -185,10 +192,16 @@ module chemistry_manager
   public transform_cbm5_SOA_adj
   public transform_cbm5_strato_SOA
   public transform_cbm5_strato_SOA_adj
+  public transform_cbm7_SOA
+  public transform_cbm7_SOA_adj
+  public transform_cbm7_strato_SOA
+  public transform_cbm7_strato_SOA_adj
   public transform_AerDynMidAtm
   public transform_AerDynVBS
   public prepare_step_cbm5_SOA
   public prepare_step_cbm5_strato_SOA
+  public prepare_step_cbm7_SOA
+  public prepare_step_cbm7_strato_SOA
   !--------------------------------------------------------------------
   !
   ! The global meteo_input data structure and an array of the local meteo_input ones
@@ -371,6 +384,26 @@ CONTAINS
         call registerSpeciescbm5_strato_SOA(chemRules%rulesCBM5_strato_SOA, &
                            & speciesTransport, speciesShortlived, speciesAerosol, &
                            & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
+      case(transformation_cbm7_SOA)
+        call init_chemicals_cbm7_SOA()
+        call inventory_cbm7_SOA(chemRules%rulesCBM7_SOA, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & iClaimedSpecies)
+!        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
+        call registerSpeciescbm7_SOA(chemRules%rulesCBM7_SOA, &
+                           & speciesTransport, speciesShortlived, speciesAerosol, &
+                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
+      case(transformation_cbm7_strato_SOA)
+        call init_chemicals_cbm7_strato_SOA()
+        call inventory_cbm7_strato_SOA(chemRules%rulesCBM7_strato_SOA, &
+                     & speciesEmisAux, speciesTransport, speciesShortlived, speciesAerosol, &
+                     & nspeciesEmisAux, nSpeciesTransport, nSpeciesShortlived, nSpeciesAerosol, &
+                     & iClaimedSpecies)
+!        call addSpecies(speciesTransport, nSpeciesTransport, speciesTmp, nspeciesTmpTransp)
+        call registerSpeciescbm7_strato_SOA(chemRules%rulesCBM7_strato_SOA, &
+                           & speciesTransport, speciesShortlived, speciesAerosol, &
+                           & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
       case(int_missing)
         exit
       case default
@@ -427,7 +460,7 @@ CONTAINS
                            & speciesTransport, speciesShortlived, speciesAerosol, &
                            & nspeciesTransport, nspeciesShortlived, nspeciesAerosol)
 
-      case(transformation_cbm5_SOA, transformation_cbm5_strato_SOA)
+      case(transformation_cbm5_SOA, transformation_cbm5_strato_SOA, transformation_cbm7_SOA, transformation_cbm7_strato_SOA)
         ! Handled above.
         continue
 
@@ -604,6 +637,7 @@ end do
 
     if (chemRules%ifPhotoAOD) &
       call init_photoatt_lut(speciesTransport, nSpeciesTransport, chemRules%photoAODwavelength)
+      call msg('Memusage after init_photoatt_lut  kB', fu_system_mem_usage() )
     if(error)return
 
     !
@@ -679,6 +713,12 @@ end do
           
         case(transformation_cbm5_strato_SOA)
           call cbm5_strato_SOA_input_needs(chemRules%rulesCBM5_strato_SOA, pMeteo_input_local(iType))
+          
+        case(transformation_cbm7_SOA)
+          call cbm7_SOA_input_needs(chemRules%rulesCBM7_SOA, pMeteo_input_local(iType))
+
+        case(transformation_cbm7_strato_SOA)
+          call cbm7_strato_SOA_input_needs(chemRules%rulesCBM7_strato_SOA, pMeteo_input_local(iType))
           
         case(transformation_radioactive)
           call radioactive_input_needs(chemRules%rulesRadioactive, pMeteo_input_local(iType))
@@ -811,6 +851,12 @@ end do
           if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_cbm5_strato_SOA)
 !          n = fu_tla_size_cbm5_strato_SOA(chemrules%rulesCBM5_strato_SOA)
+!          if (n>0)  call add_tla_traj(iTrans, traj, n)
+        case(transformation_cbm7_SOA)
+          n = fu_tla_size_cbm7_SOA(chemrules%rulesCBM7_SOA)
+          if (n>0)  call add_tla_traj(iTrans, traj, n)
+        case(transformation_cbm7_strato_SOA)
+!          n = fu_tla_size_cbm7_strato_SOA(chemrules%rulesCBM7_strato_SOA)
 !          if (n>0)  call add_tla_traj(iTrans, traj, n)
         case(transformation_radioactive)
 !          n = fu_tla_size_radioactive(chemrules%rulesRadioactive)
@@ -978,6 +1024,10 @@ end do
       cbm_type = transformation_cbm5_SOA
     else if (fu_index(transformation_cbm5_strato_SOA, chemrules%iTransformTypes) > 0) then
       cbm_type = transformation_cbm5_strato_SOA
+    else if (fu_index(transformation_cbm7_SOA, chemrules%iTransformTypes) > 0) then
+      cbm_type = transformation_cbm7_SOA
+    else if (fu_index(transformation_cbm7_strato_SOA, chemrules%iTransformTypes) > 0) then
+      cbm_type = transformation_cbm7_strato_SOA
     else
       cbm_type = int_missing
     end if
@@ -1042,6 +1092,8 @@ end do
     
     if (cbm_type == transformation_cbm5_SOA) call prepare_step_cbm5_SOA()
     if (cbm_type == transformation_cbm5_strato_SOA) call prepare_step_cbm5_strato_SOA()
+    if (cbm_type == transformation_cbm7_SOA) call prepare_step_cbm7_SOA()
+    if (cbm_type == transformation_cbm7_strato_SOA) call prepare_step_cbm7_strato_SOA()
 
     !$OMP DO collapse (2) schedule (guided)
     do iy = 1, mapTransport%ny
@@ -1406,6 +1458,72 @@ end do
                                                   & tla_point, &
                                                   & photorates(:, i3d), &
                                                   & chemRules%rulesCBM5_strato_SOA, &
+                                                  & metdat, &
+                                                  & seconds, &
+                                                  & garb_array(isrc,:), &
+                                                  & zenith_cos, lat, &
+                                                  & now, &
+                                                  & print_it)
+
+                  end if
+
+                  
+                case (transformation_cbm7_SOA)
+                  tla_point => null()
+                  if (defined(tla_traj)) then
+                    tla_point => fu_get_tla_point(tla_traj, cbm_type, i3d, ix, iy)
+                  end if
+
+                  if (seconds > 0) then
+                    call transform_cbm7_SOA(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                              & tla_point, &
+                                              & photorates(:, i3d), &
+                                              & chemRules%rulesCBM7_SOA, &
+                                              & metdat, &
+                                              & seconds, &
+                                              & garb_array(isrc,:), &
+                                              & zenith_cos, lat, &
+                                              & cb4_h_start_array(i3d,ix,iy), &
+                                              & now, &
+                                              & print_it)
+                  else
+                    call transform_cbm7_SOA_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                                  & tla_point, &
+                                                  & photorates(:, i3d), &
+                                                  & chemRules%rulesCBM7_SOA, &
+                                                  & metdat, &
+                                                  & seconds, &
+                                                  & garb_array(isrc,:), &
+                                                  & zenith_cos, lat, &
+                                                  & now, &
+                                                  & print_it)
+
+                  end if
+
+                  
+                case (transformation_cbm7_strato_SOA)
+                  tla_point => null()
+                  if (defined(tla_traj)) then
+                    tla_point => fu_get_tla_point(tla_traj, cbm_type, i3d, ix, iy)
+                  end if
+
+                  if (seconds > 0) then
+                    call transform_cbm7_strato_SOA(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                              & tla_point, &
+                                              & photorates(:, i3d), &
+                                              & chemRules%rulesCBM7_strato_SOA, &
+                                              & metdat, &
+                                              & seconds, &
+                                              & garb_array(isrc,:), &
+                                              & zenith_cos, lat, &
+                                              & cb4_h_start_array(i3d,ix,iy), &
+                                              & now, &
+                                              & print_it)
+                  else
+                    call transform_cbm7_strato_SOA_adj(cncTrn(1:mapTransport%nSpecies,isrc), &
+                                                  & tla_point, &
+                                                  & photorates(:, i3d), &
+                                                  & chemRules%rulesCBM7_strato_SOA, &
                                                   & metdat, &
                                                   & seconds, &
                                                   & garb_array(isrc,:), &
@@ -2216,6 +2334,12 @@ end do
       elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB5_STRATO_SOA') == 1)then
         rulesChemistry%iTransformTypes(iTmp) = transformation_cbm5_strato_SOA
         call set_chem_rules_CBM5_strato_SOA(nlTransf, rulesChemistry%rulesCBM5_strato_SOA)
+      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB7_SOA') == 1)then
+        rulesChemistry%iTransformTypes(iTmp) = transformation_cbm7_SOA
+        call set_chem_rules_CBM7_SOA(nlTransf, rulesChemistry%rulesCBM7_SOA)
+      elseif(index(fu_str_u_case(fu_content(items(iTmp))),'CB7_STRATO_SOA') == 1)then
+        rulesChemistry%iTransformTypes(iTmp) = transformation_cbm7_strato_SOA
+        call set_chem_rules_CBM7_strato_SOA(nlTransf, rulesChemistry%rulesCBM7_strato_SOA)
 
       elseif(index(fu_str_u_case(fu_content(items(iTmp))),'RADIOACTIVE') == 1)then
         rulesChemistry%iTransformTypes(iTmp) = transformation_radioactive
@@ -2389,9 +2513,16 @@ end do
     ! For CB4 strato, initialize photolysis
     !
     if (fu_index(transformation_cbm5_SOA, rulesChemistry%iTransformTypes) > 0 &
-      & .or. fu_index(transformation_cbm5_strato_SOA, rulesChemistry%iTransformTypes) > 0) then
+      & .or. fu_index(transformation_cbm5_strato_SOA, rulesChemistry%iTransformTypes) > 0 &
+      & .or. fu_index(transformation_cbm7_SOA, rulesChemistry%iTransformTypes) > 0 &
+      & .or. fu_index(transformation_cbm7_strato_SOA, rulesChemistry%iTransformTypes) > 0) then
       rulesChemistry%need_photo_lut = .true.
 
+      !Backward compactibility when using the text based photolysis LUT for CB5 that miss some CB7 reactions 
+      if (fu_index(transformation_cbm7_SOA, rulesChemistry%iTransformTypes) > 0 &
+        & .or. fu_index(transformation_cbm7_strato_SOA, rulesChemistry%iTransformTypes) > 0) then
+         rulesChemistry%need_cb7_photo_lut = .true.
+      end if
 
       !Check if one requires a dynamic albedo or a static one
       if (fu_str_u_case(fu_content(nlTransf,'use_dynamic_albedo')) == 'YES') then
@@ -2420,7 +2551,15 @@ end do
         return
       endif
         
-      call init_photolysis_lut(rulesChemistry%filename_photo_lut)
+      if (strTmp(len(trim(strTmp))-1:len(trim(strTmp)))=='nc') then
+         call msg('Using NetCDF version of photolysis LUT.')
+         call init_photolysis_lut(rulesChemistry%filename_photo_lut)
+         call msg('Memusage after init_photolysis_lut  kB', fu_system_mem_usage() )
+      else
+         call msg('Using text version of photolysis LUT.')
+         call init_photolysis_lut_old(rulesChemistry%filename_photo_lut, rulesChemistry%need_cb7_photo_lut)         
+         call msg('Memusage after init_photolysis_lut_old  kB', fu_system_mem_usage() )
+      end if
       if (error) then
         call set_error("Error after init_photolysis_lut", sub_name)
         return
@@ -2442,7 +2581,7 @@ end do
         rulesChemistry%ifPhotoAOD = .False.
         rulesChemistry%photoAODwavelength = real_missing
         call msg("Photolysis ignores aerosols: photolysis_affected_by_aod = NO")
-    else
+      else
          call msg("Usage: photolysis_affected_by_aod = (YES|NO)")
          call set_error("Unknown photolysis_affected_by_aod value: '"//trim(strtmp)//"'", sub_name)
       endif
@@ -2486,6 +2625,7 @@ end do
       rulesChemistry%ifOnesAdjust = .True.
       call msg("Using ONES to adjust air density for chemistry")
     endif
+    call msg('Memusage at the end of set_chemistry_rules kB', fu_system_mem_usage() )
 
     rulesChemistry%defined = silja_true
 
@@ -2750,7 +2890,10 @@ end do
         !
         do i = 1, nspecies_transport
           if (pThresholdsCnc(i) < 0) then
-            pThresholdsCnc(i) = fu_low_mass_threshold(fu_material(transport_species(i)))
+            pThresholdsCnc(i) = fu_low_conc_threshold_material(fu_material(transport_species(i)))
+            !!! This has been done explicitly now. Materials cleaned from that nonsense now.
+            !!! The whole sub to be removed eventually
+            call set_error("Use concentration as mass", 'calculate_thresholds')
             if (pThresholdsCnc(i) .eps. real_missing) pThresholdsCnc(i) = -1.0
             if (error) exit
           end if

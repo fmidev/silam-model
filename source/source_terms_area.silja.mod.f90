@@ -75,7 +75,6 @@ MODULE source_terms_area
   public inject_emission_area_source_cellist
   public check_cells
   public force_source_into_grid
-  public check_time_params_a_src
   public unpack_a_src_from_nc
   public init_a_src_TZ_index
   public fu_meteodep_model
@@ -2595,55 +2594,6 @@ CONTAINS
     close(uOut)
 
   end subroutine write_area_src_from_mass_map
-
-
-  !**************************************************************************
-
-  subroutine check_time_params_a_src(a_src, timestart, timestep)
-    !
-    ! If the source is v4 and has time variations active, model time step must be shorter 
-    ! than an hour, and exact hour must be the edge of the time steps.
-    !
-    implicit none
-
-    ! Improted parameters
-    type(silam_area_source), intent(in) :: a_src
-    type(silja_time), intent(in) :: timestart
-    type(silja_interval), intent(in) :: timestep
-    
-    ! Local variab;es
-    integer :: iDescr
-
-    if(a_src%ifUseTimeVarCoef .and. a_src%ifFieldGiven)then
-      !
-      ! Long time step?
-      !
-      if(fu_abs(timestep) > one_hour .and. any(abs(a_src%indHour(:,:) - 1.0) > 1e-5))then
-        do iDescr = 1, a_src%nDescriptors
-          call msg('Hourly coefs for descriptor=' + fu_str(iDescr), a_src%indHour(iDescr,:))
-        end do
-        call set_error('Model timestep:' + fu_str(timestep) + ', hourly time variation', &
-                     & 'check_time_params_a_src')
-        return
-      endif
-      !
-      ! Weird run start? We need every hour to be at the edge of the time steps. With
-      ! timestep shorter than an hour, it is "almost" enough to check that the start of the 
-      ! hour is met exactly from the current starttime using the given timestep. To make it 
-      ! absolutely certain, check two sequential hours
-      !
-      if(.not. fu_next_special_time(timestart, iStartOfHour, forwards, zero_interval) == &
-             & fu_next_special_time(timestart, iStartOfHour, forwards, timestep) .or. &
-       & abs(real(nint(one_hour / timestep)) - (one_hour / timestep)) > 1e-5 )then
-        call set_error('Timestep:' + fu_str(timestep) + &
-                & ', is not divisor of one_hour or run steps miss hour edges due to wrong start:' + &
-                & fu_str(timestart),'check_time_params_a_src')
-        return
-      endif
-    endif  !  binary and time variatrion
-
-  end subroutine check_time_params_a_src
-
 
   !**************************************************************************
 

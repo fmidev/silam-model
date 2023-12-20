@@ -435,33 +435,11 @@ CONTAINS
 !    call arrange_levels_in_vertical(gf%silamVertical)
     if(error)return
 
-    sp%sp = fu_content(nlPtr, 'time_label_position')
-
-    if(index(trim(fu_str_l_case(sp%sp)), 'start_of_period') > 0)then
-      gf%time_label_position = start_of_period
-    elseif(index(trim(fu_str_l_case(sp%sp)), 'mid_of_period') > 0)then
-      gf%time_label_position = mid_of_period
-    elseif(index(trim(fu_str_l_case(sp%sp)), 'end_of_period') > 0)then
-      gf%time_label_position = end_of_period
-    elseif(index(trim(fu_str_l_case(sp%sp)), 'instant_fields') > 0)then
-      gf%time_label_position = instant_fields
-    else
-      call set_error('strange time_label_position in superctl:' + sp%sp, 'fu_open_gradsfile_i')
-      call msg(trim(fu_str_l_case(sp%sp)), index(trim(fu_str_l_case(sp%sp)), 'end_of_period'))
-    endif
-
+    gf%time_label_position = fu_time_label_position(fu_content(nlPtr, 'time_label_position'), instant_fields)
+    if(error)return
+    
     if(len_trim(fu_content(nlPtr,'data_time_features')) > 0)then
-      if(index(fu_str_l_case(fu_content(nlPtr,'data_time_features')),'dynamic_data') > 0)then
-        gf%data_time_features = dynamic_map
-      elseif(index(fu_str_l_case(fu_content(nlPtr,'data_time_features')),'monthly_data') > 0)then
-        gf%data_time_features = monthly_climatology
-      elseif(index(fu_str_l_case(fu_content(nlPtr,'data_time_features')),'static_data') > 0)then
-        gf%data_time_features = static_climatology
-      else
-        call msg('data_time_features can be dynamic_data/monthly_data/static_data, not:' + &
-               & fu_content(nlPtr,'data_time_features'))
-        call set_error('Wrong data_time_features line','fu_open_gradsfile_i')
-      endif
+      gf%data_time_features = fu_data_time_features(fu_content(nlPtr,'data_time_features'))
       !
       ! Backward compatibility causes trouble: contradicting lines
       !
@@ -3047,7 +3025,7 @@ CONTAINS
           return
       end select
     endif
-    
+
     select case(gfile(igFile)%ptr%data_time_features)
       case(dynamic_map)
         validity_len = gfile(igFile)%ptr%gtime%step
@@ -3718,8 +3696,8 @@ CONTAINS
         call set_error('Unknown time label position:' + fu_str(gf%time_label_position),'write_ctl_file')
         return
     end select
-      
-    select case(gf%data_time_features)  
+
+    select case(gf%data_time_features)
       case(dynamic_map)
         write(iCtlUnit,*)'data_time_features  =  dynamic_data'
       case(monthly_climatology)

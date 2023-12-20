@@ -190,8 +190,8 @@ CONTAINS
     ! A*t
     rules%precomputed_decay%decay_matrix(:,:) = fu_sec(timestep)*reactTmp(1:nNucsAdded,1:nNucsAdded)
     ! Save species
-    rules%precomputed_decay%species(1:nNucsAdded) = speciesTransp(nSpTrn-nNucsAdded+1:nSpTrn)
-
+    rules%precomputed_decay%species(1:nNucsAdded) = speciesTransp(nSpTrn-nNucsAdded+1:nSpTrn)     
+    
     if (debug_level > 0) then
       call msg('Decay matrixd before the exponent:')
       do iSp = 1, nNucsAdded
@@ -212,6 +212,9 @@ CONTAINS
     end if
     if(error)return
     call msg('')
+
+    ! could be constructed earlier with the correct order of indexes
+    rules%precomputed_decay%decay_matrix = transpose(rules%precomputed_decay%decay_matrix)
 
 !!!!     !!! The thing needed for doze-tool
 !!!!     allocate(pMatrixTmp(nNucsAdded,nNucsAdded))
@@ -398,11 +401,13 @@ CONTAINS
     ! Local variables
     integer :: iSp, iSp2, iTMp, jTmp, nuc_start_ind, nNuclides
     type(silam_sp) :: sp
-    real, dimension(:), pointer :: ptrDecayOutputTmp
+    real, dimension(:), pointer :: ptrDecayOutputTmp, ptrDecayOutputTmp2
     
     print_it = .false.  ! set to true and chemistry manager will give complete dump for this cell
 
     nuc_start_ind = rules%precomputed_decay%nuclide_starting_index
+
+    nNuclides = rules%precomputed_decay%nNuclides
 
     if(any(mass_vector_1d_tr(nuc_start_ind : &
                            & nuc_start_ind &
@@ -423,26 +428,33 @@ CONTAINS
         call msg(sp%sp)
       endif
 
-      ptrDecayOutputTmp => fu_work_array()
-      do jTmp = 1, rules%precomputed_decay%nNuclides
-        ptrDecayOutputTmp(jTmp) = 0
-        do iTmp = 1, rules%precomputed_decay%nNuclides
-          ptrDecayOutputTmp(jTmp) = ptrDecayOutputTmp(jTmp) + rules%precomputed_decay%decay_matrix(iTmp,jTmp) * &
-               & mass_vector_1d_tr(iTmp + nuc_start_ind - 1)
-        enddo
-      end do
-      do iTmp = 1, rules%precomputed_decay%nNuclides
-        mass_vector_1d_tr(nuc_start_ind + iTmp - 1) = ptrDecayOutputTmp(iTmp) 
-      end do
-      call free_work_array(ptrDecayOutputTmp)
+      ! ptrDecayOutputTmp => fu_work_array()
+      ! do jTmp = 1, rules%precomputed_decay%nNuclides
+      !  ptrDecayOutputTmp(jTmp) = 0
+      !  do iTmp = 1, rules%precomputed_decay%nNuclides
+      !    ptrDecayOutputTmp(jTmp) = ptrDecayOutputTmp(jTmp) + rules%precomputed_decay%decay_matrix(iTmp,jTmp) * &
+      !         & mass_vector_1d_tr(iTmp + nuc_start_ind - 1)
+      !  enddo
+      ! end do
+
+      ! do iTmp = 1, rules%precomputed_decay%nNuclides
+      !  mass_vector_1d_tr(nuc_start_ind + iTmp - 1) = ptrDecayOutputTmp(iTmp)
+      ! end do
+
+      ! call free_work_array(ptrDecayOutputTmp)
+
+      !!!DBG
+
+      !ptrDecayOutputTmp => fu_work_array()
+      !ptrDecayOutputTmp(1:nNuclides) = 0.0
+      !ptrDecayOutputTmp(1:nNuclides) = &
+      !     & MATMUL(rules%precomputed_decay%decay_matrix(1:nNuclides, 1:nNuclides), mass_vector_1d_tr(nuc_start_ind:(nNuclides+nuc_start_ind-1)))
+      !mass_vector_1d_tr(nuc_start_ind:(nNuclides+nuc_start_ind-1)) = ptrDecayOutputTmp(1:nNuclides)
+      !call free_work_array(ptrDecayOutputTmp)
+
+      mass_vector_1d_tr(nuc_start_ind:(nNuclides+nuc_start_ind-1)) = &
+           matmul(rules%precomputed_decay%decay_matrix, mass_vector_1d_tr(nuc_start_ind:(nuc_start_ind+nNuclides-1)))
       
-      !     mass_vector_1d_tr(rules%precomputed_decay%nuclide_starting_index : &
-      !                    & rules%precomputed_decay%nuclide_starting_index + &
-      !                                               & rules%precomputed_decay%nNuclides-1) = &
-      !           & MATMUL(rules%precomputed_decay%decay_matrix, &
-      !                  & mass_vector_1d_tr(rules%precomputed_decay%nuclide_starting_index : &
-      !                                    & rules%precomputed_decay%nuclide_starting_index + &
-      !                                                       & rules%precomputed_decay%nNuclides - 1))
       if(debug_level > 1)then
         call msg('Mass vector after:')
         write(unit=sp%sp,fmt='(2x,200(1x,E9.3))') &

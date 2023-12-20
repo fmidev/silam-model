@@ -192,6 +192,7 @@ LIST = IFS_CO2
 !---------------------------------
 
      title =  Hacked IFS CO2 emissions translated from GRIB
+     title = CO2SFC
 
      ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
      dim     =     longitude     x     longitude    *
@@ -202,8 +203,13 @@ LIST = IFS_CO2
      analysis_time = TIME_DIMENSION_START
      ifCocktails = YES
      
-     var     =     CO2nplus    emission_rate  HEIGHT_LYR_FROM_SURF  25  CO2nplus      -1     -1     1     0 
-     var     =     CO2nminus   emission_rate  HEIGHT_LYR_FROM_SURF  25  CO2nminus     -1     -1     1     0 
+     var     =     CO2nplus    emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nplus      -1     -1     1     0 
+     var     =     CO2nminus   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nminus     -1     -1     1     0 
+     var     =     aco2recHrly   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nplus    -1     -1     1     0 
+     var     =     aco2gppHrly   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nminus    -1     -1     1     0 
+     var     =     co2flux_ocean_pos   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2oceminus      -1     -1     1     0  ##Swap them to make sign that of atmosphericCO2
+     var     =     co2flux_ocean_neg   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2oceplus     -1     -1     1     0 
+     var     =     emiss_fire  emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2fire     -1     -1     1     0 
 
 END_LIST = IFS_CO2
 
@@ -401,6 +407,7 @@ LIST = WRF_OUTPUT_HYB
      var     =     SNOW       weq_snow_depth             SURFACE_LEVEL       -1      XXX     -1     -1     1e-3     0
      var     =     SMOIS      soil_moisture_content      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     AFWA_CAPE  cape                       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     SEAICE     fraction_of_ice            SURFACE_LEVEL       -1      XXX     -1     -1     1     0
        
 END_LIST = WRF_OUTPUT_HYB
 
@@ -1218,6 +1225,22 @@ title = soil_NO_emis_0
 
 END_LIST = soil_NO_emis_0
 ###########################################################
+
+LIST = road_dust_emis_fact
+
+title = road_dust_emis_fact
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  road_dust_emis_factor   road_dust_emis_fact       SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = road_dust_emis_fact
+###########################################################
+
 
 
 LIST = c4_frac

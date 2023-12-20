@@ -13,8 +13,8 @@
 !        R. Sander, Max-Planck Institute for Chemistry, Mainz, Germany
 ! 
 ! File                 : cbm5_strato_SOA_Function.f90
-! Time                 : Fri Feb 23 12:15:54 2024
-! Working directory    : /mnt/d/kpp/kpp/cbm5_strato_SOA
+! Time                 : Mon Sep 16 17:36:56 2024
+! Working directory    : /fmi/scratch/project_2001411/risto/puhtiruns/silam_dev-spinup-risto/kpp/cbm5_strato_SOA
 ! Equation file        : cbm5_strato_SOA.kpp
 ! Output root filename : cbm5_strato_SOA
 ! 

@@ -220,11 +220,11 @@ MODULE derived_field_quantities
   
   !*************************************************************************
 
-  SUBROUTINE quantities_for_derived_one(dq, ifST, list, list_st, wdr)
+  SUBROUTINE quantities_for_derived_one(dq, ifST, list_dy, list_st, wdr)
     !
-    ! This function returns a list of quantities needed for the
+    ! This function returns a list_dy of quantities needed for the
     ! calculation of a given derived quantity. For example for
-    ! potential temperature this function returns a list containing
+    ! potential temperature this function returns a list_dy containing
     ! only temperature, and for scavenging coefficient this function
     ! returns all rains and pressures.
     !
@@ -233,14 +233,14 @@ MODULE derived_field_quantities
     IMPLICIT NONE
     !
     ! Imported parameters 
-    INTEGER, DIMENSION(:), intent(out) :: list, list_st
+    INTEGER, DIMENSION(:), intent(out) :: list_dy, list_st
     INTEGER, INTENT(in) :: dq
     logical, intent(in) :: ifST 
     type(silja_wdr), intent(in) :: wdr
 
     integer :: iq
     
-    list = int_missing
+    list_dy = int_missing
     list_st = int_missing
 
 !    call msg('Looking for derived quantity input:' + fu_quantity_short_string(dq))
@@ -248,52 +248,52 @@ MODULE derived_field_quantities
     SELECT CASE (dq)
 
       case(temperature_flag)
-        list(1) = perturb_pot_temperature_flag
+        list_dy(1) = perturb_pot_temperature_flag
 
       case(day_mean_temperature_flag)
-        list(1) = day_temperature_acc_flag
+        list_dy(1) = day_temperature_acc_flag
       case(day_temperature_acc_flag)
-        list(1) = temperature_flag
+        list_dy(1) = temperature_flag
 
       case(day_mean_temperature_2m_flag)
-        list(1) = day_temperature_2m_acc_flag
+        list_dy(1) = day_temperature_2m_acc_flag
       case(day_temperature_2m_acc_flag)
-        list(1) = temperature_2m_flag
+        list_dy(1) = temperature_2m_flag
 
       case(day_max_temperature_2m_flag)
-        list(1) = day_temperature_2m_acc_max_flag
+        list_dy(1) = day_temperature_2m_acc_max_flag
       case(day_temperature_2m_acc_max_flag)
-        list(1) = temperature_2m_flag
+        list_dy(1) = temperature_2m_flag
 
       case(day_mean_windspeed_10m_flag)
-        list(1) = day_windspeed_10m_acc_flag
+        list_dy(1) = day_windspeed_10m_acc_flag
       case(day_windspeed_10m_acc_flag)
-        list(1) = windspeed_10m_flag
+        list_dy(1) = windspeed_10m_flag
 
       case(day_max_windspeed_10m_flag)
-        list(1) = day_windspeed_10m_acc_max_flag
+        list_dy(1) = day_windspeed_10m_acc_max_flag
       case(day_windspeed_10m_acc_max_flag)
-        list(1) = windspeed_10m_flag
+        list_dy(1) = windspeed_10m_flag
 
       case(day_mean_relat_humid_2m_flag)
-        list(1) = day_relat_humid_2m_acc_flag
+        list_dy(1) = day_relat_humid_2m_acc_flag
       case(day_relat_humid_2m_acc_flag)
-        list(1) = relative_humidity_2m_flag
+        list_dy(1) = relative_humidity_2m_flag
 
       case(day_min_relat_humid_2m_flag)
-        list(1) = day_relat_humid_2m_acc_min_flag
+        list_dy(1) = day_relat_humid_2m_acc_min_flag
       case(day_relat_humid_2m_acc_min_flag)
-        list(1) = relative_humidity_2m_flag
+        list_dy(1) = relative_humidity_2m_flag
 
       case(day_sum_precipitation_flag)
-        list(1) = day_precipitation_acc_flag
+        list_dy(1) = day_precipitation_acc_flag
 
       CASE (pasquill_class_flag)
-        list(1:2) = (/MO_length_inv_flag, surface_roughness_meteo_flag/)
+        list_dy(1:2) = (/MO_length_inv_flag, surface_roughness_meteo_flag/)
 
       CASE (scavenging_coefficient_flag)
         if (ifST) then ! Only single-time now
-          list(1:2) = (/pressure_flag, &
+          list_dy(1:2) = (/pressure_flag, &
                       & temperature_flag/)
           if (fu_number_of_precip_flds(wdr) == 2) then
             list_st(1:3) = (/large_scale_rain_int_flag, &
@@ -310,54 +310,54 @@ MODULE derived_field_quantities
         endif
 
       CASE (cloud_cond_water_flag) ! ...
-        list(1:2) = (/cloud_water_flag, cloud_ice_flag/)
+        list_dy(1:2) = (/cloud_water_flag, cloud_ice_flag/)
 
       CASE (cwcabove_3d_flag, cwcolumn_flag, pwcabove_3d_flag, pwcolumn_flag, &
           & lcwcabove_3d_flag, lcwcolumn_flag) ! ...
-        list(1:2) = (/ground_pressure_flag, cloud_cond_water_flag/)
+        list_dy(1:2) = (/ground_pressure_flag, cloud_cond_water_flag/)
 !        list_st(1) = large_scale_rain_int_flag
 !        requests(1:2) = request
 !        requests_st(1) = 1 !!! optional, so large_scale_rain_int_flag is available 
 !              !! for scavenging if it can be done
 
       case (r_a_flag)  !, r_b_flag, r_s_flag)
-        list(1:3) = (/MO_length_inv_flag, surface_roughness_meteo_flag, &
+        list_dy(1:3) = (/MO_length_inv_flag, surface_roughness_meteo_flag, &
                     & friction_velocity_flag /)
 
       CASE (pressure_flag, height_flag, cell_size_z_flag)
-        list(1:2)=(/temperature_flag, ground_pressure_flag/)
+        list_dy(1:2)=(/temperature_flag, ground_pressure_flag/)
 
       CASE (windspeed_10m_flag)
-        list(1:2)=(/u_10m_flag, v_10m_flag/)
+        list_dy(1:2)=(/u_10m_flag, v_10m_flag/)
 
       case(specific_humidity_2m_flag)
-        list(1:2) = (/dew_point_temp_2m_flag, ground_pressure_flag/)
+        list_dy(1:2) = (/dew_point_temp_2m_flag, ground_pressure_flag/)
 
       CASE (relative_humidity_flag)
-        list(1:3)=(/specific_humidity_flag, &
+        list_dy(1:3)=(/specific_humidity_flag, &
                   & temperature_flag, pressure_flag/)
 
       CASE (relative_humidity_2m_flag)
-        list(1:3)=(/specific_humidity_2m_flag, &
+        list_dy(1:3)=(/specific_humidity_2m_flag, &
                   & temperature_2m_flag, ground_pressure_flag/)
 
       CASE (eq_pot_temperature_flag)
-        list(1:2)=(/specific_humidity_flag, temperature_flag/)
+        list_dy(1:2)=(/specific_humidity_flag, temperature_flag/)
 
       CASE (potential_temperature_flag) 
-        list(1:2)=(/temperature_flag, temperature_2m_flag/)  ! 2m is not needed for 3d one, but
+        list_dy(1:2)=(/temperature_flag, temperature_2m_flag/)  ! 2m is not needed for 3d one, but
                         ! dq_potential_temperature will use both in any case
 
       CASE (relative_vorticity_flag, abs_vorticity_advection_flag)
-        list(1:3)=(/temperature_flag, u_flag, v_flag/)
+        list_dy(1:3)=(/temperature_flag, u_flag, v_flag/)
 
       CASE (ipv_flag) ! isentropic potential vorticity
-        list(1:3)=(/ &   !potential_temperature_flag, & 
+        list_dy(1:3)=(/ &   !potential_temperature_flag, & 
                   & u_flag, v_flag, & 
                   & temperature_flag/)
 
       CASE (bulk_richardson_nbr_flag)
-        list(1:5)=(/height_flag, &
+        list_dy(1:5)=(/height_flag, &
                   & u_flag, &
                   & v_flag, &
                   & friction_velocity_flag, &
@@ -365,41 +365,41 @@ MODULE derived_field_quantities
 !                  & potential_temperature_flag/)
 
       CASE (gradient_richardson_nbr_flag)
-        list(1:5)=(/height_flag, &
+        list_dy(1:5)=(/height_flag, &
                   & u_flag, v_flag, & 
                   & windspeed_10m_flag, &
                   & temperature_2m_flag/) !, &
 !                  & potential_temperature_flag/)
 
       case(brunt_vaisala_freq_flag)
-        list(1:4) = (/  surface_pressure_flag, &
+        list_dy(1:4) = (/  surface_pressure_flag, &
                     & height_flag, &
                     & temperature_2m_flag, &
                     & abl_height_m_flag/)
 
       CASE (w_alt_msl_flag, w_height_srf_flag) ! m/s vertical wind
-        list(1:2) = (/omega_flag, temperature_flag/)
+        list_dy(1:2) = (/omega_flag, temperature_flag/)
 
       CASE (omega_flag)  ! Omega-vertical wind
-        list(1:4)=(/u_flag, &
+        list_dy(1:4)=(/u_flag, &
                   & v_flag, &
                   & temperature_flag, &
                   & ground_pressure_flag/)
 
       case(vertical_velocity_flag) ! vertical-dependent z-component of wind
-        list(1) = omega_flag   ! at least this ...
+        list_dy(1) = omega_flag   ! at least this ...
 
       case(eta_dot_flag)
-        list(1:3) = (/u_flag, v_flag, ground_pressure_flag/)
+        list_dy(1:3) = (/u_flag, v_flag, ground_pressure_flag/)
 
       CASE(wind_divergence_flag)  ! div(wind_vector)
-        list(1:4)=(/u_flag, &
+        list_dy(1:4)=(/u_flag, &
                   & v_flag, &
                   & w_height_srf_flag, &
                   & height_flag/)
 
       CASE(wind_vertical_shear_flag)  ! div(wind_vector)
-        list(1:2)=(/u_flag, &
+        list_dy(1:2)=(/u_flag, &
                   & v_flag/)
 
       CASE (friction_velocity_flag, & !They will be created by dq_ABL_params
@@ -410,20 +410,20 @@ MODULE derived_field_quantities
           & Prandtl_nbr_flag, &
           & convective_velocity_scale_flag, &
           & abl_height_m_flag)
-
-        list(1:7)=(/ ground_pressure_flag,&
+  
+        list_dy(1:7)=(/ ground_pressure_flag,&
                    & temperature_2m_flag,&
                    & windspeed_10m_flag,&
                    & height_flag, &
                    & temperature_flag, &
-!                   & potential_temperature_flag, &
+!                  & potential_temperature_flag, &
                    & u_flag, v_flag/) !, &
         iQ = 8
         list_st(1) = fraction_of_land_flag
 
         select case(fu_abl_param(wdr))
           case(abl_full_param)
-            list(iQ:iQ+1)=(/specific_humidity_flag, specific_humidity_2m_flag/)
+            list_dy(iQ:iQ+1)=(/specific_humidity_flag, specific_humidity_2m_flag/)
             iQ=  iQ + 2
           case(abl_dry_param)
           case default
@@ -436,7 +436,7 @@ MODULE derived_field_quantities
           case(combination_method)
           case(coriolis_method)
           case(nwp_abl)
-            list(iQ) = nwp_abl_height_m_flag
+            list_dy(iQ) = nwp_abl_height_m_flag
             iQ = iQ+1
           case default
             call set_error('Unknown ABL height method:'+fu_str(fu_ablh_method(wdr)),'')
@@ -444,7 +444,7 @@ MODULE derived_field_quantities
 
                 
       case(SILAM_latent_heat_flux_flag, humidity_scale_flag)
-        list(1:7)=(/ground_pressure_flag, &
+        list_dy(1:7)=(/ground_pressure_flag, &
                   & temperature_2m_flag, &
                   & height_flag, &
                   & specific_humidity_flag, &
@@ -455,11 +455,11 @@ MODULE derived_field_quantities
     case(R_down_meteo_flag)
       select case(fu_kz_param(wdr))
         case(zero_kz)
-          list(1:2) = (/ ground_pressure_flag, &
+          list_dy(1:2) = (/ ground_pressure_flag, &
                              & height_flag/)
         case(simple_abl_ec_ft_kz, silam_abl_ec_ft_kz, ec_kz,silam_kz_emulator, hunten_kz, simple_kz)
 
-          list(1:8) = (/ ground_pressure_flag, &
+          list_dy(1:8) = (/ ground_pressure_flag, &
                        & Kz_scalar_1m_flag, &
                        & abl_height_m_flag, &
                        & specific_humidity_flag, &
@@ -475,7 +475,7 @@ MODULE derived_field_quantities
       select case(fu_LAIsrc(wdr))
         case(LAI_dynamic_2)
              if (.not. ifSt) then
-                list(1:2) = (/leaf_area_indexhv_flag, &
+                list_dy(1:2) = (/leaf_area_indexhv_flag, &
                             & leaf_area_indexlv_flag /)
 
                  list_st(1:2) = (/fraction_hv_flag, &
@@ -513,7 +513,7 @@ MODULE derived_field_quantities
     case(stomatal_conductance_flag)
         select case(fu_LAIsrc(wdr))
            case (LAI_dynamic_1, LAI_dynamic_2)
-             list(1:7) = (/  surface_pressure_flag,&
+             list_dy(1:7) = (/  surface_pressure_flag,&
                        & total_cloud_cover_flag, &
                         & temperature_2m_flag, &
                         & relative_humidity_2m_flag,&
@@ -524,7 +524,7 @@ MODULE derived_field_quantities
                   & irrigated_area_flag/)
 
            case (LAI_static_1, LAI_static_2)
-             list(1:6) = (/  surface_pressure_flag,&
+             list_dy(1:6) = (/  surface_pressure_flag,&
                        & total_cloud_cover_flag, &
                         & temperature_2m_flag, &
                         & relative_humidity_2m_flag, &
@@ -538,24 +538,31 @@ MODULE derived_field_quantities
               call set_error("Unknown LAIsrc", "quantities_for_derived_one")
         end select
 
+      case(road_wetness_flag)
+        list_dy(1) = relative_humidity_2m_flag
+        list_st(1) = total_precipitation_int_flag 
+
+      case(n_snowless_days_flag)
+        list_dy(1) = water_eq_snow_depth_flag
+        
       CASE (albedo_flag)
-        list(1:2)=(/surf_sw_down_radiation_flag, surf_sw_net_radiation_flag/)
+        list_dy(1:2)=(/surf_sw_down_radiation_flag, surf_sw_net_radiation_flag/)
 
       CASE (surf_lw_down_radiation_flag) ! W/m2 come from 2-time fields J/m2
-        list(1) = surf_lw_down_radiation_ac_flag
+        list_dy(1) = surf_lw_down_radiation_ac_flag
 
       CASE (surf_sw_down_radiation_flag) ! W/m2 come from 2-time fields J/m2
-        list(1) = surf_sw_down_radiation_ac_flag
+        list_dy(1) = surf_sw_down_radiation_ac_flag
         
       CASE (surf_sw_down_radiation_ac_flag) ! W/m2 come from 2-time fields J/m2
-        list(1:2)=(/surf_sw_net_radiation_ac_flag, climatological_albedo_flag/)
+        list_dy(1:2)=(/surf_sw_net_radiation_ac_flag, climatological_albedo_flag/)
         
       CASE (surf_sw_net_radiation_flag) ! W/m2 come from 2-time fields J/m2
-        list(1) = surf_sw_net_radiation_ac_flag
+        list_dy(1) = surf_sw_net_radiation_ac_flag
 
       CASE (large_scale_rain_int_flag) ! kg/m2s come from 2-time kg/m2
         if (ifST) then
-          list(1) = large_scale_accum_rain_flag
+          list_dy(1) = large_scale_accum_rain_flag
         else
           call msg('Requested quantity: ' + fu_quantity_short_string(dq))
           call set_error("Requesting realtime quantity as a dynamic one 1..", &
@@ -564,7 +571,7 @@ MODULE derived_field_quantities
 
       CASE(convective_rain_int_flag) ! kg/m2s come from 2-time kg/m2
         if (ifST) then
-          list(1) = convective_accum_rain_flag
+          list_dy(1) = convective_accum_rain_flag
         else
             call msg('Requested quantity: ' + fu_quantity_short_string(dq))
             call set_error("Requesting realtime quantity as a dynamic one 2..", &
@@ -572,10 +579,10 @@ MODULE derived_field_quantities
         endif
 
       CASE(NWP_sensible_heatflux_flag) ! W/m2 come from 1-time J/m2
-        list(1) = NWP_sensible_heatflux_ac_flag
+        list_dy(1) = NWP_sensible_heatflux_ac_flag
 
       CASE(NWP_latent_heatflux_flag) !  W/m2 come from 1-time J/m2
-        list(1) = NWP_latent_heatflux_ac_flag
+        list_dy(1) = NWP_latent_heatflux_ac_flag
 
       case (surface_roughness_meteo_flag)    ! Surface roughness has to be combined 
         list_st(1:2) = (/land_roughness_meteo_flag, fraction_of_land_flag/)  
@@ -584,35 +591,35 @@ MODULE derived_field_quantities
         !! to restore old "default land roughness of 0.05m" if map is not available from meteo
       case (surface_roughness_disp_flag)             ! Surface roughness has to be combined 
          !Request both then priority is: Dynamic -> static -> default
-        list(1) =  land_roughness_disp_flag  ! from soil and water roughnesses 
+        list_dy(1) =  land_roughness_disp_flag  ! from soil and water roughnesses 
         list_st(1:2) = (/land_roughness_disp_flag, fraction_of_land_flag/)
 !        requests(1) = 1
 !        requests_st(1:2) =(/1, request/)  
 
 !      case (surface_pressure_flag) ! Points to one of them depending on vertical type
-!        list(1:2) = (/msl_pressure_flag, ground_pressure_flag/)
+!        list_dy(1:2) = (/msl_pressure_flag, ground_pressure_flag/)
 !        requests(1:2) = request
 
 !      case (land_roughness_flag) ! Soil roughness can be substituted with     
-!        list(1) = silam_const_flag ! a constant value without disasterous consequences  NOT ANY MORE
+!        list_dy(1) = silam_const_flag ! a constant value without disasterous consequences  NOT ANY MORE
 !        list_st(1) = fraction_of_land_flag
 
       case (water_roughness_flag) 
-        list(1) = friction_velocity_flag
+        list_dy(1) = friction_velocity_flag
         list_st(1) = fraction_of_land_flag
 
       CASE (abl_top_pressure_flag)
-        list(1:2)=(/abl_height_m_flag,temperature_flag/)
+        list_dy(1:2)=(/abl_height_m_flag,temperature_flag/)
 
       case (ground_pressure_flag)
         if (ifST) then ! Single-time is diagnosed from dynamic
-          list(1) = ground_pressure_flag
+          list_dy(1) = ground_pressure_flag
         else  !taken from meteo
-          list(1) = log_ground_pressure_flag ! Ohh, stupid, but forced by ECMWF files
+          list_dy(1) = log_ground_pressure_flag ! Ohh, stupid, but forced by ECMWF files
         endif
 
       case (log_ground_pressure_flag)
-        list(1:2) = (/msl_pressure_flag, & ! Ohh, even worse but at least allows our standard way of branching
+        list_dy(1:2) = (/msl_pressure_flag, & ! Ohh, even worse but at least allows our standard way of branching
                     & temperature_2m_flag/)
         list_st(1) = relief_height_flag
 
@@ -621,7 +628,7 @@ MODULE derived_field_quantities
 
       case (total_precipitation_int_flag)
         if (ifST)  then
-          list(1) = total_precipitation_acc_flag
+          list_dy(1) = total_precipitation_acc_flag
         else
           call msg('Requested quantity: ' + fu_quantity_short_string(dq))
           call set_error("Requesting realtime quantity as a dynamic one 3..", &
@@ -630,29 +637,29 @@ MODULE derived_field_quantities
 
       case (total_precipitation_acc_flag)
         if (fu_number_of_precip_flds(wdr) == 2) then
-          list(1:2) = (/large_scale_accum_rain_flag, convective_accum_rain_flag/)
+          list_dy(1:2) = (/large_scale_accum_rain_flag, convective_accum_rain_flag/)
         else
-          list(1) = large_scale_accum_rain_flag
+          list_dy(1) = large_scale_accum_rain_flag
         end if
       
       case (heatsum_flag)
-        list(1:2) = (/temperature_flag, temperature_2m_flag/)
+        list_dy(1:2) = (/temperature_flag, temperature_2m_flag/)
 
       case(concentration_flag)
-        list(1:3) = (/volume_mixing_ratio_flag, temperature_flag, pressure_flag/)
+        list_dy(1:3) = (/volume_mixing_ratio_flag, temperature_flag, pressure_flag/)
 
       case(ref_evapotranspiration_flag)
-        list(1:7) = (/ temperature_2m_flag, surf_sw_net_radiation_flag, surf_lw_net_radiation_flag, &
+        list_dy(1:7) = (/ temperature_2m_flag, surf_sw_net_radiation_flag, surf_lw_net_radiation_flag, &
                      & leaf_area_index_flag, surface_pressure_flag, &
 !                     & air_density_flag, &
                      & relative_humidity_2m_flag, r_a_flag/)
       
       case(photosynth_active_rad_flag)
-!        list(1) = 
+!        list_dy(1) = 
         call set_error('photosynth_active_rad_flag does not work yet','quantities_for_derived_one')
         
       case(total_cloud_cover_flag)
-        list(1) = cloud_cover_flag
+        list_dy(1) = cloud_cover_flag
 
       CASE DEFAULT
         call msg('Assumed initial meteo quantity: ' + fu_quantity_short_string(dq))
@@ -2129,6 +2136,7 @@ MODULE derived_field_quantities
           END IF
         END IF
       END IF
+      !
       !
       !  Reference evapotranspiration
       !

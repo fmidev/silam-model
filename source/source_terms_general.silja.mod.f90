@@ -18,18 +18,17 @@ MODULE source_terms_general
   ! WORD "RELEASE" REFERS ONLY TO THE MATERIALS RELEASED TO THE
   ! ATMOSPHERE (material and their amounts)
   ! 
-  ! NOTE. Co-ordinates of the point source (position) are always stored
-  !       in the geographical grid as in ini file. System grid is not yet
-  !       defined. BUT the cloud from this source will already be in
-  !       system grid. This very point is a border between general
-  !       geographical grids and the system grid, usually derived by
-  !       the meteorological ones.
+  ! Co-ordinates of the point source (position) are always stored
+  ! in the geographical grid as in ini file. Dispersion grid is not yet
+  ! defined. BUT the cloud from this source will already be in
+  ! dispersion grid. This very point is a border between general
+  ! geographical grids and the dispersion grid.
   !
-  ! Currently the module contains descriptions for POINT SOURCE, BOMB SOURCE
-  ! and AREA_SOURCE
-  ! There can be two point source description formats - simple for the SILAM v.2
-  ! and more sophisticated for the SILAM version 3. They called point_source_2 and
-  ! point_source_3 correspondingly.
+  ! Currently the module contains descriptions for AREA, BIO-VOC, NUCLEAR-BOMB, FIRE,
+  ! POINT, POLLEN, SEA SALT, VOLCANO, WIND-BLOWN DUST, ROAD DUST, SOIL NO, NH3
+  !
+  ! There can be several formats of some sources, such as POINT and AREA, plus various options
+  ! inside each source type (but those share same format of ini files)
   !
   ! All units: SI
   ! 
@@ -48,8 +47,10 @@ MODULE source_terms_general
   use source_terms_bio_voc
   use source_terms_bomb
   use source_term_fires
+  use source_terms_NH3_FANv2
   use source_terms_point
   use source_terms_pollen
+  use source_terms_road_dust
   use source_terms_sea_salt
   use source_terms_volcano
   use source_terms_wind_blown_dust
@@ -71,7 +72,6 @@ MODULE source_terms_general
   PUBLIC defined
   PUBLIC report
   public store_as_namelist      ! technical dump
-  public verify_sources
   public fu_if_dump_emission_flux
   public dump_emission_mass_map ! into time-resolving area source
   public close_emission_dump
@@ -81,7 +81,6 @@ MODULE source_terms_general
   PUBLIC fu_duration
   public fu_nbr_of_disp_grd_cells
   public link_source_to_species
-  public fu_grid
   public fu_source_id_nbr
   public fu_NbrOf_sources_total
   public fu_NbrOf_source_ids
@@ -126,7 +125,6 @@ MODULE source_terms_general
   
   private fu_n_disp_grd_cells_src_inv
   private fu_source_id_nbr_of_source
-  private fu_grid_of_source
   private fu_id_nbr_from_srcNMs
   private fu_id_nbr_from_srcNbr
   private fu_compute_src_id_nbr
@@ -152,10 +150,6 @@ MODULE source_terms_general
   INTERFACE fu_name
     MODULE PROCEDURE fu_source_name
   END INTERFACE
-
-  interface fu_grid
-    module procedure fu_grid_of_source
-  end interface
 
   INTERFACE fu_start_time
     MODULE PROCEDURE fu_source_start_time
@@ -218,9 +212,9 @@ MODULE source_terms_general
   !-----------------------------------------------------------------------
   integer, parameter :: maxMeteoDepndencies = 5
   TYPE silam_source
-    INTEGER :: n_area=0, n_bio_voc=0, n_bomb=0, n_fire=0, n_point=0, &
+    INTEGER :: n_area=0, n_bio_voc=0, n_bomb=0, n_fire=0, n_NH3=0, n_point=0, &
          & n_pollen=0, n_sea_salt=0, n_volc=0, n_wb_dust=0, n_dms=0, &
-         & n_soil_NO=0
+         & n_soil_NO=0, n_rd_dust=0
     INTEGER :: iSrcIdType                                ! type of source id
     type(silam_source_info), dimension(:), allocatable :: src_info_lst
     TYPE(silja_logical) :: defined
@@ -228,10 +222,12 @@ MODULE source_terms_general
     TYPE(b_src_ptr), dimension(:), POINTER :: b_ptr  => null()
     TYPE(bvoc_src_ptr), dimension(:), POINTER :: bvoc_ptr  => null()
     TYPE(fire_src_ptr), dimension(:), POINTER :: fire_ptr  => null()
+    TYPE(NH3_src_ptr), dimension(:), POINTER :: NH3_ptr  => null()
     TYPE(p_src_ptr), dimension(:), POINTER :: p_ptr  => null()
     type(pollen_src_ptr), dimension(:), pointer :: pollen_ptr  => null()
     type(sslt_src_ptr), dimension(:), pointer :: sslt_ptr  => null()
     type(wb_dust_src_ptr), dimension(:), pointer :: wbdust_ptr  => null()
+    type(rd_dust_src_ptr), dimension(:), pointer :: rddust_ptr  => null()
     type(dms_src_ptr), dimension(:), pointer :: dms_ptr => null()
     type(volc_src_ptr), dimension(:), pointer :: volc_ptr => null()
     type(soil_NO_src_ptr), dimension(:), pointer :: soilno_ptr => null()
@@ -253,17 +249,19 @@ MODULE source_terms_general
     integer :: source_type
   end type Tsource_summary
     
-  type(Tsource_summary), dimension(11), parameter :: known_src_types = (/ &
+  type(Tsource_summary), dimension(13), parameter :: known_src_types = (/ &
               & Tsource_summary('AREA_SOURCE_', area_source_flag), &
               & Tsource_summary('BOMB_SOURCE_', bomb_source_flag), &
               & Tsource_summary('DMS_SOURCE_', dms_source_flag), &
               & Tsource_summary('FIRE_SOURCE_', fire_source_flag), &
+              & Tsource_summary('NH3_SOURCE_', NH3_source_flag), &
               & Tsource_summary('POINT_SOURCE_', point_source_flag), &
               & Tsource_summary('POLLEN_SOURCE_', pollen_source_flag), &
               & Tsource_summary('BIOGENIC_VOC_SOURCE_', bio_voc_source_flag), &
               & Tsource_summary('SEA_SALT_SOURCE_', sea_salt_source_flag), &
               & Tsource_summary('VOLCANO_SOURCE_', volcano_source_flag), &
               & Tsource_summary('WIND_BLOWN_DUST_SOURCE_', wind_blown_dust_source_flag), &
+              & Tsource_summary('ROAD_DUST_SOURCE_', road_dust_source_flag), &
               & Tsource_summary('SOIL_NO_SOURCE_', soil_NO_source_flag)/)
   
   !
@@ -330,21 +328,25 @@ MODULE source_terms_general
     em_source%n_bio_voc=0
     em_source%n_bomb=0
     em_source%n_fire=0
+    em_source%n_NH3=0
     em_source%n_point=0
     em_source%n_pollen=0
     em_source%n_sea_salt=0
     em_source%n_volc=0
     em_source%n_wb_dust=0
+    em_source%n_rd_dust=0
     em_source%n_dms=0
     em_source%n_soil_no=0
     nullify(em_source%a_ptr)
     nullify(em_source%bvoc_ptr)
     nullify(em_source%b_ptr)
     nullify(em_source%fire_ptr)
+    nullify(em_source%NH3_ptr)
     nullify(em_source%p_ptr)
     nullify(em_source%pollen_ptr)
     nullify(em_source%sslt_ptr)
     nullify(em_source%wbdust_ptr)
+    nullify(em_source%rddust_ptr)
     nullify(em_source%volc_ptr)
     nullify(em_source%dms_ptr)
     nullify(em_source%soilno_ptr)
@@ -412,11 +414,14 @@ MODULE source_terms_general
                                     & nValLinesInventory, &         ! dimensions of inventory val lines
                                     & iSrcIdType, iSimulationType, ifOldNamelistFormat)
     call stop_count('count_sources')
+    call msg('Memusage after count_sources kB', fu_system_mem_usage() )
+
     if(error)return
     !
     ! Allocate the source list and read the data files
     !
     call allocate_source_space(em_source)
+    call msg('Memusage after allocate_source_space kB', fu_system_mem_usage() )
     if(error)return
 
     !--------------------------------------------------------------------------------
@@ -448,11 +453,12 @@ MODULE source_terms_general
                                 & em_source, iSrcIdType, nValLinesInventory, iFile, &
                                 & expected_species)
       if(error)return
+      call msg('Source reading, number, memusage, kB', iFile, fu_system_mem_usage())
 
     end do
     call stop_count('read_sources')
 
-    call msg('Source reading is over')
+    call msg('Source reading is over, memusage, kB', fu_system_mem_usage())
 
     call destroy_namelist(nlInventoryDataFilesGlobal)
     call free_work_array(nValLinesInventory)
@@ -637,9 +643,9 @@ MODULE source_terms_general
       ! For the sake of backward compatibility, here they are cut out.
       !
       if(index(linetmp,' INVENTORY ') + index(linetmp,' POLLEN ') + index(linetmp,' BIOGENIC_VOC ') +&
-       & index(linetmp,' SEA_SALT ') + index(linetmp,' WIND_BLOWN_DUST ') + &
+       & index(linetmp,' SEA_SALT ') + index(linetmp,' WIND_BLOWN_DUST ') + index(linetmp,' ROAD_DUST ') + &
        & index(linetmp,' WILD_LAND_FIRES ') + index(linetmp,' VOLCANO ') + index(linetmp,' DMS ') + &
-       & index(linetmp,' SOIL_NO ') > 0)then
+       & index(linetmp,' SOIL_NO ') + index(linetmp, ' NH3 ') > 0)then
         call msg_warning('Deprecated INVENTORY/... source type specification. Skipped')
         line = trim(line((index(line,' ')+1):))       ! cut out the type of the source
         line = adjustl(line)
@@ -715,9 +721,11 @@ MODULE source_terms_general
          & index(line,'BIOGENIC_VOC_SOURCE_') + &
          & index(line,'VOLCANO_SOURCE_') + &
          & index(line,'WIND_BLOWN_DUST_') + &
+         & index(line,'ROAD_DUST_') + &
          & index(line,'SEA_SALT_SOURCE_') + &
          & index(line,'DMS_SOURCE_') + &
-         & index(line,'SOIL_NO_SOURCE_') > 0)then
+         & index(line,'SOIL_NO_SOURCE_') + &
+         & index(line,'NH3_SOURCE_') > 0)then
           ifData = .true.
           ifList = .false.
           exit
@@ -1142,6 +1150,9 @@ MODULE source_terms_general
           case(fire_source_flag)
             em_source%n_fire = em_source%n_fire + 1
             cnt = em_source%n_fire
+          case(NH3_source_flag)
+            em_source%n_NH3 = em_source%n_NH3 + 1
+            cnt = em_source%n_NH3
           case(point_source_flag)
             em_source%n_point = em_source%n_point + 1
             cnt = em_source%n_point
@@ -1160,6 +1171,9 @@ MODULE source_terms_general
           case(wind_blown_dust_source_flag)
             em_source%n_wb_dust = em_source%n_wb_dust + 1
             cnt = em_source%n_wb_dust
+          case(road_dust_source_flag)
+            em_source%n_rd_dust = em_source%n_rd_dust + 1
+            cnt = em_source%n_rd_dust
           case(soil_no_source_flag)
             em_source%n_soil_no = em_source%n_soil_no + 1
             cnt = em_source%n_soil_no
@@ -1234,8 +1248,8 @@ MODULE source_terms_general
     TYPE(silam_source), intent(inout) :: source
 
     ! Local variables
-    integer :: iTmp, iStatus, i_point, i_area, i_bomb, i_fire, i_sea_salt, i_pollen, &
-             & i_bio_voc, i_wb_dust, i_dms, i_volc, i_soil_no
+    integer :: iTmp, iStatus, i_point, i_area, i_bomb, i_fire, i_NH3, i_sea_salt, i_pollen, &
+             & i_bio_voc, i_wb_dust, i_rd_dust, i_dms, i_volc, i_soil_no
 
     !
     ! Stupidity check
@@ -1278,6 +1292,13 @@ MODULE source_terms_general
     else
       nullify(source%fire_ptr)
     endif
+    if(source%n_NH3 > 0) then                               !============= NH3
+      call msg('Allocating NH3 sources: ',source%n_NH3)
+      allocate(source%NH3_ptr(source%n_NH3),stat=iStatus)
+      if(fu_fails(iStatus == 0,'Failed to allocate NH3 sources','allocate_source_space'))return
+    else
+      nullify(source%NH3_ptr)
+    endif
     if(source%n_point > 0)  then                             !============ POINT
       call msg('Allocating point sources: ',source%n_point)
       allocate(source%p_ptr(source%n_point),stat=iStatus)
@@ -1305,6 +1326,13 @@ MODULE source_terms_general
       if(fu_fails(iStatus == 0,'Failed to allocate wind-blown dust sources','allocate_source_space'))return
     else
       nullify(source%wbdust_ptr)
+    endif
+    if(source%n_rd_dust > 0) then                           !============= ROAD DUST
+      call msg('Allocating road dust sources:',source%n_rd_dust)
+      allocate(source%rddust_ptr(source%n_rd_dust),stat=iStatus)
+      if(fu_fails(iStatus == 0,'Failed to allocate road dust sources','allocate_source_space'))return
+    else
+      nullify(source%rddust_ptr)
     endif
     if(source%n_dms > 0) then                           !============= DMS
       call msg('Allocating DMS dust sources:',source%n_dms)
@@ -1336,10 +1364,12 @@ MODULE source_terms_general
     i_bio_voc = 0
     i_bomb = 0
     i_fire = 0
+    i_NH3 = 0
     i_point = 0
     i_pollen = 0
     i_sea_salt = 0
     i_wb_dust = 0
+    i_rd_dust = 0
     i_dms = 0
     i_volc = 0
     i_soil_no = 0
@@ -1367,6 +1397,11 @@ MODULE source_terms_general
           call reserve_fire_source(source%fire_ptr(i_fire)%fire_src, &     ! Src to initialise
                                  & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                  & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
+        case(NH3_source_flag)
+          i_NH3 = i_NH3 + 1
+          call reserve_NH3_source(source%NH3_ptr(i_NH3)%NH3_src, &     ! Src to initialise
+                                & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
+                                & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
         case(point_source_flag)
           i_point = i_point + 1
           call reserve_point_source(source%p_ptr(i_point)%p_src, &     ! Src to initialise
@@ -1388,6 +1423,11 @@ MODULE source_terms_general
         case(wind_blown_dust_source_flag)
           i_wb_dust = i_wb_dust + 1
           call reserve_wb_dust_source(source%wbdust_ptr(i_wb_dust)%wbdust_src, &     ! Src to initialise
+                                     & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
+                                     & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
+        case(road_dust_source_flag)
+          i_rd_dust = i_rd_dust + 1
+          call reserve_rd_dust_source(source%rddust_ptr(i_rd_dust)%rddust_src, &     ! Src to initialise
                                      & source%src_info_lst(iTmp)%iSrcNbr, & ! Src number
                                      & source%src_info_lst(iTmp)%iIdNbr)  ! SrcID number
         case(dms_source_flag)
@@ -1497,11 +1537,13 @@ MODULE source_terms_general
             & index(line,'POINT_SOURCE_') == 1 .or. &
             & index(line,'SEA_SALT_SOURCE_') == 1 .or. &
             & index(line,'WIND_BLOWN_DUST_SOURCE_') == 1 .or. &
+            & index(line,'ROAD_DUST_SOURCE_') == 1 .or. &
             & index(line,'POLLEN_SOURCE_') == 1 .or. &
             & index(line,'BIOGENIC_VOC_SOURCE_') == 1 .or. &
             & index(line,'DMS_SOURCE_') == 1 .or. &
             & index(line,'VOLCANO_SOURCE_') == 1 .or. &
-            & index(line,'SOIL_NO_SOURCE_') == 1)THEN
+            & index(line,'SOIL_NO_SOURCE_') == 1 .or. &
+            & index(line,'NH3_SOURCE') == 1)THEN
 
 !        call msg('Reading the:' + chLabel + '- source from file:' + trim(fname))
 
@@ -1706,6 +1748,15 @@ MODULE source_terms_general
                            & chSourceVersion, &
                            & expected_species, chDataDir)
 
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == NH3_source_flag)then
+      !
+      ! NH3 source
+      !
+      call fill_NH3_src_from_namelist( &
+                           & nlSrc, &
+                           & source%NH3_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%NH3_src, &
+                           & expected_species, chDataDir)
+
     elseif(source%src_info_lst(iSrcIndex)%iSrcType == point_source_flag)then
       !
       ! Point source
@@ -1741,6 +1792,16 @@ MODULE source_terms_general
       call fill_wb_dust_src_from_namelist(&
                            & nlSrc, &
                            & source%wbdust_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%wbdust_src, &
+                           & expected_species, &
+                           & chDataDir)
+
+    elseif(source%src_info_lst(iSrcIndex)%iSrcType == road_dust_source_flag)then
+      !
+      ! Road dust source. Note somewhat different initialisation procedure
+      !
+      call fill_rd_dust_src_from_namelist(&
+                           & nlSrc, &
+                           & source%rddust_ptr(source%src_info_lst(iSrcIndex)%iSrcNbr)%rddust_src, &
                            & expected_species, &
                            & chDataDir)
 
@@ -1832,6 +1893,14 @@ MODULE source_terms_general
       if(error)return
     end do
     !
+    ! NH3 source has this need
+    !
+    do iSrc = 1, src%n_NH3
+      call add_input_needs(src%NH3_ptr(iSrc)%NH3_src, q_met_dynamic, q_met_static, &
+                                                    & q_disp_dynamic, q_disp_static)
+      if(error)return
+    end do
+    !
     ! Point sources can have plume rise - at least some of them
     !
     do iSrc = 1, src%n_point
@@ -1860,6 +1929,14 @@ MODULE source_terms_general
     !
     do iSrc = 1, src%n_wb_dust
       call add_input_needs(src%wbdust_ptr(iSrc)%wbdust_src, q_met_dynamic, q_met_static, &
+                                                          & q_disp_dynamic, q_disp_static, wdr)
+      if(error)return
+    end do
+    !
+    ! Road dust sources depend on actual meteodata
+    !
+    do iSrc = 1, src%n_rd_dust
+      call add_input_needs(src%rddust_ptr(iSrc)%rddust_src, q_met_dynamic, q_met_static, &
                                                           & q_disp_dynamic, q_disp_static, wdr)
       if(error)return
     end do
@@ -1893,33 +1970,6 @@ MODULE source_terms_general
 
     
   end subroutine add_source_term_input_needs
-
-
-  !************************************************************************************
-
-  subroutine verify_sources(em_source, timestart, timestep)
-    !
-    ! Checks that the setup is OK for the source. The only limitation so far is 
-    ! area source with time-resolving field in binary. Check that.
-    !
-    implicit none
-    
-    ! Imported parameters
-    type(silja_time), intent(in) :: timestart
-    type(silja_interval), intent(in) :: timestep
-    type(silam_source), intent(in) :: em_source
-    
-    ! Local parameters
-    integer :: iSrc
-
-    call msg_warning("check_time_params_a_src missing!", "verify_sources")
-    return
-    do iSrc = 1, em_source%n_area
-    !!      call check_time_params_a_src(em_source%a_ptr(iSrc)%a_src, timestart, timestep)
-      if(error)return
-    end do
-    
-  end subroutine verify_sources
 
   !************************************************************************************
 
@@ -1963,6 +2013,9 @@ MODULE source_terms_general
       do i = 1, src%n_fire                                    !======== FIRE
         call add_source_species_fire_src(src%fire_ptr(i)%fire_src, species_list, nSpecies)
       end do
+      do i = 1, src%n_NH3                                     !======== NH3
+        call add_source_species_NH3_src(src%NH3_ptr(i)%NH3_src, species_list, nSpecies)
+      end do
       do i = 1, src%n_point                                   !======== POINT
         call add_source_species_p_src(src%p_ptr(i)%p_src, species_list, nSpecies)
       end do
@@ -1977,6 +2030,9 @@ MODULE source_terms_general
       end do
       do i = 1, src%n_wb_dust                                 !======== WIND-BLOWN DUST
         call add_source_species_wb_dust_src(src%wbdust_ptr(i)%wbdust_src, species_list, nSpecies)
+      end do
+      do i = 1, src%n_rd_dust                                 !======== ROAD DUST
+        call add_source_species_rd_dust_src(src%rddust_ptr(i)%rddust_src, species_list, nSpecies)
       end do
       do i = 1, src%n_soil_no                                 !======== SOIL NO
          call add_source_species_soil_no_src(src%soilno_ptr(i)%soilno_src, species_list, nSpecies)
@@ -2007,6 +2063,11 @@ MODULE source_terms_general
             & src%src_info_lst(fu_source_nbr(src%fire_ptr(i)%fire_src))%iDynamicEnvironment) &
                             & call add_source_species_fire_src(src%fire_ptr(i)%fire_src, species_list, nSpecies)
       end do
+      do i = 1, src%n_NH3                                    !======== NH3
+        if(dynamics_type == &
+            & src%src_info_lst(fu_source_nbr(src%NH3_ptr(i)%NH3_src))%iDynamicEnvironment) &
+                            & call add_source_species_NH3_src(src%NH3_ptr(i)%NH3_src, species_list, nSpecies)
+      end do
       do i = 1, src%n_point                                   !======== POINT
         if(dynamics_type == &
             & src%src_info_lst(fu_source_nbr(src%p_ptr(i)%p_src))%iDynamicEnvironment) &
@@ -2031,6 +2092,11 @@ MODULE source_terms_general
         if(dynamics_type == &
             & src%src_info_lst(fu_source_nbr(src%wbdust_ptr(i)%wbdust_src))%iDynamicEnvironment) &
                             & call add_source_species_wb_dust_src(src%wbdust_ptr(i)%wbdust_src, species_list, nSpecies)
+      end do
+      do i = 1, src%n_rd_dust                                 !======== ROAD DUST
+        if(dynamics_type == &
+            & src%src_info_lst(fu_source_nbr(src%rddust_ptr(i)%rddust_src))%iDynamicEnvironment) &
+                            & call add_source_species_rd_dust_src(src%rddust_ptr(i)%rddust_src, species_list, nSpecies)
       end do
       do i = 1, src%n_soil_no                                 !======== SOIL NO
         if(dynamics_type == &
@@ -2318,6 +2384,13 @@ MODULE source_terms_general
         endif   
       end do
       !
+      ! NH3. Void, now: the source term is global, but might eventually be regionalised
+      !
+      do iSrc = 1, em_source%n_NH3
+        call create_source_containing_grid(em_source%NH3_ptr(iSrc)%NH3_src, &
+                                         & grid_template, ifVerbose, ifExtended)
+      end do
+      !
       ! POLLEN
       !
       do iSrc = 1, em_source%n_pollen
@@ -2349,6 +2422,17 @@ MODULE source_terms_general
           call msg('create_src_cont_grd_gen_src: WIND BLOWN DUST source outside the grid:',iSrc)
           call report(em_source%wbdust_ptr(iSrc)%wbdust_src)
         endif   
+      end do
+      !
+      ! ROAD DUST
+      !
+      do iSrc = 1, em_source%n_rd_dust
+        call create_source_containing_grid(em_source%rddust_ptr(iSrc)%rddust_src, grid_template, &
+                                         & ifVerbose, ifMinimal .and. ifFirstSrc, ifExtended)
+        if(ifVerbose .and. ifExtended)then
+          call msg('create_src_cont_grd_gen_src: ROAD DUST source outside the grid:',iSrc)
+          call report(em_source%rddust_ptr(iSrc)%rddust_src)
+        endif
       end do
       !
       ! DMS
@@ -2963,6 +3047,8 @@ call msg('Dumping Px')
           Nbr = source%n_bomb
         case(fire_source_flag)
           Nbr = source%n_fire
+        case(NH3_source_flag)
+          Nbr = source%n_NH3
         case(point_source_flag)
           Nbr = source%n_point
         case(pollen_source_flag)
@@ -2971,6 +3057,8 @@ call msg('Dumping Px')
           Nbr = source%n_sea_salt
         case(wind_blown_dust_source_flag)
           Nbr = source%n_wb_dust
+        case(road_dust_source_flag)
+          Nbr = source%n_rd_dust   
         case(dms_source_flag)
           nbr = source%n_dms
         case(volcano_source_flag)
@@ -3102,6 +3190,12 @@ call msg('Dumping Px')
         return
       endif
     end do
+    do i=1,src%n_NH3
+      if(fu_source_nbr(src%NH3_ptr(i)%NH3_src) == indexSrc)then
+        fu_source_name = fu_name(src%NH3_ptr(i)%NH3_src)
+        return
+      endif
+    end do
     do i=1,src%n_point
       if(fu_source_nbr(src%p_ptr(i)%p_src) == indexSrc) then
         fu_source_name = fu_name(src%p_ptr(i)%p_src)
@@ -3123,6 +3217,12 @@ call msg('Dumping Px')
     do i=1,src%n_wb_dust
       if(fu_source_nbr(src%wbdust_ptr(i)%wbdust_src) == indexSrc)then
         fu_source_name = fu_name(src%wbdust_ptr(i)%wbdust_src)
+        return
+      endif
+    end do
+    do i=1,src%n_rd_dust
+      if(fu_source_nbr(src%rddust_ptr(i)%rddust_src) == indexSrc)then
+        fu_source_name = fu_name(src%rddust_ptr(i)%rddust_src)
         return
       endif
     end do
@@ -3177,7 +3277,8 @@ call msg('Dumping Px')
     !
     ! Sources like pollen and sea salt emit always
     !
-    if(src%n_bio_voc + src%n_pollen + src%n_sea_salt + src%n_wb_dust + src%n_dms + src%n_soil_NO > 0)then
+    if(src%n_bio_voc + src%n_pollen + src%n_sea_salt + src%n_wb_dust + &
+         & src%n_rd_dust + src%n_dms + src%n_soil_NO + src%n_NH3 > 0)then
       fu_earliest_start_time = really_far_in_past
       return
     endif
@@ -3243,7 +3344,8 @@ call msg('Dumping Px')
     !
     ! Sources like pollen and sea salt emit always
     !
-    if(src%n_bio_voc + src%n_pollen + src%n_sea_salt + src%n_wb_dust + src%n_dms + src%n_soil_no > 0)then
+    if(src%n_bio_voc + src%n_pollen + src%n_sea_salt + src%n_wb_dust + &
+         & src%n_rd_dust + src%n_dms + src%n_soil_no  + src%n_NH3 > 0)then
       fu_latest_end_time = really_far_in_future
       return
     else
@@ -3314,7 +3416,7 @@ call msg('Dumping Px')
       CASE(volcano_source_flag)
         fu_source_start_time = fu_start_time(src%volc_ptr(index)%volc_src)
       CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, wind_blown_dust_source_flag, &
-          soil_NO_source_flag, dms_source_flag)
+          road_dust_source_flag, soil_NO_source_flag, dms_source_flag, NH3_source_flag)
         fu_source_start_time = really_far_in_past
       CASE DEFAULT
         CALL set_error('Unknown source type','fu_source_end_time')
@@ -3357,7 +3459,7 @@ call msg('Dumping Px')
       CASE(volcano_source_flag)
         fu_source_end_time = fu_end_time(src%volc_ptr(index)%volc_src)
       CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, wind_blown_dust_source_flag, &
-          & soil_NO_source_flag, dms_source_flag)
+          & road_dust_source_flag, soil_NO_source_flag, dms_source_flag, NH3_source_flag)
         fu_source_end_time = really_far_in_future
       CASE DEFAULT
         CALL set_error('Unknown source type','fu_source_end_time')
@@ -3400,7 +3502,7 @@ call msg('Dumping Px')
       fu_source_duration = interval_missing
     CASE(volcano_source_flag)
       fu_source_duration = fu_duration(src%volc_ptr(srcIndex)%volc_src)
-    CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, dms_source_flag)
+    CASE(bio_voc_source_flag, pollen_source_flag, sea_salt_source_flag, dms_source_flag, NH3_source_flag)
       fu_source_duration = very_long_interval
     CASE DEFAULT
       CALL set_error('Unknown source type','fu_source_duration')
@@ -3600,7 +3702,8 @@ call msg('Dumping Px')
 
     ! Local variables
     real, dimension(:), pointer :: fWork
-    real, dimension(:), pointer :: amounts_single_src 
+    real, dimension(:), pointer :: amounts_single_src
+    real, dimension(:,:), allocatable :: amounts_single_src_bomb
     real, dimension(:,:), pointer :: amounts_tmp
     type(silam_species), dimension(:), pointer :: species_single_src
     type(silam_species_arr_ptr), dimension(:), allocatable :: ar_species_single_src
@@ -3623,7 +3726,7 @@ call msg('Dumping Px')
     
 !Glob still fails with parallell, so disable it..
 !!    !$OMP PARALLEL IF (.False.)  DEFAULT (NONE) &
-!!    !$OMP & PRIVATE(amounts_single_src,  adaptor, i,j,k,isp,iTmp, species_single_src, &
+!!    !$OMP & PRIVATE(amounts_single_src, amounts_single_src_bomb,  adaptor, i,j,k,isp,iTmp, species_single_src, &
 !!    !$OMP & nSpecies_single_src, iThread, nthreads) &
 !!    !$OMP & SHARED(src, transport_species, nSpecies, amounts, start, duration, emission_species, threadamounts, &
 !!    !$OMP & refEmis2Transp_mass, ifTimePresent, error, amounts_tmp, ar_species_single_src, fWork)
@@ -3653,6 +3756,8 @@ call msg('Dumping Px')
     nullify(ar_species_single_src(iThread + 1)%pArSp)
     species_single_src => ar_species_single_src(iThread + 1)%pArSp
     amounts_single_src(1:nSpecies) => amounts_tmp(1:nSpecies, iThread + 1)
+
+    allocate(amounts_single_src_bomb(nSpecies, 3))
 
     if(.not. error)then
       amounts_single_src(1:nSpecies) = 0.0
@@ -3737,9 +3842,13 @@ call msg('Dumping Px')
       call total_bomb_src_species_unit(src%b_ptr(i)%b_src, &
                                      & species_single_src, &
                                      & nspecies_single_src, &
-                                     & amounts_single_src)
+                                     & amounts_single_src_bomb)
       if(error)cycle
 
+      do iSp = 1, nspecies_single_src
+        amounts_single_src(iSp) = sum(amounts_single_src_bomb(iSp, 1:2))
+      end do
+     
       if(nspecies_single_src == 0)cycle  ! nothing from this source
       if(sum(amounts_single_src(1:nspecies_single_src)) == 0.0)cycle  ! nothing from this source
 
@@ -4043,11 +4152,43 @@ call msg('Dumping Px')
         cnc(isp) = min(arCnc(j), cnc(iSp))
       end do
     end do
+    !
+    ! Road dust knows its typical concentrations
+    !
+    do iSrc = 1, src%n_rd_dust
+
+      call typical_species_conc(src%rddust_ptr(iSrc)%rddust_src, src_species, nSpeciesSrc, arCnc)
+      if(error)return
+
+      do j = 1, nSpeciesSrc
+        isp = fu_index(src_species(j), transport_species)
+        if (isp < 1) then
+          call set_error('Strange emitted species', 'typical_cnc_from_src_species_unit')
+          return
+        end if
+        cnc(isp) = min(arCnc(j), cnc(iSp))
+      end do
+    end do
     
     ! DMS knows its typical concentrations (?)
     !
     do iSrc = 1, src%n_dms
       call typical_species_conc(src%dms_ptr(iSrc)%dms_src, src_species, nSpeciesSrc, arCnc)
+      if(error)return
+      do j = 1, nSpeciesSrc
+        isp = fu_index(src_species(j), transport_species)
+        if (isp < 1) then
+          call set_error('Strange emitted species', 'typical_cnc_from_src_species_unit')
+          return
+        end if
+        cnc(isp) = min(arCnc(j), cnc(iSp))
+      end do
+    end do
+
+    ! NH3 knows its typical concentrations
+    !
+    do iSrc = 1, src%n_NH3
+      call typical_species_conc(src%NH3_ptr(iSrc)%NH3_src, src_species, nSpeciesSrc, arCnc)
       if(error)return
       do j = 1, nSpeciesSrc
         isp = fu_index(src_species(j), transport_species)
@@ -4123,8 +4264,16 @@ call msg('Dumping Px')
         fu_emission_owned_quantity = fu_wb_dust_emis_owned_quantity(src%wbdust_ptr(iSrc)%wbdust_src, quantity)
         if(fu_emission_owned_quantity)return
       end do
+      do iSrc = 1, src%n_rd_dust
+        fu_emission_owned_quantity = fu_rd_dust_emis_owned_quantity(src%rddust_ptr(iSrc)%rddust_src, quantity)
+        if(fu_emission_owned_quantity)return
+      end do
       do iSrc = 1, src%n_dms
         fu_emission_owned_quantity = fu_dms_emis_owned_quantity(src%dms_ptr(iSrc)%dms_src, quantity)
+        if(fu_emission_owned_quantity)return
+      end do
+      do iSrc = 1, src%n_NH3
+        fu_emission_owned_quantity = fu_NH3_emis_owned_quantity(src%NH3_ptr(iSrc)%NH3_src, quantity)
         if(fu_emission_owned_quantity)return
       end do
       do iSrc = 1, src%n_volc
@@ -4165,7 +4314,7 @@ call msg('Dumping Px')
     ! assume full overlap of fires from different sources
     !
     if(src%n_fire + src%n_area + src%n_point + src%n_bomb + src%n_volc > 0)then
-           do i = 1, src%n_fire
+      do i = 1, src%n_fire
         nbr = max(nbr, fu_n_fires(src%fire_ptr(i)%fire_src))
       end do
       !
@@ -4199,22 +4348,22 @@ call msg('Dumping Px')
   !*****************************************************************
 
   integer function fu_source_id_nbr_of_source(src, &
-          & i_point, i_area, i_bomb, i_fire, i_sea_salt, i_pollen, i_bio_voc, i_wb_dust, i_dms, i_volc, i_soil_no)
+       & i_point, i_area, i_bomb, i_fire, i_sea_salt, i_pollen, i_bio_voc, i_wb_dust, &
+       & i_rd_dust, i_dms, i_volc, i_soil_no, i_NH3)
     !
     ! Returns the source number. Reason: all sources are enumerated
     ! sequencially, so that the source can, in fact, be refered by its
     ! number without other information. But so far this number is 
     ! copied to the particles in the pollution cloud. 
     !
-    ! NOTE. One and only one index may be reasonable. The other one MUST be
-    ! negative or zero
+    ! NOTE. One and only one index may be reasonable. The other one MUST be zero
     !
     implicit none
 
     ! Imported parameters with intent IN
     type(silam_source), intent(in) :: src
     integer, intent(in) :: i_point, i_area, i_bomb, i_fire, i_sea_salt, i_pollen, i_bio_voc, i_wb_dust, &
-         & i_dms, i_volc, i_soil_no
+         & i_rd_dust, i_dms, i_volc, i_soil_no, i_NH3
 
     ! Stupidity check
     if(.not.defined(src))then
@@ -4223,67 +4372,73 @@ call msg('Dumping Px')
     endif
     if(i_area > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%a_ptr(i_area)%a_src)
-      if(fu_fails(i_point+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_bio_voc > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%bvoc_ptr(i_bio_voc)%bvoc_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_bomb > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%b_ptr(i_bomb)%b_src)
-      if(fu_fails(i_point+i_area+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
-    if(i_fire > 0)then
-      fu_source_id_nbr_of_source = fu_source_id_nbr(src%fire_ptr(i_fire)%fire_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+    if(i_NH3 > 0)then
+      fu_source_id_nbr_of_source = fu_source_id_nbr(src%NH3_ptr(i_NH3)%NH3_src)
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_point > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%p_ptr(i_point)%p_src)
-      if(fu_fails(i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_pollen > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%pollen_ptr(i_pollen)%pollen_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_sea_salt > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%sslt_ptr(i_sea_salt)%sslt_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_wb_dust > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%wbdust_ptr(i_wb_dust)%wbdust_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_dms+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_rd_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
+                & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
+      return
+    endif
+    if(i_rd_dust > 0)then
+      fu_source_id_nbr_of_source = fu_source_id_nbr(src%rddust_ptr(i_rd_dust)%rddust_src)
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_dms > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%dms_ptr(i_dms)%dms_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_volc+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_volc+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_volc > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%volc_ptr(i_volc)%volc_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_soil_no == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_soil_no+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
     if(i_soil_NO > 0)then
       fu_source_id_nbr_of_source = fu_source_id_nbr(src%soilno_ptr(i_soil_NO)%soilno_src)
-      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_dms+i_volc == 0, &
+      if(fu_fails(i_point+i_area+i_bomb+i_fire+i_sea_salt+i_pollen+i_bio_voc+i_wb_dust+i_rd_dust+i_dms+i_volc+i_NH3 == 0, &
                 & 'Strange indices given: more than one source type','fu_source_id_nbr_of_source'))return
       return
     endif
@@ -4448,7 +4603,7 @@ call msg('Dumping Px')
 
   !**********************************************************************
   
-  subroutine make_source_id_mapping(em_source, meteoMarketPtr, emis_grid, nlSetup)
+  subroutine make_source_id_mapping(em_source, meteoMarket, map_grid, nlSetup)
     !
     ! If emission is split along whatever rules different from source name and sector
     ! one needs to have a map saying what grid cell belongs to what source index.
@@ -4458,13 +4613,14 @@ call msg('Dumping Px')
     
     ! Imported parameters
     type(silam_source), intent(inout) :: em_source
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-    type(silja_grid), intent(in) :: emis_grid
-    type(Tsilam_namelist), intent(in) :: nlSetup
+    type(mini_market_of_stacks), intent(in) :: meteoMarket
+    type(silja_grid), intent(in) :: map_grid !! Grid for mapping
+    type(Tsilam_namelist), intent(in) :: nlSetup !! namelist with time_zone_group items
     
     ! local variables
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: pItems
     integer :: nx, ny, iTmp, nItems
+    character(len=*), parameter :: sub_name = 'make_source_id_mapping'
     
     !
     ! Procedure of making the mapping depends on the type of the split
@@ -4478,23 +4634,25 @@ call msg('Dumping Px')
         ! Time-zone related split does require mapping: each time zone or timezone group
         ! get their own index. This index is distributed according to the maps of time zones
         !
-        call grid_dimensions(emis_grid, nx, ny)
+        call grid_dimensions(map_grid, nx, ny)
         allocate(em_source%arSourceIdMapping(nx, ny), &
                & em_source%chSplitNames(number_of_time_zones), stat = iTmp)
         if(iTmp /= 0)then
-          call report(emis_grid)
-          call set_error('Failed allocation of time zone mapping for above emission grid', &
-                       & 'make_source_id_mapping')
+          call report(map_grid)
+          call set_error('Failed allocation of time zone mapping for the grid', sub_name)
           return
         endif
         nullify(pItems)
         call get_items(nlSetup, 'time_zone_group', pItems, nItems)
+        if (nItems < 1) then
+          call set_error("no time_zone_group items in the namelist", sub_name)
+        endif
         call make_time_zone_mapping(em_source%arSourceIdMapping, em_source%chSplitNames, &
-                                  & meteoMarketPtr, emis_grid, pItems, nItems)
+                                  & meteoMarket, map_grid, pItems, nItems)
         em_source%ifUseSourceIdMapping = .true.
         
       case default
-        call set_error('Unknown type of source split','make_source_id_mapping')
+        call set_error('Unknown type of source split',sub_name)
     end select
     
   end subroutine make_source_id_mapping
@@ -4508,7 +4666,8 @@ call msg('Dumping Px')
     
     count_all = (em_source%n_area + em_source%n_bio_voc + em_source%n_bomb + em_source%n_fire + &
                & em_source%n_point + em_source%n_pollen + em_source%n_sea_salt + em_source%n_wb_dust + &
-               & em_source%n_dms + em_source%n_volc + em_source%n_soil_NO)
+               & em_source%n_rd_dust + em_source%n_dms + em_source%n_volc + em_source%n_soil_NO + &
+               & em_source%n_NH3)
     
   end function fu_num_sources_total
 
@@ -4550,6 +4709,9 @@ call msg('Dumping Px')
     !end do
     !do iSrc=1,src%n_fire
     !  call assimilation_request_fire(src%fire_ptr(iSrc)%fire_src, arParams, iLastFilledParam)
+    !end do
+    !do iSrc=1,src%n_NH3
+    !  call assimilation_request_NH3(src%NH3_ptr(iSrc)%NH3_src, arParams, iLastFilledParam)
     !end do
     !do iSrc=1,src%n_point
     !  call assimilation_request_point(src%p_ptr(iSrc)%p_src, arParams, iLastFilledParam)
@@ -4604,6 +4766,9 @@ call msg('Dumping Px')
     !do iSrc=1,src%n_fire
     !  call observe_params_ (src%fire_ptr(iSrc)%fire_src, arParams, now)
     !end do
+    !do iSrc=1,src%n_NH3
+    !  call observe_params_ (src%NH3_ptr(iSrc)%NH3_src, arParams, now)
+    !end do
     !do iSrc=1,src%n_point
     !  call observe_params_ (src%p_ptr(iSrc)%p_src, arParams, now)
     !end do
@@ -4656,6 +4821,9 @@ call msg('Dumping Px')
     !end do
     !do iSrc=1,src%n_fire
     !  call inject_params_(src%fire_ptr(iSrc)%fire_src, arParams, now)
+    !end do
+    !do iSrc=1,src%n_NH3
+    !  call inject_params_(src%NH3_ptr(iSrc)%NH3_src, arParams, now)
     !end do
     !do iSrc=1,src%n_point
     !  call inject_params_(src%p_ptr(iSrc)%p_src, arParams, now)
@@ -4788,6 +4956,9 @@ call msg('Dumping Px')
       do i = 1,src%n_fire
         CALL report(src%fire_ptr(i)%fire_src)
       end do
+      do i = 1,src%n_NH3
+        CALL report(src%NH3_ptr(i)%NH3_src)
+      end do
       do i=1,src%n_point
         CALL report(src%p_ptr(i)%p_src)
       end do
@@ -4799,6 +4970,9 @@ call msg('Dumping Px')
       end do
       do i=1, src%n_wb_dust
         call report(src%wbdust_ptr(i)%wbdust_src)
+      end do
+      do i=1, src%n_rd_dust
+        call report(src%rddust_ptr(i)%rddust_src)
       end do
       do i=1, src%n_dms
         call report(src%dms_ptr(i)%dms_src)
@@ -4876,8 +5050,10 @@ call msg('Dumping Px')
              & em_src%src_info_lst(iSrc)%iSrcType == pollen_source_flag .or. &
              & em_src%src_info_lst(iSrc)%iSrcType == bio_voc_source_flag .or. &
              & em_src%src_info_lst(iSrc)%iSrcType == wind_blown_dust_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == road_dust_source_flag .or. &
              & em_src%src_info_lst(iSrc)%iSrcType == dms_source_flag .or. &
-             & em_src%src_info_lst(iSrc)%iSrcType == soil_NO_source_flag)then
+             & em_src%src_info_lst(iSrc)%iSrcType == soil_NO_source_flag .or. &
+             & em_src%src_info_lst(iSrc)%iSrcType == NH3_source_flag)then
           call msg_warning('The type of the source is not supported:' + em_src%src_info_lst(iSrc)%chId)
         else
           call msg('Strange source type:',em_src%src_info_lst(iSrc)%iSrcType)
@@ -4897,41 +5073,6 @@ call msg('Dumping Px')
     endif
 
   end subroutine sources_2_map
-
-
-  !*****************************************************************
-
-  function fu_grid_of_source(src) result(grid)
-    !
-    ! Returns the source grid, which is copied from the area source.
-    ! Should the area sources be absent or contain several grids - the 
-    ! grid_missing is returned
-    !
-    implicit none
-
-    ! Return value of the function
-    type(silja_grid) :: grid
-
-    ! Imported parameter
-    type(silam_source), intent(in) :: src
-
-    ! Local variables
-    integer :: i
-
-    if(defined(src)) then
-      if(src%n_area >= 1)then
-        grid = fu_grid(src%a_ptr(1)%a_src)
-        do i=2,src%n_area
-          if(.not. (fu_grid(src%a_ptr(i)%a_src) == grid))then
-            grid = grid_missing
-            return
-          endif
-        enddo
-      endif
-    endif
-    grid = grid_missing
-
-  end function fu_grid_of_source
 
 
   !**************************************************************************
@@ -4984,6 +5125,13 @@ call msg('Dumping Px')
       if(error)return
     end do
     !
+    ! Fire sources
+    !
+    do iSrc = 1, src%n_NH3
+      call link_source_to_species(species, src%NH3_ptr(iSrc)%NH3_src)
+      if(error)return
+    end do
+    !
     ! Point sources
     !
     do iSrc = 1, src%n_point
@@ -5009,6 +5157,13 @@ call msg('Dumping Px')
     !
     do iSrc = 1, src%n_wb_dust
       call link_source_to_species(species, src%wbdust_ptr(iSrc)%wbdust_src)
+      if(error)return
+    end do
+    !
+    ! Road dust sources
+    !
+    do iSrc = 1, src%n_rd_dust
+      call link_source_to_species(species, src%rddust_ptr(iSrc)%rddust_src)
       if(error)return
     end do
     !
@@ -5234,6 +5389,26 @@ call msg('Dumping Px')
       if(error)return
 !      call msg('done')
     enddo
+   !
+    ! ROAD DUST source
+    !
+    do i=1, em_src%n_rd_dust
+!      call msg('rd_src -> 2d grd:',i)
+      call source_2_second_grid(em_src%rddust_ptr(i)%rddust_src, gridDisp, verticalDispersion,  &
+                              & vertical_metric, iAccuracy)
+      if(error)return
+!      call msg('done')
+    enddo
+    !
+    ! NH3 source
+    !
+    do i=1, em_src%n_NH3
+!      call msg('NH3 -> 2d grd:',i)
+      call source_2_second_grid(em_src%NH3_ptr(i)%NH3_src, gridDisp, verticalDispersion,  &
+                              & vertical_metric, iAccuracy)
+      if(error)return
+!      call msg('done')
+    enddo
  !
     ! DMS source
     !
@@ -5306,6 +5481,13 @@ call msg('Dumping Px')
       if(error)return
     end do
     !
+    ! NH3 source. Plenty of fields to be initialised and stored into dispersion stack
+    !
+    do iSrc = 1, src%n_NH3
+      call init_emission_NH3(src%NH3_ptr(iSrc)%NH3_src)
+      if(error)return
+    end do
+    !
     ! POLLEN source. No grid but plenty of fields to be initialised and stored into dispersion stack
     !
     do iSrc = 1, src%n_pollen
@@ -5320,10 +5502,17 @@ call msg('Dumping Px')
       if(error)return
     end do
     !
-    ! WIND-BLOWN source. Does not have grid to reproject but has internal stuff to be innitialised
+    ! WIND-BLOWN DUST source. Does not have grid to reproject but has internal stuff to be innitialised
     !
     do iSrc = 1, src%n_wb_dust
       call init_emission_wb_dust(src%wbdust_ptr(iSrc)%wbdust_src, pDispersionMarket, start_time)
+      if(error)return
+    end do
+    !
+    ! ROAD DUST source. Does not have grid to reproject but has internal stuff to be innitialised
+    !
+    do iSrc = 1, src%n_rd_dust
+      call init_emission_rd_dust(src%rddust_ptr(iSrc)%rddust_src, pDispersionMarket, start_time)
       if(error)return
     end do
 
@@ -5596,6 +5785,19 @@ call msg('Dumping Px')
       if(error)return
     enddo
 
+    if(em_src%n_NH3>0)call prepare_inject_NH3_src(met_buf)
+    do iSrc=1,em_src%n_NH3                                       !========== NH3
+      call compute_emission_NH3_src(em_src%NH3_ptr(iSrc)%NH3_src, &
+                                      & met_buf, disp_buf, & 
+                                      & now, &      ! current time
+                                      & timestep, & ! model time step
+                                      & interpCoefMeteo2DispHoriz, ifMetHorizInterp, &
+                                      & ifSpeciesMoment, &
+                                      & mapEmis, mapCoordX_emis, mapCoordY_emis, mapCoordZ_emis, &  ! Output
+                                      & fMassInjected) 
+      if(error)return
+    enddo
+
     if(em_src%n_point > 0)call prepare_inject_p_src(met_buf)
     do iSrc=1,em_src%n_point                                       !========== POINT
       call inject_emission_euler_p_src(em_src%p_ptr(iSrc)%p_src, &
@@ -5640,6 +5842,18 @@ call msg('Dumping Px')
     do iSrc=1,em_src%n_wb_dust                                    !========= WIND-BLOWN DUST
       call compute_emission_for_wb_dust(em_src%wbdust_ptr(iSrc)%wbdust_src, &
                                       & met_buf, disp_buf, & 
+                                      & now, &                   ! current time
+                                      & timestep, &              ! model time step
+                                      & interpCoefMeteo2DispHoriz, ifMetHorizInterp, &
+                                      & ifSpeciesMoment, &
+                                      & mapEmis, mapCoordX_emis, mapCoordY_emis, mapCoordZ_emis, & ! Output
+                                      & fMassInjected)           ! output
+      if(error)return
+    end do
+
+    do iSrc=1,em_src%n_rd_dust                                    !========= ROAD DUST
+      call compute_emission_for_rd_dust(em_src%rddust_ptr(iSrc)%rddust_src, &
+                                      & met_buf, disp_buf, &
                                       & now, &                   ! current time
                                       & timestep, &              ! model time step
                                       & interpCoefMeteo2DispHoriz, ifMetHorizInterp, &
@@ -5804,8 +6018,16 @@ call msg('Dumping Px')
       call set_error('Lagrangian emission for wb_dust sources is not defined',subname)
     end do
 
+    do iSrc=1,em_src%n_rd_dust                                    !========= ROAD DUST
+      call set_error('Lagrangian emission for rd_dust sources is not defined',subname)
+    end do
+
     do iSrc=1,em_src%n_soil_no                                    !========= SOIL NO
       call set_error('Lagrangian emission for soil NO sources is not defined',subname)
+    end do
+
+    do iSrc=1,em_src%n_NH3                                    !========= NH3
+      call set_error('Lagrangian emission for NH3 sources is not defined',subname)
     end do
 
     if (fu_fails(em_src%n_dms == 0, 'No lagrangian emission for DMS', subname)) return

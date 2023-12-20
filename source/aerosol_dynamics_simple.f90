@@ -40,6 +40,7 @@ MODULE aer_dyn_simple
   !
   integer, private, save :: iSO4f_aer, iSO4c_aer, iSO4w_aer_sl, iH2SO4_gas_sl, iNH415SO4f_aer, iNH415SO4c_aer, &
                           & iNH3, iHNO3, iNH4NO3_aer, iNO3c_aer
+  logical, private, save :: ifso4_h2so4, ifnh4no3, ifso4_nh3, ifno3_to_no3c
   integer, dimension(:), pointer, private, save :: iSslt_aer => null(), iSsltNO3  => null()
   integer, dimension(:,:), pointer, private, save :: iFresh  => null(), iAged  => null()
   real, dimension(:), pointer, private, save :: sslt_D => null()
@@ -449,6 +450,7 @@ MODULE aer_dyn_simple
     call set_species(speciesTmp, fu_get_material_ptr('NH4NO3'), rulesAerDynSimple%modeDroplet)
     iNH4NO3_aer = fu_index(speciesTmp, speciesTrans, nSpeciesTrans)
 
+
     if(rulesAerDynSimple%no3_StickingCoeff > 0.0)then
       call select_species(speciesTrans, nSpeciesTrans, rulesAerDynSimple%ssltName4NO3c, &
                         & aerosol_mode_missing, real_missing, &
@@ -524,7 +526,18 @@ MODULE aer_dyn_simple
       enddo
     enddo
     call free_work_array(indicesTmp)
-    
+
+    ifso4_h2so4 = (iSO4f_aer >0 .and. iH2SO4_gas_sl >0)
+    ifnh4no3  = ( iNH3 > 0 .and. iHNO3 > 0 .and. iNH4NO3_aer > 0 ) 
+    ifso4_nh3 = ( iSO4c_aer > 0 .and. iSO4f_aer > 0 .and. iNH3 > 0 .and. iNH415SO4c_aer >0. .and. iNH415SO4f_aer > 0 )
+    ifno3_to_no3c = ( iNO3c_aer > 0 .and. iHNO3 > 0)
+
+    call msg ("registerSpecies_4_AerDynSimple transformations:")
+    call msg ("ifso4_h2so4:   "// fu_str(ifso4_h2so4))
+    call msg ("ifnh4no3:      "//fu_str(ifnh4no3))
+    call msg ("ifso4_nh3:     "//fu_str(ifso4_nh3))
+    call msg ("ifno3_to_no3c: "//fu_str(ifno3_to_no3c))
+    call msg ("END registerSpecies_4_AerDynSimple transformations")
 
   end subroutine registerSpecies_4_AerDynSimple
 
@@ -564,41 +577,37 @@ MODULE aer_dyn_simple
     if (seconds > 0) then
         ! Move h2so4 from sort-lived
 
-!        if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("1")
-        call so4_h2so4(vMassTrn, vMassSL, seconds)
-!        if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("2")
+!      if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("1")
+       if (ifso4_h2so4) call so4_h2so4(vMassTrn, vMassSL, seconds)
+!      if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("2")
 
 
-        if (iNH3 > 0) then
-          ! Break ammonium nitrate, so sulphates can consume NH3
-          call break_nh4no3(vMassTrn,  seconds)
+       ! Break ammonium nitrate, so sulphates can consume NH3
+       if (ifnh4no3) call break_nh4no3(vMassTrn,  seconds)
 
-          !SO4 consumes free ammonia (3 TL vlues)
-          call so4_nh3(vMassTrn, TLams,rulesAerDynSimple, metdat, seconds)
-  !        if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("3")
-          
-          !restore nh4no3 to equilibrium (2 TL values)
-          call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
+       !SO4 consumes free ammonia (3 TL vlues)
+       if (ifso4_nh3) call so4_nh3(vMassTrn, TLams,rulesAerDynSimple, metdat, seconds)
+  !     if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("3")
+       
+       !restore nh4no3 to equilibrium (2 TL values)
+       if (ifnh4no3) call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
 
-          !create coarse nitrates (1 TL value)
-          call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
-        endif
+       !create coarse nitrates (1 TL value)
+       if (ifno3_to_no3c) call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
     else
-        if (iNH3 > 0) then
-          call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
-          !create coarse nitrates (1 TL value)
+        if (ifno3_to_no3c) call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
+        !create coarse nitrates (1 TL value)
 
-          call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
-          !restore nh4no3 to equilibrium (2 TL values)
-          
-          call so4_nh3(vMassTrn, TLams, rulesAerDynSimple, metdat, seconds)
-          !SO4 consumes free ammonia (3 TL vlues)
+        if (ifnh4no3) call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
+        !restore nh4no3 to equilibrium (2 TL values)
+        
+        if (ifso4_nh3) call so4_nh3(vMassTrn, TLams, rulesAerDynSimple, metdat, seconds)
+        !SO4 consumes free ammonia (3 TL vlues)
 
-          call break_nh4no3(vMassTrn,  seconds)
-          ! Break ammonium nitrate, so sulphates can consume NH3
-        endif
+        if (ifnh4no3) call break_nh4no3(vMassTrn,  seconds)
+        ! Break ammonium nitrate, so sulphates can consume NH3
 
-        call so4_h2so4(vMassTrn, vMassSL, seconds)
+        if (ifso4_h2so4) call so4_h2so4(vMassTrn, vMassSL, seconds)
         ! Move h2so4 from sort-lived
     endif
 

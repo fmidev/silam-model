@@ -925,17 +925,17 @@ CH3CCl3 + OH  = {CH2CCl3->} 3 Cl {+ H2O}   : ARRZ(1.2d-12,1440d0) * MCF_factor ;
 
 {SOA aging}
    
-{110} OH + AVB1e0 = OH + 1.075 AVB0                       : ASOA_aging {4.0E-11} ;
-{111} OH + AVB1e1 = OH + 1.075 AVB1e0                     : ASOA_aging {4.0E-11} ;
-{112} OH + AVB1e2 = OH + 1.075 AVB1e1                     : ASOA_aging {4.0E-11} ;
-{113} OH + AVB1e3 = OH + 1.075 AVB1e2                     : ASOA_aging {4.0E-11} ;
-{114} OH + AVB1e4 = OH + 1.075 AVB1e3                     : IVOC_aging {4.0E-11} ;
-{115} OH + AVB1e5 = OH + 1.075 AVB1e4                     : IVOC_aging {4.0E-11} ;
-{116} OH + AVB1e6 = OH + 1.075 AVB1e5                     : IVOC_aging {4.0E-11} ;
-{117} OH + BVB1e0 = OH + 1.075 BVB0                       : BSOA_aging {4.0E-11} ;
-{118} OH + BVB1e1 = OH + 1.075 BVB1e0                     : BSOA_aging {4.0E-11} ;
-{119} OH + BVB1e2 = OH + 1.075 BVB1e1                     : BSOA_aging {4.0E-11} ;
-{120} OH + BVB1e3 = OH + 1.075 BVB1e2                     : BSOA_aging {4.0E-11} ;
+{110} OH + AVB1e0 = {OH +} 1.075 AVB0                       : ASOA_aging {4.0E-11} ;
+{111} OH + AVB1e1 = {OH +} 1.075 AVB1e0                     : ASOA_aging {4.0E-11} ;
+{112} OH + AVB1e2 = {OH +} 1.075 AVB1e1                     : ASOA_aging {4.0E-11} ;
+{113} OH + AVB1e3 = {OH +} 1.075 AVB1e2                     : ASOA_aging {4.0E-11} ;
+{114} OH + AVB1e4 = {OH +} 1.075 AVB1e3                     : IVOC_aging {4.0E-11} ;
+{115} OH + AVB1e5 = {OH +} 1.075 AVB1e4                     : IVOC_aging {4.0E-11} ;
+{116} OH + AVB1e6 = {OH +} 1.075 AVB1e5                     : IVOC_aging {4.0E-11} ;
+{117} OH + BVB1e0 = {OH +} 1.075 BVB0                       : BSOA_aging {4.0E-11} ;
+{118} OH + BVB1e1 = {OH +} 1.075 BVB1e0                     : BSOA_aging {4.0E-11} ;
+{119} OH + BVB1e2 = {OH +} 1.075 BVB1e1                     : BSOA_aging {4.0E-11} ;
+{120} OH + BVB1e3 = {OH +} 1.075 BVB1e2                     : BSOA_aging {4.0E-11} ;
 
 //TEST emissions
 //SRCunity = N2O  : 1.0E-5 ; {WORKS at least in principle if rate is adjusted to cnc change rate due to emissions flux}

@@ -84,6 +84,8 @@ MODULE silam_times ! times and time-intervals + toolbox
   public update_timezone_offsets
   public fu_index
   public parse_time_units_and_origin
+  public fu_data_time_features
+  public fu_time_label_position
 
   public real8_to_silja_time
   public silja_time_to_real8
@@ -4899,6 +4901,67 @@ CONTAINS
         
   end subroutine parse_time_units_and_origin
 
+  
+  !********************************************************************************  
+  
+  integer function fu_data_time_features(chDTF)
+    !
+    ! Returns a flag characterising the features of the dataset: time-dependent (and how) or not
+    !
+    implicit none
+    
+    character(len=*), intent(in) :: chDTF
+    
+    if(index(fu_str_l_case(chDTF),'dynamic_data') > 0)then
+      fu_data_time_features = dynamic_map
+    elseif(index(fu_str_l_case(chDTF),'monthly_data') > 0)then
+      fu_data_time_features = monthly_climatology
+    elseif(index(fu_str_l_case(chDTF),'static_data') > 0)then
+      fu_data_time_features = static_climatology
+    else
+      fu_data_time_features = int_missing
+      call msg('data_time_features can be dynamic_data/monthly_data/static_data, not:' + chDTF)
+      call set_error('Wrong data_time_features line','fu_data_time_features')
+    endif
+    return
+  end function fu_data_time_features
+
+  
+  !********************************************************************************  
+  
+  integer function fu_time_label_position(chTLP, TLP_default)
+    !
+    ! Returns the numerical flag for time label position from the string
+    !
+    implicit none
+    
+    character(len=*), intent(in) :: chTLP
+    integer, intent(in) :: TLP_default
+    
+    if(index(fu_str_l_case(chTLP), 'start_of_period') > 0)then
+      fu_time_label_position = start_of_period
+    elseif(index(fu_str_l_case(chTLP), 'mid_of_period') > 0)then
+      fu_time_label_position = mid_of_period
+    elseif(index(fu_str_l_case(chTLP), 'end_of_period') > 0)then
+      fu_time_label_position = end_of_period
+    elseif(index(fu_str_l_case(chTLP), 'instant') > 0)then
+      fu_time_label_position = instant_fields
+    elseif(chTLP == '')then
+      call msg_warning('Empty time_label_position - assuming default:' + fu_str(TLP_default), 'fu_time_label_position')
+      fu_time_label_position = TLP_default
+    else
+      fu_time_label_position = int_missing
+      call set_error('strange time_label_position:' + chTLP, 'fu_time_label_position')
+    endif
+    
+  end function fu_time_label_position
+  
+
+  
+  
+  
+  
+  
   ! ***************************************************************
 
   ! ***************************************************************

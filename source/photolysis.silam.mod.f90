@@ -21,6 +21,7 @@ module photolysis
   ! UNITS NOT ALWAYS SI. Observe variable names and/or comments.
 
   use cocktail_basic
+  use netcdf
   
   implicit none
   
@@ -31,6 +32,7 @@ module photolysis
   public test_lut_rates_full
 
   public init_photolysis_lut
+  public init_photolysis_lut_old
   public get_photorates_column
 
   public test_effective_albedo_v2
@@ -43,97 +45,111 @@ module photolysis
 
 
   ! Indices for each reaction in the photodissociation rate array:
-  ! 
-  integer, parameter, public :: &
-       & pd_o2 = 1, &
-       & pd_o3 = 2, & 
-       & pd_h2o = 3, &
-       & pd_n2o = 4, &
-       & pd_ch4 = 5, &
-       & pd_no2 = 6, &
-       & pd_hno3 = 7, &
-       & pd_hocl = 8, &
-       & pd_ho2no2 = 9, &
-       & pd_clono2 = 10, &
-       & pd_n2o5 = 11, &
-       & pd_o3_o1d = 12, &
-       & pd_h2o2 = 13, &
-       & pd_oclo = 14, &
-       & pd_cl2o2 = 15, &   !RH2018: NOTE that FinROSE states that this results Cl+ClOO (which should further break to Cl+Cl+O2), and not ClO+ClO
-       & pd_hcl = 16, &
-       & pd_cl2 = 17, &
-       & pd_co2 = 18, &
-       & pd_clno2 = 19, &
-       & pd_brono2 = 20, &
-       & pd_brcl = 21, &
-       & pd_hobr = 22, &
-       & pd_ch3br = 23, &
-       & pd_ch3cl = 24, &
-       & pd_cfc11 = 25, &
-       & pd_cfc12 = 26, &
-       & pd_ccl4 = 27, &
-       & pd_ch3ccl3 = 28, &
-       & pd_hono = 29, &
-       & pd_hcho_2h = 30, & ! CO + 2H
-       & pd_hcho_h2 = 31, & ! CO + H2
-       & pd_no = 32, &
-       & pd_ho2no2_oh_no3 = 33, &
-       & pd_no3_no_o2 = 34, &
-       & pd_no3_no2_o = 35, &
-       & pd_bro = 36, &
-       & pd_clono2_cl_no3 = 37, &
+  ! Now read from the netCDF-file containing the LUT!
+!!$  integer, parameter, public :: &
+!!$       & pd_o2 = 1, &
+!!$       & pd_o3 = 2, & 
+!!$       & pd_h2o = 3, &
+!!$       & pd_n2o = 4, &
+!!$       & pd_ch4 = 5, &
+!!$       & pd_no2 = 6, &
+!!$       & pd_hno3 = 7, &
+!!$       & pd_hocl = 8, &
+!!$       & pd_ho2no2 = 9, &
+!!$       & pd_clono2 = 10, &
+!!$       & pd_n2o5 = 11, &
+!!$       & pd_o3_o1d = 12, &
+!!$       & pd_h2o2 = 13, &
+!!$       & pd_oclo = 14, &
+!!$       & pd_cl2o2 = 15, &   !RH2018: NOTE that FinROSE states that this results Cl+ClOO (which should further break to Cl+Cl+O2), and not ClO+ClO
+!!$       & pd_hcl = 16, &
+!!$       & pd_cl2 = 17, &
+!!$       & pd_co2 = 18, &
+!!$       & pd_clno2 = 19, &
+!!$       & pd_brono2 = 20, &
+!!$       & pd_brcl = 21, &
+!!$       & pd_hobr = 22, &
+!!$       & pd_ch3br = 23, &
+!!$       & pd_ch3cl = 24, &
+!!$       & pd_cfc11 = 25, &
+!!$       & pd_cfc12 = 26, &
+!!$       & pd_ccl4 = 27, &
+!!$       & pd_ch3ccl3 = 28, &
+!!$       & pd_hono = 29, &
+!!$       & pd_hcho_2h = 30, & ! CO + 2H
+!!$       & pd_hcho_h2 = 31, & ! CO + H2
+!!$       & pd_no = 32, &
+!!$       & pd_ho2no2_oh_no3 = 33, &
+!!$       & pd_no3_no_o2 = 34, &
+!!$       & pd_no3_no2_o = 35, &
+!!$       & pd_bro = 36, &
+!!$       & pd_clono2_cl_no3 = 37, &
 !Adding the remaining Phodis photolysis rates.
-       & pd_ch3ooh = 38, &
-       !& pd_ch3cho = 39, &
-       & pd_ald2 = 39, &          !Use acetaldehyde CH3CHO as presentative of aldehydes (CB05: ALD2 = CH3CHO)
-       & pd_ch3coc2h5 = 40, &
-       & pd_nacl = 41, &
-       & pd_ccl2o = 42, &
-       & pd_cclfo = 43, &
-       & pd_cf2br2 = 44, &        !Halon-1202
-       & pd_cf2brcf2br = 45, &    !Halon-2402
-       & pd_cf2clbr = 46, &       !Halon-1211
-       & pd_cf2clcf2chfcl = 47, & !HCFC-225cb
-       & pd_cf2clcf2cl = 48, &    !CFC-114
-       & pd_cf2clcfcl2 = 49, &    !CFC-113
-       & pd_cf2o = 50, &
-       & pd_cf3br = 51, &         !Halon-1301
-       & pd_cf3cf2chcl2 = 52, &   !HCFC-225ca
-       & pd_cf3cf2cl = 53, &      !CFC-115
-       & pd_cf3chcl2 = 54, &      !HCFC-123
-       & pd_cf3chfcl = 55, &      !HCFC-124
-       & pd_ch3cf2cl = 56, &      !HCFC-142b
-       & pd_ch3cfcl2 = 57, &      !HCFC-141b
-       & pd_ch3cococh3 = 58, &
-       !& pd_ch3cohco = 59, &
-       & pd_mgly = 59, &          !NOTE: Phodis states this as ch3cohco, but likely ch3cocho = MGLY (correct order for J-value)
-       & pd_chocho = 60, &
-       & pd_chclf2 = 61, &        !HCFC-22
-       & pd_chbr3 = 62, &
-       & pd_cl2o = 63, &
-       & pd_cl2o3 = 64, &
-       & pd_cl2o4 = 65, &
-       & pd_cl2o6 = 66, &
-       & pd_clno = 67, &
-       & pd_clono = 68, &
-       & pd_cloo = 69, &
-       & pd_ocs = 70, &
-       & pd_cf3i = 71, &
-       & pd_pan = 72, &
-       & pd_fno = 73, &
-       & pd_ch3ocl = 74, &
-       & pd_o2_o_o1d = 75, &
-       & pd_br2 = 76, &
-       & pd_brno2 = 77, &
-       & pd_c2h5cho = 78, &        !CB05: use for ALDX
-       & pd_c3h7ono2 = 79, &       !isopropyl nitrate. Needed for CB05.
-       & pd_ch2chcho = 80, &       !acrolein = propenal. Needed for CB05.
-       & pd_ch3coooh = 81, &       !PACD: peroxyacetic acid/peracetic acid. Needed for CB05
-       & pd_clo = 82, &
-       & pd_fmcl = 83, &
-       & pd_panx = 84, &
-       & pd_open = 85
-  integer, parameter, public :: maxPhotoIndex = 85 !Remember to increase this if number of possible photolysis reactions increases      
+!!$       & pd_ch3ooh = 38, &
+!!$       !& pd_ch3cho = 39, &
+!!$       & pd_ald2 = 39, &          !Use acetaldehyde CH3CHO as presentative of aldehydes (CB05: ALD2 = CH3CHO)
+!!$       & pd_ch3coc2h5 = 40, &
+!!$       & pd_nacl = 41, &
+!!$       & pd_ccl2o = 42, &
+!!$       & pd_cclfo = 43, &
+!!$       & pd_cf2br2 = 44, &        !Halon-1202
+!!$       & pd_cf2brcf2br = 45, &    !Halon-2402
+!!$       & pd_cf2clbr = 46, &       !Halon-1211
+!!$       & pd_cf2clcf2chfcl = 47, & !HCFC-225cb
+!!$       & pd_cf2clcf2cl = 48, &    !CFC-114
+!!$       & pd_cf2clcfcl2 = 49, &    !CFC-113
+!!$       & pd_cf2o = 50, &
+!!$       & pd_cf3br = 51, &         !Halon-1301
+!!$       & pd_cf3cf2chcl2 = 52, &   !HCFC-225ca
+!!$       & pd_cf3cf2cl = 53, &      !CFC-115
+!!$       & pd_cf3chcl2 = 54, &      !HCFC-123
+!!$       & pd_cf3chfcl = 55, &      !HCFC-124
+!!$       & pd_ch3cf2cl = 56, &      !HCFC-142b
+!!$       & pd_ch3cfcl2 = 57, &      !HCFC-141b
+!!$       & pd_ch3cococh3 = 58, &
+!!$       !& pd_ch3cohco = 59, &
+!!$       & pd_mgly = 59, &          !NOTE: Phodis states this as ch3cohco, but likely ch3cocho = MGLY (correct order for J-value)
+!!$       & pd_chocho = 60, &
+!!$       & pd_chclf2 = 61, &        !HCFC-22
+!!$       & pd_chbr3 = 62, &
+!!$       & pd_cl2o = 63, &
+!!$       & pd_cl2o3 = 64, &
+!!$       & pd_cl2o4 = 65, &
+!!$       & pd_cl2o6 = 66, &
+!!$       & pd_clno = 67, &
+!!$       & pd_clono = 68, &
+!!$       & pd_cloo = 69, &
+!!$       & pd_ocs = 70, &
+!!$       & pd_cf3i = 71, &
+!!$       & pd_pan = 72, &
+!!$       & pd_fno = 73, &
+!!$       & pd_ch3ocl = 74, &
+!!$       & pd_o2_o_o1d = 75, &
+!!$       & pd_br2 = 76, &
+!!$       & pd_brno2 = 77, &
+!!$       & pd_c2h5cho = 78, &        !CB05: use for ALDX
+!!$       & pd_c3h7ono2 = 79, &       !isopropyl nitrate. Needed for CB05.
+!!$       & pd_ch2chcho = 80, &       !acrolein = propenal. Needed for CB05.
+!!$       & pd_ch3coooh = 81, &       !PACD: peroxyacetic acid/peracetic acid. Needed for CB05
+!!$       & pd_clo = 82, &
+!!$       & pd_fmcl = 83, &
+!!$       & pd_panx = 84, &
+!!$       & pd_ho2 = 85, &            !HO2
+!!$       & pd_so2 = 86, &            !SO2
+!!$       & pd_ch2chcl = 87, &        !Vinyl-chloride (for PVC in tire/road wear)
+!!$       & pd_glyd = 88, &           !GLYD
+!!$       & pd_gly = 89, &            !GLY
+!!$       & pd_acet = 90, &           !ACET: acetone
+!!$       & pd_mek = 91, &            !MEK for KET/ketones
+!!$       & pd_c5h6o2 = 92, &         !for
+!!$       & pd_i2 = 93, &             !I2
+!!$       & pd_cron = 94, &           !CRON
+!!$       & pd_io = 95, &             !IO
+!!$       & pd_oio = 96, &            !OIO
+!!$       & pd_hoi = 97, &            !HOI
+!!$       & pd_ino3 = 98, &           !INO3
+!!$       & pd_open = 99
+  integer, parameter, public :: maxPhotoIndex = 99 !Remember to increase this if number of possible photolysis reactions increases      
 
   ! Cloud models for photolysis
   integer, parameter, public :: simple_cloud = 1001
@@ -151,7 +167,10 @@ module photolysis
 
   ! lut indices: (ind_react, ind_lat, ind_season, ind_alb, ind_o3, ind_sza, level)
   real, dimension(:,:,:,:,:,:,:), save, allocatable, private :: lut_data 
-  real, dimension(:), pointer, save, private :: lut_sza_rad, lut_o3, lut_alb ! sza is in radians
+  !real, dimension(:,:,:,:,:,:,:), save, allocatable, private :: lut2_data !For OLD-TEXT TABLE: 
+  !OLD-TEXT TABLE: init_photolysis_lut real, dimension(:), pointer, save, private :: lut_sza_rad, lut_o3, lut_alb ! sza is in radians
+  real, dimension(:), pointer, save, private :: lut2_sza_rad, lut2_o3, lut2_alb ! sza is in radians  !OLD-TEXT TABLE: init_photolysis_lut_old
+  real, dimension(:), allocatable, save, private :: lut_sza_icos, lut_sza_rad, lut_o3, lut_alb ! lut_sza_rad is in radians
   real, dimension(:,:,:), allocatable, save, private :: atm_o3_cuml, atm_press
 
   integer, parameter, private :: num_seasons = 2, num_regions = 5
@@ -160,7 +179,31 @@ module photolysis
   character(len=2), dimension(num_regions), parameter, private :: regions = (/'sp', 'sm', 'tr', 'nm', 'np'/)  !Corrected July2017 by R.H.
 
   integer, private, save :: ind_summer, ind_winter
+  integer, private, save :: ind_sp, ind_sm, ind_tr, ind_nm, ind_np
+  ! Indices for each reaction in the photodissociation rate array (read from the NetCDF-file): 
+!!$  integer, public, save :: pd_o2, pd_o3, pd_h2o, pd_n2o, pd_ch4, pd_no2, pd_hno3, pd_hocl, pd_ho2no2, pd_clono2
+!!$  integer, public, save :: pd_n2o5, pd_o3_o1d, pd_h2o2, pd_oclo, pd_cl2o2, pd_hcl, pd_cl2, pd_co2, pd_clno2, pd_brono2
+!!$  integer, public, save :: pd_brcl, pd_hobr, pd_ch3br, pd_ch3cl, pd_cfc11, pd_cfc12, pd_ccl4, pd_ch3ccl3, pd_hono, pd_hcho_2h
+!!$  integer, public, save :: pd_hcho_h2, pd_no, pd_ho2no2_oh_no3, pd_no3_no_o2, pd_no3_no2_o, pd_bro, pd_clono2_cl_no3, pd_ch3ooh, pd_ald2, pd_ch3coc2h5
+!!$  integer, public, save :: pd_nacl, pd_ccl2o, pd_cclfo, pd_cf2br2, pd_cf2brcf2br, pd_cf2clbr, pd_cf2clcf2chfcl, pd_cf2clcf2cl, pd_cf2clcfcl2, pd_cf2o
+!!$  integer, public, save :: pd_cf3br, pd_cf3cf2chcl2, pd_cf3cf2cl, pd_cf3chcl2, pd_cf3chfcl, pd_ch3cf2cl, pd_ch3cfcl2, pd_ch3cococh3, pd_mgly, pd_chocho
+!!$  integer, public, save :: pd_chclf2, pd_chbr3, pd_cl2o, pd_cl2o3, pd_cl2o4, pd_cl2o6, pd_clno, pd_clono, pd_cloo, pd_ocs
+!!$  integer, public, save :: pd_cf3i, pd_pan, pd_fno, pd_ch3ocl, pd_o2_o_o1d, pd_br2, pd_brno2, pd_c2h5cho, pd_c3h7ono2, pd_ch2chcho
+!!$  integer, public, save :: pd_ch3coooh, pd_clo, pd_fmcl, pd_panx, pd_ho2, pd_so2, pd_ch2chcl, pd_glyd, pd_gly, pd_acet
+!!$  integer, public, save :: pd_mek, pd_c5h6o2, pd_i2, pd_cron, pd_io, pd_oio, pd_hoi, pd_ino3, pd_open
+  !Put values used in old TEXT-format LUT into default values (as 9Dec2024 the NetCDF format LUT also use these indeces, even if they are actually read from the file)
+  integer, public, save :: pd_o2=1, pd_o3=2, pd_h2o=3, pd_n2o=4, pd_ch4=5, pd_no2=6, pd_hno3=7, pd_hocl=8, pd_ho2no2=9, pd_clono2=10
+  integer, public, save :: pd_n2o5=11, pd_o3_o1d=12, pd_h2o2=13, pd_oclo=14, pd_cl2o2=15, pd_hcl=16, pd_cl2=17, pd_co2=18, pd_clno2=19, pd_brono2=20
+  integer, public, save :: pd_brcl=21, pd_hobr=22, pd_ch3br=23, pd_ch3cl=24, pd_cfc11=25, pd_cfc12=26, pd_ccl4=27, pd_ch3ccl3=28, pd_hono=29, pd_hcho_2h=30
+  integer, public, save :: pd_hcho_h2=31, pd_no=32, pd_ho2no2_oh_no3=33, pd_no3_no_o2=34, pd_no3_no2_o=35, pd_bro=36, pd_clono2_cl_no3=37, pd_ch3ooh=38, pd_ald2=39, pd_ch3coc2h5=40
+  integer, public, save :: pd_nacl=41, pd_ccl2o=42, pd_cclfo=43, pd_cf2br2=44, pd_cf2brcf2br=45, pd_cf2clbr=46, pd_cf2clcf2chfcl=47, pd_cf2clcf2cl=48, pd_cf2clcfcl2=49, pd_cf2o=50
+  integer, public, save :: pd_cf3br=51, pd_cf3cf2chcl2=52, pd_cf3cf2cl=53, pd_cf3chcl2=54, pd_cf3chfcl=55, pd_ch3cf2cl=56, pd_ch3cfcl2=57, pd_ch3cococh3=58, pd_mgly=59, pd_chocho=60
+  integer, public, save :: pd_chclf2=61, pd_chbr3=62, pd_cl2o=63, pd_cl2o3=64, pd_cl2o4=65, pd_cl2o6=66, pd_clno=67, pd_clono=68, pd_cloo=69, pd_ocs=70
+  integer, public, save :: pd_cf3i=71, pd_pan=72, pd_fno=73, pd_ch3ocl=74, pd_o2_o_o1d=75, pd_br2=76, pd_brno2=77, pd_c2h5cho=78, pd_c3h7ono2=79, pd_ch2chcho=80
+  integer, public, save :: pd_ch3coooh=81, pd_clo=82, pd_fmcl=83, pd_panx=84, pd_ho2=85, pd_so2=86, pd_ch2chcl=87, pd_glyd=88, pd_gly=89, pd_acet=90
+  integer, public, save :: pd_mek=91, pd_c5h6o2=92, pd_i2=93, pd_cron=94, pd_io=95, pd_oio=96, pd_hoi=97, pd_ino3=98, pd_open=99
 
+  
   integer, private, pointer, save :: imet_albedo, imet_cwc3d, imet_press, imet_cwcol, imet_lat, &
        & imet_tcc, imet_cc3d, imet_temp, imet_lcwc3d, imet_lcwcol, imet_dx_size, imet_dy_size, imet_dz_size, &
        & imet_airmass, imet_airdens, imet_prec, imet_cwc, imet_cic, imet_o3column
@@ -178,11 +221,452 @@ contains
       implicit none
       character(len=*), intent(in) :: filename_lut
 
+      integer :: stat, file_unit, ind_season, ind_region, j, ncid, dim, ind_lev, ialb, io3, isza, ireac
+      type(Tsilam_namelist), pointer :: nl_lut
+      character(len=*), parameter :: sub_name = 'init_photolysis_lut_netcdf'!, lut_id_req = 'hammo-std-atm'
+      CHARACTER(LEN=50) :: xname, yname, vname, dimname
+
+      integer, parameter :: num_reactions_req = 98
+      
+      INTEGER :: num_regions2, num_seasons2
+      !real, dimension(:), allocatable :: lut_alb, lut_o3, lut_sza_icos, lut_sza_rad
+      real, dimension(:,:,:), allocatable :: atm_hgt_km, atm_tempr, atm_press_hpa, atm_o3_molec_cm3
+      !real, dimension(:,:,:,:,:,:,:), allocatable :: lut_data
+      real, parameter :: molar_mass_o3 = 48.0
+      INTEGER(KIND=4) :: varid
+      real :: dz_cm, scale_hgt_cm, rateratio
+
+      call msg('')
+      call msg('Initializing photolysis lookup tables from '//trim(filename_lut))
+      call msg('Memusage kB', fu_system_mem_usage() )
+      call msg('')
+
+      call check(nf90_open(filename_lut, nf90_nowrite, ncid))
+
+      !Check the dimensions of the file, exit if not all dimensions found:
+      do j=1,7
+         CALL check(nf90_inquire_dimension(ncid,j,dimname,dim))
+         !write(*,*) 'j = ', j
+         !write(*,*) 'dim = ', dim
+         !write(*,*) 'dimname = ',dimname
+         select case (dimname)
+         case ("lut_size_alb")
+            !write(*,*) "albedo (surface albedo)"
+            lut_size_alb = dim
+         case ("lut_size_o3")
+            !write(*,*) "ozone (Ozone factor)"
+            lut_size_o3 = dim
+         case ("lut_size_sza")
+            !write(*,*) "Solar zenith angle"
+            lut_size_sza = dim
+         case ("num_regions")
+            !write(*,*) "Regions"
+            num_regions2 = dim
+         case ("num_seasons")
+            !write(*,*) "Seasons"
+            num_seasons2 = dim
+         case ("num_lut_levs")
+            !write(*,*) "Number of pressure levels"
+            num_lut_levs = dim
+         case ("num_reactions")
+            !write(*,*) "Reactions"
+            num_reactions = dim
+         case default
+            call set_error('Not all required dimensions found in LUT-file.', sub_name)
+         end select
+      end do
+
+      if (fu_fails(num_reactions == num_reactions_req, 'num_reactions in photo-table-file not matching ', sub_name)) return
+      if (fu_fails(num_regions2 == num_regions, 'num_regions in photo-table-file not matching ', sub_name)) return  
+      if (fu_fails(num_seasons2 == num_seasons, 'num_reasons in photo-table-file not matching ', sub_name)) return  
+
+      if (.not. allocated(lut_alb)) then
+         allocate(lut_alb(lut_size_alb), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_alb)', sub_name)) return
+      end if
+      if (.not. allocated(lut_o3)) then
+         allocate(lut_o3(lut_size_alb), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_o3)', sub_name)) return
+      end if
+      if (.not. allocated(lut_sza_icos)) then
+         allocate(lut_sza_icos(lut_size_sza), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_sza_icos)', sub_name)) return
+      end if
+      if (.not. allocated(lut_sza_rad)) then   
+         allocate(lut_sza_rad(lut_size_sza), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_sza_rad)', sub_name)) return
+      end if
+      if (.not. allocated(atm_hgt_km)) then   
+         allocate(atm_hgt_km(num_regions, num_seasons, num_lut_levs), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (atm_hgt_km)', sub_name)) return
+      end if
+      if (.not. allocated(atm_press_hpa)) then   
+         allocate(atm_press_hpa(num_regions, num_seasons, num_lut_levs), stat=stat)         
+         if (fu_fails(stat == 0, 'Allocate failed (atm_press_hpa)', sub_name)) return
+      end if
+      if (.not. allocated(atm_tempr)) then   
+         allocate(atm_tempr(num_regions, num_seasons, num_lut_levs), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (atm_tempr)', sub_name)) return
+      end if
+      if (.not. allocated(atm_o3_molec_cm3)) then   
+         allocate(atm_o3_molec_cm3(num_regions, num_seasons, num_lut_levs), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (atm_o3_molec_cm3)', sub_name)) return
+      end if
+         
+      if (.not. allocated(lut_data)) then
+         allocate(lut_data(num_reactions, num_regions, num_seasons, lut_size_alb, lut_size_o3, lut_size_sza, num_lut_levs), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_data)', sub_name)) return
+       end if
+       
+      !arrays of albedos, o3_column factor, and inverse cosine of solar zenith angle:
+      CALL check(nf90_inq_varid(ncid,"lut_alb",varid))
+      CALL check(nf90_get_var(ncid,varid,lut_alb))
+      CALL check(nf90_inq_varid(ncid,"lut_o3",varid))
+      CALL check(nf90_get_var(ncid,varid,lut_o3))
+      CALL check(nf90_inq_varid(ncid,"lut_sza_icos",varid))
+      CALL check(nf90_get_var(ncid,varid,lut_sza_icos))
+      
+      CALL check(nf90_inq_varid(ncid,"atm_hgt_km",varid))
+      CALL check(nf90_get_var(ncid,varid,atm_hgt_km))
+      CALL check(nf90_inq_varid(ncid,"atm_press_hpa",varid))
+      CALL check(nf90_get_var(ncid,varid,atm_press_hpa))
+      CALL check(nf90_inq_varid(ncid,"atm_tempr",varid))
+      CALL check(nf90_get_var(ncid,varid,atm_tempr))
+      CALL check(nf90_inq_varid(ncid,"atm_o3_molec_cm3",varid))
+      CALL check(nf90_get_var(ncid,varid,atm_o3_molec_cm3))
+      !The actual photolysis table:
+      CALL check(nf90_inq_varid(ncid,"lut_data",varid))
+      CALL check(nf90_get_var(ncid,varid,lut_data))
+      !Read indices for seasons (for atmosphere):
+      CALL check(nf90_inq_varid(ncid,"ind_summer",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_summer))
+      CALL check(nf90_inq_varid(ncid,"ind_winter",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_winter))
+      !Read indices for regions (for atmosphere):
+      CALL check(nf90_inq_varid(ncid,"ind_sp",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_sp))
+      CALL check(nf90_inq_varid(ncid,"ind_sm",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_sm))
+      CALL check(nf90_inq_varid(ncid,"ind_tr",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_tr))
+      CALL check(nf90_inq_varid(ncid,"ind_nm",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_nm))
+      CALL check(nf90_inq_varid(ncid,"ind_np",varid))
+      CALL check(nf90_get_var(ncid,varid,ind_np))
+
+      !Read indeces discribing the different photolysis reactions (perhaps should be done more cleverly than just writing each reaction separately):
+      CALL check(nf90_inq_varid(ncid,"pd_o2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_o2)) !pd_o2 = 1
+      CALL check(nf90_inq_varid(ncid,"pd_o3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_o3)) !pd_o3 = 2     
+      CALL check(nf90_inq_varid(ncid,"pd_h2o",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_h2o)) !pd_h2o = 3
+      CALL check(nf90_inq_varid(ncid,"pd_n2o",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_n2o)) !pd_n2o = 4
+      CALL check(nf90_inq_varid(ncid,"pd_ch4",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch4)) !pd_ch4 = 5
+      CALL check(nf90_inq_varid(ncid,"pd_no2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_no2)) !pd_no2 = 6
+      CALL check(nf90_inq_varid(ncid,"pd_hno3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hno3)) !pd_hno3 = 7
+      CALL check(nf90_inq_varid(ncid,"pd_hocl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hocl)) !pd_hocl = 8
+      CALL check(nf90_inq_varid(ncid,"pd_ho2no2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ho2no2)) !pd_ho2no2 = 9
+      CALL check(nf90_inq_varid(ncid,"pd_clono2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_clono2)) ! pd_clono2 = 10
+      CALL check(nf90_inq_varid(ncid,"pd_n2o5",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_n2o5)) !pd_n2o5 = 11
+      CALL check(nf90_inq_varid(ncid,"pd_o3_o1d",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_o3_o1d)) !pd_o3_o1d = 12
+      CALL check(nf90_inq_varid(ncid,"pd_h2o2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_h2o2)) !pd_h2o2 = 13
+      CALL check(nf90_inq_varid(ncid,"pd_oclo",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_oclo)) !pd_oclo = 14
+      CALL check(nf90_inq_varid(ncid,"pd_cl2o2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cl2o2)) !pd_cl2o2 = 15, &   !RH2018: NOTE that FinROSE states that this results Cl+ClOO (which should further break to Cl+Cl+O2), and not ClO+ClO
+      CALL check(nf90_inq_varid(ncid,"pd_hcl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hcl)) !pd_hcl = 16
+      CALL check(nf90_inq_varid(ncid,"pd_cl2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cl2)) !pd_cl2 = 17
+      CALL check(nf90_inq_varid(ncid,"pd_co2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_co2)) !pd_co2 = 18
+      CALL check(nf90_inq_varid(ncid,"pd_clno2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_clno2)) !pd_clno2 = 19
+      CALL check(nf90_inq_varid(ncid,"pd_brono2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_brono2)) !pd_brono2 = 20
+      CALL check(nf90_inq_varid(ncid,"pd_brcl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_brcl)) ! pd_brcl = 21
+      CALL check(nf90_inq_varid(ncid,"pd_hobr",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hobr)) !pd_hobr = 22
+      CALL check(nf90_inq_varid(ncid,"pd_ch3br",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3br)) ! pd_ch3br = 23
+      CALL check(nf90_inq_varid(ncid,"pd_ch3cl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3cl)) !pd_ch3cl = 24
+      CALL check(nf90_inq_varid(ncid,"pd_cfc11",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cfc11)) !pd_cfc11 = 25
+      CALL check(nf90_inq_varid(ncid,"pd_cfc12",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cfc12)) !pd_cfc12 = 26
+      CALL check(nf90_inq_varid(ncid,"pd_ccl4",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ccl4)) !pd_ccl4 = 27
+      CALL check(nf90_inq_varid(ncid,"pd_ch3ccl3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3ccl3)) !pd_ch3ccl3 = 28
+      CALL check(nf90_inq_varid(ncid,"pd_hono",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hono)) !pd_hono = 29
+      CALL check(nf90_inq_varid(ncid,"pd_hcho_2h",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hcho_2h)) ! pd_hcho_2h = 30 ! CO + 2H
+      CALL check(nf90_inq_varid(ncid,"pd_hcho_h2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hcho_h2)) !pd_hcho_h2 = 31 ! CO + H2
+      CALL check(nf90_inq_varid(ncid,"pd_no",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_no)) ! pd_no = 32
+      CALL check(nf90_inq_varid(ncid,"pd_ho2no2_oh_no3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ho2no2_oh_no3)) !pd_ho2no2_oh_no3 = 33
+      CALL check(nf90_inq_varid(ncid,"pd_no3_no_o2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_no3_no_o2)) !pd_no3_no_o2 = 34
+      CALL check(nf90_inq_varid(ncid,"pd_no3_no2_o",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_no3_no2_o)) !pd_no3_no2_o = 35
+      CALL check(nf90_inq_varid(ncid,"pd_bro",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_bro)) !pd_bro = 36
+      CALL check(nf90_inq_varid(ncid,"pd_clono2_cl_no3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_clono2_cl_no3)) ! pd_clono2_cl_no3 = 37
+      CALL check(nf90_inq_varid(ncid,"pd_ch3ooh",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3ooh)) !pd_ch3ooh = 38
+      CALL check(nf90_inq_varid(ncid,"pd_ald2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ald2)) ! pd_ald2 = 39 !Use acetaldehyde CH3CHO as presentative of aldehydes (CB05: ALD2 = CH3CHO)
+      CALL check(nf90_inq_varid(ncid,"pd_ch3coc2h5",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3coc2h5)) !pd_ch3coc2h5 = 40
+      CALL check(nf90_inq_varid(ncid,"pd_nacl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_nacl)) !pd_nacl = 41
+      CALL check(nf90_inq_varid(ncid,"pd_ccl2o",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ccl2o)) !pd_ccl2o = 42
+      CALL check(nf90_inq_varid(ncid,"pd_cclfo",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cclfo)) !pd_cclfo = 43
+      CALL check(nf90_inq_varid(ncid,"pd_cf2br2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2br2)) !pd_cf2br2 = 44 !Halon-1202
+      CALL check(nf90_inq_varid(ncid,"pd_cf2brcf2br",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2brcf2br)) !pd_cf2brcf2br = 45 !Halon-2402
+      CALL check(nf90_inq_varid(ncid,"pd_cf2clbr",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2clbr)) ! pd_cf2clbr = 46, &       !Halon-1211
+      CALL check(nf90_inq_varid(ncid,"pd_cf2clcf2chfcl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2clcf2chfcl)) !pd_cf2clcf2chfcl = 47 !HCFC-225cb
+      CALL check(nf90_inq_varid(ncid,"pd_cf2clcf2cl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2clcf2cl)) !pd_cf2clcf2cl = 48, &    !CFC-114
+      CALL check(nf90_inq_varid(ncid,"pd_cf2clcfcl2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2clcfcl2)) !pd_cf2clcfcl2 = 49, &    !CFC-113
+      CALL check(nf90_inq_varid(ncid,"pd_cf2o",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf2o)) !pd_cf2o = 50
+      CALL check(nf90_inq_varid(ncid,"pd_cf3br",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf3br)) !pd_cf3br = 51 !Halon-1301
+      CALL check(nf90_inq_varid(ncid,"pd_cf3cf2chcl2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf3cf2chcl2)) !pd_cf3cf2chcl2 = 52 !HCFC-225ca
+      CALL check(nf90_inq_varid(ncid,"pd_cf3cf2cl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf3cf2cl)) !pd_cf3cf2cl = 53 !CFC-115
+      CALL check(nf90_inq_varid(ncid,"pd_cf3chcl2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf3chcl2)) !pd_cf3chcl2 = 54 !HCFC-123
+      CALL check(nf90_inq_varid(ncid,"pd_cf3chfcl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf3chfcl)) !pd_cf3chfcl = 55 !HCFC-124
+      CALL check(nf90_inq_varid(ncid,"pd_ch3cf2cl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3cf2cl)) !pd_ch3cf2cl = 56 !HCFC-142b
+      CALL check(nf90_inq_varid(ncid,"pd_ch3cfcl2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3cfcl2)) !pd_ch3cfcl2 = 57 !HCFC-141b
+      CALL check(nf90_inq_varid(ncid,"pd_ch3cococh3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3cococh3)) !pd_ch3cococh3 = 58
+      CALL check(nf90_inq_varid(ncid,"pd_mgly",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_mgly)) !pd_mgly = 59, &          !NOTE: Phodis states this as ch3cohco, but likely ch3cocho = MGLY (correct order for J-value)
+      CALL check(nf90_inq_varid(ncid,"pd_chocho",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_chocho)) !pd_chocho = 60
+      CALL check(nf90_inq_varid(ncid,"pd_chclf2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_chclf2)) !pd_chclf2 = 61 !HCFC-22
+      CALL check(nf90_inq_varid(ncid,"pd_chbr3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_chbr3)) !pd_chbr3 = 62
+      CALL check(nf90_inq_varid(ncid,"pd_cl2o",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cl2o)) !pd_cl2o = 63
+      CALL check(nf90_inq_varid(ncid,"pd_cl2o3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cl2o3)) !pd_cl2o3 = 64
+      CALL check(nf90_inq_varid(ncid,"pd_cl2o4",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cl2o4)) !pd_cl2o4 = 65
+      CALL check(nf90_inq_varid(ncid,"pd_cl2o6",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cl2o6)) !pd_cl2o6 = 66
+      CALL check(nf90_inq_varid(ncid,"pd_clno",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_clno)) !pd_clno = 67
+      CALL check(nf90_inq_varid(ncid,"pd_clono",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_clono)) !pd_clono = 68
+      CALL check(nf90_inq_varid(ncid,"pd_cloo",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cloo)) !pd_cloo = 69
+      CALL check(nf90_inq_varid(ncid,"pd_ocs",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ocs)) !pd_ocs = 70
+      CALL check(nf90_inq_varid(ncid,"pd_cf3i",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cf3i)) ! pd_cf3i = 71
+      CALL check(nf90_inq_varid(ncid,"pd_pan",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_pan)) !pd_pan = 72
+      CALL check(nf90_inq_varid(ncid,"pd_fno",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_fno)) !pd_fno = 73
+      CALL check(nf90_inq_varid(ncid,"pd_ch3ocl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3ocl)) !pd_ch3ocl = 74
+      CALL check(nf90_inq_varid(ncid,"pd_o2_o_o1d",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_o2_o_o1d)) !pd_o2_o_o1d = 75
+      CALL check(nf90_inq_varid(ncid,"pd_br2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_br2)) !pd_br2 = 76
+      CALL check(nf90_inq_varid(ncid,"pd_brno2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_brno2)) !pd_brno2 = 77
+      CALL check(nf90_inq_varid(ncid,"pd_c2h5cho",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_c2h5cho)) !pd_c2h5cho = 78 !CB05: use for ALDX
+      CALL check(nf90_inq_varid(ncid,"pd_c3h7ono2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_c3h7ono2)) !pd_c3h7ono2 = 79 !isopropyl nitrate. Needed for CB05.
+      CALL check(nf90_inq_varid(ncid,"pd_ch2chcho",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch2chcho)) !pd_ch2chcho = 80 !acrolein = propenal. Needed for CB05.
+      CALL check(nf90_inq_varid(ncid,"pd_ch3coooh",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch3coooh)) !pd_ch3coooh = 81 !PACD: peroxyacetic acid/peracetic acid. Needed for CB05
+      CALL check(nf90_inq_varid(ncid,"pd_clo",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_clo)) !pd_clo = 82
+      CALL check(nf90_inq_varid(ncid,"pd_fmcl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_fmcl)) !pd_fmcl = 83
+      CALL check(nf90_inq_varid(ncid,"pd_panx",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_panx)) !pd_panx = 84
+      CALL check(nf90_inq_varid(ncid,"pd_ho2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ho2)) !pd_ho2 = 85
+      CALL check(nf90_inq_varid(ncid,"pd_so2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_so2)) !pd_so2 = 86
+      CALL check(nf90_inq_varid(ncid,"pd_ch2chcl",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ch2chcl)) !pd_ch2chcl = 87 !Vinyl-chloride (for PVC in tire/road wear)
+      CALL check(nf90_inq_varid(ncid,"pd_glyd",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_glyd)) !pd_glyd = 88 !GLYD
+      CALL check(nf90_inq_varid(ncid,"pd_gly",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_gly)) !pd_gly = 89 !GLY
+      CALL check(nf90_inq_varid(ncid,"pd_acet",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_acet)) ! pd_acet = 90 !ACET: acetone
+      CALL check(nf90_inq_varid(ncid,"pd_mek",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_mek)) !pd_mek = 91 !MEK (=metyl-etyl-ketone) for KET/ketones
+      CALL check(nf90_inq_varid(ncid,"pd_c5h6o2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_c5h6o2)) !pd_c5h6o2 = 92
+      CALL check(nf90_inq_varid(ncid,"pd_i2",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_i2)) !pd_i2 = 93 !I2
+      CALL check(nf90_inq_varid(ncid,"pd_cron",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_cron)) !pd_cron = 94 !CRON
+      CALL check(nf90_inq_varid(ncid,"pd_io",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_io)) !pd_io = 95 !IO
+      CALL check(nf90_inq_varid(ncid,"pd_oio",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_oio)) !pd_oio = 96 !OIO
+      CALL check(nf90_inq_varid(ncid,"pd_hoi",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_hoi)) !pd_hoi = 97 !HOI
+      CALL check(nf90_inq_varid(ncid,"pd_ino3",varid))
+      CALL check(nf90_get_var(ncid,varid,pd_ino3)) !pd_ino3 = 98 !INO3
+      pd_open = num_reactions+1 !pd_open = 99
+    
+!!$      write(*,*) 'altitude (km) = ', atm_hgt_km(5,2,:)
+!!$      write(*,*) 'press(hPa) = ', atm_press_hpa(5,2,:)
+!!$      write(*,*) 'temp(K) = ', atm_tempr(5,2,:)
+!!$      write(*,*) 'O3 ncnc(1/cm3) = ', atm_o3_molec_cm3(5,2,:)
+!!$      write(*,*) 'sza = ', lut_sza_icos(1)
+!!$      write(*,*) 'ozone = ', lut_o3(5)
+!!$      write(*,*) 'albedo = ', lut_alb(4)
+!!$      !write(*,*) 'reaction = ', 1
+!!$      !write(*,*) 'reaction rate:', lut_data(1,5,2,4,5,1,:)
+!!$      write(*,*) 'REACTION RATE FOR (ind_region=5,ind_season=2,ind_alb=4,ind_o3=5,ind_sza=1):'
+!!$      do j=1,num_reactions
+!!$         write(*,*) 'reaction ', j, 'rate: ', lut_data(j,5,2,4,5,1,:)
+!!$         !write(*,*) 'reaction ', j, 'rate: ', lut_data(j,1,2,1,1,1,:)
+!!$      end do
+      
+      call check(nf90_close(ncid))
+
+      if (.not. allocated(atm_o3_cuml)) then
+        allocate(atm_o3_cuml(num_regions, num_seasons, num_lut_levs), &
+               & atm_press(num_regions, num_seasons, num_lut_levs), stat=stat)
+        if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
+      end if
+
+      do ind_region=1,num_regions
+         do ind_season=1,num_seasons
+            atm_press(ind_region, ind_season, 1:num_lut_levs) = atm_press_hpa(ind_region, ind_season, 1:num_lut_levs)*100 !in Pascals
+            ! Make the cumulative O3 profile (in molec/cm2)
+            !
+            !scale_hgt_cm = 7.0e5  !Where does this come from (must depend on the uppermost layer)?
+            !The following is taken from the phodis code. Height of the uppermost leyer must be in km, therefore taken from atm_hgt_km.
+            scale_hgt_cm = atm_hgt_km(ind_region,ind_season,num_lut_levs) &
+                 & *alog(atm_press(ind_region,ind_season,1)/atm_press(ind_region,ind_season,num_lut_levs)) !likely this way
+            !write(*,*) 'ind_region, ind_season: ',ind_region, ind_season
+            !write(*,*) 'atm_hgt_km(ind_region,ind_season,num_lut_levs): ', atm_hgt_km(ind_region,ind_season,num_lut_levs)
+            !write(*,*) 'atm_press(ind_region,ind_season,num_lut_levs): ', atm_press(ind_region,ind_season,num_lut_levs)
+            !write(*,*) 'atm_press(ind_region,ind_season,1): ', atm_press(ind_region,ind_season,1)
+            !write(*,*) 'scale_hgt_cm:: ', scale_hgt_cm
+            !write(*,*) 'atm_o3_molec_cm3(ind_region, ind_season,:): ', atm_o3_molec_cm3(ind_region, ind_season,:)
+            ! the following is from finrose...
+            atm_o3_cuml(ind_region, ind_season, num_lut_levs) &
+                 & = atm_o3_molec_cm3(ind_region, ind_season, num_lut_levs) * scale_hgt_cm * molecular_weight_air/molar_mass_o3
+            
+            do ind_lev = num_lut_levs - 1, 1, -1
+               dz_cm = (atm_hgt_km(ind_region, ind_season, ind_lev+1) - atm_hgt_km(ind_region, ind_season, ind_lev))*1e5 !in cm
+               atm_o3_cuml(ind_region, ind_season, ind_lev) = atm_o3_cuml(ind_region, ind_season, ind_lev+1) &
+                    & + 0.5*(atm_o3_molec_cm3(ind_region, ind_season, ind_lev)+atm_o3_molec_cm3(ind_region, ind_season, ind_lev+1))*dz_cm
+            end do
+            !write(*,*) 'atm_o3_cuml(ind_region, ind_season, :): ', atm_o3_cuml(ind_region, ind_season, :)
+            call msg('RISTO TEST O3: region, season, total O3 column [DU]', &
+                 & (/real(ind_region), real(ind_season), atm_o3_cuml(ind_region, ind_season, 1)/2.68683701e+16  /) )
+            
+         end do
+      end do
+      ! convert sza entries to radians in zenith angle, not inverse cosine
+      lut_sza_rad = acos(1.0 / lut_sza_icos)
+      !print *, 'zenith angles finally:', lut_sza_rad
+
+      initialized = .true.
+
+!!$      do ind_region=1,num_regions
+!!$         write(*,*) 'Region = ', ind_region
+!!$         do ind_season=1,num_seasons
+!!$            write(*,*) 'Season = ', ind_season
+!!$            do ialb=1,lut_size_alb
+!!$               do io3=1,lut_size_o3
+!!$                  do isza=1,lut_size_sza
+!!$                     do ireac=1,num_reactions
+!!$                        do ind_lev=1,num_lut_levs
+!!$                           !ind_lev, ialb, io3, isza, ireac
+!!$                           rateratio=lut_data(ireac,ind_region,ind_season,ialb,io3,isza,ind_lev)/lut2_data(ireac,ind_region,ind_season,ialb,io3,isza,ind_lev)
+!!$                           if ((rateratio>1.01) .OR. (rateratio<0.99)) then
+!!$                              write(*,*) 'ratio of rates differ more than percent', ireac,ind_region,ind_season,ialb,io3,isza,ind_lev
+!!$                              write(*,*) 'old rate: ', lut2_data(ireac,ind_region,ind_season,ialb,io3,isza,:)
+!!$                              write(*,*) 'new rate: ', lut_data(ireac,ind_region,ind_season,ialb,io3,isza,:)
+!!$                              STOP
+!!$                           end if
+!!$                        end do
+!!$                     end do
+!!$                  end do
+!!$               end do
+!!$            end do
+!!$         end do
+!!$      end do
+
+    contains
+      
+      subroutine check(status)
+        integer, intent (in) :: status
+        
+        if(status /= nf90_noerr) then 
+           print *, trim(nf90_strerror(status))
+           call set_error('Failed to read photolysis LUT from NetCDF-file.', 'init_photolysis_lut')
+        end if
+      end subroutine check
+      
+    end subroutine init_photolysis_lut
+    
+  !************************************************************************************
+
+  subroutine init_photolysis_lut_old(filename_lut,need_cb7_photo_lut)
+  !subroutine init_photolysis_lut(filename_lut)
+      ! 
+      ! Read the lookup data from a given file, and set the module variables. After this, the rates
+      ! can be used.
+      implicit none
+      character(len=*), intent(in) :: filename_lut
+      logical, intent(in) :: need_cb7_photo_lut
+
       integer :: stat, file_unit, ind_season, ind_region, j
       type(Tsilam_namelist), pointer :: nl_lut
-      character(len=*), parameter :: sub_name = 'init_photolysis_lut'!, lut_id_req = 'hammo-std-atm'
+      character(len=*), parameter :: sub_name = 'init_photolysis_lut_old'!, lut_id_req = 'hammo-std-atm'
       !integer, parameter :: num_reactions_req = 37
-      integer, parameter :: num_reactions_req = 84
+      integer, parameter :: num_reactions_req_CB5 = 84
+      integer, parameter :: num_reactions_req_CB7 = 98
       character(len=worksize_string) :: content
       
       call msg('')
@@ -194,9 +678,9 @@ contains
       !filename_lut = fu_process_filepath(fu_content(nl_setup, 'photolysis_data_file'), must_exist=.true.)
       if (error) return
       open(file=filename_lut, unit=file_unit, form='formatted', iostat=stat)
-      if (fu_fails(stat == 0, 'Failed to open LUT data file', 'init_photolysis_lut')) return
+      if (fu_fails(stat == 0, 'Failed to open LUT data file', sub_name)) return
 
-      nullify(lut_o3, lut_alb, lut_sza_rad)
+      nullify(lut2_o3, lut2_alb, lut2_sza_rad)
       !do
       do j=1,num_seasons*num_regions !just to avoid extra warning when reaching the end of the data.
         !nl_lut => fu_read_namelist(file_unit, .false., 'BEGIN_LUT_DATA')
@@ -204,16 +688,21 @@ contains
         if (.not. associated(nl_lut) .or. empty(nl_lut)) exit
         
         ! check & allocate lut axes o3, albedo and zenith:
-        if (check_lut_val(nl_lut, 'lut_o3', lut_size_o3, lut_o3)) return
-        if (check_lut_val(nl_lut, 'lut_alb', lut_size_alb, lut_alb)) return
-        if (check_lut_val(nl_lut, 'lut_sza', lut_size_sza, lut_sza_rad)) return
+        if (check_lut_val(nl_lut, 'lut_o3', lut_size_o3, lut2_o3)) return
+        if (check_lut_val(nl_lut, 'lut_alb', lut_size_alb, lut2_alb)) return
+        if (check_lut_val(nl_lut, 'lut_sza', lut_size_sza, lut2_sza_rad)) return
 
 
         ! check the size of reference atmosphere and number of reactions. The order of
         ! reactions is not checked.
         if (check_param(nl_lut, 'num_atm_levs', num_lut_levs)) return
         if (check_param(nl_lut, 'num_reactions', num_reactions)) return
-        if (fu_fails(num_reactions == num_reactions_req, 'num_reactions in photo-table-file not matching ', sub_name)) return
+        !if (fu_fails(num_reactions == num_reactions_req, 'num_reactions in photo-table-file not matching ', sub_name)) return
+        if (need_cb7_photo_lut .and. (.not. (num_reactions == num_reactions_req_CB7))) then
+           call set_error('num_reactions in photo-table-file not matching the CB7 requirements', sub_name)           
+        elseif (.not. ((num_reactions == num_reactions_req_CB5) .or. (num_reactions == num_reactions_req_CB7))) then
+           call set_error('num_reactions in photo-table-file not matching the CB5 requirements', sub_name)
+        end if
 
         if (.not. allocated(lut_data)) then
           allocate(lut_data(num_reactions, num_regions, num_seasons, lut_size_alb, lut_size_o3, &
@@ -240,14 +729,45 @@ contains
       end do
       close(file_unit)
       
+      !For backwards compactibility, if using the old CB5-phototable.
+      !Best would be to get rid of this pd_open all together, and use the scaled NO2 value in the chemistry equations directly.  
+      pd_open = num_reactions+1
       ! convert sza entries to radians in zenith angle, not inverse cosine
-      lut_sza_rad = acos(1.0 / lut_sza_rad)
-      !print *, 'zenith angles finally:', lut_sza_rad
+      lut2_sza_rad = acos(1.0 / lut2_sza_rad)
+      !print *, 'zenith angles finally:', lut2_sza_rad
+
+      !DIRTY HACK, to make the old text-LUT reading to work alongside with the new nc-LUT reader which is without pointers!
+      if (.not. allocated(lut_alb)) then
+         allocate(lut_alb(lut_size_alb), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_alb)', sub_name)) return
+      end if
+      if (.not. allocated(lut_o3)) then
+         allocate(lut_o3(lut_size_o3), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_o3)', sub_name)) return
+      end if
+      if (.not. allocated(lut_sza_rad)) then   
+         allocate(lut_sza_rad(lut_size_sza), stat=stat)
+         if (fu_fails(stat == 0, 'Allocate failed (lut_sza_rad)', sub_name)) return
+      end if
+      lut_alb(1:lut_size_alb)=lut2_alb(1:lut_size_alb)
+      lut_o3(1:lut_size_o3)=lut2_o3(1:lut_size_o3)
+      lut_sza_rad(1:lut_size_sza)=lut2_sza_rad(1:lut_size_sza)
+      !END OF DIRTY HACK
       
       ind_summer = fu_index('sum', seasons)
       if (fu_fails(ind_summer > 0, 'Failed to set ind_summer', sub_name)) return
       ind_winter = fu_index('win', seasons)
       if (fu_fails(ind_summer > 0, 'Failed to set ind_winter', sub_name)) return
+      ind_sp = fu_index('sp', regions)
+      if (fu_fails(ind_sp > 0, 'Failed to set ind_sp', sub_name)) return
+      ind_sm = fu_index('sm', regions)
+      if (fu_fails(ind_sm > 0, 'Failed to set ind_sm', sub_name)) return
+      ind_tr = fu_index('tr', regions)
+      if (fu_fails(ind_tr > 0, 'Failed to set ind_tr', sub_name)) return
+      ind_nm = fu_index('nm', regions)
+      if (fu_fails(ind_nm > 0, 'Failed to set ind_nm', sub_name)) return
+      ind_np = fu_index('np', regions)
+      if (fu_fails(ind_np > 0, 'Failed to set ind_np', sub_name)) return
 
       initialized = .true.
 
@@ -386,7 +906,8 @@ contains
       !scale_hgt_cm = 7.0e5  !Where does this come from (must depend on the uppermost layer)?
       !The following is taken from the phodis code. Height of the uppermost leyer must be in km, therefore 1e-3.
       scale_hgt_cm = hgt(num_lut_levs)*1e-3 &
-             & *alog(atm_press(ind_region,ind_season,num_lut_levs)/atm_press(ind_region,ind_season,1))
+             & *alog(atm_press(ind_region,ind_season,1)/atm_press(ind_region,ind_season,num_lut_levs)) !likely this way
+      !       & *alog(atm_press(ind_region,ind_season,num_lut_levs)/atm_press(ind_region,ind_season,1))
       ! the following is from finrose...
       atm_o3_cuml(ind_region, ind_season, num_lut_levs) &
            & = o3_profile(num_lut_levs) * scale_hgt_cm * molecular_weight_air/molar_mass_o3
@@ -436,7 +957,8 @@ contains
       param_bad = .false.
 
     end function check_param
-  end subroutine init_photolysis_lut
+  end subroutine init_photolysis_lut_old
+  !end subroutine init_photolysis_lut
 
   !************************************************************************************
 
@@ -582,52 +1104,52 @@ contains
     ! Find appropriate LUT from lon, lat, now
     ind_season = month_to_season(fu_mon(now))
 !!$    if (lat < -60) then
-!!$      ind_lat = 1
+!!$      ind_lat = ind_sp
 !!$    else if (lat < -30) then
-!!$      ind_lat = 2
+!!$      ind_lat = ind_sm
 !!$    else if (lat < 30) then
-!!$      ind_lat = 3
+!!$      ind_lat = ind_tr
 !!$    else if (lat < 60) then
-!!$      ind_lat = 4
+!!$      ind_lat = ind_nm
 !!$    else
-!!$      ind_lat = 5
+!!$      ind_lat = ind_np
 !!$    end if
     !In order to avoid sharp steps in the reaction rates due to different rates at different regions
     !we weight the neighboring regions with tanh profile. NOTE: This is just a TEMPORARY FIX. 
     !Index ind_lat2 denotes the nearest neighbor regions with whom we make the smoothing.
     if (lat < -60) then !South-pole region (sp symbol in LUT-data file)
-       ind_lat = 1
-       ind_lat2 = 2
+       ind_lat = ind_sp
+       ind_lat2 = ind_sm
        wlat1=0.5*(tanh(sharpness*(abs(lat)-60.0))+1.0)
     else if (lat > 60) then !North-pole region (np symbol in LUT-data file)
-       ind_lat = 5
-       ind_lat2 = 4
+       ind_lat = ind_np
+       ind_lat2 = ind_nm
        wlat1=0.5*(tanh(sharpness*(lat-60.0))+1.0)
     else if (lat < -30) then !south medium latitudes (sm symbol in the LUT-data file)
-       ind_lat = 2
+       ind_lat = ind_sm
        if (lat < -45) then
-          ind_lat2 = 1
+          ind_lat2 = ind_sp
           wlat1=0.5*(tanh(sharpness*(60.0+lat))+1.0)
        else
-          ind_lat2 = 3
+          ind_lat2 = ind_tr
           wlat1=0.5*(tanh(sharpness*(abs(lat)-30.0))+1.0)
        end if
     else if(lat > 30) then !north medium latitudes (nm symbol in the LUT-data file)
-       ind_lat = 4
+       ind_lat = ind_nm
        if (lat > 45) then
-          ind_lat2 = 5
+          ind_lat2 = ind_np
           wlat1=0.5*(tanh(sharpness*(60.0-lat))+1.0)
        else
-          ind_lat2 = 3
+          ind_lat2 = ind_tr
           wlat1=0.5*(tanh(sharpness*(lat-30))+1.0)
        end if
     else !tropical region between -30..30 degrees (tr symbol in the LUT-data file).
-       ind_lat = 3
+       ind_lat = ind_tr
        if (lat < 0.0) then
-          ind_lat2 = 2
+          ind_lat2 = ind_sm
           wlat1=0.5*(tanh(sharpness*(30-abs(lat)))+1.0)
        else
-          ind_lat2 = 4
+          ind_lat2 = ind_nm
           wlat1=0.5*(tanh(sharpness*(30.0-lat))+1.0)
        end if
     end if
@@ -656,7 +1178,7 @@ contains
          ! ozone variation == 1.0 for now...
          call get_interp_weights(1.0, lut_o3, ind_o3, q(2)) !NOTE NOTE NOTE RISTO RISTO RISTO RISTO
          !print *, 'ozone:', ind_o3, q(2)
-       else
+      else
          if (PhotoO3colType == mass_map) then
            !RISTO TEST 15Nov2018
            !Amount of ozone column above the cell, compared with standard atmosphere. Note the different units (DU vs molec/cm3)!
@@ -786,8 +1308,20 @@ contains
     ! Correction for distance between earth and sun, from finrose. About +-3.5% max.
     ! yfr = fu_julian_date_real(now) / 365.0
     ! eart_dist_corr = 1.000110+0.034221*cos(yfr)+0.001280*sin(yfr)+0.000719*cos(2.*yfr)+0.000077*sin(2.*yfr)
-    ! rates = earth_dist_corr * 10**rates
-
+    ! rates = earth_dist_corr * rates
+!!$    write(*,*) 'ZZTOP: ', rates
+!!$    write(*,*) 'ZZTOPind: ', ind_lat, ind_lat2, ind_season, ind_alb, ind_o3, ind_sza
+!!$    write(*,*) 'ZZTOPalb:', lut_alb
+!!$    write(*,*) 'ZZTOPozo:', lut_o3
+!!$    write(*,*) 'ZZTOPsza:', lut_sza_rad
+!!$    write(*,*) 'ZZTOP1: ', lut_data(:, ind_lat, ind_season, ind_alb:ind_alb+1, ind_o3:ind_o3+1, ind_sza:ind_sza+1, :)
+!!$    write(*,*) 'ZZTOP2: ', lut_data(:, ind_lat2, ind_season, ind_alb:ind_alb+1, ind_o3:ind_o3+1, ind_sza:ind_sza+1, :)
+!!$    write(*,*) 'ZZTOPw: ', w4
+!!$    write(*,*) 'ZZTOPl: ', wlat1, wlat2
+!!$    write(*,*) 'ZZTOPo: ', o3_col_std, o3factor, toa_scaling, fCloudCover, fTmp
+!!$    write(*,*) 'ZZTOPa: ', aer_att(1:num_levs)
+!!$    write(*,*) 'ZZTOPc: ', cld_att(1:num_levs)
+!!$    STOP
     
   contains
 
@@ -903,7 +1437,7 @@ contains
 
     real :: ssa
     real, parameter :: g = 0.6  !!Asymmetry
-    real, parameter :: aer_att_exponent = 1.7 ! to take into account for multiple scattering with gases/water droplets
+    real, parameter :: aer_att_exponent = 1.0 ! to take into account for multiple scattering with gases/water droplets
     ! Lose median from 
     ! Andrews, E., et al. (2006), Comparison of methods for deriving aerosol asymmetry parameter, J. Geophys. Res., 111,
     !D05S04, doi:10.1029/2004JD005734.
@@ -922,7 +1456,7 @@ contains
     ! Can be replaced with something more rigorous later. The value of aer_att_exponent is purely based on fitting the
     ! global SILAM surface ozone with measurements.
 
-    aer_att(1:num_levs) = aer_att(num_levs)**aer_att_exponent
+    aer_att(1:num_levs) = aer_att(1:num_levs)**aer_att_exponent
 
   end subroutine effective_albedo_aer
 

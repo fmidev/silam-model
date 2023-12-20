@@ -40,13 +40,20 @@ MODULE natural_constants
   
   ! basic values for constants that could be computed, too
   REAL, PARAMETER, PUBLIC :: basic_coriolis = 1.0E-4 ! J/kg
-  REAL, PARAMETER, PUBLIC :: density_air_288K = 1.225 ! for dry air at 15C and 1013.25 hPa, kg/m**3   
+  REAL, PARAMETER, PUBLIC :: density_air_288K = 1.225 ! for dry air at 15C and 1013.25 hPa, kg/m**3
   REAL, PARAMETER, PUBLIC :: density_std  = 1.29 ! for dry air at 0C and 1013.25 hPa, kg/m**3   
   REAL, PARAMETER, PUBLIC :: density_water = 1025. ! for moist air kg/m**3 
   REAL, PARAMETER, PUBLIC :: density_ice = 917. ! for ice at 0C in kg/m**3 
   REAL, PARAMETER, PUBLIC :: molecular_weight_air = 28.97e-3 ! ma, molecular weight for dry air, kg/mol
   REAL, PARAMETER, PUBLIC :: molecular_weight_water = 18.015e-3  ! [kg/mol]
   real, parameter, public :: srfTns_water = 0.073   ! surface tension of pure water @ ~ 293 K [J/m2]
+
+  !the air density as universally defined by the EC, i.e. 1.2041 kg/m**3 at 20 deg C and 1013.25 mbar                                          
+  real, parameter :: air_dens_EC =  1.2041
+  REAL, PARAMETER, PUBLIC :: molcncEC2vmr = molecular_weight_air / air_dens_EC  !! xx/m3 -> xx/mol
+
+  !the air density as universally defined by the US EPA and the WHO, i.e. 1.2041 kg/m**3 at 25 deg C and 1013.25 mbar                          
+   real, parameter :: air_dens_EPA =  1.1839
 
   ! solar energy related constants
   REAL, PARAMETER, PUBLIC :: solar_const = 1370 !in W/m**2

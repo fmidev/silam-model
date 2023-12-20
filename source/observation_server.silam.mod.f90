@@ -1067,7 +1067,7 @@ contains
                                                          & station_list(istation), &
                                                          & dispersion_vertical, &
                                                          & cockt_name)
-          end if ! not found
+          end if ! station not found
           itime = 0
         end if ! have new series
 
@@ -2326,11 +2326,6 @@ contains
      character(len = *), intent(in) ::  param
      real, intent(out) :: scale_to_silam  !! Scale to silam unit (per kg or per m3)
      logical, intent(out) :: ifmmr !! "true" == "per kg of air"
-    !the air density as universally defined by the EC, i.e. 1.2041 kg/m**3 at 20 deg C and 1013.25 mbar                                          
-    real, parameter :: air_dens_EC =  1.2041
-
-    !the air density as universally defined by the US EPA and the WHO, i.e. 1.2041 kg/m**3 at 25 deg C and 1013.25 mbar                          
-    real, parameter :: air_dens_EPA =  1.1839
      character(len = *), parameter :: sub_name = 'parse_obs_param'
      !!     (/'cnc    ','cncEU  ','cncWHO ','perkilo','permole'/))
    

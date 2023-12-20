@@ -10,7 +10,7 @@ OPTIMIZATION = -O3 -fopenmp
 DEBUG = -fbacktrace -g # -fcheck=all    -finit-real=snan 
 #DEBUG = -g -DDEBUG -DDEBUG_V5  -fbacktrace   -finit-real=snan -fcheck=all 
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input  -DWITH_BZIP2 -D USE_PROJ4
+PREPROCESS = -x f95-cpp-input  -DWITH_BZIP2 -D USE_PROJ6
 
 LIBDIR = /lustre/apps/silam
 # netcdf install directory

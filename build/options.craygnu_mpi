@@ -13,7 +13,7 @@ DEBUG = -fbacktrace -g # -fcheck=all -DDEBUG
 #DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
 #DEBUG =  -g  -fbacktrace #-fsanitize=thread # -finit-real=snan   -fcheck=all -finit-integer=-88888888  -DDEBUG
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input  -D WITH_PNETCDF -DSILAM_MPI  -DWITH_BZIP2 -D USE_PROJ4
+PREPROCESS = -x f95-cpp-input  -D WITH_PNETCDF -DSILAM_MPI  -DWITH_BZIP2 -D USE_PROJ6
 
 LIBDIR = /lustre/apps/silam
 # netcdf install directory

@@ -443,14 +443,14 @@ MODULE grids_geo
 !                        & gk_grid_missing, &
 !                        & ps_grid_missing, &
                         & ag_missing)
-      
-  TYPE(silja_grid), PARAMETER, PUBLIC :: coarse_geo_global_grid = silja_grid(&
-                                               & 'coarse global geographical grid',&
-                                               & lonlat,&
-                          & silja_lonlat_grid(-180.,-90., 36,18,pole_geographical,10.,10.), &
-!                                               & gk_grid_missing, &
-!                                               & ps_grid_missing, &
-                                               & ag_missing)
+
+!  TYPE(silja_grid), PARAMETER, PUBLIC :: coarse_geo_global_grid = silja_grid(&
+!                                               & 'coarse global geographical grid',&
+!                                               & lonlat,&
+!                          & silja_lonlat_grid(-180.,-90., 36,18,pole_geographical,10.,10.), &
+!!                                               & gk_grid_missing, &
+!!                                               & ps_grid_missing, &
+!                                               & ag_missing)
 ! Replaced by grib_scan_mode type in grib_io
 !  INTEGER, PARAMETER, PUBLIC :: hirlam_grib_scanning_mode = 64 
 !  INTEGER, PARAMETER, PUBLIC :: ecmwf_grib_scanning_mode = ??  
@@ -1064,7 +1064,6 @@ CONTAINS
 
 
   ! ************************************************************
-
 
   FUNCTION fu_set_lonlat_grid (name, &
                              & corner_lon, corner_lat, &
@@ -1895,7 +1894,22 @@ CONTAINS
   end function fu_area_from_grid
 
 
+  !****************************************************************************************************
+  
+  function fu_coarse_geo_global_grid() result(cgg_grid)
+    !
+    ! Replacement of the parameter, which does not work, for whatever reasons
+    !
+    implicit none
+    
+    type(silja_grid) :: cgg_grid
+    
+    cgg_grid = fu_set_grid_from_params('coarse global geographical grid', lonlat, pole_geographical, &
+                                     & -180., -90., 36, 18, 10., 10.)
 
+  end function fu_coarse_geo_global_grid 
+
+  
   ! **************************************************************
   ! **************************************************************
   !

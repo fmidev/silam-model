@@ -1,6 +1,6 @@
 !********************************************************************************
 !
-! This programme converts silamASCII fileld to Silam flavour of NetCDF
+! This programme converts silam ASCII file or silam grads  to Silam flavour of NetCDF
 !
 !********************************************************************************
 
@@ -66,7 +66,9 @@ program ascii_2_nc
       enddo
 
       CALL get_command_argument(0, chInFNm) !! program name
-      CALL set_error('Usage: '//trim(chInFNm)//" silam_chemicals.dat  input.asc output.nc", sub_name)
+      CALL msg('Usage: '//trim(chInFNm)//" [silam_chemicals.dat]  input.asc output.nc")
+      CALL msg('   or: '//trim(chInFNm)//" [silam_chemicals.dat]  input.grads.super_ctl output.nc")
+      call set_error("Failed to parse command line", sub_name)
   END SELECT
 
   if(.not. error) call init_chemical_materials(chChemFNm, "")

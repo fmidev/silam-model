@@ -1855,10 +1855,10 @@ end subroutine get_firelist_from_ncv2
   subroutine prepare_inject_fire_src(met_buf)
     !
     ! The subroutine prepares the private module pointers to the fields possibly requested 
-    ! for injecting the point sources. As this is called only once before all point sources
+    ! for injecting the fire sources. As this is called only once before all fire sources
     ! their actual needs are unknown. All we can do here is to check the meteo buffer for any 
     ! possibly needed quantity and set the pointer to all existing ones.
-    !   
+    !
     implicit none
 
     ! Imported parameters
@@ -3172,9 +3172,10 @@ call msg('')
     call msg('Emitted species and coefficients (kg_or_mole/J) for the land-uses:', &
            & mdata%nSpecies, mdata%nLU_types)
    
-    !! String formatting causes EOF error  
-    do iFlSm = 1,2
-      do iUnit = 1,2
+    !! String formatting causes EOF error, so print it directly  
+    do iUnit = 1,2
+      if (iUnit == 2 .and. smpi_global_rank > 0) exit
+      do iFlSm = 1,2
         write(unit=funits(iUnit),fmt='(A3,X,A11,X,30(A10,1x))') "LUT",flamsmold(iFlSm), &
                                         & (trim(fu_str(mdata%species_flaming(iSp))),iSp=1,mdata%nSpecies)
         do iLU = 1, mdata%nLU_types

@@ -184,7 +184,7 @@ module depositions
   ! Surface fields, meteorological grid: via 1-D pointers
   !
   real , dimension(:), private, pointer, save :: pMetLandFr => null(), pMetTempr2m => null(), pMetRh2m => null(), pMetSrfPressure => null(), &
-                                              & pMetSrfRoughMeteo => null(), pMetSrfRoughDisp => null(), &
+                                              & pMetSrfRoughMeteo => null(), pMetSrfRoughDisp => null(), pMetSoilMoisture => null(), &
                                               & pMetPrecTot => null(), pMetPrecLs => null(), pMetPrecCnv => null(), pMetTotCloud => null(), &
                                               & pMetABLHeight => null(), pMetFricVel => null(),  pMetMO_Len_inv => null(), &
                                               & pMetConvVel => null(), pMetSensHF => null(), pMetSnowDepth => null(), pMetLAI => null(), &
@@ -671,9 +671,8 @@ CONTAINS
       iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
       iTmp = fu_merge_integer_to_array(SILAM_sensible_heat_flux_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
-!      iTmp = fu_merge_integer_to_array(Vd_correction_DMAT_flag, q_disp_dyn) ! Needed for Rs
       iTmp = fu_merge_integer_to_array(fraction_of_ice_flag, q_met_dyn)
-
+      iTmp = fu_merge_integer_to_array(soil_moisture_vol_frac_nwp_flag, q_met_dyn)
     endif
 
 
@@ -1179,13 +1178,14 @@ CONTAINS
            pMetTotCloud => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: total_cloud_cover_flag')
 
+       case(soil_moisture_vol_frac_nwp_flag)
+           pMetSoilMoisture => buf%p2d(indexQ)%present%ptr
+! call msg('**DEP**: soil_moisture_vol_frac_nwp_flag')
+
+
        case(SILAM_sensible_heat_flux_flag)
            pMetSensHF => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: SILAM_sensible_heat_flux_flag')
-
-!          case(Vd_correction_DMAT_flag)
-!            pDispVdCorrection => buf%p2d(indexQ)%present%ptr
-!call msg('**DEP**: Vd_correction_DMAT_flag')
 
         case(leaf_area_index_flag)
                 pMetLAI => buf%p2d(indexQ)%present%ptr
@@ -1989,14 +1989,15 @@ CONTAINS
     real :: alphaSNdep, alphaSNair
     integer :: iTmp, iSpecies
     real :: rWater, rSoil, fWet, fHumidity
-    real :: fice, fsnow,lowTcorr,fZ0,sdepth,hveg,pressure,t2m,t2c,rh2m,LAI,SAI,landfr,u_star, g_sto
+    real :: fice, fsnow,lowTcorr,fZ0,sdepth,hveg,pressure,t2m,t2c,rh2m,LAI,SAI, &
+         & landfr, u_star, g_sto, sm
     real :: Sdmax,RsnowS,RsnowO, F1, F2, Hstar, drx, fTmp
     real :: GigsO, RigsO, Gns, GnsO, RnsO, Gmesophyl
     real :: coszen, tcc
     real, parameter :: BETA = 1.0/22.0
     logical :: canopy, leafy_canopy, is_veg
     real :: GnsS,Rinc,Rns_NH3,Rns_SO2
-    real :: RgsOsfc, RgsSsfc
+    real :: RgsOsfc, RgsOsfc_0, RgsSsfc
 !! external resistance for Ozone
   real, parameter :: RextO =  2500.0   ! gives Gext=0.2 cm/s for LAI=5
 !!  real, parameter :: RextO =  10000.0   ! Try to adjust
@@ -2063,6 +2064,7 @@ CONTAINS
     tcc      = min(1.0, max(pMetTotCloud(indexMeteo), 1e-2))
     !fice     = pMetIceFr(indexMeteo)
     hveg = pCanopyHeight(indexMeteo)
+    sm = pMetSoilMoisture(indexMeteo)
 
     ! call msg('LAI', LAI)
     ! call msg('aer_att_surf', aer_att_surf)
@@ -2214,7 +2216,11 @@ CONTAINS
     !! More correct way
 !    RgsOsfc = 1./( (1. - landfr)/2000. +  landfr / 200.) ! Default for bare surface
 !ifTuned = .False.
-    RgsOsfc = 1./( (1. - landfr)/1800. +  landfr / 450.) ! Default for bare surface
+!    RgsOsfc = 1./( (1. - landfr)/1800. +  landfr / 450.) ! Default for bare surface
+
+    RgsOsfc_0 = 700.0*exp(-1.0*max(0.0, 0.45-sm))  !ddepo4
+    RgsOsfc = 1./( (1. - landfr)/1800. +  landfr / RgsOsfc_0)
+    
 ifTuned = .true.
 !        Not particulary sensitive
 !  gas_surf_resistance_over_water = 2000.0
@@ -3488,12 +3494,15 @@ end function fu_settling_vel
           fC = - fTmp * total_SIV_in_scav_zone
 
           !! equilibrium_aq_SIVfrac := total_SIV_in_scav_zone / equilibrium_aq_SIV defimed also at equilibrium_aq_SIV=0
-          if (fB*fB > 10000*abs(fC)  ) then ! No need for quadratic equation, Taylor series sufficient
-            equilibrium_aq_SIVfrac = - fC/fB - fC*fC / (fB*fB*fB)
-          else
-            fD = fB*fB - 4*fC
-            equilibrium_aq_SIVfrac =  0.5*(-fB + sqrt(fD))
-          endif
+          equilibrium_aq_SIVfrac = 2*fC / (-fB - (fB**2-4*fC)**0.5) ! numerically more stable solution
+          
+          !if (fB*fB > 10000*abs(fC)  ) then ! No need for quadratic equation, Taylor series sufficient
+          !  equilibrium_aq_SIVfrac = - fC/fB - fC*fC / (fB*fB*fB)
+          !else
+          !  fD = fB*fB - 4*fC
+          !  equilibrium_aq_SIVfrac =  0.5*(-fB + sqrt(fD))
+          !endif
+          
           !
           ! In case of no strong acids (acid_mol=0) in the droplet and quadratic equation reduced to
           ! linear approximation, capasitance will be infinity. Should prevent this from happening

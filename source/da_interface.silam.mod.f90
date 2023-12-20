@@ -55,6 +55,7 @@ module da_interface
           & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list
      type(silja_shopping_list), pointer :: input_shopping_list, full_shopping_list
      type(silam_output_definition), pointer :: out_def
+     type(TOutputVariables), pointer :: OutVars
      type(Tfield_buffer), pointer :: meteo_ptr, disp_buf_ptr, output_buf_ptr
      type(mini_market_of_stacks), pointer :: meteo_market_ptr, disp_market_ptr, bc_market_ptr, &
                                            & output_market_ptr
@@ -83,7 +84,7 @@ module da_interface
 
 contains
 
-  subroutine pack_model(cloud, source, simrules, outdef, &
+  subroutine pack_model(cloud, source, simrules, outdef, OutVars, &
                       & meteo_ptr, dispBufPtr, outputBufPtr, &
                       & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, outputMarketPtr, &
                       & wdr, meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
@@ -101,6 +102,7 @@ contains
          & meteo_input_dyn_shopping_list, &
          & meteo_full_dyn_shopping_list
     type(silam_output_definition), pointer :: outDef ! might be removed eventually
+    type(TOutputVariables), pointer :: OutVars
     type(silja_wdr), pointer :: wdr
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, &
                                           & outputMarketPtr
@@ -117,6 +119,7 @@ contains
     model%meteo_input_dyn_shopping_list => meteo_input_dyn_shopping_list
     model%meteo_full_dyn_shopping_list => meteo_full_dyn_shopping_list
     model%out_def => outDef
+    model%OutVars => OutVars
     model%meteo_ptr => meteo_ptr
     model%disp_buf_ptr => dispBufPtr
     model%output_buf_ptr => outputBufPtr
@@ -137,7 +140,7 @@ contains
 
   end subroutine pack_model
 
-  subroutine unpack_model(model, cloud, source, wdr, dispBufPtr, meteo_ptr, outDef, & 
+  subroutine unpack_model(model, cloud, source, wdr, dispBufPtr, meteo_ptr, outDef, OutVars, & 
                         & meteo_input_dyn_shopping_list, meteo_full_dyn_shopping_list, &
                         & disp_dyn_shopping_list, disp_stat_shopping_list, & 
                         & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, meteo_input, tla_traj, perturbations)
@@ -152,6 +155,7 @@ contains
          & meteo_input_dyn_shopping_list, &
          & meteo_full_dyn_shopping_list
     type(silam_output_definition), pointer :: outDef ! might be removed eventually
+    type(TOutputVariables), pointer :: OutVars
     type(silja_wdr), pointer :: wdr
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, BCMarketPtr
     type(Tmeteo_input), pointer :: meteo_input
@@ -853,6 +857,7 @@ contains
          & pDisp_dyn_shopping_list, &
          & pDisp_stat_shopping_list
     type(silam_output_definition), pointer :: outDef ! might be removed eventually
+    type(TOutputVariables), pointer :: OutVars
     type(silja_wdr), pointer :: wdr
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, &
                                           & srcMarketPtr, outputMarketPtr
@@ -883,6 +888,7 @@ contains
     pDisp_stat_shopping_list => model%disp_stat_shopping_list
 
     outDef => model%out_def
+    OutVars => model%OutVars
     meteo_ptr => model%meteo_ptr
     obs_ptr => model%obs_ptr
     disp_buf_ptr => model%disp_buf_ptr
@@ -918,7 +924,7 @@ contains
     call run_dispersion(cloud, em_source, wdr, simrules, &
                       & pMeteo_input_dyn_shopping_list, pMeteo_full_dyn_shopping_list, &
                       & pDisp_dyn_shopping_list, pDisp_stat_shopping_list, &
-                      & outDef, meteo_ptr, disp_buf_ptr, obs_ptr, meteo_input_ptr, output_buf_ptr, &
+                      & outDef, OutVars, meteo_ptr, disp_buf_ptr, obs_ptr, meteo_input_ptr, output_buf_ptr, &
                       & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, outputMarketPtr, &
                       & model%tla_traj, perturbations)
     call stop_count('forward')
@@ -949,6 +955,7 @@ contains
          & pDisp_dyn_shopping_list, &
          & pDisp_stat_shopping_list
     type(silam_output_definition), pointer :: outDef ! might be removed eventually
+    type(TOutputVariables), pointer :: OutVars
     type(silja_wdr), pointer :: wdr
     type(mini_market_of_stacks), pointer :: meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, &
                                           & outputMarketPtr
@@ -971,6 +978,7 @@ contains
     pDisp_stat_shopping_list => model%disp_stat_shopping_list
 
     outDef => model%out_def
+    OutVars => model%OutVars
     meteo_ptr => model%meteo_ptr
     disp_buf_ptr => model%disp_buf_ptr
     output_buf_ptr => model%output_buf_ptr
@@ -1010,7 +1018,7 @@ contains
     call run_dispersion(cloud, em_source, wdr, simrules, &
                       & pMeteo_input_dyn_shopping_list, pMeteo_full_dyn_shopping_list, &
                       & pDisp_dyn_shopping_list, pDisp_stat_shopping_list, &
-                      & outDef, meteo_ptr, disp_buf_ptr, obs_ptr, meteo_input_ptr, output_buf_ptr, &
+                      & outDef, OutVars, meteo_ptr, disp_buf_ptr, obs_ptr, meteo_input_ptr, output_buf_ptr, &
                       & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, outputMarketPtr, &
                       & model%tla_traj)
     call stop_count('adjoint')

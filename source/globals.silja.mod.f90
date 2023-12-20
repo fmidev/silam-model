@@ -98,6 +98,7 @@ MODULE globals
   private msg_test_int_int
   private msg_test_real_real
   private fu_connect_two_strings
+  private fu_logical2str
   private fu_int2str
   private fu_real2str
   private fu_name_of_integer
@@ -132,6 +133,7 @@ MODULE globals
   end interface
 
   interface fu_str
+    module procedure fu_logical2str
     module procedure fu_int2str
     module procedure fu_real2str
     module procedure fu_real82str
@@ -257,7 +259,7 @@ MODULE globals
   !
   !        LOG FILE UNITS
   !
-  integer, public, save :: info_funit = int_missing, run_log_funit = int_missing
+  integer, public, save :: run_log_funit = int_missing
   character(len=fnlen), public, save :: run_log_name='',  run_log_tmp_name=''
   character(len=fnlen), public, save :: proc_ID_string = '' !! Set in silam_main, unique for the MPI process
 
@@ -1789,6 +1791,26 @@ CONTAINS
 
   END FUNCTION fu_int2str
 
+  ! ****************************************************************
+  FUNCTION fu_logical2str(l) result(str)
+    !
+    ! Prints logiacl to a string
+    !
+    IMPLICIT NONE
+    !
+    ! The return value of this function:
+    CHARACTER (LEN=5) :: str
+    !
+    ! Imported parameter
+    logical, intent(in) :: l
+    
+    if ( l ) then  
+      str =  "TRUE "
+    else
+      str = "FALSE"
+    endif
+
+  END FUNCTION fu_logical2str
 
   ! ****************************************************************
   FUNCTION fu_real82str(r) result(str)

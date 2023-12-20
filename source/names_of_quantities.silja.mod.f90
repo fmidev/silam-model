@@ -239,6 +239,7 @@ MODULE names_of_quantities
   integer, parameter, public :: c4_frac_flag = 250062
   integer, parameter, public :: irrigated_area_flag = 250063
   integer, parameter, public :: soil_NO_emis_0_flag = 250064
+  integer, parameter, public :: road_dust_emis_fact_flag = 250065
   !
   ! Precipitation and evaporation
   !
@@ -359,49 +360,54 @@ MODULE names_of_quantities
   ! Variables storing the characteristics of the pollen source term
   ! and determining the thresholds for start of flowering 
   !
-  integer, parameter, public :: start_calday_threshold_flag = 250164  ! [day]
-  integer, parameter, public :: end_calday_threshold_flag = 250165    ! [day]
-  integer, parameter, public :: calday_start_end_diff_flag = 250166   ! [day]
-  integer, parameter, public :: start_heatsum_threshold_flag = 250167 ! [degday/deghr/bioday etc]
-  integer, parameter, public :: end_heatsum_threshold_flag = 250168   ! [degday/deghr/bioday etc]
-  integer, parameter, public :: heatsum_start_end_diff_flag = 250169  ! [degday/deghr/bioday etc]
-  integer, parameter, public :: growth_season_start_day_flag = 250170       ! [day]
-  integer, parameter, public :: heatsum_cutoff_tempr_flag = 250171    ! [K]
-  integer, parameter, public :: temperature_threshold_flag = 250172   ! [K]
-  integer, parameter, public :: daily_temp_threshold_flag = 250173    ! [K]
-  integer, parameter, public :: soil_moisture_threshold_flag = 250174 ! [m3/m3]
-  integer, parameter, public :: pollen_total_per_m2_flag = 250175     ! [grains/m2]
-  integer, parameter, public :: pollen_left_relative_flag = 250176      ! [grains/m2]
-  integer, parameter, public :: pollen_correction_flag = 250177       ! [relative]
-  integer, parameter, public :: plant_growth_flag = 250178            ! [relative]
-  integer, parameter, public :: pollen_potency_flag= 250179           ! [pg/grain]
+  integer, parameter, public :: start_calday_threshold_flag = 250170  ! [day]
+  integer, parameter, public :: end_calday_threshold_flag = 250171    ! [day]
+  integer, parameter, public :: calday_start_end_diff_flag = 250172   ! [day]
+  integer, parameter, public :: start_heatsum_threshold_flag = 250173 ! [degday/deghr/bioday etc]
+  integer, parameter, public :: end_heatsum_threshold_flag = 250174   ! [degday/deghr/bioday etc]
+  integer, parameter, public :: heatsum_start_end_diff_flag = 250175  ! [degday/deghr/bioday etc]
+  integer, parameter, public :: growth_season_start_day_flag = 250176       ! [day]
+  integer, parameter, public :: growth_season_end_day_flag = 250177       ! [day]
+  integer, parameter, public :: heatsum_cutoff_tempr_flag = 250178    ! [K]
+  integer, parameter, public :: temperature_threshold_flag = 250179   ! [K]
+  integer, parameter, public :: daily_temp_threshold_flag = 250180    ! [K]
+  integer, parameter, public :: soil_moisture_threshold_flag = 250181 ! [m3/m3]
+  integer, parameter, public :: pollen_total_per_m2_flag = 250182     ! [grains/m2]
+  integer, parameter, public :: pollen_left_relative_flag = 250183      ! [grains/m2]
+  integer, parameter, public :: pollen_correction_flag = 250184       ! [relative]
+  integer, parameter, public :: plant_growth_flag = 250185            ! [relative]
+  integer, parameter, public :: pollen_potency_flag= 250186           ! [pg/grain]
 
   ! local timezone-related flags  
-  integer, parameter, public :: timezone_index_flag= 250180           ! [integer]
+  integer, parameter, public :: timezone_index_flag= 250190           ! [integer]
   
   ! dry deposition related quantities
-  integer, parameter, public :: canopy_height_flag = 250181
-  integer, parameter, public :: stomatal_conductance_flag = 250182 ![m/s / per unit LAI]
+  integer, parameter, public :: canopy_height_flag = 250191
+  integer, parameter, public :: stomatal_conductance_flag = 250192 ![m/s / per unit LAI]
 
   ! Surface pressure to use in single-time stack in hybrid coordinates
-  integer, parameter, public :: srf_press_realtime_flag = 250183
+  integer, parameter, public :: srf_press_realtime_flag = 250193
                                                         
-  integer, parameter, public :: meteo_total_O3column_flag = 250184
+  integer, parameter, public :: meteo_total_O3column_flag = 250194
 
   ! Fire Danger Indices
-  integer, parameter, public :: FDI_KBDI_moisture_deficit_flag = 250185
-  integer, parameter, public :: FDI_KBDI_drought_factor_flag = 250186
-  integer, parameter, public :: FDI_SDI_fire_danger_flag = 250187
-  integer, parameter, public :: FDI_grass_mean_fire_danger_flag = 250188
-  integer, parameter, public :: FDI_grass_max_fire_danger_flag = 250189
-  integer, parameter, public :: FDI_FWI_fine_fuel_moist_flag = 250190
-  integer, parameter, public :: FDI_FWI_duff_moist_flag = 250191
-  integer, parameter, public :: FDI_FWI_drought_flag = 250192
-  integer, parameter, public :: FDI_fire_weather_index_flag = 250193
-  integer, parameter, public :: FDI_fuel_moisture_flag = 250194
+  integer, parameter, public :: FDI_KBDI_moisture_deficit_flag = 250195
+  integer, parameter, public :: FDI_KBDI_drought_factor_flag = 250196
+  integer, parameter, public :: FDI_SDI_fire_danger_flag = 250197
+  integer, parameter, public :: FDI_grass_mean_fire_danger_flag = 250198
+  integer, parameter, public :: FDI_grass_max_fire_danger_flag = 250199
+  integer, parameter, public :: FDI_FWI_fine_fuel_moist_flag = 250200
+  integer, parameter, public :: FDI_FWI_duff_moist_flag = 250201
+  integer, parameter, public :: FDI_FWI_drought_flag = 250202
+  integer, parameter, public :: FDI_fire_weather_index_flag = 250203
+  integer, parameter, public :: FDI_fuel_moisture_flag = 250204
+
+  ! Road dust emission related quantities
+  integer, parameter, public :: road_wetness_flag = 250205
+  integer, parameter, public :: n_snowless_days_flag = 250206
   
   integer, parameter, public :: first_single_level_q = 250000
-  integer, parameter, public :: last_single_level_q = 250194
+  integer, parameter, public :: last_single_level_q = 250206
 
   ! ***************************************************************
   !
@@ -477,7 +483,7 @@ MODULE names_of_quantities
   integer, parameter, public :: ice_nucley_nbr_cnc_flag = 260045  ! ice nucley, [#/m3]
 
   integer, parameter, public :: reaction_rate_flag = 260046 ! Reaction rate (silam amount units / sec)
-  integer, parameter, public :: Vd_correction_DMAT_flag = 260047
+!  integer, parameter, public :: Vd_correction_DMAT_flag = 260047
 
   INTEGER, PARAMETER, PUBLIC :: advection_cm_X_flag = 260048  ! For Galperin's advection
   INTEGER, PARAMETER, PUBLIC :: advection_cm_Y_flag = 260049  ! For Galperin's advection
@@ -760,7 +766,10 @@ CONTAINS
         string = 'dust emission'
 
       case(soil_NO_emis_0_flag)
-        string = 'soil NO emission'  
+         string = 'soil NO emission'
+
+      case(road_dust_emis_fact_flag)
+         string = 'road dust emission factor'
 
       case(c4_frac_flag)
         string = 'vegetation c4 fraction'
@@ -1178,6 +1187,8 @@ CONTAINS
       
       case(growth_season_start_day_flag)
       string = 'Growth season start day'
+      case(growth_season_end_day_flag)
+      string = 'Growth season end day'
       case(heatsum_cutoff_tempr_flag)
       string = 'Cutoff tempr for heatsum'
       case(heatsum_start_end_diff_flag)
@@ -1206,9 +1217,6 @@ CONTAINS
 
       case (stomatal_conductance_flag)
       string = 'Stomatal conductance [m/s]'
-
-      case(Vd_correction_DMAT_flag)
-      string = 'Vd correction DMAT'
 
       case(water_salinity_flag)
       string = 'water salinity'
@@ -1317,6 +1325,12 @@ CONTAINS
 
       case (emis_factor_fire_smold_flag)
       string = 'Emission factor fire smould'
+
+      case(road_wetness_flag)
+      string = 'Road wetness factor (dimensionless)'
+
+      case(n_snowless_days_flag)
+      string = 'Days since last snow cover [days]'   
 
     CASE default
       write(unit=string,fmt='(A,I12)')'UNKNOWN QUANTITY:',quantity
@@ -1594,6 +1608,9 @@ CONTAINS
 
       case(soil_NO_emis_0_flag)
         string = 'soil_NO_emis_0'
+
+      case(road_dust_emis_fact_flag)
+        string = 'road_dust_emis_fact'
 
       case(c4_frac_flag)
         string = 'c4_frac'
@@ -2009,6 +2026,8 @@ CONTAINS
       
       case(growth_season_start_day_flag)
       string = 'growth_start_dy'
+      case(growth_season_end_day_flag)
+      string = 'growth_end_dy'
       case(heatsum_cutoff_tempr_flag)
       string = 'hsum_cutoff_t'
       case(end_heatsum_threshold_flag)
@@ -2036,9 +2055,6 @@ CONTAINS
 
       case(physiography_field_set_flag)
       string = 'physiopgr_set'
-
-      case(Vd_correction_DMAT_flag)
-      string = 'Vd_corr_DMAT'
 
       case(water_salinity_flag)
       string = 'water_salinity'
@@ -2147,6 +2163,12 @@ CONTAINS
 
       case(emis_factor_fire_smold_flag)
       string = 'emfac_fire_smld'
+
+      case(road_wetness_flag)
+      string = 'road_wetness'
+
+      case(n_snowless_days_flag)
+      string = 'n_snowless_days'
 
     CASE default
       write(unit=string,fmt='(i15)', iostat = io_status) quantity
@@ -2375,6 +2397,9 @@ CONTAINS
       case(soil_NO_emis_0_flag)
          string = 'unknown'
 
+      case(road_dust_emis_fact_flag)
+         string = '1'
+
       case(c4_frac_flag)
         string = '1'
 
@@ -2574,6 +2599,9 @@ CONTAINS
       case(growth_season_start_day_flag)
         string = 'number'
 
+      case(growth_season_end_day_flag)
+        string = 'number'
+
       case(heatsum_cutoff_tempr_flag)
         string = 'K'
 
@@ -2585,9 +2613,6 @@ CONTAINS
 
       case(physiography_field_set_flag)
         string='XXX'
-
-      case(Vd_correction_DMAT_flag)
-        string='1'
 
       case(water_salinity_flag)
         string = 'kg/kg'
@@ -2747,7 +2772,9 @@ CONTAINS
         & FDI_SDI_fire_danger_flag, FDI_grass_mean_fire_danger_flag, &
         & FDI_grass_max_fire_danger_flag, FDI_FWI_fine_fuel_moist_flag, &
         & FDI_FWI_duff_moist_flag, FDI_FWI_drought_flag, &
-        & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag)
+        & FDI_fire_weather_index_flag, FDI_fuel_moisture_flag, &
+        ! road dust
+        & road_wetness_flag, n_snowless_days_flag)
 
         fu_realtime_quantity = .true.
 
@@ -2850,7 +2877,7 @@ CONTAINS
          & heatsum_flag, chillsum_flag, start_heatsum_threshold_flag, &
          & daily_temp_threshold_flag, temperature_threshold_flag, soil_moisture_threshold_flag, &
          & start_calday_threshold_flag, end_calday_threshold_flag, &
-         & growth_season_start_day_flag, heatsum_cutoff_tempr_flag, end_heatsum_threshold_flag, &
+         & growth_season_start_day_flag, growth_season_end_day_flag, heatsum_cutoff_tempr_flag, end_heatsum_threshold_flag, &
          & calday_start_end_diff_flag, heatsum_start_end_diff_flag, &
          & plant_growth_flag, pollen_left_relative_flag, pollen_total_per_m2_flag, &
          & pollen_correction_flag, pollen_rdy_to_fly_flag, &
@@ -2858,7 +2885,6 @@ CONTAINS
          & day_temperature_acc_flag, day_temperature_2m_acc_flag, &
          & day_mean_temperature_flag, day_mean_temperature_2m_flag, &
          & physiography_field_set_flag, &
-         & Vd_correction_DMAT_flag, &
          & interp_met2disp_coef_flag, &
          & interp_met2out_coef_flag, &
          & interp_disp2out_coef_flag, &
@@ -2892,7 +2918,8 @@ CONTAINS
          & day_windspeed_10m_acc_max_flag, day_max_windspeed_10m_flag, &
          & day_precipitation_acc_flag, day_min_relat_humid_2m_flag, &
          & day_relat_humid_2m_acc_flag, day_relat_humid_2m_acc_min_flag, &
-         & dry_days_count_flag)
+         & dry_days_count_flag, &
+         & road_wetness_flag, n_snowless_days_flag)
 
       fu_SILAM_disp_grid_quantity = .true.
 
@@ -3283,6 +3310,9 @@ CONTAINS
       CASE (soil_NO_emis_0_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
+      CASE (road_dust_emis_fact_flag)
+      fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
+
       CASE (c4_frac_flag)
       fMinAlert = -0.00001; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = 1.0001
 
@@ -3663,13 +3693,15 @@ CONTAINS
       fMinAlert = -10; fMinForce = 0; fMaxForce = 400; fMaxAlert = 500
       
       case(growth_season_start_day_flag)
-      fMinAlert = -10; fMinForce = 0; fMaxForce = 400; fMaxAlert = 400
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 366; fMaxAlert = 367
+      case(growth_season_end_day_flag)
+      fMinAlert = -1; fMinForce = 0; fMaxForce = 366; fMaxAlert = 367
       case(heatsum_cutoff_tempr_flag)
-      fMinAlert = -10; fMinForce = 0; fMaxForce = 400; fMaxAlert = 400
+      fMinAlert = 200; fMinForce = 200; fMaxForce = 400; fMaxAlert = 400
       case(end_heatsum_threshold_flag)
-      fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
+      fMinAlert = 200; fMinForce = 200; fMaxForce = real_missing; fMaxAlert = real_missing
       case(heatsum_start_end_diff_flag)
-      fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
+      fMinAlert = -1; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
 
       case(pollen_correction_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
@@ -3691,9 +3723,6 @@ CONTAINS
 
       case(physiography_field_set_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
-
-      case(Vd_correction_DMAT_flag)
-      fMinAlert = -1; fMinForce = 0; fMaxForce = 100; fMaxAlert = 100
 
       case(water_salinity_flag)
       fMinAlert = -1; fMinForce = 0; fMaxForce = 1; fMaxAlert = 10
@@ -3791,6 +3820,12 @@ CONTAINS
       case(emis_factor_fire_smold_flag)
       fMinAlert = 0.0; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
+      case(road_wetness_flag)
+      fMinAlert = -0.001; fMinForce = 0; fMaxForce = 1; fMaxAlert = 1.001
+         
+      case(n_snowless_days_flag)
+      fMinAlert = -0.001; fMinForce = 0; fMaxForce = 1e9; fMaxAlert = 1e5
+      
       CASE default
         call set_error('Unknown quantity:'+fu_quantity_string(quantity),'quantity_feasible_range')
 
@@ -4121,7 +4156,8 @@ CONTAINS
          & FDI_FWI_duff_moist_flag, &
          & FDI_FWI_drought_flag, &
          & FDI_fire_weather_index_flag, &
-         & FDI_fuel_moisture_flag)
+         & FDI_fuel_moisture_flag, &
+         & road_wetness_flag)
 
       fu_grib_missing_real = 0.0
 
@@ -4210,7 +4246,8 @@ CONTAINS
          & FDI_FWI_duff_moist_flag, &
          & FDI_FWI_drought_flag, &
          & FDI_fire_weather_index_flag, &
-         & FDI_fuel_moisture_flag)
+         & FDI_fuel_moisture_flag, &
+         & road_wetness_flag)
 
       fu_real_missing_replacement = 0.0
 
@@ -4340,7 +4377,9 @@ CONTAINS
          & FDI_fire_weather_index_flag, &
          & FDI_fuel_moisture_flag, &
          & day_sum_precipitation_flag, yesterday_precipitation_flag, &
-         & dry_days_count_flag)
+         & dry_days_count_flag, &
+         & road_wetness_flag, &
+         & n_snowless_days_flag)
 
         fu_regridding_method = average
          
@@ -4739,6 +4778,9 @@ CONTAINS
     elseif(trim(chQuantity) == "soil_NO_emis_0")then
       iQ = soil_NO_emis_0_flag
 
+    elseif(trim(chQuantity) == "road_dust_emis_fact")then
+      iQ = road_dust_emis_fact_flag
+
     elseif(trim(chQuantity) == "c4_frac")then
       iQ = c4_frac_flag
 
@@ -5093,6 +5135,9 @@ CONTAINS
     elseif(trim(chQuantity) == "growth_season_start_day")then
       iQ = growth_season_start_day_flag
 
+    elseif(trim(chQuantity) == "growth_season_end_day")then
+      iQ = growth_season_end_day_flag
+
     elseif(trim(chQuantity) == "heatsum_cutoff_tempr")then
       iQ = heatsum_cutoff_tempr_flag
 
@@ -5122,9 +5167,6 @@ CONTAINS
 
     elseif(trim(chQuantity) == "physiography_field_set")then
       iQ = physiography_field_set_flag
-
-    elseif(trim(chQuantity) == "Vd_correction_DMAT")then
-      iQ = Vd_correction_DMAT_flag
 
     elseif(trim(chQuantity) == "water_salinity")then
       iQ = water_salinity_flag
@@ -5233,6 +5275,12 @@ CONTAINS
 
     elseif(trim(chQuantity) == 'emis_factor_fire_smoulder') then
       iQ = emis_factor_fire_smold_flag
+       
+    elseif(trim(chQuantity) == 'road_wetness') then
+      iQ = road_wetness_flag
+       
+    elseif(trim(chQuantity) == 'n_snowless_days') then
+      iQ = n_snowless_days_flag
 
     else
       call set_error('Unknown quantity name:' + chQuantity, 'fu_get_silam_quantity')
@@ -5421,6 +5469,9 @@ CONTAINS
       case(soil_NO_emis_0_flag)
         string =   "soil_NO_emis"
 
+      case(road_dust_emis_fact_flag)
+        string =   "road_dust_emis_fact"
+
       case(c4_frac_flag)
         string =   "c4_frac"
 
@@ -5529,7 +5580,11 @@ CONTAINS
       case(emis_factor_fire_smold_flag)
         string = 'emis_factor_fire_smoulder'
 
+      case(road_wetness_flag)
+        string = 'road_wetness'
 
+      case(n_snowless_days_flag)
+        string = 'n_snowless_days'  
 
 !      CASE (emission_intensity_flag)
 !    string =   "tendency_of_atmosphere_mass_content_of_<SUBST>_due_to_emission" 
@@ -5606,6 +5661,7 @@ CONTAINS
        & temperature_threshold_flag, &
        & soil_moisture_threshold_flag, &
        & growth_season_start_day_flag, &
+       & growth_season_end_day_flag, &
        & end_calday_threshold_flag, &
        & calday_start_end_diff_flag, &
        & heatsum_cutoff_tempr_flag, &
@@ -5614,7 +5670,9 @@ CONTAINS
        & pollen_correction_flag, day_temperature_2m_acc_flag, day_mean_temperature_2m_flag, &
        & water_salinity_flag, &
        & pollen_potency_flag, &
-       & dry_days_count_flag)
+       & dry_days_count_flag, &
+       & road_wetness_flag, &
+       & n_snowless_days_flag)
 
        fu_outGridInterpType = nearestPoint
        

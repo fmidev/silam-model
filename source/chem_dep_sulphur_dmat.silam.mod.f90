@@ -133,10 +133,9 @@ CONTAINS
 
   !************************************************************************************
 
-  subroutine inventory_dmat(rules, &
-                                   & speciesEmis, speciesTransp, speciesShortlived, speciesAerosol,&
-                                   & nSpeciesEmis, nSpeciesTransp, nspeciesShortlived, nspeciesAerosol, &
-                                   & iClaimedSpecies, ifActive)
+  subroutine inventory_dmat(rules, speciesEmis, speciesTransp, speciesShortlived, speciesAerosol,&
+                                 & nSpeciesEmis, nSpeciesTransp, nspeciesShortlived, nspeciesAerosol, &
+                                 & iClaimedSpecies, ifActive)
     implicit none
     type(Tchem_rules_DMAT_S), intent(in) :: rules
     type(silam_species), dimension(:), pointer :: speciesEmis, speciesTransp, speciesShortlived, &
@@ -170,7 +169,7 @@ CONTAINS
           iCount = iCount + 1
         else
           call msg('Cannot claim ownership because he claimed it already:',iClaimedSpecies(iEmis))
-          call set_error('Cannot claim ownership because someone claimed it already','species_for_transf_dmat')
+          call set_error('Cannot claim ownership because someone claimed it already','inventory_dmat')
           return
         endif
       endif  ! emission species belongs to DMAT-S transport list
@@ -185,7 +184,7 @@ CONTAINS
                                                               & nDMAT_S_species_short_lived, .true.)
       ifActive = .not. error
     else
-      call set_error('Cannot find anything useful in emission list','species_for_transf_dmat')
+      call set_error('Cannot find anything useful in emission list','inventory_dmat')
       call unset_error('species_for_transf_dmat')
       ifActive = .false.
     endif
@@ -365,9 +364,9 @@ CONTAINS
         if (associated(vtla)) vtla(1) = cOH_forced
       else
         if (associated(vtla)) then
-           cOH_forced = vtla(1)
+          cOH_forced = vtla(1)
         else
-          call set_error("Can't use massmap OH in adjoint..", sub_name)
+          call set_error("massmap OH in adjoint is not found", sub_name)
         endif
       endif
     else
@@ -725,12 +724,14 @@ CONTAINS
             fB =  (acid_mol + fTmp * total_water_in_cell) * total_SIV_in_cell
             fC = - fTmp * total_SIV_in_cell
 
-            if (fB*fB > 10000*abs(fC)  ) then ! No need for quadratic equation, Taylor series sufficient
-              equilibrium_aq_SIVfrac = - fC/fB - fC*fC / (fB*fB*fB)
-            else
-              fD = fB*fB - 4*fC
-              equilibrium_aq_SIVfrac =  0.5*(-fB + sqrt(fD))
-            endif
+            equilibrium_aq_SIVfrac = 2*fC / (-fB - (fB**2-4*fC)**0.5) ! numerically more stable solution
+
+            !if (fB*fB > 10000*abs(fC)  ) then ! No need for quadratic equation, Taylor series sufficient
+            !  equilibrium_aq_SIVfrac = - fC/fB - fC*fC / (fB*fB*fB)
+            !else
+            !  fD = fB*fB - 4*fC
+            !  equilibrium_aq_SIVfrac =  0.5*(-fB + sqrt(fD))
+            !endif
             !
             ! In case of no strong acids (acid_mol=0) in the droplet and quadratic equation reduced to
             ! linear approximation, capasitance will be infinity. Should prevent this from happening

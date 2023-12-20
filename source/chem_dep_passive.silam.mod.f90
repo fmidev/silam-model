@@ -403,15 +403,6 @@ MODULE chem_dep_passive
     ! If basic temperature and corresponding life time are not defined - set the whole story 
     ! to non-existent.
     !
-
-    !! Lockpin
-      if(fu_content(nlSetup,'passive_subst_ref_lifetime') /= '') then 
-        call set_error("passive_subst_ref_lifetime deprecated, " // &
-          & "please use passive_subst_ref_decay_rate_invSeconds instead", sub_name )
-        return
-    endif
-
-
     if(fu_content(nlSetup,'passive_subst_ref_decay_rate_invSeconds') == '' .or. &
      & fu_content(nlSetup,'passive_subst_ref_tempr_K') == '')then
       rulesPassive%basicRate = real_missing
@@ -426,11 +417,13 @@ MODULE chem_dep_passive
       rulesPassive%basicTempr = fu_content_real(nlSetup,'passive_subst_ref_tempr_K')
       if(error)return
       !
-      ! Derivative of decay rate over temperature
-      ! Negative rtes will be cut!
+      ! Derivative of lifetime over temperature
+!      ! Note that we know that this derivative is time/temperature intervals. The fu_set_named_value
+!      ! will return the value in the SI units, i.e., sec/degree_K.
       !
-      if(fu_content(nlSetup,'passive_subst_dRate_dT_invSecondsPerK') /= '')then
-        rulesPassive%DRate_DT = fu_content_real(nlSetup,'passive_subst_dRate_dT_invSecondsPerK')
+      if(fu_content(nlSetup,'passive_subst_dRate_dT_invSecondsK') /= '')then
+        rulesPassive%DRate_DT = fu_content_real(nlSetup,'passive_subst_dRate_dT_invSecondsK')
+!             & fu_set_named_value(fu_content(nlSetup,'passive_subst_dRate_dT_invSecondsK'))
         if(error)return
       else
         rulesPassive%DRate_DT = 0.0

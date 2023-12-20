@@ -1,0 +1,1187 @@
+#EQUATIONS
+
+{ CBM7 equations taken from the }
+{ "Develop CB7 Chemical Mechanism for CAMx Ozone Modeling" Final Report by Greg Yarwood, Yuge Shi and Ross Beardsley }
+{ Work Order No. 582-21-21802-020, Contract No. 582-19-90500, Tracking No. 2021-11, Task 6.2 }
+
+// RH-NOTE: Check the equations that are in CB06 but not in CB7 (at least the NO3+O, NO3+O3, NO+NO2+H2O = 2*HONO, for strato)
+// Table 3.
+// The CB7 mechanism.
+// No. Reactants and Products a, b Rate Constant Expression k 298 c, d
+
+// The following variable changes where done, including some PAR's into different species:
+// KET7  = KET+3.0*PAR;
+// XPAR7 = XPAR+3.0*PAR;
+// ROR7  = ROR+2.85*PAR;
+// OLE7  = OLE+PAR;
+
+<1> NO2 + hv = NO + O            : photoarr(pd_no2);         // Photolysis 6.30E-3
+
+{R2: Note 3-body reaction. Include O2 in the reaction and leave M to the rate constant.}
+<2> O2 + O {+ M} = O3 {+ M}      : k0_pow(6.0d-34, 2.6d0);   // k = 6.00E-34 (T/300)^-2.6 6.11E-34
+
+<3> NO + O3 = NO2                : ARRZ(2.07d-12,1400.0d0);  // k = 2.07E-12 exp(-1400/T) 1.89E-14
+
+<4> NO + O {+ M} = NO2           : k3rd_iup_pow(1.0d-31, 1.6d0, 5.0d-11, 0.3d0, 0.85d0); {RH2017: IUPAC}
+// Falloff: F=0.85; n=0.84 k(0) = 1.00E-31 (T/300)^-1.6 k(inf) = 5.00E-11 (T/300)^-0.3 2.26E-12
+
+<5> NO2 + O = NO                 : ARRZ(5.1d-12,-198.0d0); // k = 5.10E-12 exp(198/T) 9.91E-12
+
+<6> NO2 + O {+ M} = NO3          : k3rd_iup_pow(1.3d-31, 1.5d0, 2.3d-11, -0.24d0, 0.6d0); {IUPAC}
+// Falloff: F=0.6; n=1.03 k(0) = 1.30E-31 (T/300)^-1.5 k(inf) = 2.30E-11 (T/300)^0.24 2.09E-12
+
+<7> O3 + O = 2*O2                : ARRZ(8.0d-12, 2060d0); // k = 8.00E-12 exp(-2060/T) 7.96E-15
+// RH-NOTE: Remove from strato equations Eq: FR 121
+
+<8> O3 + hv = O                  : photoarr(pd_o3); // Photolysis 3.33E-4
+
+<9> O3 + hv = O1D                : photoarr(pd_o3_o1d); //Photolysis 8.78E-6
+
+{R10: JPL, + M added *** important rate, note the N2 and O2 weights in rates. Including the last 1% into N2.}
+{IUPAC2017, put M in reaction: k = arrz(0.79*2.15d-11, -110.0d0) + arrz(0.21*3.2d-11, -67.0d0) ;}
+{JPL, also keep M:             k = arrz(0.79*2.15d-11, -110.0d0) + arrz(0.21*3.3d-11, -55.0d0) ;}
+<10> O1D + M = O {+ M}           : arrz(0.79*2.15d-11, -110.0d0) + arrz(0.21*3.2d-11, -67.0d0);  //k = 2.23E-11 exp(115/T) 3.28E-11
+
+<11> O1D + H2O = 2*OH            : 2.14E-10; // k = 2.14E-10 2.14E-10
+
+<12> O3 + OH = HO2               : ARRZ(1.7d-12,940.0d0); // k = 1.70E-12 exp(-940/T) 7.25E-14
+
+<13> O3 + HO2 = OH               : 2.03d-16*(temp_dp/300.0d0)**4.57 *exp(693.0d0/temp_dp); // k = 2.03E-16 (T/300)^4.57 exp(693/T) 2.01E-15
+
+//<14> OH + O = HO2                : ARRZ(2.4d-11, -110d0); // k = 2.40E-11 exp(110/T) 3.47E-11
+<14> OH + O = H {+O2}            : ARRZ(2.4d-11, -110d0); //RH-NOTE: here H explicitely
+
+<15> HO2 + O = OH                : ARRZ(3.0d-11, -200d0); // JPL-rate, k = 3.00E-11 exp(200/T) 5.87E-11
+//<15> HO2 + O = OH                : ARRZ(2.7d-11, -224d0); // IUPAC-rate
+
+<16> OH + OH = O {+H2O}          : 6.2d-14*((temp_dp/298.0d0)**2.6)*exp(945.0d0/temp_dp); // k = 6.20E-14 (T/298)^2.6 exp(945/T) 1.48E-12
+
+<17> OH + OH = H2O2              : k3rd_iup_pow(9.0d-31, 3.2d0, 3.9d-11, 0.47d0, 0.43d0); {RH2017: IUPAC}
+// Falloff: F=0.42; n=1.23, k(0) = 9.00E-31 (T/300)^-3.2, k(inf) = 3.90E-11 (T/300)^-0.47 6.21E-12
+
+<18> OH + HO2 = PROD {H2O + O2}  : ARRZ(4.8d-11, -250d0); // k = 4.80E-11 exp(250/T) 1.11E-10
+
+//RH-NOTE: Check the following equations, especially for rates!!!!!!
+{R34, R35:: Has two channels, one bimolecular, other termolecular. Depends on H2O.}
+{the effect of H2O included thru "water factor", see function kwtf()}
+{ we could later combine 34 + 35 to one reaction! Fairly sensitive reactions! }
+{ R34 HO2 + HO2 = H2O2       : kwtf(2.2d-13, -600.0d0, 1.4d-21, -2200.0d0) ; }
+<19> HO2 + HO2 = H2O2 {+O2}      : kwtf(2.2d-13, -600.0d0, 1.4d-21, -2200.0d0) ;
+// k = k1 + k2 [M], k1 = 2.20E-13 exp(600/T), k2 = 1.90E-33 exp(980/T) 2.90E-12
+
+{R35 has a bit messy rate: as above, but [M] has to go in}
+// { R35 HO2 + HO2 + M = H2O2 {+O2 + M} : kwtf(1.9d-33, -980.0d0, 1.4d-21, -2200.0d0); }
+<20> HO2 + HO2 + M = H2O2 {+O2 + M} : kwtf(1.9d-33, -980.0d0, 1.4d-21, -2200.0d0);
+//<20> HO2 + HO2 + H2O = H2O2
+// k = k1 + k2 [M], k1 = 3.08E-34 exp(2800/T), k2 = 2.66E-54 exp(3180/T) 6.53E-30
+
+<21> H2O2 + hv = 2*OH : photoarr(pd_h2o2); // Photolysis 3.78E-6
+
+<22> H2O2 + OH = HO2 {+H20}      : 1.80E-12; // OLD: ARRZ(2.9d-12,160.0d0); // k = 1.80E-12 1.80E-12
+
+<23> H2O2 + O = OH + HO2         : ARRZ(1.4d-12, 2000.0d0); // k = 1.40E-12 exp(-2000/T) 1.70E-15
+
+<24> NO + NO + O2 = 2*NO2        : ARRZ(4.25d-39,-663.5d0); // k = 4.25E-39 exp(664/T) 3.95E-38
+
+<25> NO + HO2 = OH + NO2         : ARRZ(3.45d-12,-270.0d0); // k = 3.45E-12 exp(270/T) 8.54E-12
+
+<26> NO2 + O3 = NO3              : ARRZ(1.40d-13,2470.0d0); //k = 1.40E-13 exp(-2470/T) 3.52E-17
+
+<27> NO3 + hv = NO2 + O          : photoarr(pd_no3_no2_o); // Photolysis 1.56E-1
+
+<28> NO3 + hv = NO {+O2}         : photoarr(pd_no3_no_o2); // Photolysis 1.98E-2
+
+<29> NO3 + NO = 2*NO2            : ARRZ(1.8d-11,-110.0d0); // k = 1.80E-11 exp(110/T) 2.60E-11
+
+{30: JPL notes that this reaction is not "firmly established", maybe rather thru N2O5. IUPAC doesn't list}
+<30> NO3 + NO2 = NO + NO2        : ARRZ(4.5d-14,1260.0d0); // k = 4.50E-14 exp(-1260/T) 6.56E-16
+
+<31> NO3 + OH = HO2 + NO2        : 2.0d-11; // k = 2.00E-11 2.00E-11
+
+// RH NOTE: CB05: product is only HNO3: Should also produce OH+NO2 which should be dominant. Using FinROSE branching 0.85 and 0.15. 
+// 32: NO3 + HO2 = 0.85 OH + 0.85 NO2 + 0.15*HNO3 {+O2} : 4.0e-12 ; {RH2017: IUPAC}
+<32> NO3 + HO2 = OH + NO2 {+O2}  :  4.0e-12; // k = 4.00E-12 4.00E-12
+
+<33> NO3 + NO3 = 2*NO2 {+O2}     : ARRZ(8.5d-13, 2450d0); // k = 8.50E-13 exp(-2450/T) 2.28E-16
+
+<34> NO3 + NO2 = N2O5            :  k3rd_iup_pow(3.6d-30, 4.1d0, 1.9d-12, -0.2d0, 0.35d0);
+// Falloff: F=0.35; n=1.33, k(0) = 3.60E-30 (T/300)^-4.1, k(inf) = 1.90E-12 (T/300)^0.2 1.24E-12
+
+<35> N2O5 = NO3 + NO2 {+M}       : k3rd_iup_exp(1.3d-3, 3.5d0, 11000.0d0, 9.7d14, -0.1d0, 11080.0d0,0.35d0);
+// Falloff: F=0.35; n=1.33, k(0) = 1.30E-3 (T/300)^-3.5 exp(-11000/T), k(inf) = 9.70E+14 (T/300)^0.1 exp(-11080/T) 4.46E-2
+
+<36> N2O5 + hv = NO2 + NO3       : photoarr(pd_n2o5); // Photolysis 2.52E-5
+
+<37> N2O5 + H2O = 2*HNO3         : 1.0E-22; // k = 1.00E-22 1.00E-22
+
+<38> NO + OH {+ M} = HONO        : k3rd_iup_pow(7.4d-31, 2.4d0, 3.3d-11, 0.3d0, 0.81d0);
+// Falloff: F=0.81; n=0.87, k(0) = 7.40E-31 (T/300)^-2.4, k(inf) = 3.30E-11 (T/300)^-0.3 9.77E-12
+
+<39> HONO + hv = NO + OH          : photoarr(pd_hono); // Photolysis 1.04E-3
+
+<40> HONO + OH = NO2 {+H2O}      : ARRZ(2.5d-12,-260.0d0); // k = 2.50E-12 exp(260/T) 5.98E-12
+
+<41> NO2 + OH {+ M} = HNO3 {+M}  : k3rd_iup_pow(3.2d-30, 4.5d0, 3.0d-11, 0.0d0, 0.41d0);  {RH2017: IUPAC}
+// Falloff: F=0.6; n=1, k(0) = 1.80E-30 (T/300)^-3, k(inf) = 2.80E-11 1.06E-11
+
+<42> NO2 + OH + H2O = HNO3 + H2O : 1.10E-30; // k = 1.10E-30 1.10E-30
+
+<43> HNO3 + OH  {+ M} = NO3 {+H20+M} : ksum(2.4d-14, -460.0d0, 6.5d-34, -1335.0d0, 2.7d-17, -2199.0d0);
+// k = k1 + k3 [M] / (1 + k3 [M] / k2)
+// k1 = 2.40E-14 exp(460/T)
+// k2 = 2.70E-17 exp(2199/T)
+// k3 = 6.50E-34 exp(1335/T) 1.54E-13
+
+<44> HNO3 + hv = OH + NO2        : photoarr(pd_hno3); // Photolysis 2.54E-7
+
+<45> NO2 + HO2 {+ M} = PNA {+M}  : k3rd_iup_pow(1.4d-31, 3.1d0, 4.0d-12, 0.0d0, 0.4d0);
+// Falloff: F=0.4; n=1.26, k(0) = 1.40E-31 (T/300)^-3.1, k(inf) = 4.00E-12 7.50E-13
+
+<46> PNA {+ M} = HO2 + NO2 {+ M} : k3rd_iup_exp(4.1d-5, 0.0d0, 10650.0d0, 6.0d15, 0.0d0, 11170.0d0, 0.4d0);
+// Falloff: F=0.4; n=1.26, k(0) = 4.10E-5 exp(-10650/T), k(inf) = 6.00E+15 exp(-11170/T) 6.20E-2
+
+// <47> PNA = 0.59 HO2 + 0.59 NO2 + 0.41 OH + 0.41 NO3 Photolysis 2.36E-6
+<47a> PNA + hv = HO2 + NO2       : photoarr(pd_ho2no2) ;
+<47b> PNA + hv = OH + NO3        : photoarr(pd_ho2no2_oh_no3) ;
+
+<48> PNA + OH = NO2              : ARRZ(3.2d-13,-690.0d0); // k = 3.20E-13 exp(690/T) 3.24E-12
+
+//<49> H2 + OH = HO2             : ARRZ(7.7d-12, 2100d0); // k = 7.70E-12 exp(-2100/T) 6.70E-15  RH-NOTE: here assumed H+O2->HO2
+<49> H2 + OH = H {+H2O}          : ARRZ(7.7d-12, 2100d0); // k = 7.70E-12 exp(-2100/T) 6.70E-15  RH-NOTE: here H explicitely
+
+//RH-NOTE: CHECK rate!!
+<50> CO + OH = HO2 {+CO2}        : 1.5E-13 + k3rd_jpl_pow(5.9d-33, 1.0d0, 1.1d-12, -1.3d0);
+// k = k1 + k2 [M], k1 = 1.44E-13, k2 = 3.43E-33  2.28E-13
+
+//RH-NOTE: CHECK if needed (should be in sulphur chemistry!!)
+//<51> SO2 + OH {+M} = SULF + HO2 {+M} : k3rd_iup_pow(2.8d-31, 2.6d0, 2.0d-12, 0.0d0, 0.53d0);
+// FIX-SULF <51> SO2 + OH {+M} = H2SO4 + HO2 {+M} : k3rd_iup_pow(2.8d-31, 2.6d0, 2.0d-12, 0.0d0, 0.53d0);
+// Falloff: F=0.53; n=1.1, k(0) = 2.80E-31 (T/300)^-2.6, k(inf) = 2.00E-12 9.35E-13
+
+//RH-NOTE: CHECK if needed (might be in sulphur chemistry!!)
+//<52> SO2 = SULF : 0d0;  // k = 0.00E+0 0.00E+0
+// FIX-SULF <52> SO2 = H2SO4 : 0d0; // k = 0.00E+0 0.00E+0
+
+// FIX-SULF <53> DMS + OH = SO2 + HCHO + MEO2 : ARRZ(1.12d-11, 250d0); // k = 1.12E-11 exp(-250/T) 4.84E-12
+
+//<54> DMS + OH + O2 = SULF + MEO2  : ARRZ(1.28d-37, -4480d0); // k = 1.28E-37 exp(4480/T) 4.33E-31
+// FIX-SULF <54> DMS + OH + O2 = H2SO4 + MEO2  : ARRZ(1.28d-37, -4480d0); // k = 1.28E-37 exp(4480/T) 4.33E-31
+
+// FIX-SULF <55> DMS + NO3 = SO2 + HCHO + MEO2 + HNO3 : ARRZ(1.9d-13, -520d0); // k = 1.90E-13 exp(520/T) 1.09E-12
+
+<56> C2O3 + NO = NO2 + MEO2 + RO2 : ARRZ(7.5d-12,-290.0d0); //k = 7.50E-12 exp(290/T) 1.98E-11
+
+<57> C2O3 + NO2 {+M} = PAN {+M}   : k3rd_iup_pow(3.28d-28, 6.87d0, 1.125d-11, 1.105d0, 0.3d0); {RH2018: IUPAC}
+// Falloff: F=0.3; n=1.41, k(0) = 3.61E-28 (T/300)^-6.87, k(inf) = 1.24E-11 (T/300)^-1.105 9.86E-12
+
+<58> PAN {+M} = NO2 + C2O3 {+M}   : k3rd_iup_exp(1.1d-5, 0.0d0, 10100.0d0, 1.9d17, 0.0d0, 14100.0d0, 0.3d0);
+// Falloff: F=0.3; n=1.41, k(0) = 1.10E-5 exp(-10100/T), k(inf) = 1.90E+17 exp(-14100/T) 4.31E-4
+
+<59> PAN + hv = 0.6*NO2 + 0.6*C2O3 + 0.4*NO3 + 0.4*MEO2 + 0.4*RO2  : photoarr(pd_pan); // Photolysis 3.47E-7
+
+<60> C2O3 + HO2 = 0.37*PACD + 0.13*AACD + 0.13*O3 + 0.5*OH + 0.5*MEO2 + 0.5*RO2 : ARRZ(3.14d-12,-580.0d0);
+// k = 3.14E-12 exp(580/T) 2.20E-11 RH-NOTE: OLD SILAM-CB05 rate: ARRZ(5.2d-13,-980.0d0) ;
+
+<61> C2O3 + RO2 = 0.3*AACD + 0.7*MEO2 + 1.7*RO2 : ARRZ(4.4d-13,-1070.0d0);
+// k = 4.40E-13 exp(1070/T) 1.60E-11
+
+<62> C2O3 + C2O3 = 2*MEO2 + 2*RO2 : ARRZ(2.9d-12,-500.0d0); // k = 2.90E-12 exp(500/T) 1.55E-11
+
+<63> CXO3 + NO = NO2 + 0.5*ALD2 + XO2H + RO2 : ARRZ(6.7d-12,-340.0d0); // k = 6.70E-12 exp(340/T) 2.10E-11
+
+<64> CXO3 + NO2 = PANX : 1.19d0*k3rd_iup_pow(3.28d-28, 6.87d0, 1.125d-11, 1.105d0, 0.3d0); // 1.19 times the rate of C2O3+NO2
+//k = k(ref) K, k(ref) = k(57), K = 1.19E+0, 8.28E-12
+
+<65> PANX = NO2 + CXO3 : 1.19d0*k3rd_iup_exp(1.1d-5, 0.0d0, 10100.0d0, 1.9d17, 0.0d0, 14100.0d0, 0.3d0);
+// k = k(ref) K, k(ref) = k(58), K = 1.19E+0, 3.62E-4
+
+<66> PANX + OH = 0.5 ALD2 + NO2 : 3.00d-12;  // k = 3.00E-12 3.00E-12
+
+<67> CXO3 + HO2 = 0.19*PACD + 0.06*AACD + 0.25*ALD2 + 0.06*O3 + 0.25*OH + 0.25*HO2 : ARRZ(3.14d-12,-580.0d0); // same rate as C2O3+HO2
+// k = k(ref) K, k(ref) = k(60), K = 1.00E+0 2.20E-11
+
+<68> CXO3 + RO2 = 0.35 ALD2 + 0.15 AACD + 0.35 HO2 + RO2 : ARRZ(4.4d-13,-1070.0d0); // same rate as C2O3+RO2
+// k = k(ref) K, k(ref) = k(61), K = 1.00E+0, 1.60E-11
+
+<69> OPO3 + NO = NO2 + 0.5 GLY + 0.5 CO + 0.8 HO2 + 0.2 CXO3 : ARRZ(6.7d-12,-340.0d0); // same rate as CXO3+NO
+// k = k(ref) K, k(ref) = k(63), K = 1.00E+0, 2.10E-11
+
+<70> OPO3 + NO2 = OPAN : 1.19d0*k3rd_iup_pow(3.28d-28, 6.87d0, 1.125d-11, 1.105d0, 0.3d0); // same rate as CXO3 + NO2
+// k = k(ref) K, k(ref) = k(64), K = 1.00E+0, 8.28E-12
+
+<71> OPAN = OPO3 + NO2 : 1.19d0*k3rd_iup_exp(1.1d-5, 0.0d0, 10100.0d0, 1.9d17, 0.0d0, 14100.0d0, 0.3d0); // same rate as PANX
+// k = k(ref) K, k(ref) = k(65), K = 1.00E+0 3.62E-4
+
+<72> OPAN + OH = 0.5*NO2 + 0.5*NTR2 + 0.5*GLY + CO : 3.60d-11; // k = 3.60E-11 3.60E-11
+
+<73> OPO3 + HO2 = 0.37*PACD + 0.13*AACD + 0.13*O3 + 0.5*OH + 0.5*MEO2 + 0.5*RO2 : ARRZ(3.14d-12,-580.0d0); // same rate as C2O3 + HO2
+// k = k(ref) K, k(ref) = k(60), K = 1.00E+0, 2.20E-11
+
+<74> OPO3 + RO2 = 0.7*ALDX + 0.3*AACD + 0.7*XO2H + 1.7*RO2 : ARRZ(4.4d-13,-1070.0d0); // same rate as C2O3 + RO2
+// k = k(ref) K, k(ref) = k(61), K = 1.00E+0, 1.60E-11
+
+<75> RO2 + NO = NO : ARRZ(2.7d-12,-360.0d0); // k = 2.70E-12 exp(360/T) 9.04E-12
+
+<76> RO2 + HO2 = HO2 : ARRZ(2.12d-13,-1300.0d0); // k = 2.12E-13 exp(1300/T) 1.66E-11
+
+<77> RO2 + RO2 = PROD : ARRZ(1.55d-13,-350.0d0); // k = 1.55E-13 exp(350/T) 5.00E-13
+
+<78> MEO2 + NO = HCHO + HO2 + NO2 : ARRZ(2.3d-12,-360.0d0); 
+// k = 2.30E-12 exp(360/T) 7.70E-12  RH-NOTE: CB05 rate: ARRZ(2.8d-12,-300.0d0);
+
+<79> MEO2 + HO2 = 0.9*MEPX + 0.1*HCHO:  ARRZ(3.8d-13,-780.0d0);
+//k = 3.80E-13 exp(780/T) 5.21E-12
+
+<80> MEO2 + C2O3 = HCHO + 0.9*HO2 + 0.9*MEO2 + 0.1*AACD + 0.9*RO2 : ARRZ(2.0d-12,-500.0d0);
+//k = 2.00E-12 exp(500/T) 1.07E-11
+
+<81> MEO2 + RO2 = 0.685*HCHO + 0.315*MEOH + 0.37*HO2 + RO2 : ARRZ(1.55d-13,-350.0d0); // same rate as RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 1.00E+0 5.00E-13
+
+<82> MEPX + OH = 0.6*MEO2 + 0.6*RO2 + 0.4*HCHO + 0.4*OH  : ARRZ(5.3d-12,-190.0d0);
+// k = 5.30E-12 exp(190/T) 1.00E-11
+
+<83> MEPX + hv = MEO2 + RO2 + OH : photoarr(pd_ch3ooh);              //RH NOTE: photorate of CH3OOH // Photolysis 2.68E-6
+
+<84> XO2H + NO = NO2 + HO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<85> XO2H + HO2 = ROOH : ARRZ(2.12d-13,-1300.0d0);
+// k = 2.12E-13 exp(1300/T) 1.67E-11
+
+<86> XO2H + RO2 = 0.6 HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2 
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<87> XO2 + NO = NO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<88> XO2 + HO2 = ROOH : ARRZ(2.12d-13,-1300.0d0); // same rate as XO2H + HO2
+// k = k(ref) K, k(ref) = k(85), K = 1.00E+0, 1.67E-11
+
+<89> XO2 + RO2 = RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0, 2.50E-13
+
+<90> XO2N + NO = 0.5*NTR1 + 0.5*NTR2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0, 9.04E-12
+
+<91> XO2N + HO2 = ROOH : ARRZ(2.12d-13,-1300.0d0); // same rate as XO2H + HO2
+// k = k(ref) K, k(ref) = k(85), K = 1.00E+0, 1.67E-11
+
+<92> XO2N + RO2 = RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<93> ROOH + OH = 0.56*XO2H + 0.04*XO2N + 0.6*RO2 + 0.4*OH : ARRZ(5.3d-12,-190.0d0);
+// k = 5.30E-12 exp(190/T) 1.00E-11
+
+<94> ROOH + hv = HO2 + OH : photoarr(pd_ch3ooh); // Photolysis 2.68E-6
+
+<95> NTR1 + OH = NO2 : 2.00d-12; // k = 2.00E-12 2.00E-12
+
+<96> NTR1 + hv = NO2 : photoarr(pd_c3h7ono2); // Photolysis 1.06E-6
+
+<97> NTR2 = HNO3 : 2.30d-5; // k = 2.30E-5 2.30E-5
+
+<98> MEOH + OH = HCHO + HO2 : ARRZ(2.85d-12,345.0d0);
+// k = 2.85E-12 exp(-345/T) 8.95E-13
+
+<99> ETOH + OH = 0.95*ALD2 + 0.9*HO2 + 0.1*XO2H + 0.1*RO2 + 0.078*HCHO + 0.011*GLYD : ARRZ(3.0d-12,-20.0d0);
+// k = 3.00E-12 exp(20/T) 3.21E-12
+
+<100> HCHO + OH = HO2 + CO : ARRZ(5.4d-12,-135.0d0);
+// k = 5.40E-12 exp(135/T) 8.49E-12
+
+//<101> HCHO + hv = 2*HO2 + CO : photoarr(pd_hcho_2h); // Photolysis 1.69E-5
+<101> HCHO + hv = HO2 + H + CO : photoarr(pd_hcho_2h); // Photolysis 1.69E-5  // RH-NOTE: here H explicitely
+
+<102> HCHO + hv = CO {+H2} : photoarr(pd_hcho_h2); // Photolysis 2.69E-5
+
+<103> HCHO + NO3 = HNO3 + HO2 + CO : 5.5E-16 ;
+// k = 5.50E-16 5.50E-16
+
+<104> ALD2 + OH = C2O3 : ARRZ(4.7d-12,-345.0d0);
+// k = 4.70E-12 exp(345/T) 1.50E-11
+
+<105> ALD2 + NO3 = C2O3 + HNO3 : ARRZ(1.4d-12,1860.0d0);
+// k = 1.40E-12 exp(-1860/T) 2.73E-15
+
+<106> ALD2 + hv {+2*O2} = MEO2 + RO2 + CO + HO2 : photoarr(pd_ald2); // Photolysis 1.96E-6
+
+<107> ALDX + OH = CXO3 : ARRZ(4.9d-12,-405.0d0);
+// k = 4.90E-12 exp(405/T) 1.91E-11
+
+<108> ALDX + NO3 = CXO3 + HNO3 : 6.3d-15;
+// k = 6.30E-15 6.30E-15
+
+<109> ALDX + hv = ALD2 + XO2H + RO2 + CO + HO2 : photoarr(pd_c2h5cho); // Photolysis 2.62E-5
+
+<110> GLYD + OH = 0.2*GLY + 0.2*HO2 + 0.8*C2O3 : 8.00d-12;
+// k = 8.00E-12 8.00E-12
+
+// RH-NOTE: Check the photolysis:
+<111> GLYD + hv = 0.74*HCHO + 0.89*CO + 1.4*HO2 + 0.15*MEOH + 0.19*OH + 0.11*GLY + 0.11*XO2H + 0.11*RO2 : photoarr(pd_glyd);
+// Photolysis 2.76E-6
+
+<112> GLYD + NO3 = HNO3 + C2O3 : ARRZ(1.4d-12,1860.0d0); // same rate as ALD2 + NO3
+// k = k(ref) K, k(ref) = k(105), K = 1.00E+0, 2.73E-15
+
+<113> GLY + OH = 1.8*CO + 0.2*XO2 + 0.2*RO2 + HO2 : ARRZ(3.1d-12,-340.0d0);
+// k = 3.10E-12 exp(340/T) 9.70E-12
+
+// RH-NOTE: Check the photolysis: In principle glyoxal has several outputs with different quantum yields 1:HCO+HCO, 2:H2+2*CO, 3:H2CO+CO
+<114> GLY + hv = 2 HO2 + 2 CO : photoarr(pd_gly);
+// Photolysis 7.95E-5
+
+<115> GLY + NO3 = HNO3 + 1.5*CO + 0.5*XO2 + 0.5*RO2 + HO2 : 4.0d-16;
+// k = 4.00E-16 4.00E-16
+
+<116> MGLY + hv = C2O3 + HO2 + CO : photoarr(pd_mgly); // Photolysis 1.46E-4
+
+<117> MGLY + NO3 = HNO3 + C2O3 + XO2 + RO2 : 5.0d-16;
+// k = 5.00E-16 5.00E-16
+
+<118> MGLY + OH = C2O3 + CO : ARRZ(1.9d-12,-575.0d0);
+// k = 1.90E-12 exp(575/T) 1.31E-11
+
+// RH-NOTE: Check the photolysis:
+<119> ACET + hv = 0.38*CO + 1.38*MEO2 + 1.38*RO2 + 0.62*C2O3 : photoarr(pd_acet);
+// Photolysis 2.08E-7
+
+<120> ACET + OH = HCHO + C2O3 + XO2 + RO2 : ARRZ(1.41d-12,620.6d0);
+// k = 1.41E-12 exp(-620.6/T) 1.76E-13
+
+// RH-NOTE: Check the photolysis: Taking the methyl ethyl ketone, MEK value as a sample ketone!?!?
+//<121> KET + hv  = 0.15*HCHO + 0.58*ALD2 + 0.34*ALDX + 0.96*HO2 + 0.7*C2O3 + 0.3*CXO3 + 1.3*XO2 + 0.03*XO2N + 1.33*RO2 - 3.0*PAR : photoarr(pd_mek);
+<121> KET7 + hv = 0.15*HCHO + 0.58*ALD2 + 0.34*ALDX + 0.96*HO2 + 0.7*C2O3 + 0.3*CXO3 + 1.3*XO2 + 0.03*XO2N + 1.33*RO2 : photoarr(pd_mek); {PAR-OLE tweaked equation}
+// Photolysis 2.27E-7
+
+//<122> KET + OH = 0.06*KET + 0.15*HCHO + 0.29*ALD2 + 0.46*ALDX + 0.61*HO2 + 0.27*C2O3 + 0.06*CXO3 + 0.72*XO2 + 0.04*XO2N + 0.76*RO2 - 1.38*PAR : 1.0d-12;
+<122> KET7 + OH = 0.06*KET7 + 0.15*HCHO + 0.29*ALD2 + 0.46*ALDX + 0.61*HO2 + 0.27*C2O3 + 0.06*CXO3 + 0.72*XO2 + 0.04*XO2N + 0.76*RO2 + 1.44*PAR7 : 1.0d-12; {PAR-OLE tweaked equation}
+// k = 1.00E-12 1.00E-12
+
+<123> HACT + OH = MGLY + HO2 : ARRZ(2.0d-12,-320.0d0);
+// k = 2.00E-12 exp(320/T) 5.85E-12
+
+//<124> FACD + OH = HO2 {+H2O+CO2} : 4.5d-13;
+<124> FACD + OH = H {+H2O+CO2} : 4.5d-13; //RH-NOTE: here H explicitely
+// k = 4.50E-13 4.50E-13
+
+<125> AACD + OH = MEO2 + RO2 : ARRZ(4.0d-14,-850.0d0);
+// k = 4.00E-14 exp(850/T) 6.93E-13
+
+<126> PACD + OH = C2O3 : ARRZ(5.3d-12,-190.0d0);
+// k = 5.30E-12 exp(190/T) 1.00E-11
+
+<127> CH4 + OH = MEO2 + RO2 : ARRZ(1.85d-12, 1690.0d0);
+// k = 1.85E-12 exp(-1690/T) 6.37E-15
+
+<128> ECH4 + OH = MEO2 + RO2 : ARRZ(1.85d-12, 1690.0d0);
+// k = 1.85E-12 exp(-1690/T) 6.37E-15
+
+<129> ETHA + OH = 0.991*ALD2 + 0.991*XO2H + 0.009*XO2N + RO2 : ARRZ(6.9d-12,1000.0d0);
+// k = 6.90E-12 exp(-1000/T) 2.41E-13
+
+<130> PRPA + OH = XPRP : ARRZ(7.6d-12,585.0d0);
+// k = 7.60E-12 exp(-585/T) 1.07E-12
+
+// RH-NOTE: Check rate (298K vs 300K etc)
+<131> XPRP = XO2N + RO2 : k3rd_iup_pow(2.37d-21, 0d0, 4.3d-1, 8.0d0, 0.41d0); {RH2018: IUPAC}
+// Falloff: F=0.41; n=1, k(0) = 2.37E-21, k(inf) = 4.30E-1 (T/298)^-8, 3.09E-2
+
+// RH-NOTE: Check rate!!
+<132> XPRP = 0.732*ACET + 0.268*ALDX + 0.268*PAR7 + XO2H + RO2 : 1.0d0;
+// k = 1.00E+0 1.00E+0
+
+// k3rd_iup_exp(k0_300K, n, b1, kinf_300K, m, b2, fc)
+// k3rd_iup_exp(k0_300K, n, b1, 3.09d-13, -2.0d0, -300.0d0, fc)
+//<133> PAR + OH = XPAR : 3.09d-13*(temp_dp/300.0d0)**2 * exp(300.0d0/temp_dp)
+<133> PAR7 + OH = XPAR7 - 3.0*PAR7: 3.09d-13*(temp_dp/300.0d0)**2 * exp(300.0d0/temp_dp); {PAR-OLE tweaked equation}
+// k = 3.09E-13 (T/300)^2 exp(300/T) 8.34E-13
+
+// RH-NOTE: Check rate (298K vs 300K etc)
+//<134> XPAR = XO2N + RO2 - 3.0*PAR : k3rd_iup_pow(4.81d-20, 0d0, 4.3d-1, 8.0d0, 0.41d0);
+<134> XPAR7 = XO2N + RO2 : k3rd_iup_pow(4.81d-20, 0d0, 4.3d-1, 8.0d0, 0.41d0); {PAR-OLE tweaked equation}
+// Falloff: F=0.41; n=1, k(0) = 4.81E-20, k(inf) = 4.30E-1 (T/298)^-8, 1.49E-1
+
+//<135> XPAR = 0.87*ROR + 0.13*ALDX + 0.13*XO2H + 0.13*RO2 - 0.13*PAR : 1.0d0;
+//<135> XPAR7 = 0.87*ROR + 0.13*ALDX + 0.13*XO2H + 0.13*RO2 + 2.87*PAR : 1.0d0; {PAR-OLE tweaked equation}
+<135> XPAR7 = 0.87*ROR7 + 0.13*ALDX + 0.13*XO2H + 0.13*RO2 + 0.3905*PAR7 : 1.0d0; {PAR-OLE tweaked equation}
+// k = 1.00E+0 1.00E+0
+
+// RH-NOTE: Check rate!!
+//<136> ROR = 0.32*ACET + 0.3*KET + 0.04*HCHO + 0.46*ALD2 + 0.1*ALDX + 0.62*HO2 + 0.11*MEO2 + 1.75*XO2 + 0.25*XO2H + 0.02*XO2N + 2.13*RO2 - 1.63*PAR : k3rd_iup_exp(5.0d-15, 0.0, 250.0d0, 2.4d12, 0.0d0, 5000.0d0, 0.6);
+//<136> ROR = 0.32*ACET + 0.3*KET7 + 0.04*HCHO + 0.46*ALD2 + 0.1*ALDX + 0.62*HO2 + 0.11*MEO2 + 1.75*XO2 + 0.25*XO2H + 0.02*XO2N + 2.13*RO2 - 2.53*PAR : k3rd_iup_exp(5.0d-15, 0.0, 250.0d0, 2.4d12, 0.0d0, 5000.0d0, 0.6); {PAR-OLE tweaked equation}
+<136> ROR7 = 0.32*ACET + 0.3*KET7 + 0.04*HCHO + 0.46*ALD2 + 0.1*ALDX + 0.62*HO2 + 0.11*MEO2 + 1.75*XO2 + 0.25*XO2H + 0.02*XO2N + 2.13*RO2 + 0.32*PAR7 : k3rd_iup_exp(5.0d-15, 0.0d0, 250.0d0, 2.4d12, 0.0d0, 5000.0d0, 0.6d0); {PAR-OLE tweaked equation}
+// k = k1 + k2 [M], k1 = 2.40E+12 exp(-5000/T), k2 = 5.00E-15 exp(-250/T), 1.77E+5
+
+//<137> ROR + O2 = 0.15*ACET + 0.85*KET + HO2 - 0.3*PAR : ARRZ(2.00d-14, 250.0d0);
+//<137> ROR + O2 = 0.15*ACET + 0.85*KET7 + HO2 - 2.85*PAR : ARRZ(2.00d-14, 250.0d0); {PAR-OLE tweaked equation}
+<137> ROR7 + O2 = 0.15*ACET + 0.85*KET7 + HO2 : ARRZ(2.00d-14, 250.0d0); {PAR-OLE tweaked equation}
+// k = 2.00E-14 exp(-250/T) 8.64E-15
+
+<138> ETHY + OH = 0.7*GLY + 0.7*OH + 0.3*FACD + 0.3*CO + 0.3*HO2: k3rd_iup_pow(5.00d-30, 1.5d0, 1.0d-12, 0.0d0, 0.37d0);
+// Falloff: F=0.37; n=1.3, k(0) = 5.00E-30 (T/300)^-1.5, k(inf) = 1.00E-12, 7.52E-13
+
+<139> ETH + OH = XO2H + RO2 + 1.56*HCHO + 0.22*GLYD : k3rd_iup_pow(8.6d-29, 3.1d0, 9.0d-12, 0.85d0, 0.48d0);
+// Falloff: F=0.48; n=1.15, k(0) = 8.60E-29 (T/300)^-3.1, k(inf) = 9.00E-12 (T/300)^-0.85 7.84E-12
+
+<140> ETH + O3 = HCHO + 0.35*CO + 0.27*HO2 + 0.17*OH + 0.42*FACD : ARRZ(6.82d-15, 2500.0d0);
+// k = 6.82E-15 exp(-2500/T) 1.55E-18
+
+<141> ETH + NO3 = 0.5*NO2 + 0.5*NTR1 + 0.5*XO2H + 0.5*XO2 + RO2 + 1.125*HCHO : ARRZ(3.3d-12,2880.0d0);
+// k = 3.30E-12 exp(-2880/T) 2.10E-16
+
+//<142> OLE + OH = 0.781*HCHO + 0.488*ALD2 + 0.488*ALDX + 0.976*XO2H + 0.195*XO2 + 0.024*XO2N + 1.195*RO2 - 0.73*PAR : k3rd_iup_pow(8.0d-27, 3.5d0, 3.0d-11, 1.0d0, 0.5d0);
+<142> OLE7 + OH = 0.781*HCHO + 0.488*ALD2 + 0.488*ALDX + 0.976*XO2H + 0.195*XO2 + 0.024*XO2N + 1.195*RO2 + 0.27*PAR7 : k3rd_iup_pow(8.0d-27, 3.5d0, 3.0d-11, 1.0d0, 0.5d0); {PAR-OLE tweaked equation}
+// Falloff: F=0.5; n=1.13, k(0) = 8.00E-27 (T/300)^-3.5, k(inf) = 3.00E-11 (T/300)^-1, 2.86E-11
+
+//<143> OLE + O3 = 0.295*ALD2 + 0.555*HCHO + 0.27*ALDX + 0.15*XO2H + 0.15*RO2 + 0.334 OH + 0.08*HO2 + 0.378*CO + 0.075*GLY + 0.075*MGLY + 0.09*FACD + 0.13*AACD + 0.04*H2O2 - 0.79*PAR : ARRZ(5.77d-15,1880.0d0);
+<143> OLE7 + O3 = 0.295*ALD2 + 0.555*HCHO + 0.27*ALDX + 0.15*XO2H + 0.15*RO2 + 0.334 OH + 0.08*HO2 + 0.378*CO + 0.075*GLY + 0.075*MGLY + 0.09*FACD + 0.13*AACD + 0.04*H2O2 + 0.21*PAR7 : ARRZ(5.77d-15,1880.0d0); {PAR-OLE tweaked equation}
+// k = 5.50E-15 exp(-1880/T) 1.00E-17
+
+//<144> OLE + NO3 = 0.5*NO2 + 0.5*NTR1 + 0.48*XO2 + 0.48*XO2H + 0.04*XO2N + RO2 + 0.5*HCHO + 0.25*ALD2 + 0.375*ALDX - PAR : ARRZ(4.6d-13,1155.0d0);
+<144> OLE7 + NO3 = 0.5*NO2 + 0.5*NTR1 + 0.48*XO2 + 0.48*XO2H + 0.04*XO2N + RO2 + 0.5*HCHO + 0.25*ALD2 + 0.375*ALDX : ARRZ(4.6d-13,1155.0d0); {PAR-OLE tweaked equation}
+// k = 4.60E-13 exp(-1155/T) 9.54E-15
+
+<145> IOLE + OH = 1.3*ALD2 + 0.7*ALDX + XO2H + RO2 : ARRZ(1.05d-11,-519.0d0);
+// k = 1.05E-11 exp(519/T) 5.99E-11
+
+<146> IOLE + O3 = 0.732*ALD2 + 0.442*ALDX + 0.128*HCHO + 0.245*CO + 0.5*OH + 0.3*XO2H + 0.3*RO2 + 0.24*GLY + 0.06*MGLY + 0.29*PAR7 + 0.08*AACD + 0.08*H2O2 : ARRZ(4.7d-15,1013.0d0);
+// k = 4.70E-15 exp(-1013/T) 1.57E-16
+
+// RH-NOTE: Check if we want to use the rate used for SILAM's CB05???
+<147> IOLE + NO3 = 0.5*NO2 + 0.5*NTR1 + 0.48*XO2 + 0.48*XO2H + 0.04*XO2N + RO2 + 0.5*ALD2 + 0.625*ALDX + PAR7 : 3.7d-13;
+// k = 3.70E-13 3.70E-13
+
+<148> BENZENE + OH = 0.53*CRES + 0.352*BZO2 + 0.352*RO2 + 0.118*OPEN + 0.118*OH + 0.53*HO2 : ARRZ(2.30d-12, 190.0d0);
+// k = 2.30E-12 exp(-190/T) 1.22E-12
+
+<149> BZO2 + NO = 0.918*NO2 + 0.082*NTR2 + 0.918*GLY + 0.918*OPEN + 0.918*HO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<150> BZO2 + HO2 = ARPX : ARRZ(2.24d-13, -1300.0d0);
+// k = 2.24E-13 exp(1300/T) 1.76E-11
+
+<151> BZO2 + RO2 = GLY + OPEN + HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2 
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<152> TOL + OH = 0.18*CRES + 0.65*TO2 + 0.72*RO2 + 0.1*OPEN + 0.1*OH + 0.07*XO2H + 0.18*HO2 : ARRZ(1.8d-12,-340.0d0);
+// k = 1.80E-12 exp(340/T) 5.63E-12
+
+<153> TO2 + NO = 0.86*NO2 + 0.14*NTR2 + 0.417*GLY + 0.443*MGLY + 0.66*OPEN + 0.2*XOPN + 0.86*HO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<154> TO2 + HO2 = ARPX : ARRZ(2.39d-13,-1300.0d0);
+// k = 2.39E-13 exp(1300/T) 1.87E-11
+
+<155> TO2 + RO2 = 0.48*GLY + 0.52*MGLY + 0.77*OPEN + 0.23*XOPN + HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2 
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+// Using average for o-, m-, and p-xylene by Mehta et al J. Phys. Chem. A 113, 12942 (2009): k(o-xyl)=k(p-xyl)=1.19e-11, k(m-xyl)=2.14e-11
+<156> XYL + OH = 0.155*CRES + 0.544*XLO2 + 0.602*RO2 + 0.244*XOPN + 0.244*OH + 0.058*XO2H + 0.155*HO2 : 1.51d-11;
+//<156> XYL + OH = 0.155*CRES + 0.544*XLO2 + 0.602*RO2 + 0.244*XOPN + 0.244*OH + 0.058*XO2H + 0.155*HO2 : 1.85d-11; //CB7-value
+// k = 1.85E-11 1.85E-11
+
+<157> XLO2 + NO = 0.86*NO2 + 0.14*NTR2 + 0.221*GLY + 0.675*MGLY + 0.3*OPEN + 0.56*XOPN + 0.86*HO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<158> XLO2 + HO2 = ARPX : ARRZ(2.50d-13, -1300.0d0);
+// k = 2.50E-13 exp(1300/T) 1.96E-11
+
+<159> XLO2 + RO2 = 0.26 GLY + 0.77 MGLY + 0.35 OPEN + 0.65 XOPN + HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0, 2.50E-13
+
+//RH-NOTE: Check photolysis: Currently using the rate used in CB05, which uses the CB06 suggestion to take the photorate as 0.028*J_NO2!!
+// <160> OPEN + hv = OPO3 + HO2 + CO : photoarr(pd_open); // Photolysis 5.04E-4
+<160> OPEN + hv = OPO3 + HO2 + CO : 0.028*photoarr(pd_no2); // Photolysis 5.04E-4
+
+<161> OPEN + OH = 0.6*OPO3 + 0.4*XO2H + 0.4*RO2 + 0.4*GLY : 4.4d-11;
+// k = 4.40E-11 4.40E-11
+
+<162> OPEN + O3 = 1.4*GLY + 0.24*MGLY + 0.5*OH + 0.12*C2O3 + 0.08*HCHO + 0.02*ALD2 + 1.98*CO + 0.56*HO2 : ARRZ(5.4d-17,500.0d0);
+// k = 5.40E-17 exp(-500/T) 1.01E-17
+
+<163> OPEN + NO3 = OPO3 + HNO3 : 3.80d-12; 
+// k = 3.80E-12 3.80E-12
+
+// RH-NOTE: Check photorate! Using the photorate for 4-oxo-2-pentenal, CH3C(O)CH=CHC(O)H (Unsaturated 1,4-dicarbonyl)
+<164> XOPN + hv = 0.4*GLY + XO2H + 0.7*HO2 + 0.7*CO + 0.3*C2O3 : photoarr(pd_c5h6o2); // Photolysis 5.04E-4
+
+<165> XOPN + OH = MGLY + 0.4*GLY + 2*XO2H + 2*RO2 : 9.00d-11;
+// k = 9.00E-11 9.00E-11
+
+<166> XOPN + O3 = 1.2*MGLY + 0.5*OH + 0.6*C2O3 + 0.1*ALD2 + 0.5*CO + 0.3*XO2H + 0.3*RO2 : ARRZ(1.08d-16,500.0d0);
+// k = 1.08E-16 exp(-500/T) 2.02E-17
+
+<167> XOPN + NO3 = 0.5*NO2 + 0.5*NTR2 + 0.45*XO2H + 0.45*XO2 + 0.1*XO2N + RO2 + 0.25*OPEN + 0.25*MGLY : 3.00d-12;
+// k = 3.00E-12 3.00E-12
+
+<168> CRES + OH = 0.025*GLY + 0.025*OPEN + HO2 + 0.2*CRO + 0.732*CAT1 + 0.02*XO2N + 0.02*RO2 : ARRZ(1.70d-12,-950.0d0);
+// k = 1.70E-12 exp(950/T) 4.12E-11
+
+<169> CRES + NO3 = 0.3*CRO + HNO3 + 0.48*XO2 + 0.12*XO2H + 0.24*GLY + 0.24*MGLY + 0.48*OPO3 + 0.1*XO2N + 0.7*RO2 : 1.40d-11;
+// k = 1.40E-11 1.40E-11
+
+<170> CRO + NO2 = CRON : 2.10d-12;
+// k = 2.10E-12 2.10E-12
+
+<171> CRO + HO2 = CRES : 5.50d-12;
+// k = 5.50E-12 5.50E-12
+
+<172> CRON + OH = NTR2 + 0.5*CRO : 1.53d-12;
+// k = 1.53E-12 1.53E-12
+
+<173> CRON + NO3 = NTR2 + 0.5*CRO + HNO3 : 3.80d-12;
+// k = 3.80E-12 3.80E-12
+
+// RH-NOTE: Check the photolysis: Using 4-methyl-2-nitrophenol, p-CH3-o-C6H3(OH)(NO2).
+<174> CRON + hv = HONO + HO2 + HCHO + OPEN : photoarr(pd_cron); // Photolysis 9.45E-5
+
+<175> CAT1 + OH = 0.14*HCHO + 0.2*HO2 + 0.5*CRO : 5.00d-11;
+// k = 5.00E-11 5.00E-11
+
+<176> CAT1 + NO3 = CRO + HNO3 : 1.70d-10;
+// k = 1.70E-10 1.70E-10
+
+<177> ARPX + OH = 0.5*OH + 0.2*BZO2 + 0.15*TO2 + 0.15*XLO2 + 0.5*RO2 : 8.00d-11;
+// k = 8.00E-11 8.00E-11
+
+<178> C5H8 + OH = ISO2 + RO2 :  ARRZ(2.70d-11,-390.0d0);
+// k = 2.70E-11 exp(390/T) 9.99E-11
+
+<179> ISO2 + NO = 0.9*NO2 + 0.1*INTR + 0.9*HCHO + 0.9*ISPD + 0.9*HO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<180> ISO2 + HO2 = 0.94*ISPX + 0.06*HCHO + 0.06*ISPD + 0.06*OH + 0.06*HO2 : ARRZ(2.12d-13,-1300.0d0);
+// k = 2.12E-13 exp(1300/T) 1.66E-11
+
+<181> ISO2 + RO2 = ISPD + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<182> ISO2 = 0.4*HPLD + 0.1*ISPD + 0.1*GLY + 0.1*GLYD + CO + 1.7*OH + 0.35*HO2 : ARRZ(3.3d9,8300.0d0);
+// k = 3.30E+9 exp(-8300/T) 2.64E-3
+
+<183> C5H8 + O3 = 0.8*HCHO + 0.5*ISPD + 0.58*FACD + 0.5*CO + 0.28*OH + 0.5*HO2 + 0.4*MEO2 + 0.4*RO2 : ARRZ(1.05d-14, 2000.0d0); {Take rate from SOA}
+// <183> C5H8 + O3 = 0.8*HCHO + 0.5*ISPD + 0.58*FACD + 0.5*CO + 0.28*OH + 0.5*HO2 + 0.4*MEO2 + 0.4*RO2 : ARRZ(1.03d-14, 1995.0d0);
+// k = 1.03E-14 exp(-1995/T) 1.27E-17
+
+<184> C5H8 + NO3 = 0.25*NO2 + 0.75*NTR2 + 0.25*HCHO + 0.25*ISPD + 0.25*OH + 0.25*XO2 + 0.25*RO2 : ARRZ(2.95d-12,450.0d0);
+// k = 2.95E-12 exp(-450/T) 6.52E-13
+
+<185> ISPD + OH = 0.4*MGLY + 0.2*GLYD + 0.1*HCHO + CO + 0.1*OH + 0.1*HO2 + 0.1*OPO3 + 0.4*C2O3 : ARRZ(7.00d-12,-430.0d0);
+// k = 7.00E-12 exp(430/T) 2.96E-11
+
+<186> ISPD + NO3 = 0.9*NTR2 + 0.1*HNO3 + 0.1*CO + 0.1*C2O3 : ARRZ(3.94d-14,-475.0d0);
+// k = 3.94E-14 exp(475/T) 1.94E-13
+
+// RH-NOTE: Check the photolysis: Using the CBM05 document recommendation that rate is 0.0036 times the photorate of acrolein. 
+<187> ISPD + hv = 0.8*ISPD + 0.15*MGLY + 0.1*GLYD + 0.1*HCHO + 0.2*OH : 0.0036*photoarr(pd_ch2chcho); // Photolysis 1.60E-5
+
+<188> ISPX + OH = 0.6*EPOX + 0.2*MGLY + 0.2*HCHO + 0.2*ROOH + OH + 0.5*HO2 : ARRZ(2.80d-11,-370.0d0);
+// k = 2.80E-11 exp(370/T) 9.69E-11
+
+// RH-NOTE: Check the photolysis:
+//<189> HPLD + hv = 0.6*HPLD + 0.3*ISPD + 1.65*OH + 0.2*HO2 + 0.8*CO : photoarr(pd_hlpd); // Photolysis 4.41E-4
+// Table in CB7 report on page 38 (pdf-page 45) indicates that photolysis should be same as for reaction 187 (photolysis of ISPD)
+<189> HPLD + hv = 0.6*HPLD + 0.3*ISPD + 1.65*OH + 0.2*HO2 + 0.8*CO : 0.0036*photoarr(pd_ch2chcho); // Photolysis 4.41E-4
+
+<190> HPLD + OH = ISPD + 0.2*HCHO + 0.5*CO + 1.1*OH : ARRZ(1.17d-11,-450.0d0);
+// k = 1.17E-11 exp(450/T) 5.30E-11
+
+<191> EPOX + OH = 0.2*ISPD + 0.2*HO2 + 0.8*EPX2 + 0.8*RO2 : ARRZ(5.43d-11,450.0d0);
+// k = 5.43E-11 exp(-450/T) 1.20E-11
+
+<192> EPX2 + NO = 0.98*NO2 + 0.02*NTR2 + 0.7*MGLY + 0.7*GLYD + 0.2*GLY + 0.2*CO + 0.2*ISPD + 0.7*OH + HO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<193> EPX2 + HO2 = 0.3*ISPD + 0.3*MGLY + 0.1*GLY + 0.2*GLYD + 1.5*HCHO + ROOH + 0.2*CO + 1.7*OH + HO2 : ARRZ(2.38d-13,-1300.0d0);
+// k = 2.38E-13 exp(1300/T) 1.87E-11
+
+<194> EPX2 + RO2 = 0.6*MGLY + 0.5*GLY + 0.5*HCHO + 0.3*GLYD + 0.1*ISPD + 0.2*CO + 0.85*OH + HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<195> INTR + OH = 0.5*NO2 + 0.4*NTR2 + 0.1*INTR + 0.4*ISPD + 0.1*EPOX : ARRZ(1.34d-11,-410.0d0);
+// k = 1.34E-11 exp(410/T) 5.30E-11
+
+<196> APIN + OH = APO2 : ARRZ(1.00d-11,-300.0d0);
+// k = 1.00E-11 exp(300/T) 2.74E-11
+
+<197> APO2 + NO = 0.77*NO2 + 0.23*NTR2 + 0.21*HCHO + 0.09*ACET + 0.62*ISPD + 0.77*HO2 + 0.11*ROOH + 0.19*XO2N + 0.19*RO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0 9.04E-12
+
+<198> APO2 + HO2 = 0.08*HCHO + 0.06*ACET + 0.35*ISPD + 0.48*HO2 + 0.35*OH + 0.65 ROOH : ARRZ(2.60d-13,-1300.0d0);
+// k = 2.60E-13 exp(1300/T) 2.04E-11
+
+<199> APO2 + RO2 = 0.06*ACET + 0.87*ISPD + 0.5*HO2 + 0.13*ROOH + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<200> APIN + O3 = 0.27*HCHO + 0.22*ISPD + 0.22*H2O2 + 0.17*CO + 0.77*OH + 0.17*HO2 + 0.33*XO2 + 0.07*XO2N + 0.27*OPO3 + 0.4*RO2 : ARRZ(8.22d-16,640.0d0);
+// k = 8.22E-16 exp(-640/T) 9.60E-17
+
+<201> APIN + NO3 = 0.7*NO2 + 0.3*NTR2 + 0.7*ISPD + 0.7*OH + 0.7*HO2 : ARRZ(1.20d-12,-490.0d0);
+// k = 1.20E-12 exp(490/T) 6.21E-12
+
+<202> C5H8_2 + OH = TPO2 : ARRZ(4.07d-11,-350.0d0);
+// k = 4.07E-11 exp(350/T) 1.32E-10
+
+<203> TPO2 + NO = 0.75*NO2 + 0.26*NTR2 + 0.43*HCHO + 0.12*ACET + 0.63*ISPD + 0.75*HO2 + 0.19*XO2N + 0.19*RO2 : ARRZ(2.7d-12,-360.0d0);
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0, 9.04E-12 also same rate as RO2 + NO
+
+
+<204> TPO2 + HO2 = 0.04*HCHO + 0.01*ACET + 0.07*ISPD + 0.07*HO2 + 0.07*OH + 0.94*ROOH : ARRZ(2.60d-13,-1300.0d0);
+// k = 2.60E-13 exp(1300/T) 2.04E-11
+
+<205> TPO2 + RO2 = 0.27*HCHO + 0.04*ACET + ISPD + 0.5*HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0, 2.50E-13
+
+<206> C5H8_2 + O3 = 0.59*HCHO + 0.06*ACET + 0.05*HACT + 0.25*ISPD + 0.24*H2O2 + 0.47*OH + 0.16*HO2 + 0.04*FACD + 0.06*XO2 + 0.07*XO2N + 0.25*C2O3 + 0.4*OPO3 + 0.13*RO2 : ARRZ(4.46d-15,960.0d0);
+// k = 4.46E-15 exp(-960/T) 1.78E-16
+
+<207> C5H8_2 + NO3 = 0.3*NO2 + 0.7*NTR2 + 0.12*ACET + 0.3*ISPD + 0.48*OH + 0.3*HO2 : 7.00d-12;
+// k = 7.00E-12 7.00E-12
+
+<208> SESQ + OH = SQO2 : 2.00d-10;
+// k = 2.00E-10 2.00E-10
+
+<209> SQO2 + NO = 0.6*NO2 + 0.4*NTR2 + 0.6*ISPD + 0.6*HO2 + 0.18*XO2N + 0.18*RO2 : ARRZ(2.7d-12,-360.0d0); // same rate as RO2 + NO
+// k = k(ref) K, k(ref) = k(75), K = 1.00E+0, 9.04E-12
+
+<210> SQO2 + HO2 = 0.1*ISPD + 0.1*HO2 + 0.1*OH + 0.9*ROOH : ARRZ(2.60d-13,-1300.0d0);
+// k = 2.60E-13 exp(1300/T) 2.04E-11
+
+<211> SQO2 + RO2 = ISPD + 0.5 HO2 + RO2 : ARRZ(3.1d-13,-350.0d0); // 2.0 times the rate of RO2 + RO2
+// k = k(ref) K, k(ref) = k(77), K = 2.00E+0 2.50E-13
+
+<212> SESQ + O3 = 0.08*HCHO + 0.87*ISPD + 0.17*H2O2 + 0.08*OH + 0.08*HO2 + 0.26*XO2N + 0.26*RO2 : 1.20d-14;
+// k = 1.20E-14 1.20E-14
+
+<213> SESQ + NO3 = 0.24*NO2 + 0.76*NTR2 + 0.24*ISPD + 0.47*OH : 1.90d-11;
+// k = 1.90E-11 1.90E-11
+
+// RH-NOTE: Check the photolysis:
+// <214> I2 + hv = 2*I : photoarr(pd_i2);  // Photolysis 1.44E-1
+
+// RH-NOTE: Check the photolysis:
+// <215> HOI + hv = I + OH : photoarr(pd_hoi); // Photolysis 6.36E-2
+
+// <216> I + O3 = IO : ARRZ(2.10d-11,830.0d0);
+// k = 2.10E-11 exp(-830/T) 1.30E-12
+
+// RH-NOTE: Check the photolysis:
+// <217> IO + hv = I + O : photoarr(pd_io); //  Photolysis 1.18E-1
+
+// <218> IO + IO = 0.4*I + 0.4*OIO + 0.6*I2O2 : ARRZ(5.40d-11,-180.0d0);
+// k = 5.40E-11 exp(180/T) 9.88E-11
+
+// <219> IO + HO2 = HOI : ARRZ(1.40d-11,-540.0d0);
+// k = 1.40E-11 exp(540/T) 8.57E-11
+
+// <220> IO + NO = I + NO2 : ARRZ(7.15d-12,-300.0d0);
+// k = 7.15E-12 exp(300/T) 1.96E-11
+
+// <221> IO + NO2 = INO3 : k3rd_iup_pow(7.70d-31, 5.0d0, 1.60d-11, 0.0d0, 0.4d0);
+// Falloff: F=0.4; n=1.26, k(0) = 7.70E-31 (T/300)^-5, k(inf) = 1.60E-11, 3.54E-12
+
+// RH-NOTE: Check the photolysis:
+// <222> OIO + hv = I : photoarr(pd_oio); // Photolysis 1.41E-1
+
+// RH-NOTE: Check rate!!!!
+// <223> OIO + OH = 0.5 IXOY : k3rd_iup_exp(1.5d-27, 3.93d0, 0.0d0, 5.50d-10, 0.0d0, -46.0d0, 0.3d0);
+// Falloff: F=0.3; n=1.41, k(0) = 1.50E-27 (T/300)^-3.93, k(inf) = 5.50E-10 exp(46/T) 3.96E-10
+
+// <224> OIO + IO = IXOY : 1.0d-10;
+// k = 1.00E-10 1.00E-10
+
+// <225> OIO + NO = IO + NO2 : ARRZ(1.10d-12,-542.0d0);
+// k = 1.10E-12 exp(542/T) 6.78E-12
+
+// <226> I2O2 = I + OIO : 10.0d0;
+// k = 1.00E+1 1.00E+1
+
+// <227> I2O2 = IXOY : 3.00d-1;
+// k = 3.00E-1 3.00E-1
+
+// RH-NOTE: Check the photolysis:
+// <228> INO3 + hv = I + NO3 : photoarr(pd_ino3); // Photolysis 1.25E-2
+
+// <229> INO3 + H2O = HOI + HNO3 : 2.5d-22;
+// k = 2.50E-22 2.50E-22
+
+// Notes:
+// Below are currently equations taken from slightly modified CBM5_strato_SOA.eqn
+
+{jo2} O2 + hv = 2*O : photoarr(pd_o2);
+
+
+//RH NOTE on CL-reactions: Some of the reactions are new and some overlap with CB42_strato equations!
+//Here all these reaction are enabled, and the corresponding equations are disabled below (in strato part).
+{CL1} Cl2 + hv = 2*Cl         : photoarr(pd_cl2);                                                                   {Exists in CB42_strato!}
+{CL2} HOCl + hv = OH + Cl     : photoarr(pd_hocl);                                                                  {Exists in CB42_strato!}
+{CL3} Cl + O3 = ClO : ARRZ(2.8d-11,250d0); {IUPAC2017} {orig CB05 rate ARRZ(2.3d-11,200.0d0);}                      {Exists in CB42_strato!}
+//RH NOTE on CL4: Expanded CL4 to CL4a and CL4b since typically produces several products with different Arhenius laws! Product OClO+Cl is in reaction 99!
+//{CL4} ClO + ClO = 0.3*Cl2 + 1.4*Cl : 1.63E-14;                                                                    {Exists in CB42_strato!}
+{CL4a} ClO + ClO = Cl2 + O2          :  ARRZ(1.0d-12,1590d0) ;
+{CL4b} ClO + ClO = Cl + ClO2         :  ARRZ(3.0d-11,2450d0) ; {RH2020: Corrected the product to be Cl+ClO2 and not 2Cl+O2} 
+{CL5} ClO + NO = Cl + NO2     : ARRZ(6.2d-12,-295d0) ; {IUPAC2017} {orig CB05 rate: ARRZ(6.4d-12,-290.0d0);}        {Exists in CB42_strato!}
+// ClO + HO2 has a minor channel that produces HCl+O3 in addition to HOCl+O2. See, e.g. Chartrand and McConnell, GRL1998. 20May2020 by R.H.: Put 2 percent to minor channel.
+{CL6} ClO + HO2 = 0.98*HOCl+0.02*HCl+0.02*O3 : ARRZ(2.2d-12,-340d0) ; {IUPAC2017} {orig CB05 rate: ARRZ(2.7d-12,-220.0d9);}        {Exists in CB42_strato!}
+//{CL6} ClO + HO2 = HOCl        : ARRZ(2.2d-12,-340d0) ; {IUPAC2017} {orig CB05 rate: ARRZ(2.7d-12,-220.0d9);}        {Exists in CB42_strato!}
+{CL7} OH + FMCL = Cl + CO   : 5.0E-13;                                            {Rate is the upper limit! Assumed ClCO->Cl+CO}       {NEW}
+{CL8} FMCL + hv = Cl + CO + HO2 : photoarr(pd_fmcl);                                                         {ADD TO LUT TABLE}        {NEW}
+{CL9} Cl + CH4 = HCl + MEO2 : ARRZ(6.6d-12,1240d0);                                         {Exists in CB42_strato, BUT different products!}
+//{CL10} Cl + PAR = HCl + 0.87*XO2 + 0.13*XO2N + 0.11*HO2 + 0.06*ALD2 - 0.11*PAR + 0.76*ROR + 0.05*ALDX : 5.0E-11; {CB05 rate}         {NEW}
+{CL10} Cl + PAR7 = HCl + 0.87*XO2 + 0.13*XO2N + 0.11*HO2 + 0.06*ALD2 - 2.276*PAR7 + 0.76*ROR7 + 0.05*ALDX : 5.0E-11; {CB05 rate}       {NEW} {NOTE: PAR-tweaked eqn, CB7-value}
+//{CL11} Cl + ETHA = HCl + 0.991*ALD2 + 0.991*XO2 + 0.009*XO2N + HO2 : ARRZ(7.05d-11,60d0); {IUPAC2019} {orig: ARRZ(8.3d-11,100.0d0);} {NEW}
+{CL11} Cl + ETHA = HCl + 0.991*ALD2 + 0.991*XO2 + 0.009*XO2N + HO2 : ARRZ(7.05d-11,60d0); {IUPAC2019} {orig: ARRZ(8.3d-11,100.0d0);}  {NEW} {NOTE: PAR-tweaked eqn, OK for CB7}
+// NOTE on CL12: IUPAC states that 3-body reaction!
+{CL12} Cl + ETH {+M} = FMCL + 2*XO2 + HO2 + HCHO : k3rd_iup_pow(1.85d-29, 3.3d0, 6.0d-10, 0.0d0, 0.4d0); {orig 1.07E-10;}              {NEW}
+// NOTE on CL13: IUPAC rate for 3-body reaction with propene (Cl+C3H6+M) which is very uncertain at low pressures: 
+//{CL13} Cl + OLE {+M} = FMCL + 0.33*ALD2 + 0.67*ALDX + 2*XO2 + HO2 - PAR : k3rd_iup_pow(4.0d-28, 0.0d0, 2.7d-10, 0.0d0, 0.6d0);       {NEW}
+{CL13} Cl + OLE7 {+M} = FMCL + 0.33*ALD2 + 0.67*ALDX + 2*XO2 + HO2        : k3rd_iup_pow(4.0d-28, 0.0d0, 2.7d-10, 0.0d0, 0.6d0); {NEW} {NOTE: PAR-tweaked eqn, CB7-value}
+//                 Original CB05 rate for CL13: {2.5E-10;}
+//{CL14} Cl + IOLE = 0.3*HCl + 0.7*FMCL + 0.45*ALD2 + 0.55*ALDX + 0.3*OLE + 0.3*PAR + 1.7*XO2 + HO2 : 3.5E-10;   {CB05 rate}           {NEW}
+{CL14} Cl + IOLE = 0.3*HCl + 0.7*FMCL + 0.45*ALD2 + 0.55*ALDX + 0.3*OLE7 + 1.7*XO2 + HO2 : 3.5E-10;   {CB05 rate}                      {NEW} {NOTE: PAR-tweaked eqn, OK for CB7}
+//{CL15} Cl + C5H8 = 0.15*HCl + XO2 + HO2 + 0.85*FMCL + ISPD : 4.3E-10;                                          {CB05 rate}           {NEW}
+{CL15} Cl + C5H8 = 0.15*HCl + XO2 + HO2 + 0.85*FMCL + ISPD : 4.3E-10;                              {CB05 rate}                         {NEW} {NOTE: PAR-tweaked eqn, CB7-value}
+{CL16} Cl + HCHO = HCl + HO2 + CO : ARRZ(8.1d-11,30d0) ; {JPL/IUPAC} {orig CB05 rate: ARRZ(8.2d-11,34.0d0);}        {Exists in CB42_strato!}
+{CL17} Cl + ALD2 = HCl + C2O3   : 8.0E-11;     {IUPAC2019} {Orig CB05 rate: 7.9E-11;}                                                  {NEW}
+{CL18} Cl + ALDX = HCl + CXO3   : 1.3E-10;     {IUPAC2019} {Orig CB05 rate: 1.3E-10;}                                                  {NEW}
+{CL19} Cl + MEOH = HCl + HO2 + HCHO : ARRZ(7.1d-11,75d0);   {IUPAC2019} {Orig CB05 rate: 5.5E-11;}                                     {NEW}
+{CL20} Cl + ETOH = HCl + HO2 + ALD2 : ARRZ(6.0d-11,-155d0); {IUPAC2019} {Orig CB05 rate: ARRZ(8.2d-11,-45.0d0);}                       {NEW}
+{CL21} HCl + OH = Cl : ARRZ(1.7d-12,230d0) ; {RH2017: IUPAC} {Orig CB05 rate: ARRZ(6.58d-13,-58.0d0);}              {Exists in CB42_strato!}
+
+
+// Additional tropospheric Bromine reactions taken from
+// Parrella et al ACP 12, 6723 (2010) and Yang et al JGR 110, D23311 (2005)
+// Equations already in strato part below are not here, also CHBr3 and CH2Br2 are ignored here.
+
+// Reactions that are both in Parrella et al and Yang et al
+// Sign changes for the temperature dependency of TropoBr01 and TropoBr04 made on Feb 23, 2024
+{TropoBr01} Br + ALD2 = HBr + C2O3  :  ARRZ(1.3d-11,360d0) ; {Yang2005/Parrella2010}
+{TropoBr02} Br + BrONO2 = Br2 + NO3  :  4.9e-11 ; {Parrella2010}
+{TropoBr03} Br + NO3 = BrO + NO2     :  1.6e-11 ; {JPL/Parrella2010}
+{TropoBr04} Br2 + OH = HOBr + Br     :  ARRZ(2.1d-11,-240d0) ; {JPL/Parrella2010}
+// Reactions in Yang et al.
+{TropoBr05} Br + ALDX  = HBr + CXO3      :  9.7e-12 ; {Yang2005}
+//{TropoBrXX} BrO + MEO2 = HOBr + HCHO     :  4.1e-12 ; {Yang2005} {Original products HOBr + CH2O2. Where does one O go?}
+//{TropoBrXX} BrO + MEO2 = Br + HCHO + HO2 :  1.6e-12 ; {Yang2005} {Original products BrOO + CH3O.}
+// Assuming that products are like above. Atkinson ACP 8, 4141-4496 (2008): k=5.7e-12 with brancing 0.75 and 0.25.
+{TropoBr06} BrO + MEO2 = 0.2 Br + 0.2 HO2 + HCHO + 0.8 HOBr : ARRZ(2.65d-12,-1600.0d0) ; {IUPAC} 
+{TropoBr07} BrO + C2O3 = Br + MEO2 {+O2} :  1.7e-12 ; {Yang2005}
+// Reactions in Parrella et al. Note also the extremely small rates!
+// One could use similar Cl reaction products than for ETHA (CL11) and PAR (CL10) for last two of these. 
+//{TropoBrXX} Br + ACET = HBr + ATO2    :  ARRZ(1.66d-10,7000d0) ; {Parrella2010} {CHECK SIGN of 2nd argument}
+//{TropoBrXX} Br + ETHA = HBr + C2H5O2  :  ARRZ(2.36d-10,6411d0) ; {Parrella2010} {CHECK SIGN of 2nd argument}
+//{TropoBrXX} Br + C3H8 = HBr + C3H7O2  :  ARRZ(8.77d-10,4330d0) ; {Parrella2010} {CHECK SIGN of 2nd argument}
+
+
+// ***************************************************************************************************
+// ADDITION OF EQUATIONS FROM CBM42_STRATO: Duplicate chlorine equations (above) are commented below
+// ***************************************************************************************************
+
+
+{*** Stratospheric reactions ***}
+{Equations were copied from cbm42_strato, and duplicates (overlapping with CB05 equations)   }
+{were removed. The chlorine CB05 extension equations (above equations CL1-21) are commented. } 
+
+{Currently ignored:}
+{ -Carbon chemistry apart from what is in CB05}
+{ -Photolysis of NO and atomic N (which is only produced due to NO+hv reaction)}
+{ -Atomice H is assumed to react immediatelly with O2 + M}
+
+{Clorine reactions: Rates taken/checked August 2017 from IUPAC, if possible}
+// Commented the following Cl+O3 reaction since it already exists in CL-reactions of CB05:
+// {FR 82.} Cl + O3 =  ClO + O2             :  ARRZ(2.8d-11,250d0) ; {RH2017: updated the value, IUPAC}
+{FR 83.} ClO + O = Cl + O2               :  ARRZ(2.5d-11,-110d0) ; {RH2017: updated the value, IUPAC}
+// Commented the following ClO+NO reaction since it already exists in CL-reactions of CB05:
+// {FR 84.} ClO + NO = NO2 + Cl             :  ARRZ(6.2d-12,-295d0) ; {RH2017: updated the value, IUPAC}
+
+// Commented the following Cl+CH4 reaction since it already exist in CL-reactions of CB05 with MEO2 product:
+// {85.} {Cl + CH4 = HCl + CH3            :  ARRZ(7.3d-12,1280d0) ;}
+// {finrose: Cl + CH4 -> CH3 + HCl}
+// {continue analogously to CH4 oxidation: CH3 -> CH3O2 -> CH3O + XO2 (+O2)-> HCHO + HO2 + XO2}
+// {FR 85.} Cl + CH4 = HCl + XO2 + HO2 + HCHO :  ARRZ(6.6d-12,1240d0) ; {IUPAC2017. JPL: ARRZ(7.1d-12,1270d0)}
+
+//{FR 86.} Cl + H2 = HCl + HO2             :  ARRZ(3.9d-11,2310d0) ; {RH2017: updated the value, IUPAC}  //RH NOTE: here assumed H+O2->HO2 
+{FR 86.} Cl + H2 = HCl + H             :  ARRZ(3.9d-11,2310d0) ; {RH2017: updated the value, IUPAC}      //RH NOTE: here H explicitely
+{RH2017: IUPAC rate for R87 calculated from  total rate 4.4E-11 for HCl+O2 plus ClO+HO. JPL value ARRZ(1.4d-11,-270d0) ;} 
+{FR 87.} Cl + HO2 = HCl + O2             :  4.4E-11 - ARRZ(7.48d-11,620d0) ; {RH2017: updated the value, IUPAC}
+// Combined reactions ClO+OH->Cl+HO2 and ClO+OH->HCl+O2 into single reaction with brancing 0.94 and 0.06 respectively. 
+{FR 88.} ClO + OH = 0.94*Cl + 0.94*HO2 + 0.06*HCl + 0.06*O2 :  ARRZ(7.3d-12,-300d0) ; {RH2020: updated the value, IUPAC}
+//{FR 88.} ClO + OH = Cl + HO2             :  ARRZ(6.132d-12,-300d0) ; {RH2017: updated the value, IUPAC}
+
+// Commented the following HCHO+Cl reaction since it already exist in CL-reactions of CB05:
+// {FR 89.} HCHO + Cl {+O2} = HCl + CO + HO2 :  ARRZ(8.1d-11,30d0) ; {JPL/IUPAC}
+// Commented the following HCl+OH reaction since it already exist in CL-reactions of CB05:
+// {FR 90.} OH + HCl = H2O + Cl             :  ARRZ(1.7d-12,230d0) ; {RH2017: updated the value, IUPAC}
+{FR 91.} ClO + NO2 {+ M} = ClONO2 + M    :  k3rd_iup_pow(1.6d-31, 3.4d0, 7.0d-11, 0.0d0, 0.4d0) ; {RH2017: updated the value, IUPAC}
+{91,JPL: k3rd_jpl_pow(1.8d-31, 3.4d0, 1.5d-11, 1.9d0) ;}
+
+{R92: “products” in JPL, IUPAC: results also OClO+NO2 and ClONO+O2, but ClO+NO3 should cover over 70 percent of the products.}
+{FR 92.} O + ClONO2 = ClO + NO3          :  ARRZ(4.5d-12,900d0) ; {RH2017: updated the value, IUPAC}
+{R93: IUPAC: results also HCl+O3 but this fraction is small}
+// Commented the following ClO+HO2 reaction since it already exists in CL-reactions of CB05:
+// {FR 93.} ClO + HO2 = HOCl + O2           :  ARRZ(2.2d-12,-340d0) ; {RH2017: updated the value, IUPAC}
+{FR 94.} OH + HOCl = H2O + ClO           :  5.0E-13 ; {RH2017: updated the value, IUPAC (uncertain, only room T experiments)}
+{FR 95.} O + HOCl = OH + ClO             :  1.7E-13 ;
+{FR 96.} Cl + NO2 {+ M} = ClNO2 + M      :  k3rd_jpl_pow(1.8d-31, 2.0d0, 1.0d-10, 1.0d0) ; {JPL}
+{FR 97.} Cl + HOCl = OH + Cl2            :  ARRZ(3.4d-12,130d0) ; {“products” in JPL}
+//{FR 98.} ClO + OH = HCl + O2             :  ARRZ(4.38d-13,-300d0) ; {RH2017: updated the value, IUPAC} {REMOVED (or combined with 88)}
+{ 98.} BrCl + O = BrO + Cl               : 2.1E-11 ; {Rate from Clyne et al 1976}
+{FR 99.} ClO + ClO = Cl + OClO           :  ARRZ(3.5d-13,1370d0) ; 
+// Commented the following two ClO+ClO reactions since they already exist in CL-reactions of CB05:
+// {FR 100.} ClO + ClO = Cl2 + O2            :  ARRZ(1.0d-12,1590d0) ;
+// {FR 101.} ClO + ClO = Cl + Cl + O2        :  ARRZ(3.0d-11,2450d0) ; {(clo2 + cl) pre end product, see also FinRose}
+{R102: old JPL rate: k3rd_jpl_pow(1.6d-32, 4.5d0, 3.0d-12, 2.0d0) ;}
+{FR 102.} ClO + ClO {+ M} = Cl2O2 + M    :  k3rd_iup_pow(2.0d-32, 4.0d0, 1.0d-11, 0.0d0, 0.45d0) ; {RH2017: updated the value, IUPAC}
+{R103: old JPL rate: k3rd_jpl_pow(1.6d-32, 4.5d0, 3.0d-12, 2.0d0)/arrz(1.72d-27, -8849.0d0) ;}
+{deq = 1.72d-27*exp(8649./t), d22 = d21/deq ; ref. FinRose!, also IUPAC, see”!!!}
+{FR 103.} Cl2O2 {+ M} = ClO + ClO + M    :  k3rd_iup_exp(3.7d-7, 0.0d0, 7690d0, 1.8d14, 0.0d0, 7690d0, 0.45d0) ; {RH2017: updated the value, IUPAC}
+
+{FR 104.} OClO + OH =  HOCl + O2          :  ARRZ(1.4d-12,-600d0) ;
+{FR 105.} Cl + OClO =  ClO + ClO          :  ARRZ(3.2d-11,-170d0) ; {RH2017: updated the value, IUPAC}
+{FR 106.} OClO + O = ClO + O2             :  ARRZ(2.4d-12,960d0) ;
+{FR 107.} OClO + O3 = ClO + O2 + O2       :  ARRZ(2.1d-12,4700d0) ; {“products” in JPL }
+{FR 108.} OClO + NO = NO2 + ClO           :  ARRZ(1.1d-13,350d0) ; {RH2017: updated the value, IUPAC}
+{FR 109.} Cl2 + O1D = Cl + ClO            :  2.7E-10 ; {JPL}
+{R110: Originally rate ARRZ(7.6d-11,63.3d0) taken from FinRose, see orig. JPL ref for temp value!}
+{FR 110.} Cl2O2 + Cl = Cl2 + ClO2         :  ARRZ(7.6d-11,-65.0d0) ; {RH2020: updated the products, IUPAC}
+{FR 111.} NO3 + Cl = ClO + NO2            :  2.4E-11 ; 
+
+{R112: IUPAC: rate for OClO+NO2 products is 1.2E-13 and total 4.6E-13, JPL: 4.7E-13}
+{FR 112.} ClO + NO3 = NO2 + 0.74 ClO2 + 0.26 OClO  :  4.6E-13 ; {RH2020: updated the products, IUPAC}
+// {FR 113a.} {HCl + O1D = Cl + OH            :  0.66*1.5E-10 ;} {JPL, branching, this res 66%, see FinRose, see JPL !?, RH2017: scaled with 0.66}
+// {113b.} {HCl + O1D = ClO + H            :  0.22*1.5E-10 ;} {JPL, branching, this res 22%, RH2017: add if needed}
+// {113c.} {HCl + O1D = HCl + O            :  0.12*1.5E-10 ;} {JPL, branching, this res 12%, RH2017: add if needed}
+//RH NOTE: here assumed H+O2->HO2 
+//{FR 113.} HCl + O1D = 0.66 Cl + 0.66 OH + 0.22 ClO + 0.22 HO2 + 0.12 HCl + 0.12 O :  1.5E-10 ; {JPL, RH2018 combined, branching 66%, 22%, and 12%}
+//RH NOTE: here H explicitely
+{FR 113.} HCl + O1D = 0.66 Cl + 0.66 OH + 0.22 ClO + 0.22 H + 0.12 HCl + 0.12 O :  1.5E-10 ; {JPL, RH2018 combined, branching 66%, 22%, and 12%}
+
+{FR 114.} Cl2 + OH = HOCl + Cl            :  ARRZ(3.6d-12,1200d0) ; {RH2017: updated the value, IUPAC}
+{FR 115.} Cl + ClONO2 = NO3 + Cl2         :  ARRZ(6.2d-12,-145d0) ; {RH2017: updated the value, IUPAC}
+{FR 116.} HO2 + Cl = ClO + OH             :  ARRZ(7.48d-11,620d0) ; {RH2017: updated the value, IUPAC, see also R87 with output of HCl+O2}
+{FR 117.} H2O2 + Cl = HCl + HO2           :  ARRZ(1.1d-11,980d0) ;
+{FR 118.} HCl + O = Cl + OH               :  ARRZ(1.0d-11,3300d0) ; {JPL}
+{FR 119.} ClONO2 + OH = HOCl + NO3        :  ARRZ(1.2d-12,330d0) ; {IUPAC/JPL rate includes also ClONO+HO2 and HONO2+ClO products}
+{FR 120.} ClNO2 + OH = HOCl + NO2         :  ARRZ(2.4d-12,1250d0) ;
+
+{Ox, HOx reactions}
+
+{FinROSE R1: O+O->O2: cannot find rate for this, should be very slow. Not included.}
+// REMOVED SINCE IN CB7! {FR 121.*} O + O3 = 2 O2                   : ARRZ(8.0d-12, 2060d0) ; {JPL,RH2017: IUPAC}
+// {FR 122.*} {O1D + O3 = {2 O2} PROD          : 0.5*2.4e-10 ;} {JPL, branch results 50%}
+// {FR 123.*} {O1D + O3 = {O2 +} 2 O           : 0.5*2.4e-10 ;} {JPL, branch results 50%]
+{122and123} O1D + O3 = O {+ 1.5 O2}        : 2.4e-10 ; {JPL, 50% for 2 O2 branch, and 50% for O2 + 2 O branch. Combined RH2018}
+{RH2017note on 124: The actual reaction is O1D+N2+M -> N2O + M, keeping M and scaling rate with N2 fraction.}
+{FR 124a.*} O1D {+N2} + M = N2O                : 0.78*k0_pow(2.8d-36, 0.9d0) ;  {JPL, M -> N2}
+{O1D + O2, N2 is coverd by CB4!}
+
+
+{combine the following?}
+// {FR 129.*} {O1D + N2O = PROD {N2 + O2}      : 4.3d-11 ;} {RH2017: updated the value, IUPAC} {0.39*1.19d-10 ; JPL}
+// {FR 130.*} {O1D + N2O = NO + NO             : 7.6d-11 ;} {RH2017: updated the value, IUPAC} {0.61*1.19d-10 ; JPL}
+// {RH2017 add?*} {O1D + N2O = O + N2O             : 6.0d-12 ;} {IUPAC}
+{RH2018: Combined the above 3 reactions with k1=4.3e-11 (N2+O2), k2=7.6e-11 (2 NO), and k2=6.0e-12 (O+N2O) from IUPAC, }
+{such that k=k1+k2+k3=1.25e-10, resulting branchings of 0.344, 0.608, and 0.048, respectively}
+{129and130ab} O1D + N2O = {0.344 N2 + 0.344 O2} + 1.216 NO + 0.048 O + 0.048 N2O  : 1.25d-10 ; {IUPAC}  
+
+{130.} ClO2 + M = Cl + O2 + M              :  ARRZ(2.8d-10,1820d0) ; {RH2020: Added reaction when including ClO2 alias ClOO explicitely. }
+// Inverse reaction of above, IUPAC, different rates for O2 and N2 weighting using fractions of O2 and N2 (putting rest to N2)
+{131.} Cl + O2 + M = ClO2 + M              :  0.79*1.4d-33*(300.0d0/temp_dp)**3.9 + 0.21*1.6d-33*(300.0d0/temp_dp)**2.9 ; {IUPAC}
+
+
+{Stratospheric photolysis reactions}
+
+// Commented the following O2+hv reaction since it already exists in CB05:
+// {FR 137: j1:} O2 + hv = 2 O              :  photoarr(pd_o2) ;
+{FR j2:} N2O + hv = {N2 +} O1D           :  photoarr(pd_n2o) ;
+
+// Commented the following HOCl+hv reaction since it already exists in CL-reactions of CB05:
+// {FR j8:} HOCl + hv = OH + Cl             :  photoarr(pd_hocl) ;
+{FR j37:} ClONO2 + hv =  Cl + NO3        :  photoarr(pd_clono2_cl_no3) ;
+{FR j10:} ClONO2 + hv = ClO + NO2        :  photoarr(pd_clono2) ;
+{FR j14:} OClO + hv = O + ClO            :  photoarr(pd_oclo) ;
+{FR j15:} Cl2O2 + hv = Cl + ClO2         :  photoarr(pd_cl2o2) ; {RH2020 NOTE: before splitted ClOO immediately to Cl+O2. Now added ClOO+M->Cl+O2+M and ClOO+hv->Cl+O2} 
+//{FR j16:} HCl + hv = HO2 + Cl            :  photoarr(pd_hcl) ;  //RH NOTE: here assumed H+O2->HO2 
+{FR j16:} HCl + hv = H + Cl            :  photoarr(pd_hcl) ;      //RH NOTE: here H explicitely
+// Commented the following Cl2+hv reaction since it already exists in CL-reactions of CB05:
+// {FR j17:} Cl2 + hv = Cl + Cl             :  photoarr(pd_cl2) ;
+{FR j19:} ClNO2 + hv = Cl + NO2          :  photoarr(pd_clno2) ;
+{   j20:} ClO2 + hv = Cl + O2         :  photoarr(pd_cloo) ; 
+
+{Bromine chemistry. Added August 2017 by R.H.}
+{FR Br01:} Br + O3 = BrO + O2            :  ARRZ(1.7d-11, 800d0) ; {IUPAC}
+{FR Br02:} BrO + O = Br + O2             :  ARRZ(1.9d-11, -230d0) ; {IUPAC}
+{FR Br03:} BrO + NO = NO2 + Br           :  ARRZ(8.7d-12, -260d0) ; {IUPAC}
+{FR Br04:} BrO + ClO = Br + OClO         :  ARRZ(1.6d-12, -430d0) ; {IUPAC}
+{FR Br05:} BrO + ClO = Br + ClO2         :  ARRZ(2.9d-12, -220d0) ; {IUPAC} {RH2020: Corrected the product to ClOO}
+{FR Br06:} BrO + ClO = BrCl + O2         :  ARRZ(5.8d-13, -170d0) ; {IUPAC}
+{FR Br07a:} BrO + BrO = Br + Br + O2     :  2.7E-12 ; {IUPAC}
+{   Br07b:} BrO + BrO = Br2 + O2         :  ARRZ(2.9d-14, -840d0) ; {IUPAC}
+{FR Br08:} Br + HO2 = HBr + O2           :  ARRZ(7.7d-12, 450d0) ; {IUPAC}
+{FR Br09:} Br + OClO = BrO + ClO         :  ARRZ(2.7d-11, 1300d0) ; {IUPAC}
+{FR Br10:} Br + HCHO {+O2} = HBr + CO + HO2 :  ARRZ(1.7d-11, 800d0) ; {JPL}  {IUPAC: ARRZ(7.7d-12,580d0)} {11Jan2018: Changed HCO+O2->CO+HO2}
+{FR Br11:} OH + HBr = H2O + Br           :  ARRZ(6.7d-12, -155d0) ; {IUPAC}
+{FR Br12:} BrO + NO2 {+M} = BrONO2 {+M}  :  k3rd_iup_pow(4.7d-31, 3.1d0, 1.8d-11, 0.0d0, 0.40d0) ; {IUPAC}
+{   Br25:} Br + NO2 {+M} = BrNO2 {+M}    :  k3rd_iup_pow(4.2d-31, 2.4d0, 2.7d-11, 0.0d0, 0.55d0) ; {IUPAC} //RH: Added 3May2021
+// BrO + HO2 has a minor channel that produces HBr+O3 in addition to HOBr+O2. See, e.g. Chartrand and McConnell, GRL1998. 20May2020 by R.H.: Put 2 percent to minor channel.
+{FR Br13:} BrO + HO2 = 0.98*HOBr + 0.98*O2 + 0.02*HBr + 0.02*O3    :  ARRZ(4.5d-12, -500d0) ; {IUPAC}
+//{FR Br13:} BrO + HO2 = HOBr + O2         :  ARRZ(4.5d-12, -500d0) ; {IUPAC} {Rate for HBr+O3 products is close to zero}
+//{FR Br14:} HBr + O1D = 0.6 Br + 0.6 OH + 0.2 HBr + 0.2 O + 0.2 BrO + 0.2 HO2 :  1.5E-10 ; {JPL} //RH NOTE: here assumed H+O2->HO2 
+{FR Br14:} HBr + O1D = 0.6 Br + 0.6 OH + 0.2 HBr + 0.2 O + 0.2 BrO + 0.2 H :  1.5E-10 ; {JPL}     //RH NOTE: here H explicitely
+// {Br15&16: result Br+HO2 and HBr+O2 (maximum branching of 0.03)}
+{FR Br15and16:} OH + BrO = 0.97 Br + 0.97 HO2 + 0.03 HBr + 0.03 O2  :  ARRZ(1.8d-11, -250d0) ; {RH2020: Updated value and put 3% to HBr branch, IUPAC}
+//{FR Br15and16:} OH + BrO = 0.98 Br + 0.98 HO2 + 0.02 HBr + 0.02 O2  :  ARRZ(1.7d-11, -250d0) ; {IUPAC}
+{FR Br17:} HBr + O = Br + OH             :  ARRZ(5.8d-12, 1500d0) ; {JPL}
+{FR Br18:} HOBr + O = BrO + OH           :  ARRZ(1.2d-10, 430d0) ; {IUPAC}
+
+{Bromine photolysis reactions. Added August 2017 by R.H.}
+//{FR Br19:} BrONO2 + hv = BrO + NO2       :  photoarr(pd_brono2) ;
+//{Photolysis product Br+NO3 dominant! Increases ozone depletion! Using JPL 15-10 (2015) mean quantum yields 0.85 (NO3) and 0.15 (NO2)!}
+{FR Br19:} BrONO2 + hv = 0.15 BrO + 0.15 NO2 + 0.85 Br + 0.85 NO3 :  photoarr(pd_brono2) ;
+{FR Br20:} BrCl + hv = Br + Cl           :  photoarr(pd_brcl) ;
+{FR Br21:} HOBr + hv = Br + OH           :  photoarr(pd_hobr) ;
+{FR Br22:} BrO + hv = Br + O             :  photoarr(pd_bro) ;
+{Additional two reactions needed to break Br2 and BrNO2 from heterogeneous reactions 11-13. Added Oct2017. Rates NEED better values!!}
+{Br23:} Br2 + hv = 2 Br                 :  photoarr(pd_br2) ; {rate=0.0437*cos_theta**0.0369*exp(-0.2606/cos_theta), Kanaya et al., Atm. Env. 37, 2463 (2003)}
+{Br24:} BrNO2 + hv = Br + NO2           :  photoarr(pd_brno2) ; {tau is order of minute: Roberts at al., Atmos. Chem. Phys. 14, 11201 (2014)}
+
+// Adding the following photolysis of ClO does not seem to change anything. Only ClO amount is slightly decreased (less than 1 percent)
+ClO + hv      = Cl + O                 : photoarr(pd_clo) ;  {25km value from Table B.4 on page 600 on Jacobson's book}
+// Adding the remaining FinROSE reactions that are still missing. 
+//H2O + hv      = OH + HO2               : photoarr(pd_h2o) ;                                 //RH NOTE: here assumed H+O2->HO2 
+H2O + hv      = OH + H                 : photoarr(pd_h2o) ;                                   //RH NOTE: here H explicitely 
+//CH4 + hv      = HO2 + MEO2             : photoarr(pd_ch4) ; {For CB05: CH3-> CH3O2 = MEO2}  //RH NOTE: here assumed H+O2->HO2
+CH4 + hv      = H + MEO2               : photoarr(pd_ch4) ; {For CB05: CH3-> CH3O2 = MEO2}    //RH NOTE: here H explicitely 
+CO2 + hv      = CO + O                 : photoarr(pd_co2) ;
+NO  + hv      = N + O                  : photoarr(pd_no) ;
+//M + hv       = 2 N                    : 0.78*photoarr(pd_n2) ; {Photolysis of N2 is only effective much above 60km. Not needed. Requires special phototable!}
+//SO2 + hv {+O2}= SO2 + 2 O               : photoarr(pd_so2) ; {Reaction of resulting SO (from photolysis) with O2 is assumed to be immediate. No other brances.}
+//HO2 + hv      = OH + O                 : photoarr(pd_ho2) ; {Reaction of resulting SO (from photolysis) with O2 is assumed to be immediate. No other brances.}
+
+{IUPAC: Reaction CH4+O1D -> 1: CH3+OH, 2: CH3O or CH2OH+H, 3: HCHO+H2, with branching of 0.70, 0.23, and 0.05, respectively.}
+{Here we assume products of branch 1 only.}
+CH4 + O1D     = OH + MEO2              : 1.5d-10 ; {IUPAC} {For CB05: CH3-> CH3O2 = MEO2}
+N + NO        = O {+N2}                : ARRZ(2.1d-11, -100d0) ; {JPL}
+N + O2        = NO + O                 : ARRZ(1.5d-11, 3600d0) ; {JPL}
+N + NO2       = N2O + O                : ARRZ(5.8d-12, -220d0) ; {JPL}
+// N + OH        = NO + H                 : ARRZ(3.8d-11, -85d0) ; {Atkinson, R. et al., J. Phys. Chem. Ref. Data, 18(3), 881-1097 (1989).}
+// Remaining FinROSE equations related to atomic H reactions:
+H + O2 {+M}   = HO2 {+M}               : k3rd_iup_pow(4.3d-32, 1.2d0, 9.5d-11, -0.44d0, 0.5d0) ; {IUPAC}
+H + O3        = OH + O2                : ARRZ(1.4d-10, 470d0) ; {JPL}
+H + HO2       = 1.8 OH {+ 0.07 H2 +0.07 O2 + 0.03 H2O} + 0.03 O  : 8.0d-11 ; {IUPAC}
+H + NO2       = OH + NO                : ARRZ(4.0d-10, 340d0) ; {JPL}
+
+{Additional reaction and photolysis reactions related to chloro/bromocarbons and CFCs.}
+{As for R85, for methyl cloride/bromide continue analogously to CH4 oxidation: CH3-> CH3O2-> CH3O+XO2 (+O2)-> HCHO+HO2+XO2}
+// Methyl chloride:
+// CH3Cl + hv    = Cl + HCHO + HO2 + XO2  :  photoarr(pd_ch3cl) ;
+CH3Cl + hv    = Cl + MEO2                 :  photoarr(pd_ch3cl) ; {For CB05: CH3 -> CH3O2 = MEO2}
+// The followings reactions for oxidation of methyl chloride is obtained from book edited by Ralf Kappmann:
+// Volatile Organic Compounds in the Atmosphere by Blackwell Publishing.
+// CH3Cl + OH      = CH2Cl {+H2O}         : ARRZ(2.1d-12,1210d0) ; {IUPAC}
+// CH2Cl + O2 {+M} = CH2ClO2 {+M}         : k3rd_jpl_pow(1.9d-30, 3.2d0, 2.9d-12, 1.2d0) ; {JPL}
+// CH2ClO2 + NO    = CH2ClO + NO2         : ARRZ(7.0d-12,-300d0) ; {JPL} {NOTE: Reaction rate is approximate!}
+// CH2ClO + O2     = FMCL + HO2           : 6.0d-14 ; {JPL}
+// FMCL + hv       = {HCO+Cl->} CO + HO2 + Cl : photoarr(pd_fmcl); ; {NOTE: Reacted HCO+O2 -> CO+HO2} 
+// Simplify: Assume quick chainreaction of CH2Cl with O2 -> NO -> O2. NO to NO2 transformation using XO2. NOTE: CB05 has FMCL!}
+CH3Cl + OH      = FMCL + HO2 + XO2 {+H2O}  : ARRZ(2.1d-12,1210d0) ; {IUPAC}  
+// Reaction CH3Cl + Cl -> CH2Cl + HCl proceeds in a similar way. By simplifying.
+CH3Cl + Cl      = FMCL + HO2 + HCl + XO2   : ARRZ(1.8d-11,1081d0) ; {IUPAC}
+
+// Methyl bromide:
+// CH3Br + hv    = Br + HCHO + HO2 + XO2  :  photoarr(pd_ch3br) ;
+CH3Br + hv    = Br + MEO2                 :  photoarr(pd_ch3br) ; {For CB05: CH3 -> CH3O2 = MEO2}
+// Reaction with OH should be most important removal process in troposphere. Finlayson-Pitts & Pitts, Book, p. 702-703, R51-55.}
+// CH3Br + OH    = CH2Br {+ H2O}             : ARRZ(1.7d-12,1215d0) ; {IUPAC}
+// Eskola, Phys. Chem. Chem. Phys., 2006,8, 1416-1424 : k(CH2Br + O2+ He)=(1.2*e-30*(T/300)^(-4.8) cm6 s(-1)
+// CH2Br + O2 {+M} = CH2BrO2                 : k0_pow(1.2d-30, 4.8d0) ; 
+// Assuming fast decomposition of CH2BrO -> HCHO+Br (JPL already does this, and gives the following rate):
+// CH2BrO2 + NO = HCHO + Br + NO2            : ARRZ(4.0d-12,-300d0) ; {JPL} {NOTE: Rate is estimate!}
+// Simplify: As methyl chloride, assume fast reaction of the following reactions. Use XO2 to convert NO to NO2.
+CH3Br + OH      = Br + HCHO + XO2 {+H2O}     : ARRZ(1.7d-12,1215d0) ; {IUPAC}
+
+// CFCs typically release several Chlorine atoms with sequence of reactions (starting with photolysis reaction that releases one Cl),
+// but here we take a more simple model and release the Cl atoms at once. For some of the species we have described the sequence in
+// the commented lines (below the simple model). Oxidation by OH is included for species where it is relevant.
+// CFC-11:
+CCl3F + hv    = 3 Cl {+CF}             :  photoarr(pd_cfc11) ;
+// CCl3F + hv   = Cl + CCl2F              :  photoarr(pd_cfc11) ;
+// CCl2F + O2 {+M} = CCl2FO2 {+M}         :  k3rd_jpl_pow(5.0d-30, 4.0d0, 6.0d-12, 1.0d0) ; {JPL}
+// possibly add also reaction of CCl2FO2 with NO2 and the reversed reaction, together with photolysis. 
+// CCl2FO2 + NO = CClFO + NO2 + Cl        :  ARRZ(4.5d-12, -350d0) ; {JPL}  
+// CClFO + hv   = CFO + Cl                :  photoarr(pd_cclfo) ; {phodis has this in extended LUT table. Other products: CO+F+Cl, ClCO+F, CFCl+O}
+// CCl3F + O1D  = 0.79 ClO + 0.79 CCl2F + 0.21 O + 0.21 CCl3F : 2.3d-10 ; {IUPAC}
+// START: Not done for CFC-11:
+// First try to combine the above, simplifying by assuming fast reaction of CCl2F with O2 and ignoring the reaction with NO2. Assuming CClFO+hv-> CO+F+Cl (final products)
+// CCl3F + O1D  = 0.79 ClO + 0.79 CCl2FO2 + 0.21 O + 0.21 CCl3F : 2.3d-10 ; {IUPAC}
+// CCl3F + hv   = Cl + CCl2FO2              :  photoarr(pd_cfc11) ;
+// CCl2FO2 + NO = CClFO + NO2 + Cl          :  ARRZ(4.5d-12, -350d0) ; {JPL}
+// CClFO + hv   = CO + Cl {+F}              :  photoarr(pd_cclfo) ; {phodis has this in extended LUT table.}
+// END: Not done for CFC-11:
+
+// CFC-12:
+CCl2F2 + hv   = 2 Cl {+CF2}            :  photoarr(pd_cfc12) ;
+// CCl2F2 + hv     = Cl + CClF2           :  photoarr(pd_cfc12) ;
+// CClF2 + O2 {+M} = CClF2O2 {+M}         :  k3rd_jpl_pow(5.2d-29, 5.6d0, 1.0d-11, 0.8d0) ; {JPL}
+// possibly add also reaction of CClF2O2 with NO2 and the reversed reaction, together with photolysis.
+// CClF2O2 + NO    = CF2O + Cl + NO2      :  ARRZ(3.8d-12, -400d0) ; {JPL}  {Assumed fast decomposition of CClF2O->CF2O+Cl}
+// CF2O + hv       = CFO + F              : photoarr(pd_cf2o) ; {Also may result CO+2F or CF2+O, Only needed if F is taken into account. Phodis has this.}
+// CCl2F2 + O1D  = 0.76 ClO + 0.76 CClF2 + 0.24 O + 0.24 CCl2F2 : 1.5d-10 ; {IUPAC}
+// START: Not done for CFC-12:
+// First try to combine the above, simplifying by assuming fast reaction of CClF2 with O2 and ignoring the reaction with NO2. Assuming CF2O+hv-> CO+2F (final products)
+// CCl2F2 + O1D  = 0.76 ClO + 0.76 CClF2O2 + 0.24 O + 0.24 CCl2F2 : 1.5d-10 ; {IUPAC}
+// CCl2F2 + hv     = Cl + CClF2O2          :  photoarr(pd_cfc12) ;
+// Use equation below: CClF2O2 + NO    = CF2O + NO2 + Cl      :  ARRZ(3.8d-12, -400d0) ; {JPL}
+// Use equation below: CF2O + hv       = CO {+ 2*F}           : photoarr(pd_cf2o) ; {Typically COF+F, also may result CO+2F or CF2+O, Only needed if F is taken into account}
+// In stead of above two reactions, combine them to:
+//CClF2O2 + NO    = CO + NO2 + Cl {+2*F}  :  ARRZ(3.8d-12, -400d0) ; {JPL}   {Here the photolysis of CF2O is assumed to appear immediately.}
+// Adding reaction HO2+CClF2O2 -> CF2O+HOCl+O2 (other products CF2ClO2H+O2 and CClFO+HOF+O2 are assumed to not to appear). Also fast photolysis of CF2O assumed to follow
+//CClF2O2 + HO2   = HOCl {+O2} + CO {+2*F} : 3.4d-12 ; {IUPAC}
+// END: Not done for CFC-12:
+
+
+// CFC-10:
+CCl4 + hv     = 4 Cl {+C}              :  photoarr(pd_ccl4) ;
+// CCl4 + hv     = CCl3 + Cl              :  photoarr(pd_ccl4) ;
+// CCl3 + O2 {+M} = CCl3O2 {+M}           :  k3rd_jpl_pow(8.0d-31, 6.0d0, 3.5d-12, 1.0d0) ; {JPL}
+// CCl3O2 + NO    = CCl2O + NO2 + Cl      :  ARRZ(7.3d-12, -270d0) ; {JPL}
+// CCl2O + hv     = CClO + Cl             :  photoarr(pd_ccl2o) ; {phodis has this in extended LUT table. Other products are not realized.} 
+// CCl4 + O1D  = 0.79 ClO + 0.79 CCl3 + 0.21 O + 0.21 CCl4 : 3.3d-10 ; {IUPAC}
+// START: Not done for CFC-10:
+// First try to combine the above, simplifying by assuming fast reaction of CCl3 with O2 and ignoring the reaction with NO2. Assuming CCl2O+hv-> CO+2Cl (final products)
+// CCl4 + O1D  = 0.79 ClO + 0.79 CCl3O2 + 0.21 O + 0.21 CCl4 : 3.3d-10 ; {IUPAC}
+// CCl4 + hv      = CCl3O2 + Cl            :  photoarr(pd_ccl4) ;
+// CCl3O2 + NO    = CCl2O + NO2 + Cl       :  ARRZ(7.3d-12, -270d0) ; {JPL}
+// CCl2O + hv     = CO + 2*Cl              :  photoarr(pd_ccl2o) ;
+// Adding reaction HO2+CCl3O2 -> COCl2+HOCl+O2 (the other branch CCl3O2H+O2 does not realize)
+// CCl3O2 + HO2   = CCl2O + HOCl {+O2}     :  ARRZ(4.7d-13, -710d0) ; {IUPAC}
+// END: Not done for CFC-10:
+
+// Methyl chloroform:
+CH3CCl3 + hv  = 3 Cl {+CH3C}           :  photoarr(pd_ch3ccl3) ;       {we ignore the CH3C product.}
+// CH3CCl3 + hv  = Cl +CH3CCl2            :  photoarr(pd_ch3ccl3) ;
+// TODO: Fill in the remaining reactions!
+// NOTE: ADDED an extra factor to speed up the decay of MCF by OH reaction
+CH3CCl3 + OH  = {CH2CCl3->} 3 Cl {+ H2O}   : ARRZ(1.2d-12,1440d0) * MCF_factor ; {IUPAC}   {Seinfeld & Pandis, Book: ARRZ(1.6d-12,1520d0)}
+// TODO Fill in the remaining reactions!
+// Following simple model for methyl chloroform:
+// Assume the CH2CCl3 resulting from reactions of MCF with OH and Cl to first release Cl and then to produce phosgene (CCl2O, or COCl2) with yield 1
+// as listed in Kindler et al JGR1995 (upper limit of phosgene yield with reactions of OH and Cl)
+// NOT ACTIVE: CH3CCl3 + OH  =  H2O + Cl + CCl2O   : ARRZ(1.2d-12,1440d0) * MCF_factor ; {IUPAC}
+// NOT ACTIVE: CH3CCl3 + Cl  =  HCl + Cl + CCl2O   : ARRZ(3.0d-12,1730d0) ; {IUPAC}
+
+// ***************************************************************************************************
+// END: ADDITION OF EQUATIONS FROM CBM42_STRATO: Duplicate chlorine equations (above) are commented below
+// ***************************************************************************************************
+
+
+// ******************************************************************************************
+//
+// Reactions below are related to SOA:
+//
+// ******************************************************************************************
+
+
+//RH NOTE on SA01-SA07: The rate seems to depend only on the second reactant: NO, HO2, or OH.
+//{SA01} TOLRO2 + NO = NO + TOLNRXN : ARRZ(2.70d-12,-360.0d0);       {CMAQ_1to4(2.70e-12, 0.0E+00, -360.0);}
+//{SA02} TOLRO2 + HO2 = HO2 + TOLHRXN : ARRZ(1.90d-13,-1300.0d0);    {CMAQ_1to4(1.90e-13, 0.0E+00, -1300.0);}
+//{SA03} XYLRO2 + NO = NO + XYLNRXN : ARRZ(2.70d-12,-360.0d0);       {CMAQ_1to4(2.70e-12, 0.0E+00, -360.0);}
+//{SA04} XYLRO2 + HO2 = HO2 + XYLHRXN : ARRZ(1.90d-13,-1300.0d0);    {CMAQ_1to4(1.90e-13, 0.0E+00, -1300.0);}
+//{SA05} BENZENE + OH = OH + 0.764*BENZRO2 : ARRZ(2.47d-12,206.0d0); {CMAQ_1to4(2.47e-12, 0.0E+00, 206.0);}
+//{SA06} BENZRO2 + NO = NO + BNZNRXN : ARRZ(2.70d-12,-360.0d0);      {CMAQ_1to4(2.70e-12, 0.0E+00, -360.0);}
+//{SA07} BENZRO2 + HO2 = HO2 + BNZHRXN : ARRZ(1.90d-13,-1300.0d0);   {CMAQ_1to4(1.90e-13, 0.0E+00, -1300.0);}
+//{SA08} SESQ + O3 = O3 + SESQRXN : 1.16d-14;            {CMAQ_1to4(1.16E-14, 0.0E+00, 0.0E+00);}
+//{SA09} SESQ + OH = OH + SESQRXN : 1.97E-10;            {CMAQ_1to4(1.97E-10, 0.0E+00, 0.0E+00);}
+//{SA10} SESQ + NO3 = NO3 + SESQRXN : 1.90E-11;          {CMAQ_1to4(1.90E-11, 0.0E+00, 0.0E+00);}
+
+
+
+{SOA formation: Using the mass yields by Woody et al ACP2015, scaled by the molar weight of the "precursor" gas to get mass SOA.}
+{Compared to previous SILAM CB4_SOA values, the factors are rather consistent, except TOL, which has some differences.}
+{Compared with Lane et al. 2008, the difference is much bigger, up to factor 50.}
+{NOTE: Reaction rates here should correspond to the same gase phase reaction.}
+{NOTE2: reactants are not consumed (except C5H8/C5H8_2 + O) here since the corresponding gas phase reactions (above) already do this.}
+{NOTE3: The gas phase reaction could be inserted into these SOA equations in order to reduce the number of equations!} 
+
+{hi NOx}
+{Here we can copy the products of the corresponding gas phase reactions R128 and R138 (and diable them above)}  
+{90} OH + TOL = OH + TOL
+              + 0.001012 AVB1e0 + 0.022816 AVB1e1 + 0.042872 AVB1e2 + 0.063848 AVB1e3          : ARRZ(1.8d-12,-340.0d0) * SOA_b;
+{91} OH + XYL = OH + XYL
+              + 0.000159 AVB1e0 + 0.020670 AVB1e1 + 0.031800 AVB1e2 + 0.046110 AVB1e3          : 1.51e-11 * SOA_b;
+{  } OH + BENZENE = OH + BENZENE
+              + 0.000234 AVB1e0 + 0.012870 AVB1e1 + 0.023400 AVB1e2 + 0.033930 AVB1e3          : ARRZ(2.3d-12,190.0d0) * SOA_b; {RH2018: IUPAC}
+
+{Here we can copy the products of the corresponding gas phase reactions R141-R144 (and diable them above)}  
+{92}   O + C5H8 =  O {+ C5H8} {Removed since CB7 does not contain this reaction and isoprene must be consumed.}
+                + 0.0000204 BVB1e0 + 0.00153 BVB1e1 + 0.00102 BVB1e2                           : 3.60E-11 * SOA_b ;
+{93}  OH + C5H8 = OH + C5H8
+                + 0.0000204 BVB1e0 + 0.00153 BVB1e1 + 0.00102 BVB1e2                           : ARRZ(2.7d-11,-390.0d0) * SOA_b;
+{94}  O3 + C5H8 = O3 + C5H8
+                + 0.0000204 BVB1e0 + 0.00153 BVB1e1 + 0.00102 BVB1e2                           : ARRZ(1.05d-14, 2000.0d0) * SOA_b; {RH2018: IUPAC}
+{95} NO3 + C5H8 = NO3 + C5H8
+                + 0.0000204 BVB1e0 + 0.00153 BVB1e1 + 0.00102 BVB1e2                           : ARRZ(2.95d-12,450.0d0) * SOA_b;   {RH2018: IUPAC}
+
+{If we assume that monoterpene products are included (ifMTprods=1) in reactions R149-R152 we can copy the products here (and disable them above).}
+{96}   O + C5H8_2 = O {+ C5H8_2} {Removed since CB7 does not contain this reaction and monoterpene must be consumed.}
+                  + 0.001632 BVB1e0 + 0.016524 BVB1e1 + 0.027336 BVB1e2 + 0.068952 BVB1e3      : 3.60E-11 * SOA_b;
+{97}  OH + C5H8_2 = OH + C5H8_2
+                  + 0.001632 BVB1e0 + 0.016524 BVB1e1 + 0.027336 BVB1e2 + 0.068952 BVB1e3      : ARRZ(4.07d-11,-350.0d0) * SOA_b; {OLD: ARRZ(1.5d-11,-449.0d0) * SOA_b;}
+{98}  O3 + C5H8_2 = O3 + C5H8_2
+                  + 0.001632 BVB1e0 + 0.016524 BVB1e1 + 0.027336 BVB1e2 + 0.068952 BVB1e3      : ARRZ(4.46d-15,960.0d0) * SOA_b; {OLD: ARRZ(1.2d-15, 821.0d0) * SOA_b;}
+{99} NO3 + C5H8_2 = NO3 + C5H8_2
+                  + 0.001632 BVB1e0 + 0.016524 BVB1e1 + 0.027336 BVB1e2 + 0.068952 BVB1e3      : 7.00d-12 * SOA_b; {OLD: ARRZ(3.7d-12,-175.0d0) * SOA_b;}
+
+{lo NOx}                       
+{Here we can copy the products of the corresponding gas phase reactions R128 and R138 (and diable them above)}  
+{100} OH + TOL = OH + TOL
+               + 0.001012 AVB1e0 + 0.022816 AVB1e1 + 0.06670 AVB1e2 + 0.041584 AVB1e3          : ARRZ(1.8d-12,-340.0d0) * (1.0-SOA_b);
+{101} OH + XYL = OH + XYL
+               + 0.007950 AVB1e0 + 0.031800 AVB1e1 + 0.03975 AVB1e2 + 0.055650 AVB1e3          : 1.51e-11 * (1.0-SOA_b);
+{   } OH + BENZENE = OH + BENZENE
+               + 0.005850 AVB1e0 + 0.017550 AVB1e1 + 0.02925 AVB1e2 + 0.040950 AVB1e3          : ARRZ(2.3d-12,190.0d0) * (1.0-SOA_b); {RH2018: IUPAC}
+
+{Here we can copy the products of the corresponding gas phase reactions R141-R144 (and diable them above)}  
+{102}   O + C5H8 = O {+ C5H8} {Removed since CB7 does not contain this reaction and isoprene must be consumed.}
+                 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 0.00102 BVB1e2                           : 3.60E-11 * (1.0-SOA_b);
+{103}  OH + C5H8 = OH + C5H8
+                 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 0.00102 BVB1e2                           : ARRZ(2.7d-11,-390.0d0) * (1.0-SOA_b);
+{104}  O3 + C5H8 = O3 + C5H8
+                 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 0.00102 BVB1e2                           : ARRZ(1.05d-14, 2000.0d0) * (1.0-SOA_b); {RH2018: IUPAC}
+{105} NO3 + C5H8 = NO3 + C5H8
+		 + 0.000612 BVB1e0 + 0.00204 BVB1e1 + 0.00102 BVB1e2                           : ARRZ(2.95d-12,450.0d0) * (1.0-SOA_b);   {RH2018: IUPAC}
+
+{If we assume that monoterpene products are included (ifMTprods=1) in reactions R149-R152 we can copy the products here (and disable them above).}
+{106}   O + C5H8_2 = O {+ C5H8_2} {Removed since CB7 does not contain this reaction and monoterpene must be consumed.}
+                   + 0.014593 BVB1e0 + 0.012485 BVB1e1 + 0.048783 BVB1e2 + 0.08262 BVB1e3      : 3.60E-11 * (1.0-SOA_b);
+{107}  OH + C5H8_2 = OH + C5H8_2
+                   + 0.014593 BVB1e0 + 0.012485 BVB1e1 + 0.048783 BVB1e2 + 0.08262 BVB1e3      : ARRZ(4.07d-11,-350.0d0) *(1.0-SOA_b); {OLD: ARRZ(1.5d-11,-449.0d0) * (1.0-SOA_b);}
+{108}  O3 + C5H8_2 = O3 + C5H8_2
+                   + 0.014593 BVB1e0 + 0.012485 BVB1e1 + 0.048783 BVB1e2 + 0.08262 BVB1e3      : ARRZ(4.46d-15,960.0d0) * (1.0-SOA_b); {OLD: ARRZ(1.2d-15, 821.0d0) * (1.0-SOA_b);}
+{109} NO3 + C5H8_2 = NO3 + C5H8_2
+                   + 0.014593 BVB1e0 + 0.012485 BVB1e1 + 0.048783 BVB1e2 + 0.08262 BVB1e3      : 7.00d-12 * (1.0-SOA_b); {OLD: ARRZ(3.7d-12,-175.0d0) * (1.0-SOA_b);}
+
+//NOTE: Added SESQ in the products since CB7 has them already in gas phase reactions! Rates unified with CB7-rates
+//Since Shrivastava's mass yields for both high and low NOx cases are the same one can combine these cases:
+{107}  OH + SESQ =  OH + SESQ + 0.0153 BVB1e0 + 0.0306 BVB1e1 + 0.153 BVB1e2 + 0.103836 BVB1e3        : 2.00E-10;
+{108}  O3 + SESQ =  O3 + SESQ + 0.0153 BVB1e0 + 0.0306 BVB1e1 + 0.153 BVB1e2 + 0.103836 BVB1e3        : 1.20E-14; 
+{109} NO3 + SESQ = NO3 + SESQ + 0.0153 BVB1e0 + 0.0306 BVB1e1 + 0.153 BVB1e2 + 0.103836 BVB1e3        : 1.90E-11;
+
+{SOA aging}
+   
+{110} OH + AVB1e0 = {OH +} 1.075 AVB0                       : ASOA_aging {4.0E-11} ;
+{111} OH + AVB1e1 = {OH +} 1.075 AVB1e0                     : ASOA_aging {4.0E-11} ;
+{112} OH + AVB1e2 = {OH +} 1.075 AVB1e1                     : ASOA_aging {4.0E-11} ;
+{113} OH + AVB1e3 = {OH +} 1.075 AVB1e2                     : ASOA_aging {4.0E-11} ;
+{114} OH + AVB1e4 = {OH +} 1.075 AVB1e3                     : IVOC_aging {4.0E-11} ;
+{115} OH + AVB1e5 = {OH +} 1.075 AVB1e4                     : IVOC_aging {4.0E-11} ;
+{116} OH + AVB1e6 = {OH +} 1.075 AVB1e5                     : IVOC_aging {4.0E-11} ;
+{117} OH + BVB1e0 = {OH +} 1.075 BVB0                       : BSOA_aging {4.0E-11} ;
+{118} OH + BVB1e1 = {OH +} 1.075 BVB1e0                     : BSOA_aging {4.0E-11} ;
+{119} OH + BVB1e2 = {OH +} 1.075 BVB1e1                     : BSOA_aging {4.0E-11} ;
+{120} OH + BVB1e3 = {OH +} 1.075 BVB1e2                     : BSOA_aging {4.0E-11} ;
+
+//TEST emissions
+//SRCunity = N2O  : 1.0E-5 ; {WORKS at least in principle if rate is adjusted to cnc change rate due to emissions flux}
+//END TEST emissions

@@ -62,7 +62,7 @@ MODULE supermarket_of_fields
 
   PUBLIC fu_supermarket_cpu_usage
   PUBLIC supermarket_times
-  public fu_if_time_covered_by_maket
+  public fu_if_time_covered_by_market
   public report
   PUBLIC supermarket_quantities
   PUBLIC supermarket_variables
@@ -97,6 +97,7 @@ MODULE supermarket_of_fields
   private store_new_data_times
   private check_grid
   private print_supermarket_contents
+  private update_mm_timebounds 
 
   interface fu_name
     module procedure fu_minimarket_name
@@ -151,6 +152,9 @@ MODULE supermarket_of_fields
     !
     type(silja_fieldpointer), dimension(30) :: hit_list
     integer :: hit_list_pointer = 0
+    integer :: iobstime_earliest = int_missing 
+    integer :: iobstime_latest = int_missing
+    integer :: iobstime_side_ref = int_missing  !! Store first- dimension index of obstimes to use
 
   end type mini_market_of_stacks
   public mini_market_of_stacks
@@ -278,6 +282,9 @@ CONTAINS
       miniMarketPtr%obstimes = time_missing
       miniMarketPtr%DQ_unprocessed_times = time_missing
       miniMarketPtr%replace_earliest = replace_earliest_when_full
+      miniMarketPtr%iobstime_earliest = int_missing
+      miniMarketPtr%iobstime_latest = int_missing
+      miniMarketPtr%iobstime_side_ref = int_missing
 
       !----------------------------------------
       !
@@ -482,6 +489,8 @@ CONTAINS
         end do   ! met_src
       end if  ! if initialized
     end if   ! ifSingleTime
+
+    call update_mm_timebounds(miniMarket)
 
     call stop_count(chCounterNm = subname)
 
@@ -1336,8 +1345,6 @@ CONTAINS
     ! First check, if it's already open. If not, check if exists. If exists, open; 
     ! if not, look for required fields in binary already open.
     !
-
-
     old_unit = int_missing
     if(present(iBinary)) old_unit = iBinary
 
@@ -1370,8 +1377,7 @@ CONTAINS
       if(fu_list_time_indicator(shpLstPtr) == accept_same_month) then !! Not needed otherwise
         call supermarket_times(miniMarketPtr, met_src_missing, valid_times, number_of_times, .true.)
       endif
-      
-  
+
       do it = 1, times_found
         iTmp = fu_list_time_indicator(shpLstPtr)
         if (iTmp  == accept_same_month) then
@@ -1580,7 +1586,7 @@ CONTAINS
        if(error)return
        eof = .true. ! Exit at the next cycle
        id = idStore
-       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
+       call set_grid(id,fu_coarse_geo_global_grid())  ! Dirty hack: shoplist for test field has 
                                   !always coarse_geo_global_grid (see put_test_field_to_content)
                                   ! Thus we have separate id (to match the shoplist)
                                   ! and idStore (to store)
@@ -1602,25 +1608,27 @@ CONTAINS
          timeTmp = shopStartTime + intervalTmp*(iT-1)
          call set_valid_time(id,      timeTmp )
          call set_valid_time(idStore, timeTmp )
+#ifdef DEBUG         
          call msg('The following test field has been created (store input)')
          call report(idStore)
          call msg('')
+#endif         
          if(fu_field_id_in_list(id, shopping_list,  indexVar))then  
             call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                 & nStacks, &
-                                & idStore, &
-                                & work_array, &
-                                & iUpdateType, &       ! Overwrite or not existing fields
-                                & stack_type, &        ! stationary or time-dependent
-                                & iAccuracy, &         ! of reporjection
-                                & stack_indices, &  ! OVERWRITES met_src, stacks are picked directly
-                                & storage_grid, &       ! storage grid
-                                & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
-                                & fu_if_randomise(wdr), &
-                                & shpLstPtr, indexVar, time_to_force)
+                                 & idStore, &
+                                 & work_array, &
+                                 & iUpdateType, &       ! Overwrite or not existing fields
+                                 & stack_type, &        ! stationary or time-dependent
+                                 & iAccuracy, &         ! of reporjection
+                                 & stack_indices, &  ! OVERWRITES met_src, stacks are picked directly
+                                 & storage_grid, &       ! storage grid
+                                 & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
+                                 & fu_if_randomise(wdr), &
+                                 & shpLstPtr, indexVar, time_to_force)
+       
            if (.not. error) fields_accepted = fields_accepted + 1
          endif
-         if(error)return
        enddo
        call free_work_array(work_array) ! can be a huge array, so must be freed here
        
@@ -3631,52 +3639,56 @@ call msg('')
 
   ! ***************************************************************
 
-  logical function fu_if_time_covered_by_maket(mm, reftime)
+   !*******************************************************
+  
+  subroutine update_mm_timebounds(mm)
     !
-    ! Checks if refime is between some times in the market
-    ! Not thread-safe
+    ! Yet another redundant indexer for times in supermarket
+    ! updates indices ued by fu_if_time_covered_by_market
+
     !! We assume that not more than one time changed between the calls
     !! and the new latesttime appears next to the old latest
     IMPLICIT NONE
 
     ! Imported parameters
-    type(mini_market_of_stacks),  intent(in) :: mm
-    TYPE(silja_time), INTENT (in) :: reftime
+    type(mini_market_of_stacks),  intent(inout) :: mm
 
     ! Local declarations:
     TYPE(silja_stack), POINTER :: stack
-    INTEGER :: i, iOff, n_times, it, iSide, n_sides
-    integer, save :: itime_latest = int_missing !! Store this thing to speedup the search
-    integer, save :: itime_earliest = int_missing !! Store this thing to speedup the search
-    character(len=*), parameter :: sub_name = 'fu_if_time_covered_by_maket'
-
-
-
-
-    fu_if_time_covered_by_maket = .FALSE.
-
+    INTEGER :: i, iOff, n_times, it, iSide, n_sides, iTmp
+    integer :: itime_latest 
+    integer :: itime_earliest 
+    character(len = *), parameter :: sub_name = 'update_mm_timebounds'
 
     if (.not. mm%stack_multiTime_exists) return
     if (.not. allocated (mm%obstimes) ) return
 
     !! In boundary market the times for unused sides are undefined
     !! We have to find a defined one
-    n_sides = size(mm%obstimes,1)
-    if (n_sides > 1) then 
-      do iSide = 1,n_sides
-       if (defined(mm%obstimes(iSide,1))) exit
-      enddo
-      if (iSide>n_sides) return
-    else
-      iSide = 1 
+    iSide = mm%iobstime_side_ref
+    if (iSide < 1) then
+      n_sides = size(mm%obstimes,1)
+      if (n_sides > 1) then 
+        do iSide = 1,n_sides
+         if (defined(mm%obstimes(iSide,1))) exit
+        enddo
+        if (iSide>n_sides) return
+      else
+        iSide = 1 
+      endif
     endif
 
-    if (.not. defined(mm%obstimes(iSide,1))) return
-    if (.not. defined(mm%obstimes(iSide,2))) return
+    itime_earliest = mm%iobstime_earliest
+    itime_latest = mm%iobstime_latest
 
-    n_times = size(mm%obstimes,2)
     if (itime_earliest < 1)  itime_earliest= 1
     if (itime_latest < 1)  itime_latest = 2
+
+    if (.not. defined(mm%obstimes(iSide,itime_earliest))) return
+    if (.not. defined(mm%obstimes(iSide,itime_latest))) return
+   
+
+    n_times = size(mm%obstimes,2)
   
     !adjust earliest if needed
     do iOff = -1,1,2
@@ -3700,10 +3712,41 @@ call msg('')
       endif
     enddo
 
-    fu_if_time_covered_by_maket = (reftime <= mm%obstimes(iSide,itime_latest)) &
-                           &.and. (reftime >= mm%obstimes(iSide,itime_earliest))
+    !!! And finally put the indices to supermarket
+    mm%iobstime_earliest = itime_earliest
+    mm%iobstime_latest = itime_latest
+    mm%iobstime_side_ref = iSide
 
-  END function fu_if_time_covered_by_maket
+  end subroutine update_mm_timebounds
+
+  ! ***************************************************************
+
+  logical function fu_if_time_covered_by_market(mm, reftime)
+    !
+    ! Checks if refime is between some times in the market
+    ! Relies on time indices updated by update_mm_timebounds from arrange_supermarket
+    IMPLICIT NONE
+
+    ! Imported parameters
+    type(mini_market_of_stacks),  intent(in) :: mm
+    TYPE(silja_time), INTENT (in) :: reftime
+
+    ! Local declarations:
+    INTEGER :: it1, it2, iside
+    character(len=*), parameter :: sub_name = 'fu_if_time_covered_by_market'
+
+    it1 = mm%iobstime_earliest
+    it2 = mm%iobstime_latest
+    iSide = mm%iobstime_side_ref
+
+    if  (all ((/it1, it2, iSide/) > 0 )) then
+        fu_if_time_covered_by_market = (reftime <= mm%obstimes(iSide,it2)) &
+                           &.and. (reftime >= mm%obstimes(iSide,it1))
+    else
+        fu_if_time_covered_by_market = .FALSE.
+    endif
+
+  END function fu_if_time_covered_by_market
 
 
   ! ***************************************************************
@@ -4867,7 +4910,7 @@ call msg('')
 
     DO i = 1, SIZE(req_obstimes)
       IF (.NOT.defined(req_obstimes(i))) EXIT 
-      if (.not. fu_if_time_covered_by_maket(miniMarketPtr, req_obstimes(i))) then
+      if (.not. fu_if_time_covered_by_market(miniMarketPtr, req_obstimes(i))) then
         !Missing obstime found
         miss_count = miss_count + 1
         missing_obstimes(miss_count) = req_obstimes(i)
@@ -5057,7 +5100,7 @@ call msg('')
 
     DO i = 1, SIZE(req_obstimes)
       IF (.NOT.defined(req_obstimes(i))) EXIT
-      if ( fu_if_time_covered_by_maket(miniMarketPtr, req_obstimes(i))) cycle
+      if ( fu_if_time_covered_by_market(miniMarketPtr, req_obstimes(i))) cycle
       !Missing obstime found
       miss_count = miss_count + 1
       missing_obstimes(miss_count) = req_obstimes(i)

@@ -334,17 +334,17 @@ character(len=1024), save :: strTmp, strMetaMasses, strMetaNaero
     integer :: iBin, iAer, iParBin
 
     !NOTE: These sizes should be consistent with the bin_particle_volume that is set at the begin of the module!
-    modesMAAD(iModeFine,binICE) = fu_set_mode(moving_diameter_flag, 0.09e-6, 0.11e-6, &
+    modesMAAD(iModeFine,binICE) = fu_set_mode(moving_diameter_flag, 0.09e-6, 0.11e-6,  0.10e-6,&
                                             & label = 'ICE', solubility = 1)
-    modesMAAD(iModeCoarse,binICE) = fu_set_mode(moving_diameter_flag, 14e-6, 16e-6, &
+    modesMAAD(iModeCoarse,binICE) = fu_set_mode(moving_diameter_flag, 14e-6, 16e-6, 15e-6, &
                                               & label = 'ICE', solubility = 1)
-    modesMAAD(iModeFine,binNAT) = fu_set_mode(moving_diameter_flag, 0.09e-6, 0.11e-6, &
+    modesMAAD(iModeFine,binNAT) = fu_set_mode(moving_diameter_flag, 0.09e-6, 0.11e-6, 0.10e-6,&
                                             & label = 'NAT', solubility = 1)
-    modesMAAD(iModeCoarse,binNAT) = fu_set_mode(moving_diameter_flag, 14e-6, 16e-6, &
+    modesMAAD(iModeCoarse,binNAT) = fu_set_mode(moving_diameter_flag, 14e-6, 16e-6, 15e-6, &
                                               & label = 'NAT', solubility = 1)
-    modesMAAD(iModeFine,binSTS) = fu_set_mode(moving_diameter_flag, 0.09e-6, 0.11e-6, &
+    modesMAAD(iModeFine,binSTS) = fu_set_mode(moving_diameter_flag, 0.09e-6, 0.11e-6, 0.10e-6, &
                                             & label = 'STS', solubility = 1)
-    modesMAAD(iModeCoarse,binSTS) = fu_set_mode(moving_diameter_flag, 14e-6, 16e-6, &
+    modesMAAD(iModeCoarse,binSTS) = fu_set_mode(moving_diameter_flag, 14e-6, 16e-6, 15e-6,&
                                               & label = 'STS', solubility = 1)
 
     strMetaMasses = ''

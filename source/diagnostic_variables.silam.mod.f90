@@ -49,7 +49,6 @@ MODULE diagnostic_variables
 
   private make_diagnostic_fields
   private fu_quantity_avail_4adjoint
-  private df_DMAT_Vd_correction
   private df_make_cell_size_z_dyn
   private df_cumul_daily_variable
 
@@ -64,23 +63,13 @@ MODULE diagnostic_variables
   private TBLKTRI
   private adjust_2D_fluxes
   
-  !
-  ! Private interpolation structures and variables needed for flux diagnostics
-  !
-  type(THorizInterpStruct), pointer, save, private :: pHorizInterpU => null(), pHorizInterpV => null(), &
-       & pHorizInterpRho => null()
-  type(TVertInterpStruct), pointer, save, private ::  pVertInterpRho => null()
-
-  type(silam_vertical), private, save :: integration_vertical
-  type(TVertInterpStruct), pointer, save, private :: wind_interp_struct
-  integer, dimension(:), allocatable, private, save :: nsmall_in_layer
-  real(vm_p), dimension(:,:), allocatable, private, save :: u3d, v3d, eta_dot_3d, w3d
 
   !
   ! Types of wind diagnostics
   !
-  integer, parameter, private :: test_wind = 50000, incompressible = 50001, incompressible_v2 = 50002, &
-                        & anelastic_v2 = 50003, from_nwp_omega = 50004, hybrid_top_down = 50005, & 
+  integer, parameter, private :: test_wind = 50000, &
+    !     incompressible = 50001, incompressible_v2 = 50002, &
+    !                    & anelastic_v2 = 50003, from_nwp_omega = 50004, hybrid_top_down = 50005, & 
                         & hardtop = 50006, opentop = 50007, omegatop = 50008, topdown = 50009, hardtop_weighted = 50010
   !
   ! Types of averaging
@@ -101,7 +90,6 @@ MODULE diagnostic_variables
   
   type Tdiagnostic_rules
      private
-     integer :: continuity_equation = incompressible_v2
      integer :: wind_method = int_missing  ! Do not make any mass fluxes
      integer :: iTestWindType = 1
      integer :: a = int_missing, b = int_missing !Test Wind parameters
@@ -415,56 +403,8 @@ MODULE diagnostic_variables
     call msg('')
 
     strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'continuity_equation'))
-    iTmp = INDEX(trim(strTmp),' ')
-    if (iTmp > 0) then 
-        strTmp = strTmp(1:iTmp-1)
-    endif
-    select case (strTmp)
-      case ('incompressible')
-        rules%continuity_equation = incompressible
-        call msg('Incompressible continuity eqn. formulation')
-      case ( 'incompressible_v2')
-        rules%continuity_equation = incompressible_v2
-        call msg('Revised incompressible continuity eqn. formulation')
-      case ( 'anelastic_v2')
-        rules%continuity_equation = anelastic_v2
-        call msg('Revised anelastic continuity eqn. formulation')
-      case ( 'nwp_omega')
-        rules%continuity_equation = from_nwp_omega
-        call msg('Vertical velocity derived from NWP omega field')
-      case ( 'test_wind')
-        rules%continuity_equation = test_wind
-        if (iTmp > 0) then ! Requires a type of wind, may be, more parameters
-          strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'continuity_equation'))
-          strTmp = trim(strTmp(iTmp+1:))
-          read(unit=strTmp, fmt=*, iostat=iTmp)  rules%iTestWindType
-          iTmp = INDEX(trim(strTmp),' ')
-          if  (iTmp > 0)then
-            read(unit=strTmp, fmt=*, iostat=iTmp) rules%a
-            strTmp = trim(strTmp(iTmp+1:))
-          endif
-          iTmp = INDEX(trim(strTmp),' ')
-          if  (iTmp > 0)then
-            read(unit=strTmp(iTmp+1:), fmt=*, iostat=iTmp) rules%b
-          endif
-        else
-          call set_error('test_wind requires at least 1 parameter: wind type index',sub_name)
-          return
-        endif
-        call msg("Test wind parameters", rules%a, rules%b)
-        call msg_warning('Fake wind wind')
-      case ( 'hybrid_top_down')
-        rules%continuity_equation = hybrid_top_down
-        call msg('Top-down eta dot diagnostic')
-      case default
-        call msg('continuity_equation = ' // trim(strTmp))
-        call msg_warning('Strange or no continuity_equation defined in standard setup,' + &
-                       & 'will use differential form v2',sub_name)
-        rules%continuity_equation = incompressible_v2
-    end select
-    
+    if ( strTmp /= "") call msg_warning("continuity_equation has been deprecated and ignored")
 
-    ! To replace continuity_equation at some point
     strTmp = fu_str_l_case(fu_content(nlStandardSetup, 'wind_diagnostics'))
     iTmp = INDEX(trim(strTmp),' ')
     if (iTmp > 0) then 
@@ -602,21 +542,11 @@ MODULE diagnostic_variables
     !
     ! Basic meteorology in application to dispersion
     !
-    !
-    ! Vd correction
-    !
-    if(fu_quantity_in_quantities(Vd_correction_DMAT_flag, q_disp_dyn))then
-
-      iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
-      iTmp = fu_merge_integer_to_array(temperature_2m_flag, q_met_dyn)
-      iTmp = fu_merge_integer_to_array(friction_velocity_flag, q_met_dyn)
-    endif
 
     !
     ! z-size of grid cells
     !
     if(fu_quantity_in_quantities(cell_size_z_flag, q_disp_dyn)) &
-
       & iTmp = fu_merge_integer_to_array(surface_pressure_flag, q_met_dyn)
     
     !
@@ -859,10 +789,6 @@ MODULE diagnostic_variables
     call refine_all_vert_interp_coefs(meteo_buf_ptr, ifNewMeteoData, &
                                     & now + meteo_time_shift + timestep * 0.5)
 
-!    if(ifMeteo2DispVertInterp) call refine_interp_vert_coefs_v2(pMeteo2DispVertInterp, & 
-!                                                              & meteo_buf_ptr, &
-!                                                              & now, &
-!                                                              & pMeteo2DispHorizInterp)
     call stop_count('Refine vertical coefs v2')
     if(error)return
 
@@ -1039,9 +965,6 @@ MODULE diagnostic_variables
 
   subroutine make_diagnostic_fields(met_buf, dispMarketPtr, &
                                   & dqListDyn, dqListStat,&
-!                                  & ifMeteo2DispHorizInterp, ifMeteo2DispVertInterp, &
-!                                  & pMeteo2DispHorizInterp, pMeteo2DispVertInterp, &
-!                                  & now, &
                                   & diagnostic_rules, wdr, nDiagnosed)
     !
     ! Creates the quantities in list in every stack in the minimarket, where possible
@@ -1073,9 +996,8 @@ MODULE diagnostic_variables
     type(silja_field_id) :: idRequest
     integer :: iVarLst, iMetSrc, iT, iFldStack, shopQ, iVar, nVars, iQ
     integer, dimension(max_quantities) :: iArr, lst, lst_st
-    logical :: ifHorizInterp, ifVertInterp      ! if interpolation needed
+    logical :: ifHorizInterp ! if interpolation needed
     type(THorizInterpStruct), pointer :: pHorizInterpStruct ! meteo 2 dispersion horizontal
-    type(TVertInterpStruct), pointer :: pVertInterpStruct   ! meteo 2 dispersion vertical
     integer, dimension(5), parameter :: fluxes_diag_q = (/ &
                                                         & air_density_flag, disp_cell_airmass_flag, &
                                                         & disp_flux_celltop_flag, disp_flux_celleast_flag, &
@@ -1104,14 +1026,9 @@ MODULE diagnostic_variables
     ! Get interpolation structures
     !
     ifHorizInterp = .not. meteo_grid == dispersion_grid
-    ifVertInterp = .not. fu_cmp_verts_eq(meteo_vertical, dispersion_vertical)
     if(ifHorizInterp) &
           & pHorizInterpStruct => fu_horiz_interp_struct(meteo_grid, dispersion_grid, linear, .true.)
     if(error)return
-    if(ifVertInterp) &
-          & pVertInterpStruct => fu_vertical_interp_struct(meteo_vertical, dispersion_vertical, &
-                                                         & dispersion_grid, linear, &
-                                                         & one_hour, 'main_meteo_to_disp')
     !
     ! Do the main job: call diagnostic routines one by one
     !
@@ -1123,7 +1040,6 @@ MODULE diagnostic_variables
       call check_obstimes(cell_size_z_flag)
       call df_make_cell_size_z_dyn(met_src_missing, met_buf, obstimes, &
                                  & pHorizInterpStruct, ifHorizInterp, &
-                                 & pVertInterpStruct, ifVertInterp, &
                                  & dispMarketPtr, dispersion_grid, dispersion_vertical)
       if(error)return
       call arrange_supermarket(dispMarketPtr, .true., .true.)
@@ -1131,31 +1047,16 @@ MODULE diagnostic_variables
       nDiagnosed = nDiagnosed + 1
     endif  ! cell_size_z_flag
     
-    !
-    ! Vd correction DMAT
-    !
-    if(fu_quantity_in_list(Vd_correction_DMAT_flag, dqListDyn))then
-      call msg('Diagnosing Vd correction')
-      call check_obstimes(Vd_correction_DMAT_flag)
-      call df_DMAT_Vd_correction(met_src_missing, met_buf, obstimes, &
-                               & ifHorizInterp, pHorizInterpStruct, &
-                               & dispMarketPtr)
-      if(error)return
-!      call arrange_supermarket(dispMarketPtr, .false., .true.)
-!      if(error)return
-      nDiagnosed = nDiagnosed + 1
-    endif  ! Vd_correction_DMAT_flag
     
     !
     ! dispersion cell flux. Smart routine, has all interpolations inside, etc
     ! Diagnoses several quantities but presence of just one is enough for calling
     !
-    do iTmp = 1, size(fluxes_diag_q)
-      if(fu_quantity_in_list(fluxes_diag_q(iTmp), dqListDyn)) exit
-    end do
-
-    if(iTmp <= size(fluxes_diag_q))then !! was found
-      call check_obstimes(fluxes_diag_q(iTmp))
+    if(fu_quantity_in_list(disp_flux_celleast_flag, dqListDyn) .or. &
+     & fu_quantity_in_list(disp_flux_cellnorth_flag, dqListDyn) .or. &
+     & fu_quantity_in_list(disp_flux_celltop_flag, dqListDyn) .or. &
+     & fu_quantity_in_list(disp_cell_airmass_flag, dqListDyn))then
+      call check_obstimes(disp_flux_celleast_flag)
       call diag_cell_fluxes(met_src_missing, met_buf, obstimes, &
                           & dispMarketPtr, dispersion_grid, dispersion_vertical, diagnostic_rules)
       if(error)return
@@ -1296,176 +1197,22 @@ MODULE diagnostic_variables
 
     type(Tdiagnostic_rules), intent(in) :: diagnostic_rules
 
-    select case(diagnostic_rules%continuity_equation)
-      case(test_wind, incompressible, incompressible_v2, anelastic_v2, from_nwp_omega)
+    select case(diagnostic_rules%wind_method)
+      case(test_wind, opentop)
         fu_if_full_meteo_vertical_needed = .false.
-      case(hybrid_top_down)
+      case(hardtop, hardtop_weighted)
         fu_if_full_meteo_vertical_needed = .true.
       case default
-        call msg("diagnostic_rules%continuity_equation", diagnostic_rules%continuity_equation)
+        call msg("diagnostic_rules%wind_method", diagnostic_rules%wind_method)
         call set_error('Unknown wind diagnostic rule','fu_if_full_meteo_vertical_needed')
         fu_if_full_meteo_vertical_needed = .true.
     end select
   end function fu_if_full_meteo_vertical_needed
 
-  !***************************************************************************************************
-
-  subroutine df_DMAT_Vd_correction(met_src, met_buf, &
-                                 & obstimes, &
-                                 & ifHorizInterp, interpCoefMet2DispHoriz, &
-                                 & dispMarketPtr)
-    !
-    ! Computes the Vd correction factor following the DMAT procedure. 
-    !
-    implicit none
-
-    ! Imported parameters
-    TYPE(Tfield_buffer), POINTER :: met_buf
-    type(meteo_data_source), intent(in) :: met_src
-    type(silja_time), dimension(:), intent(in) :: obstimes
-    type(THorizInterpStruct), pointer :: interpCoefMet2DispHoriz
-    logical, intent(in) :: ifHorizInterp
-    type(mini_market_of_stacks), pointer :: dispMarketPtr
-
-    ! Local variables
-    INTEGER :: iQ, ix, iy, iDisp, iMeteo, iTime
-    INTEGER, DIMENSION(:), POINTER :: mdl_in_q
-    real, DIMENSION(:), POINTER :: pLandFraction, pTotPrecipPast, pTotPrecipFuture, pVdCorrection, &
-                                 & pTempr2mPast, pTempr2mFuture, pFricVelPast, pFricVelFuture
-    real :: fPrec, fU_star, weight_past
-    TYPE(Tfield_buffer), POINTER :: met_bufPtr
-    type(silja_field_id) :: idTmp
-
-    mdl_in_q => met_buf%buffer_quantities
-    met_bufPtr => met_buf
-
-    !
-    ! Basic: land fraction in Meteo grid
-    !
-    pLandFraction => fu_grid_data(fraction_of_land_fld)
-
-    !
-    ! Dry deposition needs also precipitation field(s) and 2m temperature
-    !
-    ! First, precipitation field(s)
-    !
-    iQ = fu_index(mdl_in_q, total_precipitation_int_flag)
-    if(iQ <= 0)then
-      call set_error('No total precipitation rate','df_DMAT_Vd_correction')
-      return
-    endif
-    pTotPrecipPast => met_buf%p2d(iQ)%past%ptr
-    pTotPrecipFuture => met_buf%p2d(iQ)%future%ptr
-
-    ! Now - 2m temperature and specific humidity
-    !
-    iQ = fu_index(mdl_in_q, temperature_2m_flag)
-    if(iQ <= 0)then
-      call set_error('No 2m temperature','df_DMAT_Vd_correction')
-      return
-    endif
-    pTempr2mPast => met_buf%p2d(iQ)%past%ptr
-    pTempr2mFuture => met_buf%p2d(iQ)%future%ptr
-
-    !
-    ! Dry deposition requires a correction function via the u* 
-    !
-    iQ = fu_index(mdl_in_q, friction_velocity_flag)
-    if(iQ <= 0)then
-      call set_error('No friction velocity in buffer','df_DMAT_Vd_correction')
-      return
-    endif
-    pFricVelPast => met_buf%p2d(iQ)%past%ptr
-    pFricVelFuture => met_buf%p2d(iQ)%future%ptr
-
-    !
-    ! Finally, reserve the space for the Vd correction itself
-    !
-    pVdCorrection => fu_work_array()
-
-    !
-    ! Now we make the computations of the Vd correction
-    ! Scavenging will be taken as it is in SILAM standard routine
-    !
-    do iTime = 1, size(obstimes)
-      if(.not.defined(obstimes(iTime)))exit
-      weight_past = (fu_valid_time(met_buf%p2d(iQ)%future%idPtr) - obstimes(iTime)) / &
-                  & (fu_valid_time(met_buf%p2d(iQ)%future%idPtr) - &
-                                       & fu_valid_time(met_buf%p2d(iQ)%past%idPtr))
-      if(weight_past < 0. .or. weight_past > 1.)then
-        call set_error('Incompatible times (obstimes(i), meteo_past, meteo_future):' + &
-                     & fu_str(obstimes(iTime)) + ',' + &
-                     & fu_str(fu_valid_time(met_buf%p2d(iQ)%past%idPtr)) + ',' + &
-                     & fu_str(fu_valid_time(met_buf%p2d(iQ)%future%idPtr)), &
-                     & 'df_DMAT_Vd_correction')
-        return
-      endif
-
-      do iy = 1, ny_dispersion
-        do ix = 1, nx_dispersion
-         iDisp = ix + (iy-1)*nx_dispersion
-         iMeteo = fu_grid_index(nx_meteo, ix, iy, interpCoefMet2DispHoriz)
-         if(iMeteo < 1 .or. iMeteo > fs_meteo)then
-           call msg('ix,real(iy) in dispersion grid',ix,real(iy))
-           call msg('iMeteo: ',iMeteo)
-           call set_error('Strange meteo index','df_DMAT_Vd_correction')
-           return
-         endif
-         if(error)return
-         !
-         ! Precipitation amount
-         !
-         fPrec = pTotPrecipPast(iMeteo) * weight_past + pTotPrecipFuture(iMeteo) * (1.-weight_past)
-         fU_star = pFricVelPast(iMeteo) * weight_past + pFricVelFuture(iMeteo) * (1.-weight_past)
-         !
-         ! Scavenging and Vd correction depend on temperature 
-         !
-         if(pTempr2mPast(iMeteo) * weight_past + pTempr2mFuture(iMeteo) * (1.-weight_past) > 271.)then  ! Above -2 C
-           !
-           ! Vd correction over land and sea is different
-           !
-           if(pLandFraction(iMeteo) < 0.1)then
-             !
-             ! Over sea the Charnock formula is OK
-             !
-             pVdCorrection(iDisp) = 3.+ 5. * fU_star * fU_star
-           else
-             !
-             ! Over land the surface moisture plays its role
-             !
-             if(fPrec < 1.e-10)then                     ! No precip.
-               pVdCorrection(iDisp) = 1.
-             elseif(fPrec < 3.e-4)then                  ! less than 1mm/hr
-               pVdCorrection(iDisp) = 2.
-             else
-               pVdCorrection(iDisp) = 3.
-             endif    ! Precipitation amount
-           endif  ! fraction of land
-
-         else   ! Below -2 C - all frozen
-
-           pVdCorrection(iDisp) = 1.
-
-         endif  ! Tempr at 2m is higher/lower than -2 C
-
-         if(pVdCorrection(iDisp) < 0.)then
-           call msg('Negative VdCorrection,iDisp,VdCorr:', iDisp, pVdCorrection(iDisp))
-           call set_error('Negative VdCorrection','df_DMAT_Vd_correction')
-         endif
-
-        end do  ! ix_dispersion
-      end do  ! iy_dispersion
-
-    end do  ! obstimes
-
-  end subroutine df_DMAT_Vd_correction
-
-
   !************************************************************************************
 
   subroutine df_make_cell_size_z_dyn(met_src, met_buf, obstimes, &
                                    & p_horiz_interp_struct, if_horiz_interp, &
-                                   & p_vert_interp_struct, if_vert_interp, &
                                    & miniMarket, gridTarget, vertTarget)
     !
     ! Generic subroutine. Makes the cell thickness dz, whether dynamic or static and
@@ -1479,8 +1226,7 @@ MODULE diagnostic_variables
     type(tfield_buffer), intent(in) :: met_buf
     type(silja_time), dimension(:), intent(in) :: obstimes
     type(THorizInterpStruct), pointer :: p_horiz_interp_struct
-    type(TVertInterpStruct), pointer :: p_vert_interp_struct   ! contains target grid and vertical
-    logical, intent(in) :: if_horiz_interp, if_vert_interp
+    logical, intent(in) :: if_horiz_interp
     type(mini_market_of_stacks), intent(inout) :: miniMarket
     type(silam_vertical), intent(in) :: vertTarget
     type(silja_grid), intent(in) :: gridTarget
@@ -1700,7 +1446,6 @@ MODULE diagnostic_variables
 
     integer :: nx_met_u, nx_met, nx_disp, ny_disp,  fs_disp, nz_disp ! Grids dimensions
     integer :: offx, offy, gnx, gny
-!    type(TVertInterpStruct), pointer :: celltop_interp_struct ! Not really needed yet...
 
 !    TYPE(silja_3d_field), POINTER :: u_flux_3d, v_flux_3d, w_flux_3d, cell_mass_3d
     TYPE(silja_field), POINTER :: fldPtr
@@ -2174,7 +1919,7 @@ ix:      do ixTo = 1, nx_disp
       !$OMP END PARALLEL
 
 
-      if (.not. ifGetWind .or. error) return ! No further diagnostics is needed
+      if (.not. ifGetWind .or. error) cycle !!itime ! No further diagnostics is needed
     
       if (ifPoisson .or. smpi_is_mpi_version()) then
          ! Need to ensure that domains have exactly the same idea on their boundary vlocities

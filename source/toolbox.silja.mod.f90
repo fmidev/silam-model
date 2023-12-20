@@ -90,6 +90,7 @@ MODULE toolbox
   public testremapcon_1d
   public set_coastal_value
   public trim_precision
+  public trim_precision_abs
   public fu_trim_cell_fcoord
   public test_sort
   public argMergeSort_char
@@ -4299,6 +4300,32 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
 
   END FUNCTION fu_studnt
 
+  !****************************************************************************************
+  
+  subroutine trim_precision_abs(x, maxquantum, missval)
+     ! Trims the absolute precision of vector x 
+     real (kind=4), dimension(:), intent(inout) :: x
+     real (kind=4), optional, intent(in) :: missval
+     real, intent(in) :: maxquantum
+     real (kind=4)  :: q, maxtrimmed
+     integer (kind=4) :: nbits, bitmask,i !! Must be the same size as X and missval
+
+     !! log2(x) = log(x)/log(2.)
+     q = 2.** int(floor(log(maxquantum)/log(2.))) !!! binary quantum
+     maxtrimmed = q * 2.**24  !! for values above maxtrimmed the quantum 
+                              !! below the precision of float32, no need to worry
+
+     if (present(missval)) then
+       where (x /= missval .and. abs(x) < maxtrimmed) 
+         x = q * nint(x / q)
+       end where
+     else
+       where (abs(x) < maxtrimmed)  
+         x = q * nint(x / q)
+       endwhere
+     endif
+
+  end subroutine trim_precision_abs
   
   !****************************************************************************************
   
@@ -4310,35 +4337,6 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
      real (kind=4)  :: fTmp
      integer (kind=4) :: nbits, bitmask,i !! Must be the same size as X and missval
      
-
-#ifdef NEW_TRIM_PRECISION
-     ! FIXME Causes GNU compiler crash on cray
-     ! The resulting field is accurate within 0 .. 0.5/factor
-     !WARNING!!!  Heavilon_server.silam.mod.f90s relies on 32-bit real 
-     !For 64-bit a separate version should be made
-       
-     ! Get number of bits to keep 
-     i = ceiling(factor)
-     bitmask= TRANSFER(X'FFFFFFFF',nbits)
-     
-     do nbits = 1,23
-       if (rshift(i,nbits) == 0) exit
-     enddo
-     bitmask=lshift(bitmask, 23-nbits)
-
-     !NOTE this method is simple, but scales field by 1 to 1 + 0.5/factor
-     !          with mean scaling 1 + 0.25./factor
-     !
-     ! FIXME Could save one more bit and get rid of the offset by rounding instead of cutting
-     !
-     if (present(missval)) then
-       where (x /= missval) 
-         x = transfer(IAND(bitmask,transfer(x,1,size(x))), fTmp, size(x))
-       end where
-     else
-       x = transfer(IAND(bitmask,transfer(x,1,size(x))), fTmp, size(x))
-     endif
-#else
      if (radix(factor) .ne. 2.) then 
        call msg("Some starnge radix=",radix(factor))
        call msg_warning("Not cutting precision","trim_precision")
@@ -4357,7 +4355,6 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
          x =  nint(factor * fraction(x))*(2.**exponent(x))/factor
        endwhere
      endif
-#endif
 
   end subroutine trim_precision
 
@@ -4372,7 +4369,6 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
 
       real, parameter :: fZcTrimin = 1.0/6  ! Maximum CM for trapezoid slab
       character(len = *), parameter :: sub_name = 'fu_trim_cell_fcoord'
-    ! code
 
       intf = nint(f)
       fu_trim_cell_fcoord = max(intf - fZcTrimin,min(intf + fZcTrimin, f) )

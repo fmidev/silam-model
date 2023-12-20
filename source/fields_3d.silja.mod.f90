@@ -592,7 +592,9 @@ CONTAINS
     endif
 !    call report(id_2d)
     
-    call set_field(id_2d, field_3d%fields(field_3d%number_of_fields)%fp, .false., .true.) !! no reset, Create new
+    ! corrected the order of the two logicals
+    call set_field(id_2d, field_3d%fields(field_3d%number_of_fields)%fp, .true., .false.) !! create new, no reset
+    
 !    call msg('done')
   end subroutine create_empty_field_in_field_3d
 

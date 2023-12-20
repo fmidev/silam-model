@@ -5480,6 +5480,10 @@ CONTAINS
       call free_work_array(met_data_column_fix2with_loc)
       call free_work_array(met_data_column_with2fix_loc)
     endif
+    if ( any( sum(fractions, DIM=2) > 1.00001 )) then
+      call msg("Sum of target weights for source vert:",  sum(fractions, DIM=2)  )
+      call set_error("Inconsistent weights", 'overlap_fraction_lyr_in_vert')
+    endif
 
   end subroutine overlap_fraction_lyr_in_vert
 
