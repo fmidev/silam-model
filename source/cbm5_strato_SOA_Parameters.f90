@@ -13,8 +13,8 @@
 !        R. Sander, Max-Planck Institute for Chemistry, Mainz, Germany
 ! 
 ! File                 : cbm5_strato_SOA_Parameters.f90
-! Time                 : Fri Apr  8 13:32:08 2022
-! Working directory    : /home/kouzne/SILAM/silamgit/kpp/cbm5_strato_SOA
+! Time                 : Fri Feb 23 12:15:54 2024
+! Working directory    : /mnt/d/kpp/kpp/cbm5_strato_SOA
 ! Equation file        : cbm5_strato_SOA.kpp
 ! Output root filename : cbm5_strato_SOA
 ! 
@@ -44,13 +44,13 @@ MODULE cbm5_strato_SOA_Parameters
 ! NFIXST - Starting of fixed in conc. vect.
   INTEGER, PARAMETER :: NFIXST = 92 
 ! NONZERO - Number of nonzero entries in Jacobian
-  INTEGER, PARAMETER :: NONZERO = 928 
+  INTEGER, PARAMETER :: NONZERO = 939 
 ! LU_NONZERO - Number of nonzero entries in LU factoriz. of Jacobian
-  INTEGER, PARAMETER :: LU_NONZERO = 1071 
+  INTEGER, PARAMETER :: LU_NONZERO = 1081 
 ! CNVAR - (NVAR+1) Number of elements in compressed row format
   INTEGER, PARAMETER :: CNVAR = 92 
 ! NHESS - Length of Sparse Hessian
-  INTEGER, PARAMETER :: NHESS = 962 
+  INTEGER, PARAMETER :: NHESS = 973 
 ! NLOOKAT - Number of species to look at
   INTEGER, PARAMETER :: NLOOKAT = 97 
 ! NMONITOR - Number of species to monitor
@@ -65,30 +65,30 @@ MODULE cbm5_strato_SOA_Parameters
   INTEGER, PARAMETER :: ind_CCl2F2 = 2 
   INTEGER, PARAMETER :: ind_CCl4 = 3 
   INTEGER, PARAMETER :: ind_AVB0 = 4 
-  INTEGER, PARAMETER :: ind_AVB1e0 = 5 
-  INTEGER, PARAMETER :: ind_AVB1e1 = 6 
-  INTEGER, PARAMETER :: ind_AVB1e2 = 7 
-  INTEGER, PARAMETER :: ind_AVB1e3 = 8 
-  INTEGER, PARAMETER :: ind_BENZENE = 9 
-  INTEGER, PARAMETER :: ind_AVB1e4 = 10 
-  INTEGER, PARAMETER :: ind_AVB1e5 = 11 
-  INTEGER, PARAMETER :: ind_AVB1e6 = 12 
-  INTEGER, PARAMETER :: ind_BVB0 = 13 
-  INTEGER, PARAMETER :: ind_BVB1e0 = 14 
-  INTEGER, PARAMETER :: ind_BVB1e1 = 15 
-  INTEGER, PARAMETER :: ind_BVB1e2 = 16 
-  INTEGER, PARAMETER :: ind_BVB1e3 = 17 
-  INTEGER, PARAMETER :: ind_SESQ = 18 
-  INTEGER, PARAMETER :: ind_CH3CCl3 = 19 
-  INTEGER, PARAMETER :: ind_BrCl = 20 
-  INTEGER, PARAMETER :: ind_BrNO2 = 21 
-  INTEGER, PARAMETER :: ind_TOL = 22 
-  INTEGER, PARAMETER :: ind_CH3Br = 23 
-  INTEGER, PARAMETER :: ind_Cl2O2 = 24 
-  INTEGER, PARAMETER :: ind_N2O5 = 25 
-  INTEGER, PARAMETER :: ind_XYL = 26 
-  INTEGER, PARAMETER :: ind_N = 27 
-  INTEGER, PARAMETER :: ind_PAN = 28 
+  INTEGER, PARAMETER :: ind_BVB0 = 5 
+  INTEGER, PARAMETER :: ind_CH3CCl3 = 6 
+  INTEGER, PARAMETER :: ind_AVB1e6 = 7 
+  INTEGER, PARAMETER :: ind_AVB1e5 = 8 
+  INTEGER, PARAMETER :: ind_AVB1e4 = 9 
+  INTEGER, PARAMETER :: ind_BrCl = 10 
+  INTEGER, PARAMETER :: ind_BrNO2 = 11 
+  INTEGER, PARAMETER :: ind_BENZENE = 12 
+  INTEGER, PARAMETER :: ind_AVB1e0 = 13 
+  INTEGER, PARAMETER :: ind_AVB1e1 = 14 
+  INTEGER, PARAMETER :: ind_AVB1e2 = 15 
+  INTEGER, PARAMETER :: ind_AVB1e3 = 16 
+  INTEGER, PARAMETER :: ind_TOL = 17 
+  INTEGER, PARAMETER :: ind_CH3Br = 18 
+  INTEGER, PARAMETER :: ind_Cl2O2 = 19 
+  INTEGER, PARAMETER :: ind_N2O5 = 20 
+  INTEGER, PARAMETER :: ind_XYL = 21 
+  INTEGER, PARAMETER :: ind_PAN = 22 
+  INTEGER, PARAMETER :: ind_N = 23 
+  INTEGER, PARAMETER :: ind_BVB1e0 = 24 
+  INTEGER, PARAMETER :: ind_BVB1e1 = 25 
+  INTEGER, PARAMETER :: ind_BVB1e2 = 26 
+  INTEGER, PARAMETER :: ind_SESQ = 27 
+  INTEGER, PARAMETER :: ind_BVB1e3 = 28 
   INTEGER, PARAMETER :: ind_N2O = 29 
   INTEGER, PARAMETER :: ind_HONO = 30 
   INTEGER, PARAMETER :: ind_FACD = 31 
@@ -97,32 +97,32 @@ MODULE cbm5_strato_SOA_Parameters
   INTEGER, PARAMETER :: ind_AACD = 34 
   INTEGER, PARAMETER :: ind_PACD = 35 
   INTEGER, PARAMETER :: ind_PNA = 36 
-  INTEGER, PARAMETER :: ind_TO2 = 37 
-  INTEGER, PARAMETER :: ind_CH3Cl = 38 
-  INTEGER, PARAMETER :: ind_ETHA = 39 
+  INTEGER, PARAMETER :: ind_CH3Cl = 37 
+  INTEGER, PARAMETER :: ind_ETHA = 38 
+  INTEGER, PARAMETER :: ind_TO2 = 39 
   INTEGER, PARAMETER :: ind_MEOH = 40 
   INTEGER, PARAMETER :: ind_ETOH = 41 
   INTEGER, PARAMETER :: ind_BrONO2 = 42 
   INTEGER, PARAMETER :: ind_MEPX = 43 
   INTEGER, PARAMETER :: ind_ROOH = 44 
-  INTEGER, PARAMETER :: ind_MGLY = 45 
+  INTEGER, PARAMETER :: ind_H2O2 = 45 
   INTEGER, PARAMETER :: ind_CRO = 46 
-  INTEGER, PARAMETER :: ind_H2O2 = 47 
+  INTEGER, PARAMETER :: ind_MGLY = 47 
   INTEGER, PARAMETER :: ind_PANX = 48 
   INTEGER, PARAMETER :: ind_HCO3 = 49 
   INTEGER, PARAMETER :: ind_FMCL = 50 
   INTEGER, PARAMETER :: ind_HOBr = 51 
-  INTEGER, PARAMETER :: ind_Cl2 = 52 
-  INTEGER, PARAMETER :: ind_HNO3 = 53 
+  INTEGER, PARAMETER :: ind_HNO3 = 52 
+  INTEGER, PARAMETER :: ind_Cl2 = 53 
   INTEGER, PARAMETER :: ind_ROR5 = 54 
-  INTEGER, PARAMETER :: ind_OPEN = 55 
-  INTEGER, PARAMETER :: ind_CO = 56 
+  INTEGER, PARAMETER :: ind_CO = 55 
+  INTEGER, PARAMETER :: ind_OPEN = 56 
   INTEGER, PARAMETER :: ind_ClONO2 = 57 
   INTEGER, PARAMETER :: ind_HOCl = 58 
   INTEGER, PARAMETER :: ind_C5H8_2 = 59 
   INTEGER, PARAMETER :: ind_HBr = 60 
-  INTEGER, PARAMETER :: ind_CRES = 61 
-  INTEGER, PARAMETER :: ind_ETH = 62 
+  INTEGER, PARAMETER :: ind_ETH = 61 
+  INTEGER, PARAMETER :: ind_CRES = 62 
   INTEGER, PARAMETER :: ind_IOLE = 63 
   INTEGER, PARAMETER :: ind_OLE5 = 64 
   INTEGER, PARAMETER :: ind_OClO = 65 
@@ -136,22 +136,22 @@ MODULE cbm5_strato_SOA_Parameters
   INTEGER, PARAMETER :: ind_ALDX = 73 
   INTEGER, PARAMETER :: ind_CXO3 = 74 
   INTEGER, PARAMETER :: ind_C2O3 = 75 
-  INTEGER, PARAMETER :: ind_ClO = 76 
-  INTEGER, PARAMETER :: ind_O1D = 77 
+  INTEGER, PARAMETER :: ind_O1D = 76 
+  INTEGER, PARAMETER :: ind_ClO = 77 
   INTEGER, PARAMETER :: ind_HCHO = 78 
-  INTEGER, PARAMETER :: ind_XO2 = 79 
-  INTEGER, PARAMETER :: ind_MEO2 = 80 
-  INTEGER, PARAMETER :: ind_O = 81 
-  INTEGER, PARAMETER :: ind_Cl = 82 
-  INTEGER, PARAMETER :: ind_OH = 83 
-  INTEGER, PARAMETER :: ind_O3 = 84 
-  INTEGER, PARAMETER :: ind_HO2 = 85 
+  INTEGER, PARAMETER :: ind_BrO = 79 
+  INTEGER, PARAMETER :: ind_NO = 80 
+  INTEGER, PARAMETER :: ind_ALD2 = 81 
+  INTEGER, PARAMETER :: ind_MEO2 = 82 
+  INTEGER, PARAMETER :: ind_O = 83 
+  INTEGER, PARAMETER :: ind_HO2 = 84 
+  INTEGER, PARAMETER :: ind_Cl = 85 
   INTEGER, PARAMETER :: ind_NO2 = 86 
-  INTEGER, PARAMETER :: ind_ALD2 = 87 
-  INTEGER, PARAMETER :: ind_NO = 88 
-  INTEGER, PARAMETER :: ind_BrO = 89 
-  INTEGER, PARAMETER :: ind_NO3 = 90 
-  INTEGER, PARAMETER :: ind_Br = 91 
+  INTEGER, PARAMETER :: ind_NO3 = 87 
+  INTEGER, PARAMETER :: ind_OH = 88 
+  INTEGER, PARAMETER :: ind_O3 = 89 
+  INTEGER, PARAMETER :: ind_Br = 90 
+  INTEGER, PARAMETER :: ind_XO2 = 91 
 
 ! Index declaration for fixed species in C
 !   C(ind_spc)

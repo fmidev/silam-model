@@ -431,10 +431,14 @@ CONTAINS
        RETURN
     END SELECT
 
+    if (x_divisions > max_divisions .or. y_divisions > max_divisions) then
+        call msg("x_divisions, y_divisions", x_divisions, y_divisions)
+        call set_error("max_divisions exceeded", sub_name)
+    endif
+
     ! Currently the ensemble and domain decomposition can not used together
-    IF (smpi_ens_size > 1 .AND. (x_divisions > 1 .OR. y_divisions > 1)) THEN
-       CALL set_error('Using domain decomposition and ensemble together is not yet supported', &
-            & 'smpi_setup_parameters')
+    IF (smpi_ens_size > 1 .AND. x_divisions * y_divisions > 1) THEN
+       CALL set_error('Using domain decomposition and ensemble together is not yet supported', sub_name)
        RETURN
     END IF
 
@@ -449,7 +453,7 @@ CONTAINS
           CALL set_error('gradsMPIIO can not be used with iotasks', 'smpi_setup_parameters')
           RETURN
        ELSE
-          smpi_use_mpiio_grads = .TRUE.
+          smpi_use_mpiio_grads = (x_divisions > 1) .or. (y_divisions > 1)
        END IF
     ELSE
        smpi_use_mpiio_grads = .FALSE.
@@ -460,7 +464,7 @@ CONTAINS
           CALL set_error('ncMPIIO can not be used with iotasks', 'smpi_setup_parameters')
           RETURN
        ELSE
-          smpi_use_mpiio_netcdf = .TRUE.
+          smpi_use_mpiio_netcdf = (x_divisions > 1) .or. (y_divisions > 1)
        END IF
     ELSE
        smpi_use_mpiio_netcdf = .FALSE.
@@ -499,8 +503,7 @@ CONTAINS
     IMPLICIT NONE
 
 #ifdef SILAM_MPI    
-    INTEGER :: io_color, adv_color, key, ierr
-    INTEGER, DIMENSION(2) :: coords
+    INTEGER :: io_color, adv_color, ensmember_rank, ierr
     CHARACTER(len=*), PARAMETER :: sub_name = 'init_communicators'
     INTEGER :: smpi_adv_x_rank, smpi_adv_y_rank 
 
@@ -517,8 +520,6 @@ CONTAINS
        RETURN
     END IF
 
-    ! First create the domain communicator
-    !!!!CALL create_ens_comm()
 
     ! MPI errors should not kill Silam instantly. A chance for last breath needed.
     call MPI_Errhandler_set(MPI_COMM_WORLD, MPI_ERRORS_RETURN, ierr)
@@ -548,10 +549,11 @@ CONTAINS
     !!!!end create_ens_comm
     IF (error) RETURN
 
-    CALL mpi_comm_rank(smpi_ensmember_comm, key, ierr) !Use same order for ranking
+    !! Decide if we are IO ot worker
+    CALL mpi_comm_rank(smpi_ensmember_comm, ensmember_rank, ierr)
     if (smpi_error(ierr, "after smpi_ensmember_comm rank", sub_name)) return
     ! Generate the communicators using comm_split
-    IF (key < x_divisions * y_divisions - nof_iotasks) THEN
+    IF (ensmember_rank < x_divisions * y_divisions - nof_iotasks) THEN
        is_io_task = .FALSE.
        io_color   = MPI_UNDEFINED
        adv_color  = 1
@@ -561,11 +563,12 @@ CONTAINS
        adv_color  = MPI_UNDEFINED
     END IF
 
-    CALL mpi_comm_split(smpi_ensmember_comm, adv_color, key, smpi_adv_comm, ierr)
+    !! Global rank as key for splits
+    CALL mpi_comm_split(smpi_ensmember_comm, adv_color, smpi_global_rank, smpi_adv_comm, ierr)
     if (smpi_error(ierr, "after smpi_ensmember_comm to smpi_adv_comm split", sub_name)) return
     CALL mpi_comm_size(smpi_adv_comm, smpi_adv_tasks, ierr)
     if (smpi_error(ierr, "after smpi_adv_comm size", sub_name)) return
-    CALL mpi_comm_split(smpi_ensmember_comm, io_color, key, smpi_io_comm, ierr)
+    CALL mpi_comm_split(smpi_ensmember_comm, io_color, smpi_global_rank, smpi_io_comm, ierr)
     if (smpi_error(ierr, "after smpi_ensmember_comm to smpi_io_comm split", sub_name)) return
 
     ! Basic cartesian topology
@@ -577,58 +580,39 @@ CONTAINS
        CALL mpi_comm_rank(smpi_adv_comm, smpi_adv_rank, ierr)
        if (smpi_error(ierr, "after  smpi_adv_comm rank", sub_name)) return
 
-       ! Periodicity only in x-direction, poles in y-direction
-       CALL mpi_cart_create(smpi_adv_comm, 2, (/x_divisions, y_divisions/), &
-         & (/x_divisions /= 1,  y_divisions/=1 /), .TRUE., smpi_adv_cart_comm, ierr) 
-            ! Set all BC periodic for a while, except if one task per direction
-       ! They will be reset after grids settled
-       if (smpi_error(ierr, "after mpi_cart_create", sub_name)) return
-       CALL mpi_cart_shift(smpi_adv_cart_comm, 1, 1, &
-            & adv_mpi_neighbours(southern_boundary), &
-            & adv_mpi_neighbours(northern_boundary), ierr)
-       if (smpi_error(ierr, "after mpi_cart_shift 1 1", sub_name)) return
-       CALL mpi_cart_shift(smpi_adv_cart_comm, 0, 1, &
-            & adv_mpi_neighbours(western_boundary), &
-            & adv_mpi_neighbours(eastern_boundary), ierr)
-       if (smpi_error(ierr, "after mpi_cart_shift 0 1", sub_name)) return
-       ! Determine own position in the grid
-       CALL mpi_comm_rank(smpi_adv_cart_comm, smpi_adv_cart_rank, ierr)
-       if (smpi_error(ierr, "after smpi_adv_cart_comm rank", sub_name)) return
-       CALL mpi_cart_coords(smpi_adv_cart_comm, smpi_adv_cart_rank, 2, coords, ierr)
-       if (smpi_error(ierr, "after mpi_cart_coords", sub_name)) return
+       my_x_coord = modulo( smpi_adv_rank, x_divisions)
+       my_y_coord = smpi_adv_rank / x_divisions
 
-       if (any(coords > max_divisions)) then
-         call msg("My cartesian coords", coords(1), coords(2))
-         call set_error("Coords exceed max_divisions "//trim(fu_str(max_divisions)), sub_name)
-         return
-       endif
-       my_x_coord = coords(1)
-       my_y_coord = coords(2)
-       
-       WHERE (adv_mpi_neighbours == smpi_proc_null) adv_mpi_neighbours = int_missing
+       ! Find neighbours.  Set all BC periodic for a while, except if one task per direction
+       adv_mpi_neighbours(southern_boundary) = modulo( my_y_coord - 1, y_divisions)*x_divisions + my_x_coord
+       adv_mpi_neighbours(northern_boundary) = modulo( my_y_coord + 1, y_divisions)*x_divisions + my_x_coord
+       adv_mpi_neighbours(western_boundary)  = my_y_coord*x_divisions + modulo(my_x_coord - 1, x_divisions)
+       adv_mpi_neighbours(eastern_boundary)  = my_y_coord*x_divisions + modulo(my_x_coord + 1, x_divisions)
+      !! Except only task per direction
+       where (adv_mpi_neighbours(1:4) == smpi_adv_rank)  adv_mpi_neighbours = int_missing !One can't be own neighbour
+
        CALL msg('all-periodic MPI topology created (will be reset later)')
        CALL report_neighbours()
 
-       
-       CALL mpi_comm_split(smpi_adv_comm, my_y_coord, key, smpi_adv_x_comm, ierr) !rows have same y
+       !! X communicator
+       CALL mpi_comm_split(smpi_adv_comm, my_y_coord, my_x_coord, smpi_adv_x_comm, ierr) !rows have same y
        if (smpi_error(ierr, "after smpi_adv_comm, to x split", sub_name)) return
        CALL mpi_comm_rank(smpi_adv_x_comm, smpi_adv_x_rank, ierr)
        if (smpi_error(ierr, "after smpi_adv_x rank", sub_name)) return
        if (fu_fails(my_x_coord == smpi_adv_x_rank, "my_x_coord /= smpi_adv_x_rank",sub_name)) return
 
-       CALL mpi_comm_split(smpi_adv_comm, my_x_coord, key, smpi_adv_y_comm, ierr) !cols have same x
+       !! Y communicator
+       CALL mpi_comm_split(smpi_adv_comm, my_x_coord, my_y_coord, smpi_adv_y_comm, ierr) !cols have same x
        if (smpi_error(ierr, "after smpi_adv_comm, to y split", sub_name)) return
        CALL mpi_comm_rank(smpi_adv_y_comm, smpi_adv_y_rank, ierr)
        if (smpi_error(ierr, "after smpi_adv_y rank", sub_name)) return
        if (fu_fails(my_y_coord == smpi_adv_y_rank, "my_y_coord /= smpi_adv_y_rank",sub_name)) return
-
-
     END IF
 
     call msg('Communicators initialized')
     call msg('Global rank: ', smpi_global_rank)
     call msg('Rank in ensemble_member: ', smpi_ens_rank)
-    call msg('Advect rank: ', smpi_adv_cart_rank)
+    call msg('Advect rank: ', smpi_adv_rank)
 #else
   adv_mpi_neighbours = int_missing
 

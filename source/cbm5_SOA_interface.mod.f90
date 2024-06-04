@@ -35,17 +35,17 @@ module cbm5_SOA_interface
   integer, parameter, public :: precision_cbm5_SOA = sp ! from Precision module
   character(len=substNmLen), dimension(num_species), parameter, private :: &
        & subst_names = (/ &
-                      'AVB0   ','AVB1e0 ','AVB1e1 ','AVB1e2 ','AVB1e3 ','BENZENE', &
-& 'AVB1e4 ','AVB1e5 ','AVB1e6 ','BVB0   ','BVB1e0 ','BVB1e1 ', &
-& 'BVB1e2 ','BVB1e3 ','SESQ   ','O1D    ','TOL    ','ETHA   ', &
-& 'MEOH   ','ETOH   ','N2O5   ','XYL    ','PAN    ','HONO   ', &
-& 'H2O2   ','FACD   ','AACD   ','PACD   ','PNA    ','TO2    ', &
+                      'AVB0   ','BVB0   ','AVB1e6 ','AVB1e5 ','AVB1e4 ','O1D    ', &
+& 'BENZENE','AVB1e0 ','AVB1e1 ','AVB1e2 ','AVB1e3 ','TOL    ', &
+& 'ETHA   ','MEOH   ','ETOH   ','N2O5   ','XYL    ','PAN    ', &
+& 'BVB1e0 ','BVB1e1 ','BVB1e2 ','SESQ   ','BVB1e3 ','H2O2   ', &
+& 'HONO   ','FACD   ','AACD   ','PACD   ','PNA    ','TO2    ', &
 & 'HCO3   ','ROOH   ','MGLY   ','CRO    ','PANX   ','ROR5   ', &
 & 'MEPX   ','CO     ','OPEN   ','HNO3   ','ETH    ','IOLE   ', &
 & 'OLE5   ','C5H8_2 ','CRES   ','C5H8   ','ISPD   ','NTR    ', &
-& 'ALDX   ','ALD2   ','HCHO   ','O3     ','MEO2   ','CXO3   ', &
-& 'XO2    ','NO3    ','C2O3   ','O      ','NO2    ','HO2    ', &
-& 'PAR5   ','XO2N   ','NO     ','OH     ' &
+& 'ALDX   ','ALD2   ','HCHO   ','O3     ','MEO2   ','OH     ', &
+& 'XO2N   ','O      ','C2O3   ','NO3    ','HO2    ','XO2    ', &
+& 'PAR5   ','CXO3   ','NO     ','NO2    ' &
                       & /)
   type(silam_species), dimension(num_species), public, target, save :: species_cbm5_SOA
 

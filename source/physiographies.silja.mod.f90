@@ -1115,7 +1115,7 @@ call msg('Physiography reads:' + fnames(i)%sp)
     REAL, DIMENSION(:), POINTER ::  lai, LAIhv, LAIlv, hvFrac, lVfrac
     TYPE(silja_field_id), POINTER :: laihv_field, lailv_field
     TYPE(silja_field_id) :: idTmp
-    type(silja_field), pointer :: fldLAIhv, fldLAIlv, fldTmp
+    type(silja_field), pointer :: fldLAIhv, fldLAIlv, fldFRAChv, fldFRAClv 
     integer :: iTmp, iPrDyn, fs, nx,ny
 
     call msg("make_static_LAI: Making static LAI out of LAI_hv and LAI_lv (with fractions)")
@@ -1155,15 +1155,15 @@ call msg('Physiography reads:' + fnames(i)%sp)
     if(error)return
     LAIlv => fu_grid_data(fldLAIlv)
 
-    fldTmp => fu_sm_simple_field(meteoMarketPtr, met_src_missing, fraction_hv_flag, &
+    fldFRAChv => fu_sm_simple_field(meteoMarketPtr, met_src_missing, fraction_hv_flag, &
                                & level_missing,  single_time_stack_flag)
     if(error)return
-    hvFrac => fu_grid_data(fldTmp)
+    hvFrac => fu_grid_data(fldFRAChv)
 
-    fldTmp => fu_sm_simple_field(meteoMarketPtr, met_src_missing, fraction_lv_flag, &
+    fldFRAClv => fu_sm_simple_field(meteoMarketPtr, met_src_missing, fraction_lv_flag, &
                                & level_missing,  single_time_stack_flag)
     if(error) return
-    lVfrac => fu_grid_data(fldTmp)
+    lVfrac => fu_grid_data(fldFRAClv)
 
 
     idTmp = fu_id(fldLAIhv)

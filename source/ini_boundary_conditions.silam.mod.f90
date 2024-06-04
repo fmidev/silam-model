@@ -180,9 +180,9 @@ MODULE ini_boundary_conditions
     real, dimension(:,:,:), allocatable :: wind_to_pole     ! (nx,2, nz)
     real, dimension(:,:,:), allocatable :: poleDryDep    ! (2,iSpecies,iSrc)
     ! index of boundary species in trn mass map (nSpecies,6)
-    integer, dimension(:,:), allocatable :: iTransportSpecies, & 
-         ! index of transport species in boundary buffer (nTransportSpecies,6)
-         & iBoundarySpecies  
+    integer, dimension(:,:), allocatable :: &
+         & iTransportSpecies, &  ! index of boundary species in transport massmap (nBndSpecies,6)
+         & iBoundarySpecies  ! index of transport species in boundary buffer (nTransportSpecies,6)
     integer :: iOnesSp = int_missing !! index of "ones" species in Transport
     ! Mass mixing ratios (SILAM mass per)
     real, dimension(:,:,:,:), pointer :: bNorth => null(), bSouth  => null()     ! (nSpecies, nSrc, nx, nz)
@@ -190,7 +190,7 @@ MODULE ini_boundary_conditions
     real, dimension(:,:,:,:), pointer :: bTop => null(),   bBottom => null() ! (nSpecies, nSrc, nx, ny)
     type(pBnd), dimension(6) :: pBoundaryData
 
-    integer :: nTransportSpecies
+    integer :: nTransportSpecies, nBndSpecies 
     logical :: perturb_boundaries = .false.
     real, dimension(:), pointer :: scale_factor
     
@@ -1736,23 +1736,24 @@ MODULE ini_boundary_conditions
       nPolar = count(bBuffer%iBoundaryType(1:6) ==  polar_boundary_type)
       nDirichlet = count(bBuffer%iBoundaryType(1:6) == dirichlet_boundary_type)
       pBBuffer%nTransportSpecies = nSpeciesTransp
+      pBBuffer%nBndSpecies = 0
       !
       ! Create the species maping: not all transport species can have boundary conditions
       ! First, count the max number of non-zero species - different borders can have different lists
       ! Second, allocate the index array
       ! Third, store the mapping
       !
-      iSpecies = 0
+      pBBuffer%nBndSpecies = 0
       if(nDirichlet + nPolar > 0)then
         do iB = northern_boundary, bottom_boundary
           if(boundStructArray(iB)%ptr%boundaryType == dirichlet_boundary_type)then
-            iSpecies = max(iSpecies,count(iTransportSpeciesInvolved(1:nSpeciesTransp) == 1))
+            pBBuffer%nBndSpecies = max(pBBuffer%nBndSpecies ,count(iTransportSpeciesInvolved(1:nSpeciesTransp) == 1))
           elseif(boundStructArray(iB)%ptr%boundaryType == polar_boundary_type)then
-            iSpecies = nSpeciesTransp
+            pBBuffer%nBndSpecies = nSpeciesTransp
           endif
         end do
       
-        allocate(bBuffer%iTransportSpecies(iSpecies,6), bBuffer%iBoundarySpecies(nSpeciesTransp,6), &
+        allocate(bBuffer%iTransportSpecies(pBBuffer%nBndSpecies,6), bBuffer%iBoundarySpecies(nSpeciesTransp,6), &
                & bBuffer%wind_to_pole(nx_dispersion,2,nz_dispersion), bBuffer%outflowFactor(2,nz_dispersion),  &
                & stat=iB)
         if(fu_fails(iB==0,'Failed species mapping & wind storage allocation','init_boundary_buffer'))return
@@ -2171,6 +2172,9 @@ MODULE ini_boundary_conditions
       ! switching the pointer of past fields to previous future ones. 
 
       !!RK: NOTE that times must still be coherent
+
+      if (ibRules%nBfiles == 0 .and. ibRules%ifOnesBoundary) return 
+      !! No files to read, ones boundary is always ready
 
       ifFirstTime = .TRUE.
       bstimes(:) = time_missing 
@@ -2745,14 +2749,16 @@ MODULE ini_boundary_conditions
     ! Note that polar hat will be modified by advection etc, so pointer makes sense
     !
     bnd => arBoundaries(northern_boundary)%ptr                                               ! NORTH
-#ifdef DEBUG   
-    call msg("boundary_conditions_now past-future")
-    iSp = bBuffer%iTransportSpecies(1,northern_boundary) 
-    call report(now)
-    call report(fu_valid_time(bnd%Fld3dPtr(1, iSp)%fp))
-    call report(fu_valid_time(bnd%Fld3dPtr(2, iSp)%fp))
-    call msg("")
-#endif
+!#ifdef DEBUG  !!FIXME relies that nothern boundary is dirichlet
+!    if (bBuffer%nBndSpecies > 0) then
+!      call msg("boundary_conditions_now past-future")
+!      iSp = bBuffer%iTransportSpecies(1,northern_boundary) 
+!      call report(now)
+!      call report(fu_valid_time(bnd%Fld3dPtr(1, iSp)%fp))
+!      call report(fu_valid_time(bnd%Fld3dPtr(2, iSp)%fp))
+!      call msg("")
+!    endif
+!#endif
 
     select case(bnd%boundaryType)
       case(polar_boundary_type)

@@ -38,7 +38,7 @@ PROGRAM test_modules
   ! Start the global time counter
   !
   chTmp = 'Overall_run_time'
-  call start_count(chCounterNm = chTmp)
+  call start_count(chTmp)
   call init_random_seed()
 
   !----------------------------------------

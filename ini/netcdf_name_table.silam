@@ -395,7 +395,8 @@ LIST = WRF_OUTPUT
      var     =     HFX        nwp_sensible_heatflux      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     LH         nwp_latent_heatflux        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     LAI        lai                        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
-     var     =     GLW        surf_sw_down_radiation     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+###     var     =     GLW        surf_sw_down_radiation     SURFACE_LEVEL       -1      XXX     -1     -1     1     0 !! Was enabled for for some reason
+     var     =     SWDOWN     surf_sw_down_radiation     SURFACE_LEVEL       -1      XXX     -1     -1     1     0 !! Actual SWDOWN, Thnaks, Ramiro
      var     =     ALBEDO     albedo                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     CLDCVR     total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     ACSNOW     weq_snow_depth             SURFACE_LEVEL       -1      XXX     -1     -1     1e-3     0
@@ -1168,6 +1169,23 @@ title = irrigated_area
 
 END_LIST = irrigated_area
 ###########################################################
+
+LIST = canopy_height
+
+title = canopy_height
+
+!    dim = dimname   axis   dimvar   type
+     dim     =     lon     x     lon    *
+     dim     =     lat     y     lat    *
+     dim     =    time     t     time   *
+
+!    var      = varname       silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset
+     var     =  canopy_height  canopy_height   SURFACE_LEVEL           -1               XXX          -1            -1         1        0
+
+END_LIST = canopy_height
+###########################################################
+
+
 
 LIST = pollen_source
 

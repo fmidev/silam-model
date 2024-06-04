@@ -19,7 +19,6 @@ module da_common
   public get_localisation
 
   public init_control_array_from_cloud
-  public init_control_array_from_par
   public fu_mode
   public defined
   public report
@@ -70,6 +69,7 @@ module da_common
   public fu_num_params_volc
 
   private report_da_rules
+  private init_control_array_from_par
   
   interface destroy
      module procedure destroy_control
@@ -116,10 +116,7 @@ module da_common
   !
   type DA_numericalParameters
      ! line search method, steepest descent only
-     integer :: lineSearchMethod = LINE_SEARCH_MS
-     integer :: searchMethod = steepest_descent_flag
-     ! steepest descent only:
-     real :: minimumStepLength = 1e-9
+     integer :: searchMethod = m1qn3_flag
      ! stop if cost function reduced by this factor
      real :: cost_rel_tol = 1e-6
      ! stop if relative change in cost function below this
@@ -401,12 +398,6 @@ module da_common
 
     p_data => fu_values_ptr(control)
     
-    select case (control%transf_state)
-    case (physical_space)
-      n_data = fu_size(control)
-    case (control_space)
-    end select
-
     n_data = fu_size(control)
 
     call report_vectorstat('Whole control',  p_data, n_data)
@@ -450,8 +441,9 @@ module da_common
     integer, intent(in), optional :: ind_species
 
     integer :: ind_start, ind_end,  field_size
-    
-    if (fu_fails(control%shift_initial /= int_missing, 'initial_ptr not available', 'fu_intial_ptr')) return
+    character(len=*), parameter :: sub_name = 'fu_initial_ptr'
+   
+    if (fu_fails(control%shift_initial /= int_missing, 'initial_ptr not available', sub_name)) return
 
     if (control%nvals == 0) then
       p_init => null()
@@ -478,9 +470,9 @@ module da_common
     real, dimension(:), pointer :: p_emis
 
     integer :: ind_start, ind_end, field_size, nx, ny
-    character(len=*), parameter :: subname = 'fu_emission_ptr'
+    character(len=*), parameter :: sub_name = 'fu_emission_ptr'
 
-    if (fu_fails(control%shift_emission /= int_missing, 'emission_ptr not available', subname)) return
+    if (fu_fails(control%shift_emission /= int_missing, 'emission_ptr not available', sub_name)) return
 
     if (fu_have_emission_zt(fu_mode(control))) then
       nx = 1
@@ -492,7 +484,7 @@ module da_common
 
     if (present(ind_species)) then
       if (fu_have_emission_volc(fu_mode(control))) then
-        call set_error('ind_species not allowed with emission_volc', subname)
+        call set_error('ind_species not allowed with emission_volc', sub_name)
         return
       end if
       field_size = nx*ny*control%nz_emis 
@@ -511,6 +503,7 @@ module da_common
 
   subroutine get_localisation_control(control, lonlat, darules)
     ! The control vector will be localised horizontally and used for EnKF local analysis.
+    ! Might need refinement if EnKF advection split ever used
     implicit none
     type(da_control), intent(in) :: control
     real, dimension(:,:), intent(out) :: lonlat
@@ -610,11 +603,7 @@ module da_common
     cloud_ptr => cloud
     p_map_transp => fu_concMM_ptr(cloud)
 
-    if (smpi_adv_rank == 0) then
-      analysis_grid = wholeMPIdispersion_grid !p_map_transp%gridTemplate
-    else
-      analysis_grid = grid_missing !Make da_control with no data
-    endif
+    analysis_grid = dispersion_grid
 
     analysis_vertical = p_map_transp%vertTemplate
     transp_species => fu_species_transport(cloud_ptr)
@@ -667,11 +656,7 @@ module da_common
     cloud_ptr => cloud
     p_map_transp => fu_concMM_ptr(cloud)
     
-    if (smpi_adv_rank==0) then
-       analysis_grid = wholeMPIdispersion_grid
-    else
-      analysis_grid = grid_missing
-    endif
+    analysis_grid = dispersion_grid
     analysis_vertical = p_map_transp%vertTemplate
     transp_species => fu_species_transport(cloud_ptr)
     emis_species => fu_species_emission(cloud_ptr)
@@ -821,7 +806,7 @@ module da_common
     real, dimension(:), pointer :: storage, rp
     character(len=*), parameter :: subname = 'test_init_control_array'
     
-    call init_control_array_from_par(controls, wholeMPIdispersion_grid, dispersion_vertical, &
+    call init_control_array_from_par(controls, dispersion_grid, dispersion_vertical, &
                                    & fu_species_transport(cloud), fu_species_emission(cloud), &
                                    & darules, physical_space, 3, storage, initial_value=0.0, &
                                    & bgr_cov=background_covariance_missing)
@@ -878,6 +863,7 @@ module da_common
     control%grid = analysis_grid
 
     if (defined(bgr_cov)) then
+      control%nvals = -1
       nvals_contr = fu_control_space_dim(bgr_cov)
     else
       nvals_contr = int_missing
@@ -930,14 +916,8 @@ module da_common
           call report(control%species_initial(ii))
         end do
       end if
-      if (defined(analysis_grid)) then
-        call grid_dimensions(analysis_grid, control%nx, control%ny)
-        nvals_init = control%nx*control%ny*nz*control%nsp_init
-        nvals_phys = nvals_phys + nvals_init
-      else
-        nvals_init = 0
-        nvals_phys = 0
-      endif
+      nvals_init = control%nx*control%ny*nz*control%nsp_init
+      nvals_phys = nvals_phys + nvals_init
       control%shift_initial = shift + 1
       shift = shift + nvals_init
       control%size_initial = nvals_init
@@ -1003,9 +983,7 @@ module da_common
       control%nvals = nvals_phys
       nullify(control%bgr_cov_ptr)
     case (control_space)
-      if (smpi_adv_rank ==0 ) then
-        if (fu_fails(defined(bgr_cov), 'Control space requested but no bgr_cov given', subname)) return
-      endif
+      if (fu_fails(defined(bgr_cov), 'Control space requested but no bgr_cov given', subname)) return
       control%nvals = nvals_contr
       control%bgr_cov_ptr => bgr_cov
       call control_space_dim(bgr_cov, control%size_initial, control%size_emission)
@@ -1023,6 +1001,60 @@ module da_common
 
   end subroutine init_control_no_alloc
 
+   !*******************************************************
+  
+  subroutine bcast_control(control)
+    !
+    !  Bcast control over SMPI adv communicator
+    !
+      implicit none
+      type(da_control), intent(inout) :: control
+      logical :: success
+      character(len = *), parameter :: sub_name = 'bcast_control'
+
+      if (control%transf_state /= control_space)  then                     
+        call set_error("control is not in control_space", sub_name)
+        return                                    
+      endif
+
+      if (smpi_adv_tasks == 1) return
+
+      call msg("Bcasting control, size ", control%nvals)
+      call smpi_bcast_aray(control%vals, control%nvals, smpi_adv_comm, 0) !! Master bcasts
+
+  end subroutine bcast_control
+                                 
+  !************************************************************************************
+
+  subroutine allreduce_gradient(control)
+    !
+    !  Sum all controls from SMPI adv communicator
+    !  Total gradient is sum of all gradients
+    !
+      implicit none
+      type(da_control), intent(inout) :: control
+      real, dimension(:), pointer :: work
+      logical :: success
+      character(len = *), parameter :: sub_name = 'allreduce_gradient'
+
+      if (control%transf_state /= control_space)  then                     
+        call set_error("gradient is not in control_space", sub_name)
+        return                                    
+      endif
+
+      if (smpi_adv_tasks == 1) return
+
+      call msg("Reducing gradient")
+      work => fu_work_array(control%nvals)
+      call smpi_allreduce_add(control%vals, work, smpi_adv_comm, success)
+      if (.not. success) then
+        call set_error("smpi_allreduce_add failed", sub_name)
+        return
+      endif
+      control%vals(1:control%nvals) = work(1:control%nvals)
+      call free_work_array(work)
+
+  end subroutine allreduce_gradient
                                  
   !************************************************************************************
                                
@@ -1338,7 +1370,7 @@ module da_common
         emission_species => fu_species_emission(cloud)
         nsp = size(emission_species)
         do isp = 1, nsp
-          id = fu_set_field_id(met_src_missing, emission_scaling_flag, valid_time, zero_interval, &
+          id = fu_set_field_id(met_src_missing, ln_emission_scaling_flag, valid_time, zero_interval, &
                              & dispersion_grid, surface_level, &
                              & species=emission_species(isp))
           if(error)return
@@ -2213,9 +2245,6 @@ module da_common
       nl_content_real = fu_content_real(nlPtr, 'cost_rel_tol')
       if (.not. (nl_content_real .eps. real_missing)) numerics%cost_rel_tol = nl_content_real
 
-      nl_content_real = fu_content_real(nlPtr, 'minimum_step')   ! steepest descent only
-      if (.not. (nl_content_real .eps. real_missing)) numerics%minimumStepLength = nl_content_real
-      
       nl_content_real = fu_content_real(nlPtr, 'grad_rel_tol')
       if (.not. (nl_content_real .eps. real_missing)) numerics%grad_rel_tol = nl_content_real
       
@@ -2231,16 +2260,16 @@ module da_common
       nl_content = fu_content(nlptr, 'search_method')
       select case(nl_content)
         case ('steepest_descent')
-          numerics%searchMethod = steepest_descent_flag
+          call set_error("No more steepest_descent", 'set_numerics')
         case ('m1qn3')
           numerics%searchMethod = m1qn3_flag
         case ('l_bfgs_b')
           numerics%searchMethod = l_bfgs_b_flag
         case ('')
-          call msg_warning('No search_method, will use default')
+          call msg_warning('No search_method, will use default m1qn3_flag')
+          numerics%searchMethod = m1qn3_flag
         case default
           call set_error('Strange search_method: ' // trim(nl_content), 'set_numerics')
-          return
       end select
 
     end subroutine set_numerics
@@ -2385,8 +2414,6 @@ module da_common
     call msg('outdir_templ_str = ' // darules%outdir_templ_str)
 
     select case(darules%numerics%searchMethod)
-      case(steepest_descent_flag)
-        call msg('Search by steepest_descent')
       case (m1qn3_flag)
         call msg('Search by m1qn3')
       case(l_bfgs_b_flag)
@@ -2395,8 +2422,8 @@ module da_common
         call msg_warning('Strange search_method: ' + fu_str(darules%numerics%searchMethod), 'report_da_rules')
     end select
     call msg('maxIterations = ', darules%numerics%maxIterations)
-    call msg('cost_rel_tol, minimumStepLength, grad_rel_tol', (/darules%numerics%cost_rel_tol, &
-           & darules%numerics%minimumStepLength, darules%numerics%grad_rel_tol/))
+    call msg('cost_rel_tol, grad_rel_tol', (/darules%numerics%cost_rel_tol, &
+           & darules%numerics%grad_rel_tol/))
     call msg('quasi_newton_df1, cost_incr_rel_tol, cost_rel_tol', (/darules%numerics%quasi_newton_df1, &
            & darules%numerics%cost_incr_rel_tol, darules%numerics%cost_rel_tol/))
 
@@ -2485,7 +2512,7 @@ module da_common
     type(da_control), intent(in) :: background
     
     integer :: ii
-    !real, dimension(:), pointer :: bgrvals, values
+    real, dimension(:), pointer :: fArrPtr
     type(t_background_covariance), pointer :: p_bgr_cov
         
     if (fu_fails(.not.fu_in_physical_space(control), 'Control already in physical space', 'to_physical')) return
@@ -2494,35 +2521,38 @@ module da_common
     p_bgr_cov => control%bgr_cov_ptr
     if (fu_fails(associated(p_bgr_cov), 'bgr_cov not associated', 'to_physical')) return
 
-    if (fu_fails(fu_size(control) <= fu_size(control_phys), 'physical space too small', 'to_physical')) return
     if (fu_fails(fu_size(background) == fu_size(control_phys), 'wrong background size', 'to_physical')) return
 
     select case(fu_mode(control))
     case(DA_INITIAL_STATE)
+      fArrPtr => fu_initial_ptr(control_phys)
       call apply_cov(p_bgr_cov%correlation_initial, p_bgr_cov%stdev_initial, &
-                   & fu_initial_ptr(control), fu_initial_ptr(background), fu_initial_ptr(control_phys))
+                   & fu_initial_ptr(control), fu_initial_ptr(background), fArrPtr)
       if (error) then
         call set_error('Error with initial state background covariance', 'to_physical')
         return
       end if
 
     case (DA_EMISSION_CORRECTION)
+      fArrPtr => fu_emission_ptr(control_phys) 
       call apply_cov(p_bgr_cov%correlation_emission, p_bgr_cov%stdev_emission, &
-                   & fu_emission_ptr(control), fu_emission_ptr(background), fu_emission_ptr(control_phys))
+                   & fu_emission_ptr(control), fu_emission_ptr(background), fArrPtr)
       if (error) then
         call set_error('Error with emission correction background covariance', 'to_physical')
         return
       end if
       
     case (DA_EMISSION_AND_INITIAL)
+      fArrPtr => fu_initial_ptr(control_phys)
       call apply_cov(p_bgr_cov%correlation_initial, p_bgr_cov%stdev_initial, &
-                   & fu_initial_ptr(control), fu_initial_ptr(background), fu_initial_ptr(control_phys))
+                   & fu_initial_ptr(control), fu_initial_ptr(background), fArrPtr)
       if (error) then
         call set_error('Error with initial state background covariance', 'to_physical')
         return
       end if
+      fArrPtr =>  fu_emission_ptr(control_phys)
       call apply_cov(p_bgr_cov%correlation_emission, p_bgr_cov%stdev_emission, &
-                   & fu_emission_ptr(control), fu_emission_ptr(background), fu_emission_ptr(control_phys))
+                   & fu_emission_ptr(control), fu_emission_ptr(background), fArrPtr)
       if (error) then
         call set_error('Error with emission correction background covariance', 'to_physical')
         return
@@ -2535,8 +2565,9 @@ module da_common
                      & 'to_physical')
         return
       end if
+      fArrPtr =>  fu_emission_ptr(control_phys)
       call apply_cov(p_bgr_cov%correlation_emission, p_bgr_cov%stdev_emission, &
-                   & fu_emission_ptr(control), fu_emission_ptr(background), fu_emission_ptr(control_phys))
+                   & fu_emission_ptr(control), fu_emission_ptr(background), fArrPtr)
       if (error) then
         call set_error('Error with emission correction background covariance', 'to_physical')
         return
@@ -2555,9 +2586,9 @@ module da_common
       ! where S is standard deviations, LL^T is the correlation matrix and xb is background.
       implicit none
       type(t_correlation), intent(in) :: correlation
-      real, dimension(:), intent(in) :: stdev
-      real, dimension(:) :: physvals, controlvals, bgrvals 
-      !real, dimension(:), pointer :: stdev, bgrvals, modelvals
+      real, dimension(:), intent(in) :: stdev 
+      real, dimension(:), intent(in) :: controlvals, bgrvals !! x'  , xb
+      real, dimension(:), intent(out) :: physvals !! x
       
       integer :: ii, n
       real, dimension(:), pointer :: work
@@ -2605,8 +2636,6 @@ module da_common
 
     if (fu_fails(fu_in_physical_space(control_phys), 'Control not in physical space', 'to_control')) return
     if (fu_fails(.not.fu_in_physical_space(control), 'Control not in control space', 'to_control')) return
-
-    if (fu_fails(fu_size(control) <= fu_size(control_phys), 'physical space too small', 'to_control')) return
 
     select case(fu_mode(control))
     case (DA_INITIAL_STATE)
@@ -2851,7 +2880,7 @@ module da_common
   !************************************************************************************
     
   subroutine set_cov_mdl(bgr_cov, background, species_emission, species_transport, &
-                       & rules, analysis_grid, analysis_vertical, analysis_time, control_var)
+                       & rules, analysis_grid, covariance_grid, analysis_vertical, analysis_time, control_var)
     ! 
     ! Set the background covariance structures following da_rules. This includes both
     ! correlation operators (per species) and standard deviations. The correlation
@@ -2866,7 +2895,7 @@ module da_common
     type(silam_species), dimension(:), intent(in), target :: species_transport, species_emission
     
     type(DA_Rules), intent(in) :: rules
-    type(silja_grid), intent(in) :: analysis_grid
+    type(silja_grid), intent(in) :: analysis_grid, covariance_grid
     type(silam_vertical), intent(in) :: analysis_vertical
     type(silja_time), intent(in) :: analysis_time
     ! rules%controlVariable not used - may use either controlVariable or perturbVariable
@@ -2882,6 +2911,7 @@ module da_common
     character(len=fnlen) :: filename
     type(silam_vertical) :: surface_vertical
     type(silja_time), dimension(:,:), pointer :: ptr_slots
+    character(len=*), parameter :: sub_name = 'set_cov_mdl'
 
     !
     ! Three controllers are supported (by at least one of the techniques): 
@@ -2893,17 +2923,17 @@ module da_common
     need_volcano = fu_have_emission_volc(control_var)
 
     if (need_emission_zt .and. (need_emission_xy .or. need_initial)) then
-      call set_error('Unsupported control variable combination', 'set_cov_mdl')
+      call set_error('Unsupported control variable combination', sub_name)
       return
     end if
     if (.not. (need_emission_xy .or. need_initial .or. need_emission_zt)) then
       call msg('controlvar:', control_var)
       call msg('Supported only: emission_zt, emission_xy, initial')
-      call set_error('Unsupported control variable configuration', 'set_cov_mdl')
+      call set_error('Unsupported control variable configuration', sub_name)
       return
     end if
 
-    if(fu_fails(.not. need_volcano,'Setting background error not supported for volcano emission', 'set_cov_mdl'))return
+    if(fu_fails(.not. need_volcano,'Setting background error not supported for volcano emission', sub_name))return
 
     call grid_dimensions(analysis_grid, nx, ny)
     nz = fu_NbrOfLevels(analysis_vertical)
@@ -2922,7 +2952,7 @@ module da_common
       if (error) return
       file_unit = fu_next_free_unit()
       open(file_unit, file=filename, action='read', iostat=iostat)
-      if (fu_fails(iostat == 0, 'Failed to open: ' // trim(filename), 'set_cov_mdl')) return
+      if (fu_fails(iostat == 0, 'Failed to open: ' // trim(filename), sub_name)) return
       nlgrp_cov_setup => fu_read_namelist_group(file_unit, .false.)
       if (error) return
       close(file_unit)
@@ -2931,12 +2961,12 @@ module da_common
       num_analysis_species = size(species_emission)
       stdev_size = num_analysis_species * nx*ny
       allocate(bgr_cov%stdev_emission(stdev_size), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', 'set_cov_mdl')) return
+      if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
 
       call set_vertical(surface_level, surface_vertical)
       call msg('Setting background covariances for emission')
-      call set_cov(emission_scaling_flag, nlgrp_cov_setup, species_emission, &
-                 & analysis_grid, surface_vertical, bgr_cov%correlation_emission, &
+      call set_cov(ln_emission_scaling_flag, nlgrp_cov_setup, species_emission, &
+                 & analysis_grid, covariance_grid, surface_vertical, bgr_cov%correlation_emission, &
                  & fu_emission_ptr(background), bgr_cov%stdev_emission)
       call set_missing(surface_vertical, .false.)
       call destroy_namelist_group(nlgrp_cov_setup)
@@ -2949,16 +2979,16 @@ module da_common
       if (error) return
       file_unit = fu_next_free_unit()
       open(file_unit, file=filename, action='read', iostat=iostat)
-      if (fu_fails(iostat == 0, 'Failed to open: ' // trim(filename), 'set_cov_mdl')) return
+      if (fu_fails(iostat == 0, 'Failed to open: ' // trim(filename), sub_name)) return
       nlgrp_cov_setup => fu_read_namelist_group(file_unit, .false.)
       if (error) return
       close(file_unit)
 
       if (fu_true(rules%have_analysis_species)) then
         call pick_species(rules%analysis_subst_list_3d, species_transport, indices, num_analysis_species)
-        if (fu_fails(num_analysis_species > 0, 'No analysis species', 'set_cov_mdl')) return
+        if (fu_fails(num_analysis_species > 0, 'No analysis species', sub_name)) return
         allocate(analysis_species(num_analysis_species), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'set_cov_mdl')) return
+        if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
         analysis_species = (/(species_transport(indices(ii)), ii=1, num_analysis_species)/)
       else
         analysis_species => species_transport
@@ -2966,10 +2996,10 @@ module da_common
       num_analysis_species = size(analysis_species)
       stdev_size = num_analysis_species * nx*ny*nz
       allocate(bgr_cov%stdev_initial(stdev_size), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', 'set_cov_mdl')) return
+      if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
       call msg('Setting background covariances for concentration')
       call set_cov(concentration_flag, nlgrp_cov_setup, analysis_species, &
-                 & analysis_grid, analysis_vertical, &
+                 & analysis_grid, covariance_grid, analysis_vertical, &
                  & bgr_cov%correlation_initial, fu_initial_ptr(background), bgr_cov%stdev_initial)
       if (error) return
       if (.not. associated(analysis_species, species_transport)) deallocate(analysis_species)
@@ -2982,7 +3012,7 @@ module da_common
       stdev_size &
            & = fu_NbrOfLevels(analysis_vertical) * size(species_emission) * fu_num_emis_time_slots(rules)
       allocate(bgr_cov%stdev_emission(stdev_size), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', 'set_cov_mdl')) return
+      if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
       call get_emis_time_slots(rules, ptr_slots=ptr_slots)
       if (error) return
       call set_cov_time_height(rules%cov_setup_templ_emis, analysis_vertical, species_emission, &
@@ -3066,12 +3096,12 @@ module da_common
 
     !=================================================================
 
-    subroutine set_cov(quantity, nlgrp, analysis_species, analysis_grid, analysis_vertical, &
+    subroutine set_cov(quantity, nlgrp, analysis_species, analysis_grid, covariance_grid, analysis_vertical, &
                      & correlation, bgr_values, stdev)
       implicit none
       integer, intent(in) :: quantity
       type(Tsilam_namelist_group) :: nlgrp
-      type(silja_grid), intent(in) :: analysis_grid
+      type(silja_grid), intent(in) :: analysis_grid, covariance_grid
       type(silam_vertical), intent(in) :: analysis_vertical
       type(silam_species), dimension(:), intent(in) :: analysis_species
       type(t_correlation), intent(inout) :: correlation
@@ -3127,7 +3157,7 @@ module da_common
             ind_species = subst_indices(ind_selected)
             ! do not override with '*' as substance
             if (species_ok(ind_species) .and. subst_name == char_missing) cycle 
-            call set_spatial_corr_from_nl(nlptr, analysis_grid, correl(ind_species))
+            call set_spatial_corr_from_nl(nlptr, analysis_grid, covariance_grid, correl(ind_species))
             if (error) return
 
             !ind_start_species = (ind_species-1) * num_vals_3d + 1
@@ -3315,7 +3345,7 @@ module da_common
           if (fu_fails(quantity_name /= '', 'Missing quantity', sub_name)) return
           quantity_flag = fu_get_silam_quantity(quantity_name)
           if (error) return
-          if (.not. (quantity_flag == emission_scaling_flag &
+          if (.not. (quantity_flag == ln_emission_scaling_flag &
                    & .or. quantity_flag == emission_intensity_flag)) cycle
           call get_items(nlptr, 'substance', p_items, num_substances)
           if (num_substances < 1) then
@@ -3340,7 +3370,7 @@ module da_common
               ! do not override with '*' as substance
               if (species_ok(ind_species) .and. subst_name == char_missing) cycle 
 
-              call set_spatial_corr_from_nl(nlptr, grid_missing, spatial_correlations(ind_species))
+              call set_spatial_corr_from_nl(nlptr, grid_missing, grid_missing, spatial_correlations(ind_species))
               if (error) return
 
               ! the stdev has indexing (ispecies,iz,ind_time)
@@ -3842,8 +3872,6 @@ module da_common
     character(len=*), parameter :: sub_name = 'control_to_file'
     type(silja_time) :: valid_time_
 
-    if (smpi_adv_rank /= 0) return !!! Only master has meaningful control to dump...
-
     grid=control%grid
 
 !    if (fu_control_includes(fu_mode(control), 'emission_volc')) then
@@ -3872,7 +3900,7 @@ module da_common
 
     select case (fu_mode(control))
     case (DA_INITIAL_STATE)
-      ind_file = open_gradsfile_o('', filename, grid, &
+      ind_file = open_gradsfile_o('', filename, grid, ifMPIIO=smpi_use_mpiio_grads, ifBuffered = .TRUE., &
               & time_label_position = instant_fields) !! Not exactly true, but shoudl hit timestamp match
       if (error) return
       call msg('::initial to grads')
@@ -3882,7 +3910,7 @@ module da_common
       call close_gradsfile_o(ind_file,"")
     
     case (DA_EMISSION_CORRECTION)
-      ind_file = open_gradsfile_o('', filename, grid, &
+      ind_file = open_gradsfile_o('', filename, grid, ifMPIIO=smpi_use_mpiio_grads, ifBuffered = .TRUE., &
               & time_label_position = instant_fields) !! Not exactly true, but shoudl hit timestamp match
       if (error) return
       call emission_to_grads(fu_emission_ptr(control_output), grid, &
@@ -3891,7 +3919,7 @@ module da_common
       call close_gradsfile_o(ind_file,"")
 
     case (DA_EMISSION_AND_INITIAL)
-      ind_file = open_gradsfile_o('', filename, grid, &
+      ind_file = open_gradsfile_o('', filename, grid, ifMPIIO=smpi_use_mpiio_grads, ifBuffered = .TRUE., &
               & time_label_position = instant_fields) !! Not exactly true, but shoudl hit timestamp match
       if (error) return
       call initial_to_grads(fu_initial_ptr(control_output), grid, &
@@ -3980,7 +4008,7 @@ module da_common
         step = nspecies
         ind_end = ind_start + (fs-1)*step
         data_2d => data_3d(ind_start:ind_end:step)
-        fid = fu_set_field_id(met_src_missing, emission_scaling_flag, &
+        fid = fu_set_field_id(met_src_missing, ln_emission_scaling_flag, &
                             & valid_time, zero_interval, &
                             & grid, surface_level, &
                             & species=species_list(isp))
@@ -4081,7 +4109,7 @@ module da_common
         ind_out_list = ind_out_list + 1
         if (fu_fails(ind_out_list <= max_out_list, 'One of output arguments too small_xy', subname)) return
         if (present(species_list)) species_list(ind_out_list) = species_emission(ind_species)
-        if (present(quantities)) quantities(ind_out_list) = emission_scaling_flag
+        if (present(quantities)) quantities(ind_out_list) = ln_emission_scaling_flag
         if (present(if3d)) if3d(ind_out_list) = .false.
       end do
     end if
@@ -4287,7 +4315,7 @@ module da_common
         data1d => dataptr(ind_start:ind_end:step)
         if (fu_fails(size(data2d, 1) >= size(data1d), 'data2d wrong size', subname)) return
         data2d(1:size(data1d),ind_fld) = data1d
-        fids(ind_fld) = fu_set_field_id(met_src_missing, emission_scaling_flag, &
+        fids(ind_fld) = fu_set_field_id(met_src_missing, ln_emission_scaling_flag, &
                                       & valid_time, zero_interval, &
                                       & control%grid, surface_level, &
                                       & species=species_list(isp))
@@ -4403,7 +4431,7 @@ module da_common
     integer, intent(in) :: nIterations, nParams
     real, dimension(:), intent(in) :: bckgr_err, obs_err
     real, dimension(:,:), intent(inout) :: P
-    real, dimension(:), intent(inout) :: fit_params
+    real, dimension(:), intent(out) :: fit_params
     
     ! Local variables
     real, parameter :: FTOL=1.e-4   ! Required tolerance
@@ -4411,10 +4439,11 @@ module da_common
     integer, dimension(1) :: idxMin
     integer :: iTmp, n_minimization_steps
     real :: fTmp
-    logical :: ifGO
     integer :: verbosity
 
     verbosity = 0
+    fit_params(1:nParams) = 0
+    idxMin = 1
     !
     ! Simples is defined in the parameter space by matrix P(nParams+1,nParams), which are
     ! the initial vectors of parameters, nParams+1 points
@@ -4439,9 +4468,11 @@ module da_common
     ! Call the minimizing subroutine. The last argument iVerbose = 0 means silent
     ! 1 means full report to screen and log, 2 means only report to screen
     !
-    if ( verbosity > 0) call msg('Calling optimiser for the first time...')
+    if(verbosity > 0) call msg('Calling optimiser for the first time...')
+    
     CALL AMOEBA(function_to_fit, P,Y, nParams, FTOL, arExtraInput, n_minimization_steps, verbosity)
-    if(error)return
+
+    if(n_minimization_steps == int_missing)return
     !
     ! The best point of the final simplex. 
     !
@@ -4451,7 +4482,6 @@ module da_common
     ! Run the minimization again starting from this point. It is recommended to make sure 
     ! that simplex did not get degenerated
     !
-    ifGO = .true.
     if(idxMin(1) /= 1) P(1,:) = P(idxMin(1),:)  ! the first vector is optimal
     ! set other vectors
     do iTmp = 1, nParams
@@ -4463,30 +4493,31 @@ module da_common
     !
     do iTmp = 1, nParams+1
       Y(iTmp) = function_to_fit(P(iTmp,:), arExtraInput)
-      if(.not. Y(iTmp) == Y(iTmp)) ifGO = .false.  ! nan will fail here
+      if(.not. Y(iTmp) == Y(iTmp))then  ! nan will fail here
+        call msg_warning('Setup for the second round failed','L_curve_fit')
+        return
+      endif
     end do
     !
     ! Call the minimizing subroutine
     !
-    if(ifGO)then
-      if ( verbosity > 0) call msg('Calling optimiser for the second time...')
-      CALL AMOEBA(function_to_fit, P,Y, nParams, FTOL, arExtraInput, iTmp, verbosity)
-      if(error)return
-      !
-      ! Was the second run needed?
-      !
-      if((fTmp - minval(Y)) > 0.01 * (fTmp + minval(Y)))then
-        call msg('The second minimization step was needed. min1, min2:',fTmp, minval(Y))
-        call msg_warning('The second minimization step was needed','L_curve_fit')
-      endif
-      !
-      ! Final values
-      !
-      idxMin = minloc(Y)
-      fit_params(1:nParams) = P(idxMin(1),1:nParams)
-    else
-      call set_error('Setup for the second round failed','L_curve_fit')
+    if ( verbosity > 0) call msg('Calling optimiser for the second time...')
+
+    CALL AMOEBA(function_to_fit, P,Y, nParams, FTOL, arExtraInput, iTmp, verbosity)
+
+    if(iTmp == int_missing)return
+    !
+    ! Was the second run needed?
+    !
+    if((fTmp - minval(Y)) > 0.01 * (fTmp + minval(Y)))then
+      call msg('The second minimization step was needed. min1, min2:',fTmp, minval(Y))
+      call msg_warning('The second minimization step was needed','L_curve_fit')
     endif
+    !
+    ! Final values
+    !
+    idxMin = minloc(Y)
+    fit_params(1:nParams) = P(idxMin(1),1:nParams)
 
   end subroutine L_curve_fit
 

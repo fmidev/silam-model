@@ -3796,6 +3796,13 @@ CONTAINS
       call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, abl_pr)
       if(fu_fails(.not.error,'Failed abl_pr field data pointer','dq_abl_top_pressure'))return
 
+
+      call set_error('dq_abl_top_pressure needs rearrangement or removal','dq_abl_top_pressure')
+      return
+      !
+      !   The equation below leads to negative pressures for ABLH > 7 km.
+      !   It can be rewriten to use the height fieald...
+      !
       do i = 1, fs_meteo
         abl_pr(i) = ps(i) * (1. - g * ablh(i) / (gas_constant_dryair * tempr(i)))
       end do
@@ -5313,7 +5320,7 @@ CONTAINS
     INTEGER :: tloop, iCell, ix, iy, nx_met, ny_met, iS
     TYPE(silja_field_id) :: id
     type(silja_field), pointer :: fldTmp
-    REAL, DIMENSION(:), POINTER :: h_canopy, LAI,  cloud, pressure, T2m, rh2m, sm
+    REAL, DIMENSION(:), POINTER :: h_canopy, LAI,  cloud, pressure, T2m, rh2m, sm, snowd
     REAL, DIMENSION(:), POINTER :: c4_frac, irrigated_area, G_sto
     real :: lat,lon,cosZen
 
@@ -5361,7 +5368,12 @@ CONTAINS
       if(error)return
       cloud => fu_grid_data(fldTmp)
 
-      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, temperature_2m_flag, level_missing, &  
+      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, water_eq_snow_depth_flag, level_missing, &
+                                  & time, single_time)
+      if(error)return
+      snowd => fu_grid_data(fldTmp)
+
+      fldTmp => fu_sm_obstime_field(meteoMarketPtr, met_src, temperature_2m_flag, level_missing, &
                                   & time, single_time)
       if(error)return
       t2m => fu_grid_data(fldTmp)
@@ -5418,7 +5430,7 @@ CONTAINS
              lon = fu_lon_geographical_from_grid(real(ix), real(iy), meteo_grid)
              cosZen = max(fu_solar_zenith_angle_cos(lon, lat, time),0.)
              G_sto(iCell) = fu_g_stomatal(LAI(iCell), T2m(iCell), rh2m(iCell), sm(iCell), c4_frac(iCell), &
-                  & irrigated_area(iCell), pressure(iCell), cloud(iCell), cosZEN, if_high_stomatal_conductance)
+                  & irrigated_area(iCell), pressure(iCell), cloud(iCell), snowd(iCell), cosZEN, if_high_stomatal_conductance)
 !             G_sto(iCell) = 0.3 * fu_g_stomatal(LAI(iCell), T2m(iCell), rh2m(iCell), pressure(iCell), cloud(iCell), cosZEN)
           else
             G_sto(iCell) = 0.
@@ -5434,7 +5446,7 @@ CONTAINS
   
   !************************************************************************
 
-  real  function fu_g_stomatal(LAI, T2m, rh2m, sm, c4_frac, irrigated_area, p, cloud, cosZEN, if_high_stomatal_conductance)
+  real  function fu_g_stomatal(LAI, T2m, rh2m, sm, c4_frac, irrigated_area, p, cloud, snowd, cosZEN, if_high_stomatal_conductance)
     !
     ! Get stomatal resistance 
     ! As done in EMEP model with some corner-cut...
@@ -5445,10 +5457,11 @@ CONTAINS
         !!
         !!    g_sto = [g_max * f_pot * f_light * f_temp * f_vpd * f_swp ]/41000.0
         !!
+    ! f_light is currently (Jan 2024) calculated in the depositions module!!!
+    !    
     ! Added nighttime g_sto 
-
     !
-    real, intent(in) ::  cosZEN,  T2m, rh2m, c4_frac, irrigated_area, p, cloud
+    real, intent(in) ::  cosZEN,  T2m, rh2m, c4_frac, irrigated_area, p, cloud, snowd
     real, intent(in)  :: LAI       ! leaf area index (m^2/m^2), one-sided
     real :: sm ! soil moisture
     logical, intent(in) :: if_high_stomatal_conductance ! use high (for CB5) or low (for CB4) g_sto
@@ -5457,7 +5470,7 @@ CONTAINS
     real :: LAIsun    ! sunlit LAI
     real :: ftmp, bt, dts, dg, att
     real :: vpd, vpsat, PARshade, PARsun, LAIsunfrac
-    real :: f_env,  f_vpd,  f_swp, f_phen, f_sun,   f_shade, f_light, f_temp, f_sm
+    real :: f_env,  f_vpd,  f_swp, f_phen, f_sun,   f_shade, f_temp, f_sm, f_snow
     real :: mmol2sm, g_night_c3, g_night_c4
 
     real :: f_env_c4, f_temp_c4, f_vpd_c4 ! for c4 plants
@@ -5466,13 +5479,10 @@ CONTAINS
                           ! radiation in PAR waveband (400-700nm)
     real,  parameter ::  Wm2_uE  = 4.57 ! converts from W/m^2 to umol/m^2/s
     real,  parameter ::  Wm2_2uEPAR= PARfrac * Wm2_uE ! converts from W/m^2 to umol/m^2/s PAR
-    real,  parameter ::  do3se_f_light = 8e-3 ! LUC-dependent parameter in EMEP 0.005--0.013
-                          ! except 0.002 for root_crop...
-                          ! see Inputs_DO3SE.csv
 
     ! the optimal value is not the actual optimal value, as the Wang-VPD model affects it
     real,  parameter :: do3se_T_opt = 32 + 273   ! ! Some average... about med_needle
-    real,  parameter :: do3se_T_min = 3  + 273   !
+    real,  parameter :: do3se_T_min = 3  + 273   ! 3
     real,  parameter :: do3se_T_max = 50 + 273   !
 
     real,  parameter :: do3se_T_opt_c4 = 60 + 273   !
@@ -5500,53 +5510,6 @@ CONTAINS
     Real, parameter :: cosA    = 0.5   ! A = mean leaf inclination (60 deg.), 
      ! where it is assumed that leaf inclination has a spherical distribution
 
-
-    ! Calculated by ClearSkyRadn in EMEP model
-   if ( CosZEN > 1e-5 ) then
-      att = 1.0 - 0.75*cloud**3.4  !(source: Kasten & Czeplak (1980)) 
-      Idrctn     = att * Ashrae%a * exp(- Ashrae%b * (p/1e5)/CosZEN)
-      Idiffuse   = Ashrae%c * Idrctn
-      Idirect    = Idrctn *  CosZEN
-
-      ! from subroutine CanopyPAR of EMEP model
-      LAIsun = (1.0 - exp(-0.5*LAI/cosZEN) ) * cosZEN/cosA
-      LAIsunfrac = LAIsun/LAI
-    
-      !! PAR flux densities evaluated using method of
-      !! Norman (1982, p.79): 
-      !! "conceptually, 0.07 represents a scattering coefficient"  
-  
-      PARshade = Idiffuse * exp(-0.5*LAI**0.7) +  &
-                 0.07 * Idirect  * (1.1-0.1*LAI)*exp(-cosZEN)
-  
-      PARsun = Idirect *cosA/cosZEN + PARshade
-  
-      !.. Convert units, and to PAR fraction
-  
-      PARshade = PARshade * Wm2_2uEPAR
-      PARsun   = PARsun   * Wm2_2uEPAR
-!!---------------------------------------
-!!    Calculate f_light, using methodology as described in Emberson et 
-!!    al. (1998), eqns. 31-35, based upon sun/shade method of  
-!!    Norman (1979,1982)
-
-      f_sun   = (1.0 - exp (-do3se_f_light*PARsun  ) )
-      f_shade = (1.0 - exp (-do3se_f_light*PARshade) )
-      f_light = LAIsunfrac * f_sun + (1.0 - LAIsunfrac) * f_shade
-
-!      f_sun_c4   = (1.0 - exp (-do3se_f_light_c4*PARsun  ) )
-!      f_shade_c4 = (1.0 - exp (-do3se_f_light_c4*PARshade) )
-!      f_light_c4 = LAIsunfrac * f_sun_c4 + (1.0 - LAIsunfrac) * f_shade_c4
-    else
-!      Idirect    = 0.0
-!      Idiffuse   = 0.0
-!      PARshade = 0.0
-!      PARsun   = 0.0
-!      f_sun  = 0.0
-      f_light = 0.0
-      !f_light_c4 = 0.0
-    end if
-
     ! Saturated pressure from Tetens equation https://en.wikipedia.org/wiki/Tetens_equation
     fTmp  = 17.67 * (T2m-273.15)/(T2m-29.65)
     vpSat = 611.2 * exp(fTmp) !in Pa
@@ -5561,22 +5524,22 @@ CONTAINS
     f_vpd_c4 = 2.2
 
     ! Added dependence on soil moisture.
-   ! Roughly matches some published values, but the scatter was so significant
-   ! that there is lots of freedom for choosing the parameters.
+    ! Roughly matches some published values, but the scatter was so significant
+    ! that there is lots of freedom for choosing the parameters.
 
     ! the soil moisture of the irrigated area is set to 0.5 m3/m3
     sm = 0.5*irrigated_area + sm*(1-irrigated_area)
 
     ! the scaling factor accounting for soil moisture, optimized for CB5 (high g_sto) or CB4 (low g_sto)
     if (if_high_stomatal_conductance) then
-       f_sm = 3.5*sm
-       f_sm = max(f_sm, 0.6)
+       !f_sm = 1.2 * (0.2 + max(2.3*sm, 0.4)) !  1.5 * (0.2 + max(2.3*sm, 0.4))
+       !f_sm =  max(1.28*sm, 0.17) + 0.5     !max(1.5*sm, 0.2) + 0.64
+       !f_sm = max(1.5*sm, 0.2) + 0.64
+       f_sm =  max(1.18*sm, 0.15) + 0.48
     else
        f_sm = 0.2 + 4.5*max(sm-0.1, 0.)
        f_sm = min(f_sm, 2.0)
     end if
-
-    f_light=max(g_night/do3se_g_max,f_light)
     
     ! SILAM invention to leave some conductance
     ! for night
@@ -5597,6 +5560,10 @@ CONTAINS
   ! Revised usage of min value during 2007
 
   ! different temperature dependence for c4 plants
+  dg  =    do3se_T_opt_c4 - do3se_T_min_c4
+  bt  =    (do3se_T_max_c4 - do3se_T_opt_c4 ) / dg
+  dTs = max( do3se_T_max_c4 - T2m, 0.0 )
+
   f_temp_c4 = dTs / ( do3se_T_max_c4 - do3se_T_opt_c4 )
   f_temp_c4 = ( T2m - do3se_T_min_c4 ) / dg *  f_temp_c4**bt
   f_temp_c4 = max( f_temp_c4, 0.001 )
@@ -5629,17 +5596,19 @@ CONTAINS
 !!---------------------------------------
 !!  ( with revised usage of min value for f_temp during 2007)
 
-   f_env = f_vpd * f_sm
+   f_snow = max(1-snowd/0.001, 0.0)
+   
+   f_env = f_vpd * f_sm * f_snow
    f_env = max( f_env, do3se_f_min )
    f_env = f_temp * f_env
 
-   f_env = f_phen * f_env * f_light  ! Canopy average
+   f_env = f_phen * f_env ! Canopy average
 
-   f_env_c4 = f_vpd_c4 * f_sm
+   f_env_c4 = f_vpd_c4 * f_sm * f_snow
    f_env_c4 = max( f_env_c4, do3se_f_min )
    f_env_c4 = f_temp_c4 * f_env_c4
 
-   f_env_c4 = f_phen * f_env_c4 * f_light
+   f_env_c4 = f_phen * f_env_c4
 
 ! From mmol O3/m2/s to s/m given in Jones, App. 3, gives 41000 for 20 deg.C )
 !   (should we just use P=100 hPa?)

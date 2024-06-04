@@ -343,7 +343,7 @@ contains
 
       character(len=fnlen) :: strtmp
        
-      write(strtmp, fmt='("TL", A, "_", I4.4, "_", I4.4)') trim(proc_ID_string), in_mem_first, in_mem_last
+      write(strtmp, fmt='("TL", A, "_", I5.5, "_", I5.5)') trim(proc_ID_string), in_mem_first, in_mem_last
       name = trim(dirname)//dir_slash//trim(strtmp)
       
     end function get_filename

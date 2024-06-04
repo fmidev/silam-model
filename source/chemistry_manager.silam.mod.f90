@@ -868,6 +868,7 @@ end do
                           & pBoundaryBuffer, &
                           & garbage, tla_traj, &
                           & met_buf, disp_buf, meteo_input, &
+                          & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, &
                           & pHorizInterpStruct, pVertInterpStruct, &
                           & ifHorizInterp, ifVertInterp, &
                           & ifDryDep_cumulative_in_output, ifWetDep_cumulative_in_output, &
@@ -889,13 +890,14 @@ end do
     type(Tchem_rules), intent(inout) :: chemRules
     type(silja_time), intent(in) :: now
     real, intent(in) :: seconds
+    real, dimension(:,:), intent(out) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0
 
     integer :: ix, iy, i3d, iSrc, iTransf, iSpecies, status, ind_dz, i1d, cbm_type, itransf_cbm, &
              & nReact
     real, dimension(:,:), pointer :: cncTrn
     real, dimension(:,:), pointer :: garb_array, photorates, reactRates, metdat_col
     real, dimension(:), pointer :: soot_col, pwc_col, tau_above_bott, o3column
-    real :: cell_volume, zenith_cos, lat, lon, dz
+    real :: cell_volume, cell_area, zenith_cos, lat, lon, dz
     real, dimension(:), pointer :: cell_size_x, cell_size_y, dz_past, dz_future, cncAer, cncSL, &
          & aodext,  aodscat, metdat, cell_mass_past, cell_mass_future, numconc
     logical :: have_cb4,  print_it
@@ -1010,7 +1012,7 @@ end do
 
     !call msg('Total N before transformation:', get_total_n(mapTransport))
     !$OMP PARALLEL if (if_OMP_chemistry) DEFAULT(SHARED) PRIVATE(metdat, metdat_col, reactRates, ix, iy, i3d, itransf, isrc, print_it, &
-    !$OMP & cell_volume, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, & !tcc_photo, tcc_scav, mass_air, mass_ones, &
+    !$OMP & cell_volume, cell_area, zenith_cos, lat, lon, dz_past, dz_future, dz, i1d, garb_array, cncTrn, & !tcc_photo, tcc_scav, mass_air, mass_ones, &
     !$OMP & photorates, aodext, aodscat, o3column, cncAer, cncSL, ithread, soot_col, pwc_col, tau_above_bott, ssa, iSoot, &
     !$OMP &  tla_point, tla_column, numconc)
 
@@ -1031,6 +1033,9 @@ end do
     pwc_col      => ChemStuff%arrStuff(iThread)%pwc_col(:)
     tau_above_bott      => ChemStuff%arrStuff(iThread)%tau_above_bott(:)
     reactRates   => ChemStuff%arrStuff(iThread)%reactRates(:,:)
+
+    aodext(:) = 0.  !! If no phoyolysis AOD, these guys should be zeroed
+    aodscat(:) = 0.
     
     garb_array(1:mapTransport%nSrc, 1:mapTransport%nSpecies) = 0.0
     o3column(:) = real_missing !! (1:nLev,1:nSrc) should not be used uninitialized
@@ -1076,7 +1081,9 @@ end do
                   aodext(:)  = tla_column(1,:)
                   aodscat(:) = tla_column(2,:)
             endif
-
+          !else  !!These guys should be zeroed above 
+          !  aodext(:) = F_NAN
+          !  aodscat(:) = F_NAN 
           endif
 
           if (chemRules%cloud_model_for_photolysis == detailed_cloud) then
@@ -1101,8 +1108,7 @@ end do
             else
               numconc(:) = tla_column(4,:)
             endif
-            call compute_water_cloud_properties(numconc, & 
-                 & metdat_col, aodext, aodscat, soot_col, pwc_col, tau_above_bott, ssa)
+            call compute_water_cloud_properties(numconc, metdat_col, soot_col, pwc_col, tau_above_bott, ssa)
           end if
 
           if (chemRules%need_photo_lut) then 
@@ -1122,7 +1128,8 @@ end do
             !NOTE: Only the first source is used for o3column when calculating the photorates!!!!
             call get_photorates_column(metdat_col, zenith_cos, fixed_albedo, now, aodext, &
                  & aodscat, o3column, photorates, chemRules%ifPhotoAOD, &
-                 & chemRules%PhotoO3col, tau_above_bott, ssa, chemRules%cloud_model_for_photolysis)
+                 & chemRules%PhotoO3col, tau_above_bott, ssa, chemRules%cloud_model_for_photolysis, &
+                 & aer_att_surf(ix,iy), cld_att_surf(ix,iy), cld_att_0(ix,iy), aer_att_0(ix,iy))
           end if
           if (error) cycle
         end if
@@ -1134,8 +1141,7 @@ end do
            !end if
            !! Same for forwatd and adjoint FIXME pretend we are forward
            call scavenge_column(mapTransport, mapWetDep, garb_array, tla_column, seconds, &
-                & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col, &
-                & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)                                                                                                                                                                                                                 
+                & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col)
            if(error)call set_error('Trouble with scavenging', sub_name)
         end if
 
@@ -1151,6 +1157,7 @@ end do
           dz_future => disp_buf%p4d(ind_dz)%future%p2d(i3d)%ptr
           dz = met_buf%weight_past*dz_past(i1d) + (1.0-met_buf%weight_past)*dz_future(i1d)
           cell_volume = dz * cell_size_x(i1d) * cell_size_y(i1d)
+          cell_area = cell_size_x(i1d) * cell_size_y(i1d)
 
           if (chemRules%ifOnesAdjust) then
             mass_air = disp_buf%p4d(ind_air_mass)%past%p2d(i3d)%ptr(i1d) * met_buf%weight_past + &
@@ -1317,13 +1324,16 @@ end do
                   call transform_dmat(cncTrn(1:mapTransport%nSpecies,isrc), &  ! handles also adjoint
                                     & cncSL(1:mapShortLived%nSpecies), &
                                     & chemRules%rulesSulphurDMAT, &
-                                    & metdat,&
+                                    & metdat_col, i3d, mapTransport%n3d, &
                                     & zenith_cos, &
                                     & now, &
                                     & lat, &
                                     & lon, &
-                                    & seconds, tla_point)
+                                    & seconds, tla_point, cell_volume, cell_area, &
+                                    & mapTransport%species, mapTransport%nSpecies)
 
+                  !transform_dmat(vSp, vSp_SL, rules, metdat_col, i3d, n3d, zenith_cos, now, lat, lon, timestep_sec, vtla, cell_volume, cell_area, species, nSpecies)
+                  
                 case (transformation_acid_basic)
                   call transform_acid_Basic(cncTrn(1:mapTransport%nSpecies,isrc), &  ! no adjoint
                                           & cncSL(1:mapShortLived%nSpecies), &
@@ -1633,8 +1643,7 @@ end do
            end if
 
            call scavenge_column(mapTransport, mapWetDep, garb_array, tla_column, seconds, &
-                & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col, &
-                & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)
+                & chemRules%rulesDeposition, chemRules%low_mass_trsh, metdat_col, ix, iy, pwc_col)
            if(error)call set_error('Trouble with scavenging', sub_name)
         end if
       end do    ! nx
@@ -1818,16 +1827,21 @@ end do
               lon = fu_lon_geographical_from_grid(lpSet%lpDyn(lp_x,iP), lpSet%lpDyn(lp_y,iP), &
                                                 & dispersion_grid)
               zenith_cos = fu_solar_zenith_angle_cos(lon, lat, now)
-              call transform_dmat(cncTrn(1:lpSet%nSpeciesTrn), &
-                                & cncSL(1:lpSet%nSpeciesSL), &
-                                & chemRules%rulesSulphurDMAT, &
-                                & metdat,&
-                                & zenith_cos, &
-                                & now, &
-                                & lat, &
-                                & lon, &
-                                & seconds, null())
 
+              ! DBG
+              call transform_dmat(cncTrn(1:lpSet%nSpeciesTrn), &  ! handles also adjoint
+                                    & cncSL(1:lpSet%nSpeciesSL), &
+                                    & chemRules%rulesSulphurDMAT, &
+                                    & garb_array, 0, 0, &
+                                    & zenith_cos, &
+                                    & now, &
+                                    & lat, &
+                                    & lon, &
+                                    & seconds, null(), 0.0, 0.0, &
+                                    & lpSet%spTransp, lpSet%nSpeciesTrn)
+
+              !!transform_dmat(vSp, vSp_SL, rules, metdat_col, i3d, n3d, zenith_cos, now, lat, lon, timestep_sec, vtla, cell_volume, cell_area, species, nSpecies)
+              
             case (transformation_acid_basic)
               lat = fu_lat_geographical_from_grid(lpSet%lpDyn(lp_x,iP), lpSet%lpDyn(lp_y,iP), &
                                                 & dispersion_grid)

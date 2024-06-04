@@ -24,6 +24,9 @@ module observations_vertical
   !public observe
 
   public observe_vertical
+  public get_data_vertical
+  public get_localisation_vertical
+  public restart_vertical
 
 
   interface destroy
@@ -40,18 +43,6 @@ module observations_vertical
      module procedure obs_to_file_vertical
   end interface
   public obs_to_file
-
-  interface set_data
-     module procedure set_data_vertical
-  end interface
-  public set_data
-
-  interface get_data
-     module procedure get_data_vertical
-  end interface
-  public get_data
-
-  public restart_vertical
   
   interface set_missing
      module procedure set_missing_vertical
@@ -63,10 +54,6 @@ module observations_vertical
   end interface
   public defined
 
-  interface get_localisation
-     module procedure get_localisation_vertical
-  end interface
-  public get_localisation
 
   type t_vertical_observation
      ! Vertical averaging kernel. The first 2 dimensions are iz_disp and iz_obs. The last
@@ -1258,26 +1245,17 @@ contains
 
   
   !******************************************************************************************
-  
-  subroutine set_data_vertical(obs, values_obs, values_mdl, variance)
+  subroutine set_data_vertical(obs, values_mdl)
     implicit none
     type(t_vertical_observation), intent(inout) :: obs
-    real, dimension(:), intent(in), optional :: values_obs, values_mdl, variance
+    real, dimension(:), intent(in) :: values_mdl
 
     integer :: ind_col, ind_lev, ind
     
     do ind_col = 1, obs%num_columns
       do ind_lev = 1, obs%num_levels
         ind = (ind_col-1) * obs%num_levels + ind_lev
-        if (present(values_obs)) then
-          obs%values(ind_lev,ind_col) = values_obs(ind)
-        end if
-        if (present(values_mdl)) then
-          obs%values_mdl(ind_lev,ind_col) = values_mdl(ind)
-        end if
-        if (present(variance)) then
-          obs%variance(ind_lev,ind_col) = variance(ind)
-        end if
+        obs%values_mdl(ind_lev,ind_col) = values_mdl(ind)
       end do
     end do
 
@@ -2182,9 +2160,9 @@ contains
                         & weight_past, rules_opt_dens, n_opt_species)
     if (error) return
     call obs_to_file(obs, optical_species, 6)
-    call get_data(obs, values_obs = val_obs)
-    call get_data(obs, values_mdl = val_mdl)
-    call get_data(obs, variance = var)
+    call get_data_vertical(obs, values_obs = val_obs)
+    call get_data_vertical(obs, values_mdl = val_mdl)
+    call get_data_vertical(obs, variance = var)
 
     ! now: 
     ! map_c%arm = x
@@ -2233,7 +2211,7 @@ contains
                           & met_disp_interp_horiz, if_met_disp_interp_horiz, &
                           & met_disp_interp_vert, if_met_disp_interp_vert, &
                           & weight_past, rules_opt_dens, n_opt_species)
-      call get_data(obs, values_mdl=val_mdl)
+      call get_data_vertical(obs, values_mdl=val_mdl)
       print *, 'val_mdl:', val_mdl
     end do
 

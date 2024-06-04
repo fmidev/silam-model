@@ -5,13 +5,15 @@ PYTHON = /usr/bin/python3
 
 F90C = gfortran
 # Flags for optimization, etc.
-OPTIMIZATION = -fopenmp -O3 -ffast-math
+#
+SANITIZE= ###-fsanitize=address -fsanitize=alignment -fsanitize=unreachable -fsanitize=vla-bound -lasan -lubsan
+OPTIMIZATION = -fopenmp -O3 -ffast-math  $(SANITIZE)
 
 DEBUG = -g -fbacktrace #-fcheck=all  #-DDEBUG
 #DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG #-DDEBUG_OBS ##-ffpe-trap causes trouble
 
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input -D WITH_NF90_NETCDF4 -D WITH_BZIP2 -D USE_PROJ4
+PREPROCESS = -x f95-cpp-input -D WITH_NF90_NETCDF4 -D WITH_BZIP2 -D USE_PROJ6
 FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none
 
 
@@ -32,6 +34,6 @@ SILAM_LIBS =
 INCLUDE = -I$(OBJDIR) -I/usr/include -I${NCDIR}/include   -I${GRDIR}/include -I${PNCDIR}/include #-m64 -I${MKLROOT}/include 
 # Libraries given as linker options
 
-LFLAGS = -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf  -lm -ldl -lbz2 -lopenblas -lscalapack -lproj
+LFLAGS =  $(SANITIZE) -fopenmp -leccodes_f90 -leccodes -lnetcdff -lnetcdf  -lm -ldl -lbz2 -lopenblas -lscalapack -lproj
 
 #LFLAGS = -fopenmp -ljasper -llapack -ljasper -lblas -llapack -leccodes_f90 -leccodes  -lnetcdff -lnetcdf -lpnetcdf -lbz2

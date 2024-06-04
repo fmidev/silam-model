@@ -1541,6 +1541,8 @@
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
+         typeOfFirstFixedSurface = 103 ;
+         scaledValueOfFirstFixedSurface = 0 ;
         }
 #Total column ozone
 '251253010' = {

@@ -123,8 +123,8 @@ use tangent_linear
   !  and its number will be changed
   !
   MyPID = fu_pid()
+  call get_hostname(hostname) !!! Gotcha! PID is not unique among nodes in slurm
   if (smpi_global_rank == 0) then
-    call get_hostname(hostname) !!! Gotcha! PID is not unique among nodes in slurm
     write(unit=chTmp,fmt='(I8.8,A)') MyPID, '_'//trim(hostname)
   endif
   call smpi_bcast_string(chTmp, MPI_COMM_WORLD) !!set it from master
@@ -148,6 +148,7 @@ use tangent_linear
   endif
 
   CALL msg ('Hello world! This is ' // revision_str // ' speaking. PID = '//trim(fu_str(MyPID)))
+  call msg('Running at HostName: '//trim(hostname))
   call msg('compiler_version: '// compiler_version())
   call msg('compiler_options: '// compiler_options())
   call msg('Log file name (on start): '//trim(tmpfile))

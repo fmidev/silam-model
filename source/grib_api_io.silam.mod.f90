@@ -404,7 +404,7 @@ MODULE grib_api_io
 
   !*************************************************************
 
-  subroutine parse_grib_grid(indGrib, grid)
+  subroutine parse_grib_grid(indGrib, grid, ifNewGrid)
     ! decodes grid from the message, and finds corresponding index in 
     ! known_grib_grids, if needed, creates a new one
     ! So far creates anygrid for evary non-lon-lat grid
@@ -414,6 +414,10 @@ MODULE grib_api_io
     ! Imported parameters:
     integer, INTENT(in) :: indGrib
     type(silja_grid), INTENT(out) :: grid
+    logical, intent(inout) :: ifNewGrid 
+    !! To be set for True if grid is missing from the cache
+    !! and update is not done due to OMP parallelism
+    !! In such case the whole file should be parsed again in sigle-thread
 
 
 
@@ -550,6 +554,7 @@ MODULE grib_api_io
         endif
 
       case("lambert") !lambert Conformal conic indeed
+        grGrid%defined=.FALSE.
 
         call grib_get(indGrib,'LoVInDegrees',lon0, io_status)
         if(io_status /= GRIB_SUCCESS) call process_grib_status(io_status,'LoVInDegrees', &
@@ -602,50 +607,51 @@ MODULE grib_api_io
           endif
         endif
     enddo
+    
+    !! Cached grid not found: update the cache or request rerun in single-thread mode
+    !$ if (omp_get_num_threads() > 1) then
+    !$  ifNewGrid = .True.
+    !$  grid = grid_missing
+    !$  return
+    !$ endif
 
     !
-    ! No known grids found in cache
-    !
-    !$OMP CRITICAL (grib_grid_cache_srch)
-      ! Yet another search for cache, other thread could create it while we were waiting for CRITICAL
-      updateGrid = .true.
-      do iCacheInd = 1, max_nbr_of_GRIB_grids
-          grGridPtr => grib_grid_cache(iCacheInd)%grGrid
-          call msg("second search for grib grid, try_igrid, thread", iCacheInd, &
-           !$ & OMP_GET_THREAD_NUM() + 1 &
-           & - 1 )
-          if (.not. grGridPtr%defined) exit
-          if (grGridPtr%proj4string== grGrid%proj4string) then
-            if (grGridPtr%nx == nx .and. grGridPtr%ny == ny) then
-               lonlatdelta=max(abs(grib_grid_cache(iCacheInd)%crnrlon - corner_lon), &
-                             & abs(grib_grid_cache(iCacheInd)%crnrlat - corner_lat))
-               if  (lonlatdelta < lonlatepsilon) then
-                 ! Grid fits within precision of this message
-                  grid = grib_grid_cache(iCacheInd)%silam_grid
-                  !Cached gid has larger error
-                  updateGrid = (grib_grid_cache(iCacheInd)%lonlatepsilon > lonlatepsilon)
-                  exit
-               else
-                  call msg("missmatch corner: lat", grib_grid_cache(iCacheInd)%crnrlat, corner_lat )
-                  call msg("missmatch corner: lon", grib_grid_cache(iCacheInd)%crnrlon, corner_lon )
-!                  call ooops("corner mismatch")
-               endif
-            else
-              call msg("mismatch size", (/grGridPtr%nx, nx, grGridPtr%ny, ny/))
-            endif
+    ! No known grids found in cache, and we are in a single-thread mode
+    ! Add the grid to the cache
+      
+      
+    !! Check if a lower-precision grid already there 
+    do iCacheInd = 1, max_nbr_of_GRIB_grids
+        grGridPtr => grib_grid_cache(iCacheInd)%grGrid
+        if (.not. grGridPtr%defined) exit
+        if (grGridPtr%proj4string== grGrid%proj4string) then
+          if (grGridPtr%nx == nx .and. grGridPtr%ny == ny) then
+             lonlatdelta=max(abs(grib_grid_cache(iCacheInd)%crnrlon - corner_lon), &
+                           & abs(grib_grid_cache(iCacheInd)%crnrlat - corner_lat))
+             if  (lonlatdelta < grib_grid_cache(iCacheInd)%lonlatepsilon) then
+               call msg("Second search found a grid:")
+               call report(grib_grid_cache(iCacheInd)%silam_grid)
+               call set_error("This grid should have been found ealier!", sub_name)
+               return
+                exit
+             else
+                call msg("Updating lower-precision grid")
+                call msg("missmatch corner in cache: lat", grib_grid_cache(iCacheInd)%crnrlat, corner_lat )
+                call msg("missmatch corner in cache: lon", grib_grid_cache(iCacheInd)%crnrlon, corner_lon )
+                ifNewGrid = .True. !!  Grid has been updated -- rerun grid parsing again
+                grid = grid_missing
+                return
+             endif
           else
-            call msg("mismatch proj '"//trim(grGridPtr%proj4string) //"' vs '"// trim(grGrid%proj4string)//"'")
-        endif
-          call msg("")
-      enddo
-      if (defined(grid)) then
-          call msg("second search for grib grid found, try_igrid, thread", iCacheInd, &
-           !$ & OMP_GET_THREAD_NUM() + 1 &
-           & - 1 )
+            call msg("mismatch size", (/grGridPtr%nx, nx, grGridPtr%ny, ny/))
+          endif
+        else
+          call msg("mismatch proj '"//trim(grGridPtr%proj4string) //"' vs '"// trim(grGrid%proj4string)//"'")
       endif
+      call msg("")
+    enddo
 
-      if (iCacheInd > max_nbr_of_GRIB_grids) then 
-
+    if (iCacheInd > max_nbr_of_GRIB_grids) then 
         call msg_warning("max_nbr_of_GRIB_grids exceeded", sub_name)
         call msg("GRIB grids cache:")
         do iCacheInd = 1, max_nbr_of_GRIB_grids
@@ -658,59 +664,53 @@ MODULE grib_api_io
         call msg("GRIB grids cache over, size:", max_nbr_of_GRIB_grids)
         call msg("")
         call set_error("max_nbr_of_GRIB_grids exceeded", sub_name)
+        return
+    endif
 
-      elseif (updateGrid) then  !! Silam grid needs update -- make it and put to the cache
-        
-        ! Make a new cache item
-        ! 
+    ! Make a new cache item
+    ! 
+    lon0 = corner_lon ! Save the original grib values
+    lat0 = corner_lat ! Save the original grib values
+    if (.not. grGrid%defined) then !complete grib_grid definition
+      
+      call ll2proj_pt(grGrid%proj4string, corner_lon, corner_lat, forwards)
 
-        lon0 = corner_lon ! Save the original grib values
-        lat0 = corner_lat ! Save the original grib values
-        if (.not. grGrid%defined) then !complete grib_grid definition
-          
-          call ll2proj_pt(grGrid%proj4string, corner_lon, corner_lat, forwards)
+      grGrid%xmin = corner_lon
+      grGrid%ymin = corner_lat
+      grGrid%xmax = corner_lon + dx*(nx-1)
+      grGrid%ymax = corner_lat + dy*(ny-1)
+      grGrid%nx = nx
+      grGrid%ny = ny
+      grGrid%defined = .True.
+    endif
 
-          grGrid%xmin = corner_lon
-          grGrid%ymin = corner_lat
-          grGrid%xmax = corner_lon + dx*(nx-1)
-          grGrid%ymax = corner_lat + dy*(ny-1)
-          grGrid%nx = nx
-          grGrid%ny = ny
-          grGrid%defined = .True.
-        endif
+    ! put silam grid to cache
+    if (strGridType == "regular_ll") then
+      grid = fu_set_lonlat_grid ('reg_latlon_grid_from_grib', &
+                   & real(corner_lon), real(corner_lat), &
+                   & .TRUE., & !corner_in_geographical_latlon
+                   & nx, ny, pole_geographical,  real(dx), real(dy))
+     ! elseif (strGridType == "rotated_ll" .and. .FALSE.) then !!FIXME Test only
+     !         treat rll as anygrid
+    elseif (strGridType == "rotated_ll") then 
+      grid = fu_set_lonlat_grid ('rot_latlon_grid_from_grib', &
+                   & real(corner_lon), real(corner_lat), &
+                   & .FALSE., & !corner_in_geographical_latlon
+                   & nx, ny, &
+                   & fu_set_pole(south_flag,  pole_lat,  pole_lon ), & 
+                   & real(dx), real(dy))
+    else
+      call gribgrid2anygrid(grGrid, grid)
+    endif
 
-        ! put silam grid to cache
-        if (strGridType == "regular_ll") then
-          grid = fu_set_lonlat_grid ('reg_latlon_grid_from_grib', &
-                       & real(corner_lon), real(corner_lat), &
-                       & .TRUE., & !corner_in_geographical_latlon
-                       & nx, ny, pole_geographical,  real(dx), real(dy))
-         ! elseif (strGridType == "rotated_ll" .and. .FALSE.) then !!FIXME Test only
-         !         treat rll as anygrid
-         elseif (strGridType == "rotated_ll") then 
-          grid = fu_set_lonlat_grid ('rot_latlon_grid_from_grib', &
-                       & real(corner_lon), real(corner_lat), &
-                       & .FALSE., & !corner_in_geographical_latlon
-                       & nx, ny, &
-                       & fu_set_pole(south_flag,  pole_lat,  pole_lon ), & 
-                       & real(dx), real(dy))
-        else
-          call gribgrid2anygrid(grGrid, grid)
-        endif
+    !save to cache
+    grib_grid_cache(iCacheInd)%silam_grid = grid
+    grib_grid_cache(iCacheInd)%crnrlon = lon0
+    grib_grid_cache(iCacheInd)%crnrlat = lat0
+    grib_grid_cache(iCacheInd)%lonlatepsilon = lonlatepsilon
 
-        !save to cache
-        grib_grid_cache(iCacheInd)%silam_grid = grid
-        grib_grid_cache(iCacheInd)%crnrlon = lon0
-        grib_grid_cache(iCacheInd)%crnrlat = lat0
-        grib_grid_cache(iCacheInd)%lonlatepsilon = lonlatepsilon
-
-        !and finally enable grid for use
-        grib_grid_cache(iCacheInd)%grgrid = grGrid
-      endif !! Create new cache item
-
-    !$OMP END CRITICAL (grib_grid_cache_srch)
-
-
+    !and finally enable grid for use
+    grib_grid_cache(iCacheInd)%grgrid = grGrid
   end subroutine parse_grib_grid
 
   !*****************************************************************
@@ -1219,8 +1219,8 @@ MODULE grib_api_io
     type (silja_grid) :: grid
     integer(kind=8), dimension(:), pointer :: grib_offsets
     type(grib_input_file), pointer :: gf
-    integer :: iMsg, io_status
-    logical :: ifNewGrids
+    integer :: iMsg, io_status, nthreads, ithread, itry
+    logical, dimension(max_threads) :: ifNewGrids
 
     character (len=*), parameter :: sub_name="id_list_from_grib_file"
 
@@ -1252,7 +1252,6 @@ MODULE grib_api_io
  !       call msg("")
  !       call msg("")
  !       call msg("")
-      ifNewGrids = .False.
 #ifdef VS2012 
       ! No parallel GRIB handling at Windows
       !$OMP PARALLEL if (.false.) &  
@@ -1264,8 +1263,19 @@ MODULE grib_api_io
 #else
       !$OMP PARALLEL if (gf%nmsgs > 10) & 
 #endif
-      !$OMP &  default(none) shared(gf,error,grib_offsets, ifNewGrids)&
-      !$OMP & private(grib_raw, iMsg, io_status, grid)
+      !$OMP &  default(none) shared(gf,error,grib_offsets, ifNewGrids, nthreads)&
+      !$OMP & private(grib_raw, iMsg, io_status, grid, ithread)
+      
+      !$OMP MASTER
+        nthreads = 1
+      !$  nthreads = omp_get_num_threads() 
+      !$OMP END MASTER
+      ithread = 0
+      !$ ithread =  OMP_GET_THREAD_NUM() 
+
+      ifNewGrids(ithread+1) = .False.
+            
+
 
       !$OMP DO
       do iMsg = 1,gf%nmsgs
@@ -1287,8 +1297,9 @@ MODULE grib_api_io
         endif
 
         if (error) cycle
+        if (ifNewGrids(ithread+1)) cycle 
         call gribheadings_to_field_id (gf%indGrib(iMsg), .true., gf%obstime_interval, &
-            &  gf%id(iMsg), gf%scale_factor(iMsg), gf%ifZeroNegatives(iMsg))
+            &  gf%id(iMsg), gf%scale_factor(iMsg), gf%ifZeroNegatives(iMsg), ifNewGrids(ithread+1))
 
 !        call msg("Message from GRIB:", iMsg, gf%nmsgs)
 !        call report(gf%id(iMsg))
@@ -1296,6 +1307,25 @@ MODULE grib_api_io
       enddo
       !$OMP END DO
       !$OMP END PARALLEL
+
+      !! Redo parsing without OMP if new grids were found
+      if (any(ifNewGrids(1:nthreads))) then  
+        ifNewGrids(1) = .FALSE.
+        do iTry = 1,2
+          call msg("Some new grids in the file, parsing ID second time  without OMP..., try=", iTry)
+          do iMsg = 1,gf%nmsgs
+            if (error) cycle
+            call gribheadings_to_field_id (gf%indGrib(iMsg), .true., gf%obstime_interval, &
+              &  gf%id(iMsg), gf%scale_factor(iMsg), gf%ifZeroNegatives(iMsg), ifNewGrids(1))
+           enddo
+           if (.not. ifNewGrids(1)) exit
+        enddo
+        if (iTry>2) then
+            call set_error("Failed to settle grids", sub_name)
+            return
+        endif
+      endif
+
       
     endif
     if (error) return
@@ -1689,7 +1719,7 @@ MODULE grib_api_io
   ! ***************************************************************
 
   subroutine gribheadings_to_field_id (indGrib, fix_oddities, obstime_interval, &
-       & id, scale_factor, ifZeroNegatives)
+      & id, scale_factor, ifZeroNegatives, ifNewGrid)
     ! 
     ! Creates a complete field-identification from the grib-headings.
     !
@@ -1709,7 +1739,9 @@ MODULE grib_api_io
                                         ! fields are returned just as they are.
     TYPE(silja_interval), intent(in) :: obstime_interval
     real, intent(out) :: scale_factor
-    logical,  intent(out) :: ifZeroNegatives
+    logical,  intent(out) :: ifZeroNegatives 
+    logical,  intent(inout) :: ifNewGrid
+
 
     ! Local declarations:
     INTEGER :: grib_edition, quantity, field_kind, iTMp, jTmp, kTmp, io_status
@@ -1828,8 +1860,9 @@ MODULE grib_api_io
     !
     ! Find the grid of grib
     ! 
-    call parse_grib_grid(indGrib, grid)
-    IF (error) RETURN    
+    call parse_grib_grid(indGrib, grid, ifNewGrid) 
+    IF (error) RETURN   
+    if (.not. defined(grid)) return !! something went wrong (missed cache, etc). give it another try
 
     !
     ! Find the level of grib unless it is already set by the GRIB code table above.
@@ -2411,6 +2444,9 @@ endif
       & fu_if_replace_real_missing = .true.
 
     if(fu_centre(mds) == centre_metcoop .and. any(fu_model(mds) == (/model_meps, model_meps1/) ))& 
+      & fu_if_replace_real_missing = .true.
+
+    if(fu_centre(mds) == centre_UERRA .and. any(fu_model(mds) == (/model_meps, model_meps1/) ))& 
       & fu_if_replace_real_missing = .true.
   end function fu_if_replace_real_missing
 

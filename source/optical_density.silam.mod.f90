@@ -907,6 +907,11 @@ species:  do iSpecies = 1, nspeciesLst
 !    ifT = associated(ind_tempr)
      cellarea = metdat_col(ind_dx_size,1) * metdat_col(ind_dy_size,1)
 
+     if (.not. Photo_ext%defined ) then
+       call set_error("Photo_ext not defined", "get_photoatt_aod")
+       return
+     endif
+
     do iLev = 1,nLev
        if (ifRh) then
          Rh = metdat_col(ind_rh,iLev)

@@ -108,7 +108,7 @@ MODULE names_of_quantities
 
   ! mass of vater vapour per unit mass of dry air
   INTEGER, PARAMETER, PUBLIC :: pressure_flag = 240022 ! in Pa
-  INTEGER, PARAMETER, PUBLIC :: cloud_cover_flag = 240023 !%
+  INTEGER, PARAMETER, PUBLIC :: cloud_cover_flag = 240023 !! frac
   INTEGER, PARAMETER, PUBLIC :: cloud_water_flag = 240024 !kg/kg
   INTEGER, PARAMETER, PUBLIC :: cloud_ice_flag = 240025 !kg/kg
   INTEGER, PARAMETER, PUBLIC :: cloud_cond_water_flag = 240026 !kg/kg  water+ice
@@ -458,7 +458,7 @@ MODULE names_of_quantities
   integer, parameter, public :: cell_size_z_flag = 260030 ! m 
   integer, parameter, public :: air_density_flag = 260031
 
-  integer, parameter, public :: emission_scaling_flag = 260032
+  integer, parameter, public :: ln_emission_scaling_flag = 260032
 
   integer, parameter, public :: emis_factor_fire_flame_flag = 260033
   integer, parameter, public :: emis_factor_fire_smold_flag = 260034
@@ -767,6 +767,9 @@ CONTAINS
 
       case(irrigated_area_flag)
         string = 'irrigated area fraction'
+
+      case(canopy_height_flag)
+        string = 'canopy height'
       
       CASE (total_precipitation_acc_flag)
       string = 'tot.precipitation acc.[kg/m2]'
@@ -1216,9 +1219,6 @@ CONTAINS
       case(physiography_field_set_flag)
       string = 'physiopgraphy set of variables'
 
-      case (canopy_height_flag)
-      string = 'Canopy height [m]'
-
       case (stomatal_conductance_flag)
       string = 'Stomatal conductance [m/s]'
 
@@ -1324,7 +1324,7 @@ CONTAINS
       case (air_density_flag)
       string = 'Air density [kg/m3]'
 
-      case (emission_scaling_flag)
+      case (ln_emission_scaling_flag)
       string = 'Emission scaling'
 
       case (emis_factor_fire_flame_flag)
@@ -1615,6 +1615,9 @@ CONTAINS
 
       case(irrigated_area_flag)
         string = 'irrigated_area'
+
+      case(canopy_height_flag)
+        string = 'canopy_height'
 
       CASE (total_precipitation_acc_flag)
       string = 'tot_prec'
@@ -1982,9 +1985,6 @@ CONTAINS
       case (r_s_flag)
       string = 'Rs_res_drydep'
 
-      case (canopy_height_flag)
-      string = 'h_canopy'
-
       case (stomatal_conductance_flag)
       string = 'g_stomatal'
 
@@ -2169,8 +2169,8 @@ CONTAINS
       case(air_density_flag)
       string = 'air_dens'
 
-      case(emission_scaling_flag)
-      string = 'ems_scale'
+      case(ln_emission_scaling_flag)
+      string = 'ln_ems_scale'
 
       case(emis_factor_fire_flame_flag)
       string = 'emfac_fire_flm'
@@ -2411,6 +2411,9 @@ CONTAINS
       case(irrigated_area_flag)
         string = '1'
 
+      CASE (canopy_height_flag)
+        string = 'm'
+
       CASE (total_precipitation_acc_flag)
         string = 'kg/m2'
         
@@ -2481,6 +2484,9 @@ CONTAINS
 
       CASE (vertical_velocity_flag)
         string = '??' 
+
+      CASE (leaf_area_index_flag)
+        string = 'm2/m2 (cell)'
 
       CASE (bulk_tfp_flag)
         string = 'K/m2 '
@@ -2566,9 +2572,6 @@ CONTAINS
       case (r_a_flag, r_b_flag, r_s_flag)
         string = 's/m'
       
-      case (canopy_height_flag)
-      string = 'm'
-
       case (stomatal_conductance_flag)
       string = 'm/s'
 
@@ -2679,7 +2682,7 @@ CONTAINS
       case(air_density_flag)
         string = 'kg/m3'
   
-      case(emission_scaling_flag)
+      case(ln_emission_scaling_flag)
         string = '1'
 
       case(emis_factor_fire_flame_flag)
@@ -2918,7 +2921,7 @@ CONTAINS
          & disp_flux_cellt_rt_flag,disp_flux_celle_rt_flag,disp_flux_celln_rt_flag, &
          & disp_flux_celleast_flag, disp_flux_cellnorth_flag, disp_flux_celltop_flag, &
          & reaction_rate_flag,&
-         & emission_scaling_flag, &
+         & ln_emission_scaling_flag, &
          & emis_factor_fire_flame_flag, emis_factor_fire_smold_flag, &
          & FDI_KBDI_moisture_deficit_flag, FDI_KBDI_drought_factor_flag, &
          & FDI_SDI_fire_danger_flag, FDI_grass_mean_fire_danger_flag, &
@@ -3333,6 +3336,9 @@ CONTAINS
       CASE (irrigated_area_flag)
       fMinAlert = -0.00001; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = 1.0001
 
+      CASE (canopy_height_flag)
+      fMinAlert = -0.00001; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = 200   
+
       CASE (total_precipitation_acc_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
       
@@ -3666,9 +3672,6 @@ CONTAINS
       case (r_s_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
 
-      case (canopy_height_flag)
-      fMinAlert = -10; fMinForce = 0; fMaxForce = 1e3; fMaxAlert = 1e3
-
       case (stomatal_conductance_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
 
@@ -3829,8 +3832,8 @@ CONTAINS
       case(leaf_area_index_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = 100; fMaxAlert = 1e3
 
-      case(leaf_area_indexhv_flag, leaf_area_indexlv_flag) !! routinely gets value of 9999 in MEPS
-      fMinAlert = -10; fMinForce = 0; fMaxForce = 10; fMaxAlert = 1e4
+      case(leaf_area_indexhv_flag, leaf_area_indexlv_flag) !! 9999 in MEPS should be fixed via grib missing vlues
+      fMinAlert = -10; fMinForce = 0; fMaxForce = 10; fMaxAlert = 1e2
 
       case(fraction_hv_flag, fraction_lv_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = 1.; fMaxAlert = 10.
@@ -3841,7 +3844,7 @@ CONTAINS
       case(air_density_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = 1e3; fMaxAlert = 1e3
 
-      case(emission_scaling_flag)
+      case(ln_emission_scaling_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
       case(emis_factor_fire_flame_flag)
@@ -4259,6 +4262,7 @@ CONTAINS
          & optical_column_depth_flag, &
          & absorption_coef_flag, scattering_coef_flag, back_scattering_coef_flag, &
          & leaf_area_indexhv_flag, leaf_area_indexlv_flag, leaf_area_index_flag, &
+         & fraction_hv_flag, fraction_lv_flag, &
          & FDI_KBDI_moisture_deficit_flag, &
          & FDI_KBDI_drought_factor_flag, &
          & FDI_SDI_fire_danger_flag, &
@@ -4351,10 +4355,9 @@ CONTAINS
          & SILAM_sensible_heat_flux_flag, &
          & SILAM_latent_heat_flux_flag, &
          & c4_frac_flag, &
+         & canopy_height_flag, &
 !         & dust_emis_0_flag, &  !This should be conservative, but causes issues
                         ! when projecting coarse dust_emis to fine dispersion grids
-         & leaf_area_indexhv_flag, &
-         & leaf_area_indexlv_flag, &
          & concentration_flag, &        ! per m3, in theory should be averaged
          & drydep_flag, &
          & wetdep_flag)                 ! fluxes per m2 or fractions. In theory, should be averaged
@@ -4372,8 +4375,6 @@ CONTAINS
          & soil_clay_mass_fraction_flag, &
          & alluvial_sedim_index_flag, &   ! Has to be averaged: high variability, wide dynamic range
          & leaf_area_index_flag, &
-         & fraction_hv_flag, &
-         & fraction_lv_flag, &
          & fraction_of_ice_flag, &
          & fraction_of_land_flag, &
          & fraction_of_water_flag, &
@@ -4410,7 +4411,11 @@ CONTAINS
 
         fu_regridding_method = summation  ! this is total-cell flux. Must be summed up
 
-      case(timezone_index_flag, pollen_left_relative_flag) !! Sic!  
+      case(timezone_index_flag, pollen_left_relative_flag, & !! Sic!  
+         & leaf_area_indexhv_flag, &
+         & leaf_area_indexlv_flag, &
+         & fraction_hv_flag, &
+         & fraction_lv_flag)  !! No reasobable interpolation for those
 
         fu_regridding_method = nearest_point 
 
@@ -4707,6 +4712,9 @@ CONTAINS
     elseif(trim(chQuantity) == "fraction_of_water")then
       iQ = fraction_of_water_flag 
 
+    elseif(trim(chQuantity) == "land_rough_met")then
+      iQ = land_roughness_meteo_flag 
+
     elseif(trim(chQuantity) == "land_roughness_met")then
       iQ = land_roughness_meteo_flag 
 
@@ -4804,6 +4812,9 @@ CONTAINS
 
     elseif(trim(chQuantity) == "irrigated_area")then
       iQ = irrigated_area_flag
+
+    elseif(trim(chQuantity) == "canopy_height")then
+      iQ = canopy_height_flag
 
     elseif(trim(chQuantity) == "total_precipitation" .or. &
        & trim(chQuantity) == "tot_prec")then
@@ -5111,9 +5122,6 @@ CONTAINS
     elseif(trim(chQuantity) == "r_s_resistance")then
       iQ = r_s_flag 
 
-    elseif(trim(chQuantity) == "h_canopy")then
-      iQ = canopy_height_flag
-
     elseif(trim(chQuantity) == "g_stomatal")then
       iQ = stomatal_conductance_flag 
 
@@ -5291,8 +5299,8 @@ CONTAINS
     elseif(trim(chQuantity) == 'air_dens') then
       iQ = air_density_flag
 
-    elseif(trim(chQuantity) == 'ems_scale') then
-      iQ = emission_scaling_flag
+    elseif(trim(chQuantity) == 'ln_ems_scale') then
+      iQ = ln_emission_scaling_flag
 
     elseif(trim(chQuantity) == 'emis_factor_fire_flame') then
       iQ = emis_factor_fire_flame_flag
@@ -5492,6 +5500,9 @@ CONTAINS
 
       case(irrigated_area_flag)
         string =   "irrigated_area"
+
+      case(canopy_height_flag)
+        string =   "canopy_height"
     
       CASE (total_precipitation_acc_flag) 
         string =   "precipitation_amount" 
@@ -5583,8 +5594,8 @@ CONTAINS
       CASE (water_salinity_flag)
         string =   "sea_water_salinity" 
 
-      CASE (emission_scaling_flag)
-        string =   "emission_scaling" 
+      CASE (ln_emission_scaling_flag)
+        string =   "ln_emission_scaling" 
 
       case(emis_factor_fire_flame_flag)
         string = 'emis_factor_fire_flame'
@@ -5696,7 +5707,7 @@ CONTAINS
        & disp_cell_airmass_flag, &
        & reaction_rate_flag, &
        & cloud_cond_nucley_nbr_cnc_flag, ice_nucley_nbr_cnc_flag, &
-       & cell_size_z_flag, emission_scaling_flag, &
+       & cell_size_z_flag, ln_emission_scaling_flag, &
        & fraction_hv_flag, fraction_lv_flag,leaf_area_indexhv_flag, leaf_area_indexlv_flag,leaf_area_index_flag, &
        & timezone_index_flag,  &
        & emis_factor_fire_flame_flag, emis_factor_fire_smold_flag)
@@ -5745,21 +5756,21 @@ subroutine reformat_names_of_quantities()
   open(uOut,file='d:\!model\2011\silam_v5_0\ini\quantity_summary.txt')
 
   do iQ = first_multi_level_q, last_multi_level_q
-    if(fu_known_quantity(iQ)) call print_name_list_for_quantity(uOut, iQ)
+    if(fu_known_quantity(iQ)) call print_nl_4_quantity(uOut, iQ)
   enddo
   
   do iQ = first_single_level_q, last_single_level_q
-    if(fu_known_quantity(iQ)) call print_name_list_for_quantity(uOut, iQ)
+    if(fu_known_quantity(iQ)) call print_nl_4_quantity(uOut, iQ)
   enddo
   
   do iQ = first_silam_own_q, last_silam_own_q
-    if(fu_known_quantity(iQ)) call print_name_list_for_quantity(uOut, iQ)
+    if(fu_known_quantity(iQ)) call print_nl_4_quantity(uOut, iQ)
   enddo
   
 
 CONTAINS
 
-subroutine print_name_list_for_quantity(uOut, quantity)
+subroutine print_nl_4_quantity(uOut, quantity)
  implicit none
  integer, intent(in) :: uOut, quantity
  real :: fMinAlert, fMinForce, fMaxForce, fMaxAlert
@@ -5792,7 +5803,7 @@ subroutine print_name_list_for_quantity(uOut, quantity)
 ! <string_standard> 
 ! <unit> 
 ! <full string>
-end subroutine print_name_list_for_quantity
+end subroutine print_nl_4_quantity
 
 
 end subroutine reformat_names_of_quantities

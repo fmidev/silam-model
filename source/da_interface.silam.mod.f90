@@ -196,19 +196,17 @@ contains
     !type(silam_pollution_cloud), intent(inout) :: cloud
     
     integer :: ix, iy, iz, isp, nz, nsp, idim, ind, stat, n_emis, isp_transp, nsp_contr
-    integer :: nx, ny, offx, offy, gnx, gny, wrk_size 
-    integer :: iMPI, jMPI, niMPI, njMPI
+    integer :: nx, ny
     integer, dimension(:), pointer :: iPtr
     integer :: ind_pert_volc, ind_pert_xy
     type(Tmass_map), pointer :: map_c
-    real, dimension(:), pointer :: p_init, dx_ptr, dy_ptr, p_emis, emis_data, fWork
-    real, dimension(:,:,:), pointer :: f3dlocal, f3drow
+    real, dimension(:), pointer :: p_init, dx_ptr, dy_ptr, p_emis, emis_data
     real, dimension(max_levels) :: thickness
     type(Tmass_map), pointer :: map_px, map_py, map_pz, map_sl
     real :: volume, mass_neg, mass_pos, weight_past
     type(Temission_processor), pointer :: proc_ptr
     type(silja_time), dimension(:,:), pointer :: time_slots
-    logical :: need_initial_state, loc_handle_negatives, ifKalmanEnsemble, ifOk, if_use_work
+    logical :: need_initial_state, loc_handle_negatives, ifKalmanEnsemble, ifOk
     integer, dimension(max_divisions) :: sendcounts, offsets
     real, dimension (10) :: reportMy, reportAll ! To synchronize reporting
     type(TField_buffer), pointer :: buf !Dispersion buffer
@@ -219,10 +217,9 @@ contains
     if (fu_fails(fu_in_physical_space(control), 'Control not in physical space', sub_name)) return
 
     map_c => fu_concMM_ptr(model%cloud)
-
-    call smpi_get_decomposition(nx, ny, offx, offy, gnx, gny)
-    call smpi_get_process_xy_topology(iMPI, jMPI, niMPI, njMPI)
-
+  
+    nx = map_c%nx
+    ny = map_c%ny
     nz = map_c%n3d
     nsp = map_c%nspecies
     
@@ -286,38 +283,8 @@ contains
     if (fu_have_initial(fu_mode(control))) then
       
       nsp_contr = fu_nsp_initial(control)
-      p_init => null() !! Stupidity check
-      
-      if (iMPI == 0 .and. jMPI == 0) then !Do scatter mpi rows from control if needed
-         p_init => fu_initial_ptr(control)
-         sendcounts(1:njMPI) = smpi_y_sizes(1:njMPI)*gnx*nz*nsp_contr
-         offsets(1:njMPI)    = smpi_y_offsets(1:njMPI)*gnx*nz*nsp_contr
-      else  !Need work for exchane
-         sendcounts(1:njMPI)=0 ! Does not matter
-         offsets(1:njMPI)=0!
-       endif
+      p_init => fu_initial_ptr(control)
 
-       wrk_size = ny*gnx*nz*nsp_contr !MPI-row-size 
-
-
-       !Master needs work only for y exchange
-       !Others -- always
-       if_use_work = (njMPI > 1 .or. iMPI /= 0 .or.  jMPI /= 0)
-
-       if (if_use_work)  fWork => fu_work_array(wrk_size)
-
-       if (iMPI == 0 .and. njMPI > 1) then !!Do stripe scatter in column 0
-         call smpi_scatterv_real(p_init, sendcounts, offsets, fWork, wrk_size,  smpi_adv_y_comm)
-
-       endif
-       
-       if (if_use_work) p_init => fWork !redirect to our stripe
-
-       !!Can not get X stripe due to wrong order
-       !! broadcast MPU row if needed
-       if ( niMPI > 1) call smpi_bcast_aray(p_init, wrk_size, smpi_adv_x_comm,0) 
-
-       !Now p_init has our MPI row, 
        cell_metric = model%rules%dynamicsRules%cloud_metric
        select case (cell_metric)
          case (cloud_metric_geometry_flag)
@@ -369,8 +336,7 @@ contains
             endif
             do isp = 1, nsp_contr
               isp_transp = iPtr(iSp)   !control%ind_species_init(isp)
-              !indexing inside MPI row
-              ind = (((iy-1)*gnx + ix-1+offx)*nz + iz-1)*nsp_contr + isp
+              ind = (iy-1)*nx*nz*nsp_contr + (ix-1)*nz*nsp_contr + (iz-1)*nsp_contr + isp
               if (model%rules%darules%use_log_cloud) then
                 map_c%arm(isp_transp, 1, iz, ix, iy) = (exp(p_init(ind)) - 0.02) * volume
               else
@@ -416,21 +382,14 @@ contains
       if (debug_level > 0) then
         call msg('Sum of map_c before control', reportAll(1))
         call msg('Sum of map_c before truncating', reportAll(2))
-        if (smpi_adv_rank == 0) then
-          call msg('Sum of p_init', sum(p_init))
-          call msg('Number of negative values:', count(p_init(1:wrk_size) < 0))
-        else
-          call msg('Sum of p_init (not master) XXXX')
-          call msg('Number of negative values (not master) XXXX')
-        endif
+        call msg('Sum of p_init', sum(p_init))
+        call msg('Number of negative values:', count(p_init < 0))
       endif
 
       call msg('Total negative mass:', reportAll(3))
       call msg('Total positive mass:', reportAll(4))
       if (debug_level > 0) call msg('Sum of map_c after control', reportAll(5))
 
-
-      if (if_use_work) call free_work_array(fWork)
     end if ! have initial
 
 
@@ -444,56 +403,26 @@ contains
     if (fu_have_emission_xy(fu_mode(control))) then
       if (fu_fails(associated(proc_ptr), 'Emission processor not associated', sub_name)) return
       if (fu_fails(defined(proc_ptr), 'Emission processor not defined', sub_name)) return
-      if (fu_fails(fu_type(proc_ptr) == processor_scaling_flag, &
-                         & 'Emission processor is wrong type', sub_name)) return
+      if ( all(fu_type(proc_ptr) /= (/processor_log_scaling_flag, processor_scaling_flag/))) then
+        call set_error( 'Emission processor is wrong type', sub_name)
+        return
+      endif
 
       nsp_contr = fu_nbr_of_species_emission(model%cloud)
-      p_emis => null() !! Stupidity check
-      
-      if (iMPI == 0 .and. jMPI == 0) then !Do scatter mpi rows from control if needed
-         p_emis => fu_emission_ptr(control)
-         if ( fu_n_emission(control) /= gny*gnx*nsp_contr) then !! Should be like this
+      p_emis => fu_emission_ptr(control)
+      if ( fu_n_emission(control) /= ny*nx*nsp_contr) then !! Should be like this
             call set_error("Wrong control size", sub_name)
             return
-         endif
-         sendcounts(1:njMPI) = smpi_y_sizes(1:njMPI)*gnx*nsp_contr
-         offsets(1:njMPI)    = smpi_y_offsets(1:njMPI)*gnx*nsp_contr
-      else  !Need work for exchange
-         sendcounts(1:njMPI)=0 ! Does not matter
-         offsets(1:njMPI)=0!
       endif
 
-      wrk_size = ny*gnx*nsp_contr !MPI-row-size 
-
-      !Master needs work only for y exchange
-      !Others -- always
-      if_use_work = (njMPI > 1 .or. iMPI /= 0 .or.  jMPI /= 0)
-
-      if (if_use_work)  fWork => fu_work_array(wrk_size)
-
-      if (iMPI == 0 .and. njMPI > 1) then !!Do stripe scatter in column 0
-        call smpi_scatterv_real(p_emis, sendcounts, offsets, fWork, wrk_size,  smpi_adv_y_comm)
-
-      endif
-      
-      if (if_use_work) p_emis => fWork !redirect to our stripe
-
-      !!Can not get X stripe due to wrong order
-      !! broadcast MPU row if needed
-      if ( niMPI > 1) call smpi_bcast_aray(p_emis, wrk_size, smpi_adv_x_comm,0) 
-
-      !Now p_emis has our MPI row 
-
-      emis_data => fu_data(proc_ptr)
+      emis_data => fu_data(proc_ptr,forwards)
       n_emis = nx*ny*nsp_contr
 
-      f3dlocal(1:nsp_contr,1:nx,1:ny) => emis_data(1:n_emis)
-      f3drow(1:nsp_contr,1:gnx,1:ny) => p_emis(1:wrk_size)
-      f3dlocal(:,1:nx,1:ny)  =  f3drow(1:nsp_contr,1+offx:offx+nx,1:ny)
+      emis_data(1:n_emis) = p_emis(1:n_emis)
 
       call msg('Emission to cloud, max = ', maxval(emis_data(1:n_emis)))
       call msg('Number of negative values ignored:', count(emis_data(1:n_emis) < 0))
-      where (emis_data < 0) emis_data = 0. !!  Zero negatives
+      !!!!!where (emis_data < 0) emis_data = 0. !!  Zero negatives
 
       if(ifKalmanEnsemble)then
         call store_perturbation_val(model%perturbations, perturb_emis_xy, p_emis, n_emis, &
@@ -509,7 +438,7 @@ contains
       if (fu_fails(defined(proc_ptr), 'Emission processor not defined', sub_name)) return
       p_emis => fu_emission_ptr(control)
       n_emis = fu_n_emission(control)
-      emis_data => fu_data(proc_ptr)
+      emis_data => fu_data(proc_ptr,forwards)
       !call msg('About to copy data...')
       if (fu_fails(associated(p_emis), 'p_emis not associated', sub_name)) return
       if (fu_fails(associated(emis_data), 'emis_data not associated', sub_name)) return
@@ -572,7 +501,7 @@ contains
     else if (fu_have_emission_xy(control_mode)) then
       if (incompatible(control_mode, (/control_emis_zt, control_emis_volc/))) return
       call set_emission_processor(fu_emisMM_ptr(cloud), fu_species_transport(cloud), &
-                                & processor_scaling_flag,  proc_ptr)
+                                & processor_log_scaling_flag,  proc_ptr)
       if (error) return
     else if (fu_have_emission_volc(control_mode)) then
       if (incompatible(control_mode, (/control_emis_zt, control_emis_xy/))) return
@@ -723,8 +652,7 @@ contains
                                                   ! else -- take massmap from model%cloud and do control
 
     integer :: ix, iy, iz, isp, iTask, lenChunk,  nz,  ind, n_emis, isp_transp, nsp_contr
-    integer :: nx, ny, offx, offy, gnx, gny, offglob, offloc, wrk_size
-    integer :: nx1, ny1, offx1, offy1 
+    integer :: nx, ny
     integer, dimension(:), pointer :: iPtr
     type(Tmass_map), pointer :: map_c
     real, dimension(:), pointer :: p_init, dx_ptr, dy_ptr, p_emis, emis_data, wrk_local
@@ -757,7 +685,8 @@ contains
     endif
 
     !call msg('Sum map_c', sum(map_c%arm))
-    call smpi_get_decomposition(nx, ny, offx, offy, gnx, gny)
+    nx = map_c%nx
+    ny = map_c%ny
     nz = map_c%n3d
     
     if (.not. ifGradient) then
@@ -799,18 +728,10 @@ contains
       nsp_contr = fu_nsp_initial(control)
       iPtr => fu_isp_initial(control)
       lenChunk = nz*nsp_contr
-      call smpi_get_maxsubdomain_size(nx1, ny1) !!  reuse of vars
-      wrk_size = nx1*ny1*nz*nsp_contr + 4
       !call msg('nsp_contr', nsp_contr)
       !call msg('isp_contr', control%ind_species_init(1))
 
-      if (smpi_adv_tasks == 1) then
-        p_init => fu_initial_ptr(control)
-      else
-        wrk_local => fu_work_array(wrk_size) !
-        p_init => wrk_local(5:wrk_size)  !keep first indices for geometry
-        wrk_local(1:4) = (/nx, ny, offx, offy/)
-      endif
+      p_init => fu_initial_ptr(control)
       do iy = 1, ny
         do ix = 1, nx
           do iz = 1, nz
@@ -850,28 +771,6 @@ contains
          p_init(:) = log(p_init(:) + 0.02)
       endif
 
-      if (smpi_adv_tasks > 1) then !! Do exchange
-        if(smpi_adv_rank == 0) then   !! Gather the vector
-          p_init => fu_initial_ptr(control)   
-          do iTask = 0,smpi_adv_tasks-1 !Receive vector -- only from other tasks
-            if (error) cycle
-            if (itask /=0)  call smpi_recv(wrk_local, wrk_size, iTask) 
-            if (error) cycle
-            nx1 = wrk_local(1); ny1=wrk_local(2);  offx1= wrk_local(3);  offy1 = wrk_local(4);
-            do iy = 1, ny1
-               do ix = 1, nx1
-                  offglob = ((offy1 + iy-1)*gnx + (offx1+ix-1)) * lenChunk
-                  offloc  = ((iy-1)*nx1 + ix-1) * lenChunk
-                  p_init(offglob+1 : offglob+lenChunk) = wrk_local(offloc+5:offloc+4+lenChunk)
-               enddo
-            enddo
-          enddo
-        else
-          !not Master -- just send our stuff
-          call smpi_send(wrk_local, wrk_size, 0)
-        endif
-        call free_work_array(wrk_local) 
-      endif !do exchange
     end if  !Inital state present
     
     ifKalmanEnsemble = any((/flag_enkf, flag_enks/) == model%rules%daRules%method)
@@ -879,7 +778,7 @@ contains
     if (fu_have_emission_zt(fu_mode(control))) then
       p_emis => fu_emission_ptr(control)
       if (fu_fails(associated(fu_emission_processor_ptr(model%cloud)), 'proc not associated', sub_name)) return
-      emis_data => fu_data(fu_emission_processor_ptr(model%cloud))
+      emis_data => fu_data(fu_emission_processor_ptr(model%cloud),forwards)
       if (fu_fails(size(p_emis) == size(emis_data), 'sizes don''t match', sub_name)) return
       p_emis(:) = emis_data(:) * inv_scaling !
     end if
@@ -887,53 +786,20 @@ contains
     if (fu_have_emission_xy(fu_mode(control))) then
       n_emis = fu_n_emission(control)
 
-      if (smpi_adv_tasks == 1) then
-        p_emis => fu_emission_ptr(control)
-      else
-         !! We hope that number of specied coincides for cloud,  control and processor
-        lenChunk = fu_nbr_of_species_emission(model%cloud)
-          !!!!ind = (iy-1)*nspecies*nx + (ix-1)*nspecies + isp
-        call smpi_get_maxsubdomain_size(nx1, ny1) !!  reuse of vars
-        wrk_size = nx1*ny1*lenChunk + 4
-        wrk_local => fu_work_array(wrk_size) !
-        p_emis => wrk_local(5:wrk_size)  !keep first indices for geometry
-        wrk_local(1:4) = (/nx, ny, offx, offy/)
-      endif
-
+      p_emis => fu_emission_ptr(control)
 
       if(ifKalmanEnsemble)then
         call retrieve_perturbation_val(model%perturbations, perturb_emis_xy, p_emis, n_emis, int_missing)
         if(error)return
       else
-        emis_data => fu_data(fu_emission_processor_ptr(model%cloud))
+        if (ifGradient) then
+          emis_data => fu_data(fu_emission_processor_ptr(model%cloud), backwards)
+        else
+          emis_data => fu_data(fu_emission_processor_ptr(model%cloud), forwards)
+        endif
+
         p_emis(:) = emis_data(:) * inv_scaling
       endif
-      
-      if (smpi_adv_tasks > 1) then !! Do exchange
-        if(smpi_adv_rank == 0) then   !! Gather the vector
-          p_emis => fu_emission_ptr(control)
-          do iTask = 0,smpi_adv_tasks-1 !Receive vector -- only from other tasks
-            if (error) cycle
-            if (itask /=0)  call smpi_recv(wrk_local, wrk_size, iTask) 
-            if (error) cycle
-            nx1 = wrk_local(1); ny1=wrk_local(2);  offx1= wrk_local(3);  offy1 = wrk_local(4);
-            do iy = 1, ny1
-               do ix = 1, nx1
-                  offglob = ((offy1 + iy-1)*gnx + (offx1+ix-1)) * lenChunk
-                  offloc  = ((iy-1)*nx1 + ix-1) * lenChunk
-                  p_emis(offglob+1 : offglob+lenChunk) = wrk_local(offloc+5:offloc+4+lenChunk)
-               enddo
-            enddo
-          enddo
-        else
-          !not Master -- just send our stuff
-          call smpi_send(wrk_local, wrk_size, 0)
-        endif
-        call free_work_array(wrk_local) 
-      endif !do exchange
-!      if (fu_fails(associated(fu_emission_processor_ptr(model%cloud)), 'proc not associated', sub_name)) return
-!      ind_pert_xy = fu_index(perturb_emis_xy, model%perturbations(:)%target)
-!      p_emis(1:n_emis) = model%perturbations(ind_pert_xy)%storage
     end if
 
 
@@ -970,13 +836,12 @@ contains
 
   !************************************************************************************
 
-  subroutine model_forward(model, obs_ptr, simrules, make_output)
+  subroutine model_forward(model, simrules, make_output)
     !
     ! After applying the control, run the model.
     !
     implicit none
     type(model_container) :: model
-    type(ObservationPointers), intent(inout) :: obs_ptr
     type(general_dispersion_rules), intent(inout) :: simrules
     logical, intent(in), optional :: make_output
 
@@ -994,6 +859,7 @@ contains
     real :: weight_past
     character(len=clen) :: command_string
     type(Tmeteo_input), pointer :: meteo_input_ptr
+    type(ObservationPointers), pointer :: obs_ptr
 !    type(general_dispersion_rules) :: rules_fwd
     !type(Tmass_map), pointer :: map_px, map_py, map_pz, map_sl
     type(silam_pollution_cloud), pointer :: cloud
@@ -1018,6 +884,7 @@ contains
 
     outDef => model%out_def
     meteo_ptr => model%meteo_ptr
+    obs_ptr => model%obs_ptr
     disp_buf_ptr => model%disp_buf_ptr
     output_buf_ptr => model%output_buf_ptr
     meteoMarketPtr => model%meteo_market_ptr
@@ -1055,6 +922,9 @@ contains
                       & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, outputMarketPtr, &
                       & model%tla_traj, perturbations)
     call stop_count('forward')
+
+    if (associated(obs_ptr)) call collect_model_data(obs_ptr)
+!!    call report(fu_emission_processor_ptr(cloud), 'emission processor after run_dispersion forward')
 
     simrules%ifWriteProgressFile = ifWriteProgressFileTmp
     simrules%if_make_output = make_output_tmp
@@ -1136,6 +1006,7 @@ contains
     call msg('')
     call msg('Running adjoint')
     
+!!    call report(fu_emission_processor_ptr(cloud), 'emission processor before run_dispersion adj')
     call run_dispersion(cloud, em_source, wdr, simrules, &
                       & pMeteo_input_dyn_shopping_list, pMeteo_full_dyn_shopping_list, &
                       & pDisp_dyn_shopping_list, pDisp_stat_shopping_list, &
@@ -1143,10 +1014,7 @@ contains
                       & meteoMarketPtr, dispersionMarketPtr, BCMarketPtr, outputMarketPtr, &
                       & model%tla_traj)
     call stop_count('adjoint')
-
-#ifdef DEBUG
     call report(fu_emission_processor_ptr(cloud), 'emission processor after run_dispersion adjoint')
-#endif
     !
     ! Return temporaries
     !
@@ -1176,8 +1044,8 @@ contains
 
     if (model%obs_ptr%hasObservations) call reset_all(model%obs_ptr, .true.)
     call control2cloud(control, model, handle_negatives=fu_mode(control) == da_initial_state)
-    call model_forward(model, model%obs_ptr, model%rules, make_output=.true.) 
-    
+    call model_forward(model, model%rules, make_output=.true.)
+
   end subroutine run_forecast_from_control
 
   !************************************************************************************
@@ -1204,6 +1072,8 @@ contains
                   & model%rules%dynamicsRules, &
                   & assim_window, assim_begin)
 
+    call collect_model_data(model%obs_ptr)
+
   end subroutine forward_3d
 
   !************************************************************************************
@@ -1229,7 +1099,7 @@ contains
 
   !************************************************************************************
 
-  subroutine obs_from_mdl(control, model, mdl_obs_values)
+  subroutine obs_from_mdl(control, model)
     !
     ! The composite action of the model and observation operators: apply control, run the
     ! model and collect the observations into a vector.
@@ -1237,7 +1107,6 @@ contains
     implicit none
     type(model_container), intent(inout) :: model
     type(da_control), intent(in) :: control
-    real, dimension(:), intent(out) :: mdl_obs_values
 
     integer ::n_obs_values
 
@@ -1265,16 +1134,12 @@ contains
       !
       ! 4d-var or h-matrix
       !
-      call model_forward(model, model%obs_ptr, model%rules)
+      call model_forward(model, model%rules)
     else
       call set_error('Bad assimilation method', 'obs_from_mdl')
       return
     end if
     if (error) return
-    !
-    ! Copy the structured by-obs-type observations to a single vector
-    !
-    call collect_model_data(model%obs_ptr, mdl_obs_values) !, n_obs_values)
     
   end subroutine obs_from_mdl
 
@@ -1297,20 +1162,9 @@ contains
     type(Temission_processor), pointer :: processor_ptr
     integer :: ind_spec_anl, ind_spec_transp
 
-    !if (fu_fails(associated(fu_emission_processor_ptr(model%cloud)), &
-    !           & 'Emis proc not associated', 'get_obs_grad')) return
-    !if (fu_fails(defined(fu_emission_processor_ptr(model%cloud)), &
-    !           & 'Emis proc not defined', 'get_obs_grad')) return
-!!$    if (fu_mode(control) == DA_EMISSION_AND_INITIAL .or. fu_mode(control) == DA_EMISSION_CORRECTION &
-!!$      & .and. .not. processor_is_set) then
-!!$      call set_error('No emis proc', 'get_obs_grd') 
-!!$      return
-!!$      call set_emis_proc_in_cloud(model)
-!!$      processor_is_set = .true.
-!!$    end if
 
     processor_ptr => fu_emission_processor_ptr(model%cloud)
-    if (defined(processor_ptr)) call zero_processor(processor_ptr)
+    if (defined(processor_ptr)) call zero_processor_grad(processor_ptr)
     if (debug_level > 0) then
       call msg("In the beginning of get_obs_grad")
       call collect_total_masses(model%cloud)
@@ -1348,21 +1202,6 @@ contains
     if (error) return
 
   contains
-
-    subroutine set_emis_proc_in_cloud(model)
-      implicit none
-      type(model_container), intent(inout) :: model
-
-      integer :: stat
-
-      allocate(processor_ptr, stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', 'set_emission_proc_in_cloud')) return
-      call set_emission_processor(fu_emisMM_ptr(model%cloud), &
-                                & fu_species_transport(model%cloud), &
-                                & processor_scaling_flag,  processor_ptr)
-      call set_emission_processor_ptr(model%cloud, processor_ptr)
-
-    end subroutine set_emis_proc_in_cloud
 
     subroutine reset_control_species(mass_map, control)
       ! set control species to 0, leave all others untouched.
@@ -1532,6 +1371,7 @@ contains
     real, dimension(:,:,:,:), allocatable :: arr1, arr2, m_arr
 
     integer :: n_obs_val
+    integer, dimension(2) :: n_obsav
     real, dimension(:), pointer :: mdl_data, obs_data, obs_var
     type(silja_time) :: now, in_past, in_future
     type(silja_interval) :: timestep, long_interval
@@ -1545,7 +1385,7 @@ contains
     model%obs_ptr%hasObservations = .false.
 
     call msg('Will run model for one timestep')
-    call model_forward(model, model%obs_ptr, model%rules)
+    call model_forward(model, model%rules)
     call msg('')
     call msg('done')
     call msg('')
@@ -1592,10 +1432,10 @@ contains
     call observeAll(model%obs_ptr, model%cloud, model%meteo_ptr, model%disp_buf_ptr, model%rules%chemicalRules, &
                   & model%rules%dynamicsRules, &
                   & long_interval, in_past)
+    call collect_model_data(model%obs_ptr)
+    call get_obs_pointers(model%obs_ptr, obs_data, mdl_data, obs_var,n_obsav)
+    n_obs_val = sum(n_obsav)
 
-    call collect_model_data(model%obs_ptr, mdl_data) !, n_obs_val)
-    call collect_obs_data(model%obs_ptr,  obs_data) ! , n_obs_val)
-    call collect_variance(model%obs_ptr, obs_var) !, n_obs_val)
 !    call reset_map_to_val(fu_concMM_ptr(model%cloud), 0.0)
     MMptr => fu_concMM_ptr(model%cloud)
     call reset_map_to_val(MMptr, 0.0)
@@ -1696,10 +1536,10 @@ contains
     proc_ptr => fu_emission_processor_ptr(model%cloud)
     call set_emission_processor(fu_emisMM_ptr(model%cloud), fu_species_transport(model%cloud), &
                               & processor_scaling_flag, proc_ptr)
-    call zero_processor(proc_ptr)
+    call zero_processor_grad(proc_ptr)
 
     call msg('Will run model for one timestep')
-    call model_forward(model, model%obs_ptr, model%rules)
+    call model_forward(model, model%rules)
     call msg('')
     call msg('done')
     call msg('')
@@ -1809,7 +1649,7 @@ contains
 !!$      
 !!$    end do
 
-    call model_forward(model, model%obs_ptr, model%rules)
+    call model_forward(model, model%rules)
 
     m_arr = map_c%arm(1:nsp,1,1:nz,1:nx,1:ny)
     call msg('RIGHT', fu_inner(m_arr, arr2))

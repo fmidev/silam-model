@@ -617,10 +617,10 @@ MODULE globals
 
   INTEGER, PUBLIC :: smpi_global_tasks = 1, smpi_global_rank = 0
   INTEGER, PUBLIC :: smpi_adv_tasks = 1, smpi_adv_rank =0
-  INTEGER, PUBLIC :: smpi_adv_cart_rank = 0, smpi_io_rank = 0, smpi_ens_rank = 0
+  INTEGER, PUBLIC :: smpi_io_rank = 0, smpi_ens_rank = 0
   ! MPI communicators:
   INTEGER, PUBLIC :: smpi_io_comm, smpi_ensmember_comm, smpi_enkf_comm 
-  INTEGER, PUBLIC :: smpi_adv_comm, smpi_adv_cart_comm, smpi_adv_x_comm, smpi_adv_y_comm 
+  INTEGER, PUBLIC :: smpi_adv_comm, smpi_adv_x_comm, smpi_adv_y_comm 
 
   !****************************END of MPI stuff
 
@@ -1047,6 +1047,7 @@ CONTAINS
     call msg('(backtrace() not available in this compiler)')
 #endif
      call msg(message)
+     call flush(run_log_funit)
   end subroutine ooops
 
 

@@ -26,14 +26,22 @@ MODULE lagrange_particles
   PUBLIC enlarge_lagrange_particles_set    ! Extend particle arrays
 
   public project_lagr_2_euler_flds    ! Project some particles to Eulerian mass map
+  public set_missing
   public report                       ! Report Lagrnagian particle
   
   ! Private subroutines  
+  private set_lp_set_missing
+  private set_lp_set_ptr_missing
   private report_lagr_particle
 
   INTERFACE report
     MODULE PROCEDURE report_lagr_particle
   END INTERFACE
+
+  interface set_missing
+    module procedure set_lp_set_missing
+    module procedure set_lp_set_ptr_missing
+  end interface
 
   !
   ! The concept of lagrangian particle in SILAM v.5
@@ -75,24 +83,53 @@ MODULE lagrange_particles
     type(silja_logical) :: defined = silja_false
   end type Tlagrange_particles_set
   public Tlagrange_particles_set
-  type (Tlagrange_particles_set) :: lagrange_particles_set_missing = &
-               & Tlagrange_particles_set(null(),null(),null(), &
-               & int_missing,  int_missing, int_missing, int_missing, &
-               & int_missing, int_missing,  int_missing,  &
-               & grid_missing, vertical_missing, null(),null(),null(),&
-               & null(),null(),null(), int_missing, silja_false)
 
   type Tlagrange_particles_set_ptr
     type(Tlagrange_particles_set), pointer :: ptrLpSet => null()
   end type Tlagrange_particles_set_ptr
 
-  type (Tlagrange_particles_set_ptr) , public, parameter :: lagrange_particles_set_ptr_missing = &
-                & Tlagrange_particles_set_ptr(null())
-  public Tlagrange_particles_set_ptr
 
+  CONTAINS
 
-CONTAINS
-
+  !******************************************************************
+  
+  subroutine set_lp_set_missing(lp_set)
+    implicit none
+    type (Tlagrange_particles_set), intent(out) :: lp_set
+    
+    lp_set%spTransp => null()
+    lp_set%spShortLived=>null()
+    lp_set%spAeros=>null()
+    lp_set%nop = 0
+    lp_set%nSpeciesTrn = 0
+    lp_set%nSpeciesSL = 0
+    lp_set%nSpeciesAer = 0
+    lp_set%nSrcs = 0 ! number of particles, species, and sources
+    lp_set%iFirstEmptyParticle = 0
+    lp_set%nop_active = 0 
+    lp_set%gridTemplate = grid_missing
+    lp_set%verticalTemplate = vertical_missing
+    if(allocated(lp_set%lpMassTrn))deallocate(lp_set%lpMassTrn)
+    if(allocated(lp_set%lpMassSL))deallocate(lp_set%lpMassSL)
+    if(allocated(lp_set%lpMassAer))deallocate(lp_set%lpMassAer)
+    if(allocated(lp_set%lpDyn))deallocate(lp_set%lpDyn)
+    if(allocated(lp_set%lpStatus))deallocate(lp_set%lpStatus)
+    if(allocated(lp_set%newPartList))deallocate(lp_set%newPartList)
+    lp_set%nNewPart = 0  ! number of just emitted particles, should be reset before emission
+    lp_set%defined = silja_false
+  end subroutine set_lp_set_missing
+  
+  
+  !******************************************************************
+  
+  subroutine set_lp_set_ptr_missing(lp_set_ptr)
+    implicit none
+    type (Tlagrange_particles_set_ptr), intent(out) :: lp_set_ptr
+    
+    if(associated(lp_set_ptr%ptrLpSet)) call set_lp_set_missing(lp_set_ptr%ptrLpSet)
+  end subroutine set_lp_set_ptr_missing
+    
+  
   !******************************************************************
 
   subroutine init_lagrange_particles_set(lpset, spTransp, spShortLived, spAeros, grid, vertical, nSrc)
@@ -104,7 +141,7 @@ CONTAINS
      type(silja_grid), intent(in) :: grid
      integer, intent(in) :: nSrc
 
-     lpset = lagrange_particles_set_missing
+     call  set_lp_set_missing(lpset)
 
      lpset%nop = 0
      lpset%nop_active = 0
@@ -176,7 +213,7 @@ CONTAINS
        return
     endif
 
-    lpset_tmp = lagrange_particles_set_missing
+    call set_lp_set_missing(lpset_tmp)
     
     if (lpset%nSpeciesAer >0) then 
        allocate(lpset_tmp%lpMassAer(lpset%nSpeciesAer,nParticles), stat=istat)

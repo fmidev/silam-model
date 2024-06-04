@@ -994,6 +994,30 @@ END_LIST = substance
 
 # ***********************************************************************
 
+LIST = substance
+  #  Acetone (2-propanone or dimethyl ketone
+  chemical_name = CH3COCH3
+#  GRIB2_constituent_type = 10401 #FIXME Local code
+  molar_mass = 48.0 g/mole #RH2018: update from 72.
+  low_concentration_threshold = 0.001 pg/m3  #R.H. Decreased by factor of 1e5 (orig 0.1 ng/m3): C2O3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+  Henry_constant_at_298K    =  27e5    # mol/kg/pa #https://webbook.nist.gov/cgi/cbook.cgi?ID=C67641&Mask=10#Solubility
+  Henry_constant_T_dependence_exponent_scale = 5000.  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1000.
+  gas_surf_resistance_land_default = -1000.
+  gas_molecular_diffusivity_in_air   = 8e-6
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = -1.0
+  washout_coef_snow_ratio_to_SILAM_standard = -1.0
+  
+END_LIST = substance
+
+# ***********************************************************************
+
 #Commented out since after PAR-OLE tweaks the PAR only exists in pre-historical CB4 chemistry scheme!
 LIST = substance
   # parafin carbon bond (C-C)
@@ -3129,6 +3153,50 @@ END_LIST = substance
 
 LIST = substance
   chemical_name = sia
+  molar_mass = -1. g/mole   
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture = soluble insoluble
+  fractions_of_ref_subst_in_mixture = 0.625 0.375
+  low_concentration_threshold = 1 ng/m3 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO  
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = PM10SS ###Whatever CAMS Sea Salt Dry PM10_SS	0 62008
+  GRIB2_constituent_type = 62008
+  molar_mass = -1. g/mole   
+  material_type = species_inert_aerosol
+  number_of_reference_subst_in_mixture = 2 
+  names_of_ref_subst_in_mixture = soluble insoluble
+  fractions_of_ref_subst_in_mixture = 1.0 0.0
+  low_concentration_threshold = 1 ng/m3 
+  !
+  ! Aerosol features
+  !
+  can_be_aerosol = YES
+  can_be_gas = NO  
+  dry_particle_density_kg_per_m3 = 1100
+  humidity_growth_scale_alpha = 1.1
+  humidity_growth_curvature_beta = 1.1
+  deliquescence_humidity_0_to_1 = 0.95  ! enough to exclude growth
+END_LIST = substance
+
+# ***********************************************************************
+
+LIST = substance
+  chemical_name = soa  ## SOA / 1.4
+  GRIB2_constituent_type = 62010
   molar_mass = -1. g/mole   
   material_type = species_inert_aerosol
   number_of_reference_subst_in_mixture = 2 

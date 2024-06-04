@@ -1373,13 +1373,8 @@ CONTAINS
       
   
       do it = 1, times_found
-        if(.not. fu_time_in_list(timeLst(it), interval_missing, shopping_list))cycle
-        !!! Should be integer number of timesteps from
-        if (defined(obstime_interval)) then
-          if ( abs(modulo((timeLst(it)-shopStartTime)/obstime_interval + 0.5, 1.) - 0.5) > 0.001 ) cycle
-        endif
-
-        if(fu_list_time_indicator(shpLstPtr) == accept_same_month) then   
+        iTmp = fu_list_time_indicator(shpLstPtr)
+        if (iTmp  == accept_same_month) then
           found = .false.
           do i = 1, number_of_times    !times already in supermarket
             if(fu_mon(timeLst(it)) == fu_mon(valid_times(i)))then
@@ -1388,6 +1383,12 @@ CONTAINS
             endif
           enddo
           if(found)cycle
+        elseif (iTmp  /= accept_all_times) then
+          if(.not. fu_time_in_list(timeLst(it), interval_missing, shopping_list))cycle
+          !!! Should be integer number of timesteps from
+          if (defined(obstime_interval)) then
+            if ( abs(modulo((timeLst(it)-shopStartTime)/obstime_interval + 0.5, 1.) - 0.5) > 0.001 ) cycle
+          endif
         endif
 
         do i = 1, fields_found

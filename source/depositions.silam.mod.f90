@@ -188,7 +188,7 @@ module depositions
                                               & pMetPrecTot => null(), pMetPrecLs => null(), pMetPrecCnv => null(), pMetTotCloud => null(), &
                                               & pMetABLHeight => null(), pMetFricVel => null(),  pMetMO_Len_inv => null(), &
                                               & pMetConvVel => null(), pMetSensHF => null(), pMetSnowDepth => null(), pMetLAI => null(), &
-                                              & pMetGsto => null(), pMetIcefr => null(), pCAPE => null()
+                                              & pMetGsto => null(), pMetIcefr => null(), pCAPE => null(), pCanopyHeight => null()
 
   integer, private, pointer, save :: imet_cwc3d, imet_pwc3d, imet_press, imet_landfrac,   &
        & imet_temp, imet_u, imet_v, imet_cape, imet_tcc, imet_scav,  imet_dx_size, imet_dy_size, &
@@ -208,9 +208,10 @@ module depositions
 
   !  type(field_4d_data_ptr), private, pointer, save :: fldDispZsize
 
-  integer, dimension(:), private, pointer :: indSulphurSpecies, indStrongAcidSpecies, &
+  ! private -> public
+  integer, dimension(:), public, pointer :: indSulphurSpecies, indStrongAcidSpecies, &
                                            & indAcidityAffectingSp, iAciditySign  ! acid and alcaline species
-  integer, private :: nSulphurSpecies, indSO2, nStrongAcidSpecies, nAcidityAffectingSpecies, &
+  integer, public :: nSulphurSpecies, indSO2, nStrongAcidSpecies, nAcidityAffectingSpecies, &
                     & indNH3, indHNO3, indO3, indSomeStrongAcid
 
 
@@ -669,7 +670,9 @@ CONTAINS
       iTmp = fu_merge_integer_to_array(fraction_of_land_flag, q_met_st)
       iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
       iTmp = fu_merge_integer_to_array(SILAM_sensible_heat_flux_flag, q_met_dyn)
+      iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
 !      iTmp = fu_merge_integer_to_array(Vd_correction_DMAT_flag, q_disp_dyn) ! Needed for Rs
+
     endif
 
 
@@ -723,6 +726,8 @@ CONTAINS
         iTmp = fu_merge_integer_to_array(relative_humidity_2m_flag, q_met_dyn)
         iTmp = fu_merge_integer_to_array(water_eq_snow_depth_flag, q_met_dyn)
         iTmp = fu_merge_integer_to_array(stomatal_conductance_flag, q_met_dyn)
+        iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
+        iTmp = fu_merge_integer_to_array(canopy_height_flag, q_met_st)
 !        iTmp = fu_merge_integer_to_array(fraction_of_ice_flag, q_met_dyn)
         if ( wdr == wdr_missing) then  ! Can be undefined
            iTmp = fu_merge_integer_to_array(leaf_area_index_flag, q_met_dyn)
@@ -903,6 +908,7 @@ CONTAINS
 
         end if
 
+        !! max_scav_rate_depends_on handling
         if(rulesDeposition%max_scav_rate_depends_on == horiz_wind .or. &
              & rulesDeposition%max_scav_rate_depends_on == CAPE_AND_WIND) then
           nq = nq +1
@@ -914,7 +920,9 @@ CONTAINS
           meteo_input_local%quantity(nq) = v_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
           imet_v => meteo_input_local%idx(nq)
-       else if (rulesDeposition%max_scav_rate_depends_on == CAPE) then
+        endif
+        if(rulesDeposition%max_scav_rate_depends_on == CAPE .or. &
+             & rulesDeposition%max_scav_rate_depends_on == CAPE_AND_WIND) then
           nq = nq +1
           meteo_input_local%quantity(nq) = cape_flag
           meteo_input_local%q_type(nq) = meteo_dynamic_flag
@@ -927,16 +935,6 @@ CONTAINS
 
         end if
         if (rulesDeposition%max_scav_rate_depends_on == CAPE_AND_WIND) then
-          nq = nq +1
-          meteo_input_local%quantity(nq) = cape_flag
-          meteo_input_local%q_type(nq) = meteo_dynamic_flag
-          imet_cape => meteo_input_local%idx(nq)
-
-          nq = nq +1
-          meteo_input_local%quantity(nq) = abl_height_m_flag
-          meteo_input_local%q_type(nq) = meteo_dynamic_flag
-          imet_abl => meteo_input_local%idx(nq)
-
           nq = nq +1
           meteo_input_local%quantity(nq) = fraction_of_land_flag
           meteo_input_local%q_type(nq) = meteo_single_time_flag
@@ -1159,6 +1157,10 @@ CONTAINS
          case(surface_roughness_meteo_flag)
            pMetSrfRoughMeteo => buf%p2d(indexQ)%present%ptr
 ! call msg('**DEP**: surface_roughness_flag')
+
+         case(canopy_height_flag)
+           pCanopyHeight => buf%p2d(indexQ)%present%ptr
+! call msg('**DEP**: canopy_height_flag')
 
          case(surface_roughness_disp_flag)
            pMetSrfRoughDisp => buf%p2d(indexQ)%present%ptr
@@ -1944,10 +1946,11 @@ CONTAINS
 
   !**********************************************************************************
 
-  subroutine get_Rs_2013(speciesTransport, mmr_lowest_lev, nSpecies, &        ! resistance for them
+  subroutine get_Rs_2013(speciesTransport, mmr_lowest_lev, &
+                  & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, cosza, nSpecies, &        ! resistance for them
                   & indexMeteo, weight_past, &           ! position in space and time
                   & rulesDeposition, &                   ! rules for standard deposition
-                  & arRs, ifTuned)                                ! output array for Rs
+                  & arRs, ifTuned, julian_day)                             ! output array for Rs
                   !& arRs, massair,massDep)                                ! output array for Rs
     !
     ! Returns an array of Rs for the subset of the given species - those, which are handled
@@ -1965,12 +1968,14 @@ CONTAINS
     ! Imported parameters
     type(silam_species), dimension(:), intent(in) :: speciesTransport
     real, dimension(:), intent(in) :: mmr_lowest_lev
+    real, intent(in) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, cosza
     integer, intent(in) :: nSpecies, indexMeteo
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     real, intent(in) :: weight_past
     !    real, dimension(:), intent(in) :: massAir, massDep
     real, dimension(:), intent(out) :: arRs
     logical, intent(out) :: ifTuned
+    integer, intent(in) :: julian_day
 
     ! Local variables
     type(Tgas_deposition_param), pointer :: DepData
@@ -1980,6 +1985,7 @@ CONTAINS
     real :: fice, fsnow,lowTcorr,fZ0,sdepth,hveg,pressure,t2m,t2c,rh2m,LAI,SAI,landfr,u_star, g_sto
     real :: Sdmax,RsnowS,RsnowO, F1, F2, Hstar, drx, fTmp
     real :: GigsO, RigsO, Gns, GnsO, RnsO, Gmesophyl
+    real :: coszen, tcc
     real, parameter :: BETA = 1.0/22.0
     logical :: canopy, leafy_canopy, is_veg
     real :: GnsS,Rinc,Rns_NH3,Rns_SO2
@@ -2035,8 +2041,8 @@ CONTAINS
 
 
     fZ0      =  pMetSrfRoughMeteo(indexMeteo)
-    hveg     = 10 * fZ0 ! Vegetation height used for snow cover, incanopy
-                        ! resistance etc
+    !hveg     = 10 * fZ0 ! Vegetation height used for snow cover, incanopy
+    !                    ! resistance etc
     u_star = pMetFricVel(indexMeteo)
     pressure = pMetSrfPressure(indexMeteo)
     t2m      = pMetTempr2m(indexMeteo)
@@ -2047,9 +2053,22 @@ CONTAINS
     if (LAI < 0.) LAI=0  !Can be missing or something...
     g_sto    = pMetGsto(indexMeteo)
     landfr   = pMetLandFr(indexMeteo)
+    tcc      = min(1.0, max(pMetTotCloud(indexMeteo), 1e-2))
     !fice     = pMetIceFr(indexMeteo)
+    hveg = pCanopyHeight(indexMeteo)
 
-
+    ! call msg('LAI', LAI)
+    ! call msg('aer_att_surf', aer_att_surf)
+    ! call msg('cld_att_surf', cld_att_surf)
+    ! call msg('aer_att_0', aer_att_0)
+    ! call msg('cld_att_0', cld_att_0)
+    ! call msg('cosza', cosza)
+    ! call msg('tcc', tcc)
+    
+    if (g_sto > 0.0) then 
+      g_sto = g_sto * fu_gsto_f_light(LAI, aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, cosza, tcc)
+    end if
+    
     if (hveg > 2.) then ! high vegetation
         SAI = LAI + 1 !! Surface area index of canopy
         canopy = .true.
@@ -2090,7 +2109,7 @@ CONTAINS
     RsnowS = min(700.0,RsnowS) !Erisman 1994=500,very low.. Puts to 2000
     RsnowS = max(70.0,RsnowS)  !Erisman 1994. 70 above 1 degree
 
-    RsnowO = 2000.0 !same for snow_flag, ice_nwp, water. Later corrected with lowTcorr
+    RsnowO = 4000.0 !2000.0 !same for snow_flag, ice_nwp, water. Later corrected with lowTcorr
                     !as recommended by Juha-Pekka
 
 
@@ -2188,7 +2207,7 @@ CONTAINS
     !! More correct way
 !    RgsOsfc = 1./( (1. - landfr)/2000. +  landfr / 200.) ! Default for bare surface
 !ifTuned = .False.
-    RgsOsfc = 1./( (1. - landfr)/2000. +  landfr / 1000.) ! Default for bare surface
+    RgsOsfc = 1./( (1. - landfr)/1800. +  landfr / 450.) ! Default for bare surface
 ifTuned = .true.
 !        Not particulary sensitive
 !  gas_surf_resistance_over_water = 2000.0
@@ -2256,6 +2275,106 @@ ifTuned = .true.
       endif
 
     end do  ! Gaseous species
+
+  contains
+    real function fu_gsto_f_light(LAI, aer_att, cld_att, aer_att_0, cld_att_0, cosZEN, tcc)
+      
+      real, intent(in) :: LAI, aer_att, cld_att, aer_att_0, cld_att_0, cosZEN, tcc
+
+      ! local variables
+      real :: Idirect_clear, Idiffuse_clear, Ifull_clear, Idirect_cloud, Idiffuse_cloud, Ifull_cloud
+      real :: LAIsun    ! sunlit LAI
+      real :: PARshade_clear, PARsun_clear, PARshade_cloud, PARsun_cloud, LAIsunfrac
+      real,  parameter :: g_night = 40 !! mmol/m2/s
+      !! 40 seems to be okay (VRA2016)
+      real,  parameter :: PARfrac = 0.45
+      real,  parameter ::  Wm2_uE  = 4.57 ! converts from W/m^2 to umol/m^2/s
+      real,  parameter ::  Wm2_2uEPAR= PARfrac * Wm2_uE ! converts from W/m^2 to umol/m^2/s PAR
+      real,  parameter ::  do3se_f_light = 8e-3 ! LUC-dependent parameter in EMEP 0.005--0.013
+                          ! except 0.002 for root_crop...
+                          ! see Inputs_DO3SE.csv
+      real,  parameter :: do3se_g_max = 200  !!! mmol/m2/s
+      real, parameter :: cosA    = 0.5   ! A = mean leaf inclination (60 deg.),
+      ! where it is assumed that leaf inclination has a spherical distribution
+      real :: f_sun_clear, f_shade_clear, f_sun_cloud, f_shade_cloud, f_light, toa_scaling, tcc_eff, LAIfrac
+      real, parameter :: toa_ave_irradiance = 1361
+      real, parameter :: clear_sky_Rayleigh = 0.95
+      real, parameter :: dlai = 0.05
+      
+      if (LAI <= 0.05) then
+        fu_gsto_f_light=0.0
+        return
+      end if
+
+      tcc_eff = tcc
+      
+      if ( cosZEN > 1e-5) then
+        ! Top-of-the-atmosphere irradiance scaling, based on the annually
+        ! fluctuating distance from the sun (approximation)
+        toa_scaling = 1 + 0.034 * cos(2*pi * julian_day / 365.25)
+
+        if (tcc_eff > 0.02) then 
+           Ifull_cloud = cld_att * aer_att * toa_scaling * toa_ave_irradiance
+           Idirect_cloud = cld_att_0 * aer_att_0 * toa_scaling * toa_ave_irradiance
+           Idiffuse_cloud = Ifull_cloud - Idirect_cloud
+        else
+           Idiffuse_cloud = 0.0
+           Idirect_cloud = 0.0
+           tcc_eff = 0.0
+        end if
+
+        if (tcc_eff < 1.0) then
+           Ifull_clear = aer_att * toa_scaling * toa_ave_irradiance
+           Idirect_clear = aer_att_0 * toa_scaling * toa_ave_irradiance
+           Idiffuse_clear = Ifull_clear - clear_sky_Rayleigh * Idirect_clear
+           Idirect_clear = clear_sky_Rayleigh * Idirect_clear
+        else
+           Idiffuse_clear = 0.0
+           Idirect_clear = 0.0
+        end if
+
+        LAIfrac = 0.0
+        f_sun_clear = 0.0
+        f_shade_clear = 0.0
+
+        f_sun_cloud = 0.0
+        f_shade_cloud = 0.0
+
+        ! Photosynthetically active radiation (PAR) in direct sunlight.
+        PARsun_clear = Wm2_2uEPAR * Idirect_clear * cosA
+        PARsun_cloud = Wm2_2uEPAR * Idirect_cloud * cosA
+
+        do while (LAIfrac <= LAI)
+
+           ! Decay of díffuse radiation inside the canopy
+           PARshade_clear = Wm2_2uEPAR * Idiffuse_clear * exp(-0.5*LAIfrac)
+           PARshade_cloud = Wm2_2uEPAR * Idiffuse_cloud * exp(-0.5*LAIfrac)
+
+           ! Fraction of leaves in direct sunlight
+           LAIsunfrac = exp(-0.5*LAIfrac/cosZEN)
+           
+           ! the response of stomatal conductance to PAR (the 1-exp(-do3se_f_light*PAR) function)
+           f_sun_clear = f_sun_clear + LAIsunfrac * (1.0 - exp(-do3se_f_light*(PARsun_clear + PARshade_clear))) * dlai
+           f_shade_clear = f_shade_clear + (1-LAIsunfrac) * (1.0 - exp(-do3se_f_light*PARshade_clear)) * dlai
+
+           ! the cloudy part of the cell may also have direct sunlight, if the cloud cover is thin
+           ! (determined by the radiative transfer model)
+           f_sun_cloud = f_sun_cloud + LAIsunfrac * (1.0 - exp(-do3se_f_light*(PARsun_cloud + PARshade_cloud))) * dlai
+           f_shade_cloud = f_shade_cloud + (1-LAIsunfrac) * (1.0 - exp(-do3se_f_light*PARshade_cloud)) * dlai
+
+           LAIfrac = LAIfrac + dlai
+        end do
+        
+        f_light = (1-tcc_eff) * (f_sun_clear + f_shade_clear) + &
+             & tcc_eff * (f_sun_cloud + f_shade_cloud)
+
+        f_light = f_light/LAI ! to compensate for the integration over LAI
+      else
+        f_light = 0.0
+      end if
+      fu_gsto_f_light = max(g_night/do3se_g_max,f_light)
+      
+    end function fu_gsto_f_light
 
   end subroutine get_Rs_2013
 
@@ -2762,8 +2881,9 @@ end function fu_settling_vel
   !************************************************************************************
 
   subroutine scavenge_column(mapConc, mapWetDep, arGarbage, tla_column, timestep_sec, &
-                        & rulesDeposition, arLowMassThreshold, metdat_col, ix, iy, pwc_col, &
-                        & pHorizInterpStruct, pVertInterpStruct, ifHorizInterp, ifVertInterp, met_buf)
+                        & rulesDeposition, arLowMassThreshold, metdat_col, ix, iy, pwc_col)
+
+    implicit none
 
     type(TMass_map), intent(inout)  :: mapConc, mapWetDep
     real, dimension(:,:), intent(inout)  :: arGarbage
@@ -2774,17 +2894,13 @@ end function fu_settling_vel
     type(Tdeposition_rules), intent(in) :: rulesDeposition
     Integer, intent(in) :: ix, iy
     real, dimension(:), intent(in) :: pwc_col
-    type(THorizInterpStruct), intent(in) :: pHorizInterpStruct
-    type(TVertInterpStruct), intent(in) :: pVertInterpStruct
-    logical, intent(in) :: ifHorizInterp, ifVertInterp
-    type(Tfield_buffer), intent(in) :: met_buf
 
     ! Local variables
     real :: scav_coef_std, scav_coef,  timestep_sec_abs, fSO2, fS_rest, fMaxScav, precip_rate, &
-         & cape_met, tcc, fTempr_1, cell_size_x, cell_size_y, abl_height, landfrac
+         & cape_met, tcc, fTempr_1, cell_area, abl_height, landfrac
     integer :: iLev, iSrc, iSpecies, iSpTr, ithread
 
-    real, dimension(max_species) :: rSettling
+    real, dimension(mapConc%nSpecies) :: rSettling
 
     logical :: not_adjoint
     real :: pwc_above_top, pwc_above_bottom, pwc_column, cwc_column_layer
@@ -2792,23 +2908,18 @@ end function fu_settling_vel
     real, dimension(:,:), pointer :: precipContent
     real, dimension(:,:,:), pointer :: precipContent3d
 
-    integer :: istat, iMeteo, num_levs
+    integer :: istat,  num_levs
     character(len=*), parameter :: sub_name = 'scavenge_column'
     real, dimension(:), pointer ::  pMetPrecTot, pCAPE, pMetTotCloud
     integer, dimension(:), pointer :: mdl_in_q
-    type(field_4d_data_ptr), pointer ::  fldCwcabove, fldScavCoefStd
     real, dimension(mapConc%n3D) :: cwc_col
     type (Train_in_cell), dimension(mapConc%n3D) :: r1d
 
     if (rulesDeposition%scavengingType == scavNoScav) return
 
     num_levs = mapConc%n3D
-    mdl_in_q => met_buf%buffer_quantities
-
-    pMetPrecTot => met_buf%p2d(fu_index(mdl_in_q, total_precipitation_int_flag))%present%ptr
-
-    iMeteo = fu_grid_index(nx_meteo, ix, iy, pHorizInterpStruct)
-    precip_rate = pMetPrecTot(iMeteo)
+    precip_rate = metdat_col(imet_prec,1)
+    cell_area = metdat_col(imet_dx_size, 1) * metdat_col(imet_dy_size, 1)
 
 
     if (precip_rate < 1e-30/3600.) return
@@ -2833,8 +2944,6 @@ end function fu_settling_vel
       !
 !      call msg('Standard scavenging...',rulesDeposition%scavengingType)
 
-      fldScavCoefStd => met_buf%p4d(fu_index(mdl_in_q, scavenging_coefficient_flag))
-
       if(rulesDeposition%nAerosolsDepositing > 0)then
         call get_settling_velocity_species(mapConc%species, mapConc%nSpecies, &
              & 1, 1, 1.0, &      ! indexMeteo, iLev, weight_past
@@ -2857,9 +2966,6 @@ end function fu_settling_vel
           endif
         end do
       endif  ! if there are aerosols
-
-      cell_size_x = metdat_col(imet_dx_size,1)
-      cell_size_y = metdat_col(imet_dy_size,1)
 
       do iLev = 1, num_levs
         do iSrc = 1, mapConc%nSrc
@@ -2934,10 +3040,10 @@ end function fu_settling_vel
           end do  ! iSrc
         end do  ! iLev
         if (fTempr_1  > freezing_point_of_water) then    ! Rain
-          fMaxScav = precip_rate * cell_size_x * cell_size_y * timestep_sec_abs * &
+          fMaxScav = precip_rate * cell_area * timestep_sec_abs * &
                & rulesDeposition%fSulphurSaturation
         else                                   ! Snow
-          fMaxScav = precip_rate * cell_size_x * cell_size_y * timestep_sec_abs * &
+          fMaxScav = precip_rate * cell_area * timestep_sec_abs * &
                & rulesDeposition%fSulphurSaturation / 1.5
         endif
         !
@@ -3008,7 +3114,7 @@ end function fu_settling_vel
         abl_height = metdat_col(imet_abl,1)
       end if
       if (rulesDeposition%max_scav_rate_depends_on == cape_and_wind) then
-        landfrac = metdat_col(imet_landfrac,1)
+        landfrac = min(max(0. ,metdat_col(imet_landfrac,1)), 1.) !! Can cause negative max_scav_rate
       end if
       if (associated(imet_cwc3d)) then ! Enable fakecloud branch
         cwc_col(1:num_levs) = metdat_col(imet_cwc3d,1:num_levs)

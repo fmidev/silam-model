@@ -13,8 +13,8 @@
 !        R. Sander, Max-Planck Institute for Chemistry, Mainz, Germany
 ! 
 ! File                 : cbm5_SOA_adj_Integrator.f90
-! Time                 : Tue Apr  5 09:32:50 2022
-! Working directory    : /home/kouzne/SILAM/silamgit/kpp/cbm5_SOA
+! Time                 : Thu Apr  4 16:17:26 2024
+! Working directory    : /mnt/d/kpp/kpp/cbm5_SOA
 ! Equation file        : cbm5_SOA_adj.kpp
 ! Output root filename : cbm5_SOA_adj
 ! 
@@ -51,10 +51,10 @@
 
 MODULE cbm5_SOA_adj_Integrator
 
+   USE cbm5_SOA_Precision
    USE cbm5_SOA_Parameters
    USE cbm5_SOA_Global
    USE cbm5_SOA_LinearAlgebra
-   USE cbm5_SOA_Precision
    !USE cbm5_SOA_adj_Rates
    USE cbm5_SOA_Function
    USE cbm5_SOA_Jacobian
@@ -64,7 +64,7 @@ MODULE cbm5_SOA_adj_Integrator
    !$use omp_lib
    
    IMPLICIT NONE
-  PUBLIC
+   public
    SAVE
   
 !~~~>  Statistics on the work performed by the Rosenbrock method
@@ -92,8 +92,7 @@ MODULE cbm5_SOA_adj_Integrator
 
 
   ! --JV: the wlamch function doesn't work due to compiler optimizations resulting in too
-  ! optimistic precision estimates. The following is returned by the LAPACK SLAMCH for
-  ! single precision:
+  ! optimistic precision estimates. The following is returned by the LAPACK SLAMCH for single precision:
   REAL(kind=sp), parameter :: roundoff = 5.96046448E-08
 
 CONTAINS ! Routines in the module cbm5_SOA_adj_Integrator
@@ -287,6 +286,36 @@ contains
 
   END SUBROUTINE ros_AllocateCBuffers
 
+
+!!$  !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$  SUBROUTINE ros_FreeCBuffers
+!!$    !~~~>  Dallocate buffer space for continuous adjoint
+!!$    !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$    INTEGER :: i
+!!$
+!!$    DEALLOCATE( chk_H, STAT=i )
+!!$    IF (i/=0) THEN
+!!$      PRINT*,'Failed deallocation of buffer H'; STOP
+!!$    END IF
+!!$    DEALLOCATE( chk_T, STAT=i )
+!!$    IF (i/=0) THEN
+!!$      PRINT*,'Failed deallocation of buffer T'; STOP
+!!$    END IF
+!!$    DEALLOCATE( chk_Y, STAT=i )
+!!$    IF (i/=0) THEN
+!!$      PRINT*,'Failed deallocation of buffer Y'; STOP
+!!$    END IF
+!!$    DEALLOCATE( chk_dY, STAT=i )
+!!$    IF (i/=0) THEN
+!!$      PRINT*,'Failed deallocation of buffer dY'; STOP
+!!$    END IF
+!!$    DEALLOCATE( chk_d2Y, STAT=i )
+!!$    IF (i/=0) THEN
+!!$      PRINT*,'Failed deallocation of buffer d2Y'; STOP
+!!$    END IF
+!!$
+!!$  END SUBROUTINE ros_FreeCBuffers
+  
 
   SUBROUTINE Ros2
     !~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
@@ -790,8 +819,8 @@ SUBROUTINE RosenbrockADJ( Y, NADJ, Lambda,             &
   IMPLICIT NONE
    
 !~~~>  Arguments   
-   INTEGER, INTENT(IN)          :: NADJ
    REAL(kind=sp), INTENT(INOUT) :: Y(NVAR)
+   INTEGER, INTENT(IN)          :: NADJ
    REAL(kind=sp), INTENT(INOUT) :: Lambda(NVAR,NADJ)
    REAL(kind=sp), INTENT(IN)    :: Tstart,Tend
    REAL(kind=sp), INTENT(IN)    :: AbsTol(NVAR),RelTol(NVAR)
@@ -1314,20 +1343,18 @@ Stage: DO istage = 1, ros_S
       
       ! For the 1st istage the function has been computed previously
        IF ( istage == 1 ) THEN
-         Fcn(1:NVAR) =  Fcn0(1:NVAR)
+         CALL WCOPY(NVAR,Fcn0,1,Fcn,1)
          IF (AdjointType == Adj_discrete) THEN ! Save stage solution
             ! CALL WCOPY(NVAR,Y,1,Ystage(1),1)
             Ystage(1:NVAR) = Y(1:NVAR)
-            Ynew(1:NVAR) = Y(1:NVAR)
-            !CALL WCOPY(NVAR,Y,1,Ynew,1)
+            CALL WCOPY(NVAR,Y,1,Ynew,1)
          END IF   
       ! istage>1 and a new function evaluation is needed at the current istage
        ELSEIF ( ros_NewF(istage) ) THEN
-         !!!CALL WCOPY(NVAR,Y,1,Ynew,1)
-         Ynew(1:NVAR) = Y(1:NVAR)
+         CALL WCOPY(NVAR,Y,1,Ynew,1)
          DO j = 1, istage-1
-          !CALL WAXPY(NVAR,ros_A((istage-1)*(istage-2)/2+j), K(NVAR*(j-1)+1),1,Ynew,1) 
-          Ynew(1:NVAR) = Ynew(1:NVAR) + ros_A((istage-1)*(istage-2)/2+j) * K(NVAR*(j-1)+1:NVAR*j)
+           CALL WAXPY(NVAR,ros_A((istage-1)*(istage-2)/2+j), &
+            K(NVAR*(j-1)+1),1,Ynew,1) 
          END DO
          Tau = T + ros_Alpha(istage)*Direction*H
          !CALL FunTemplate(Tau,Ynew,Fcn)
@@ -1341,39 +1368,30 @@ Stage: DO istage = 1, ros_S
          Ystage(ioffset+1:ioffset+NVAR) = Ynew(1:NVAR)
        END IF   
 
-!       CALL WCOPY(NVAR,Fcn,1,K(ioffset+1),1)
-       K(ioffset+1:ioffset+NVAR) = Fcn(1:NVAR)
+       CALL WCOPY(NVAR,Fcn,1,K(ioffset+1),1)
        DO j = 1, istage-1
          HC = ros_C((istage-1)*(istage-2)/2+j)/(Direction*H)
-         ! CALL WAXPY(NVAR,HC,K(NVAR*(j-1)+1),1,K(ioffset+1),1)
-         K(ioffset+1:ioffset+NVAR) = K(ioffset+1:ioffset+NVAR) + &
-                & HC * K(NVAR*(j-1)+1: NVAR*j)
+         CALL WAXPY(NVAR,HC,K(NVAR*(j-1)+1),1,K(ioffset+1),1)
        END DO
        IF ((.NOT. Autonomous).AND.(ros_Gamma(istage).NE.ZERO)) THEN
          HG = Direction*H*ros_Gamma(istage)
-         ! CALL WAXPY(NVAR,HG,dFdT,1,K(ioffset+1),1)
-         K(ioffset+1:ioffset+NVAR) = K(ioffset+1:ioffset+NVAR) + HG*dFdT(1:NVAR)
+         CALL WAXPY(NVAR,HG,dFdT,1,K(ioffset+1),1)
        END IF
-       CALL ros_Solve('N', Ghimj, Pivot, K(ioffset+1:ioffset+NVAR))
+       CALL ros_Solve('N', Ghimj, Pivot, K(ioffset+1))
       
    END DO Stage     
             
 
 !~~~>  Compute the new solution 
-!   CALL WCOPY(NVAR,Y,1,Ynew,1)
-   Ynew(1:NVAR) = Y(1:NVAR)
+   CALL WCOPY(NVAR,Y,1,Ynew,1)
    DO j=1,ros_S
-         !CALL WAXPY(NVAR,ros_M(j),K(NVAR*(j-1)+1),1,Ynew,1)
-         Ynew(1:NVAR) = Ynew(1:NVAR)  + ros_M(j) * K(NVAR*(j-1)+1:NVAR*j)
+         CALL WAXPY(NVAR,ros_M(j),K(NVAR*(j-1)+1),1,Ynew,1)
    END DO
 
 !~~~>  Compute the error estimation 
-!   CALL WSCAL(NVAR,ZERO,Yerr,1)
-   Yerr(1:NVAR) = ZERO
-
+   CALL WSCAL(NVAR,ZERO,Yerr,1)
    DO j=1,ros_S     
-        !CALL WAXPY(NVAR,ros_E(j),K(NVAR*(j-1)+1),1,Yerr,1)
-        Yerr(1:NVAR) = Yerr(1:NVAR) + ros_E(j) * K(NVAR*(j-1)+1:NVAR*j)
+        CALL WAXPY(NVAR,ros_E(j),K(NVAR*(j-1)+1),1,Yerr,1)
    END DO 
    Err = ros_ErrorNorm ( Y, Ynew, Yerr, AbsTol, RelTol, VectorTol )
    call sweep_garbage(Ynew, AbsTol, all_non_neg)
@@ -1400,13 +1418,11 @@ Stage: DO istage = 1, ros_S
           CALL Jac_SP_Vec( Jac0, Fcn0, K(1) )
 #endif          
           IF (.NOT. Autonomous) THEN
-             !CALL WAXPY(NVAR,ONE,dFdT,1,K(1),1)
-             K(1:NVAR) = K(1:NVAR) + dFdT(1:NVAR)
+             CALL WAXPY(NVAR,ONE,dFdT,1,K(1),1)
           END IF   
           CALL ros_CPush( T, H, Y, Fcn0, K(1) )
       END IF      
-      !CALL WCOPY(NVAR,Ynew,1,Y,1)
-      Y(1:NVAR) = Ynew(1:NVAR)
+      CALL WCOPY(NVAR,Ynew,1,Y,1)
       T = T + Direction*H
       Hnew = MAX(Hmin,MIN(Hnew,Hmax))
       IF (RejectLastH) THEN  ! No step size increase after a rejected step
@@ -1538,8 +1554,7 @@ TimeLoop: DO WHILE ( stack_ptr > 0 )
        Ghimj(i,i) = Ghimj(i,i)+Tau
      END DO
 #else
-     !CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
-     Ghimj(1:LU_NONZERO) = -Ghimj(1:LU_NONZERO)
+     CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
      DO i=1,NVAR
        Ghimj(LU_DIAG(i)) = Ghimj(LU_DIAG(i))+Tau
      END DO
@@ -1558,20 +1573,16 @@ Stage: DO istage = ros_S, 1, -1
       
       !~~~> Compute U
        DO m = 1,NADJ
-!         CALL WCOPY(NVAR,Lambda(1,m),1,U(istart,m),1)
-!         CALL WSCAL(NVAR,ros_M(istage),U(istart,m),1)
-         U(istart:istart+NVAR-1,m) = ros_M(istage) * Lambda(1:NVAR,m) 
+         CALL WCOPY(NVAR,Lambda(1,m),1,U(istart,m),1)
+         CALL WSCAL(NVAR,ros_M(istage),U(istart,m),1)
        END DO ! m=1:NADJ
        DO j = istage+1, ros_S
          jstart = NVAR*(j-1) + 1
          HA = ros_A((j-1)*(j-2)/2+istage)
          HC = ros_C((j-1)*(j-2)/2+istage)/(Direction*H)
          DO m = 1,NADJ
-           !CALL WAXPY(NVAR,HA,V(jstart,m),1,U(istart,m),1)
-           !CALL WAXPY(NVAR,HC,U(jstart,m),1,U(istart,m),1) 
-           U(istart:istart+NVAR-1,m) = U(istart:istart+NVAR-1,m) + &
-                   & HA * V(jstart:jstart+NVAR-1,m) + &
-                   & HC * U(jstart:jstart+NVAR-1,m)
+           CALL WAXPY(NVAR,HA,V(jstart,m),1,U(istart,m),1) 
+           CALL WAXPY(NVAR,HC,U(jstart,m),1,U(istart,m),1) 
          END DO ! m=1:NADJ
        END DO
        DO m = 1,NADJ
@@ -1605,12 +1616,10 @@ Stage: DO istage = ros_S, 1, -1
          istart = NVAR*(istage-1) + 1
          DO m = 1,NADJ
            ! Add V_i
-           !CALL WAXPY(NVAR,ONE,V(istart,m),1,Lambda(1,m),1)
-           Lambda(1:NVAR,m) = Lambda(1:NVAR,m) + V(istart:istart+NVAR-1,m)
+           CALL WAXPY(NVAR,ONE,V(istart,m),1,Lambda(1,m),1)
            ! Add (H0xK_i)^T * U_i
            CALL HessTR_Vec ( Hes0, U(istart,m), K(istart), Tmp )
-           !!CALL WAXPY(NVAR,ONE,Tmp,1,Lambda(1,m),1)
-           Lambda(1:NVAR,m) = Lambda(1:NVAR,m) + Tmp(1:NVAR)
+           CALL WAXPY(NVAR,ONE,Tmp,1,Lambda(1,m),1)
          END DO ! m=1:NADJ
       END DO
      ! Add H * dJac_dT_0^T * \sum(gamma_i U_i)
@@ -1620,16 +1629,14 @@ Stage: DO istage = ros_S, 1, -1
            Tmp(1:NVAR) = ZERO
            DO istage = 1, ros_S
              istart = NVAR*(istage-1) + 1
-             !! CALL WAXPY(NVAR,ros_Gamma(istage),U(istart,m),1,Tmp,1)
-             Tmp(1:NVAR) = Tmp(1:NVAR) + ros_Gamma(istage) * U(istart:istart+NVAR-1,m)
+             CALL WAXPY(NVAR,ros_Gamma(istage),U(istart,m),1,Tmp,1)
            END DO  
 #ifdef FULL_ALGEBRA
            Tmp2 = MATMUL(TRANSPOSE(dJdT),Tmp)
 #else
            CALL JacTR_SP_Vec(dJdT,Tmp,Tmp2) 
 #endif           
-           ! CALL WAXPY(NVAR,H,Tmp2,1,Lambda(1,m),1)
-           Lambda(1:NVAR,m) = Lambda(1:NVAR,m) + H*Tmp2(1:NVAR)
+           CALL WAXPY(NVAR,H,Tmp2,1,Lambda(1,m),1)
          END DO ! m=1:NADJ
       END IF ! .NOT.Autonomous
  
@@ -1647,6 +1654,447 @@ Stage: DO istage = ros_S, 1, -1
    
    
     
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$ SUBROUTINE ros_CadjInt (                        &
+!!$        NADJ, Y,                                 &
+!!$        Tstart, Tend, T,                         &
+!!$        AbsTol_adj, RelTol_adj,                  &
+!!$!~~~> Error indicator
+!!$        IERR )
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$!   Template for the implementation of a generic RosenbrockADJ method 
+!!$!      defined by ros_S (no of stages)  
+!!$!      and its coefficients ros_{A,C,M,E,Alpha,Gamma}
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$
+!!$  IMPLICIT NONE
+!!$   
+!!$!~~~> Input: the initial condition at Tstart; Output: the solution at T   
+!!$   INTEGER, INTENT(IN) :: NADJ
+!!$   REAL(kind=sp), INTENT(INOUT) :: Y(NVAR,NADJ)
+!!$!~~~> Input: integration interval   
+!!$   REAL(kind=sp), INTENT(IN) :: Tstart,Tend      
+!!$!~~~> Input: adjoint tolerances   
+!!$   REAL(kind=sp), INTENT(IN) :: AbsTol_adj(NVAR,NADJ), RelTol_adj(NVAR,NADJ)
+!!$!~~~> Output: time at which the solution is returned (T=Tend if success)   
+!!$   REAL(kind=sp), INTENT(OUT) ::  T      
+!!$!~~~> Output: Error indicator
+!!$   INTEGER, INTENT(OUT) :: IERR
+!!$! ~~~~ Local variables        
+!!$   REAL(kind=sp) :: Y0(NVAR)
+!!$   REAL(kind=sp) :: Ynew(NVAR,NADJ), Fcn0(NVAR,NADJ), Fcn(NVAR,NADJ) 
+!!$   REAL(kind=sp) :: K(NVAR*ros_S,NADJ), dFdT(NVAR,NADJ)
+!!$#ifdef FULL_ALGEBRA
+!!$   REAL(kind=sp), DIMENSION(NVAR,NVAR)  :: Jac0, Ghimj, Jac, dJdT
+!!$#else
+!!$   REAL(kind=sp), DIMENSION(LU_NONZERO) :: Jac0, Ghimj, Jac, dJdT
+!!$#endif   
+!!$   REAL(kind=sp) :: H, Hnew, HC, HG, Fac, Tau 
+!!$   REAL(kind=sp) :: Err, Yerr(NVAR,NADJ)
+!!$   INTEGER :: Pivot(NVAR), Direction, ioffset, j, istage, iadj
+!!$   LOGICAL :: RejectLastH, RejectMoreH, Singular
+!!$!~~~>  Local parameters
+!!$   REAL(kind=sp), PARAMETER :: ZERO = 0.0d0, ONE  = 1.0d0 
+!!$   REAL(kind=sp), PARAMETER :: DeltaMin = 1.0d-5
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$
+!!$   
+!!$!~~~>  Initial preparations
+!!$   T = Tstart
+!!$   RSTATUS(Nhexit) = 0.0_dp
+!!$   H = MIN( MAX(ABS(Hmin),ABS(Hstart)) , ABS(Hmax) )
+!!$   IF (ABS(H) <= 10.0_dp*Roundoff) H = DeltaMin
+!!$   
+!!$   IF (Tend  >=  Tstart) THEN
+!!$     Direction = +1
+!!$   ELSE
+!!$     Direction = -1
+!!$   END IF               
+!!$   H = Direction*H
+!!$
+!!$   RejectLastH=.FALSE.
+!!$   RejectMoreH=.FALSE.
+!!$   
+!!$!~~~> Time loop begins below 
+!!$
+!!$TimeLoop: DO WHILE ( (Direction > 0).AND.((T-Tend)+Roundoff <= ZERO) &
+!!$       .OR. (Direction < 0).AND.((Tend-T)+Roundoff <= ZERO) ) 
+!!$      
+!!$   IF ( ISTATUS(Nstp) > Max_no_steps ) THEN  ! Too many steps
+!!$      CALL ros_ErrorMsg(-6,T,H,IERR)
+!!$      RETURN
+!!$   END IF
+!!$   IF ( ((T+0.1d0*H) == T).OR.(H <= Roundoff) ) THEN  ! Step size too small
+!!$      CALL ros_ErrorMsg(-7,T,H,IERR)
+!!$      RETURN
+!!$   END IF
+!!$   
+!!$!~~~>  Limit H if necessary to avoid going beyond Tend   
+!!$   RSTATUS(Nhexit) = H
+!!$   H = MIN(H,ABS(Tend-T))
+!!$
+!!$!~~~>   Interpolate forward solution
+!!$   CALL ros_cadj_Y( T, Y0 )     
+!!$!~~~>   Compute the Jacobian at current time
+!!$   CALL JacTemplate(T, Y0, Jac0)
+!!$   ISTATUS(Njac) = ISTATUS(Njac) + 1
+!!$   
+!!$!~~~>  Compute the function derivative with respect to T
+!!$   IF (.NOT.Autonomous) THEN
+!!$      CALL ros_JacTimeDerivative ( T, Roundoff, Y0, &
+!!$                Jac0, dJdT )
+!!$      DO iadj = 1, NADJ
+!!$#ifdef FULL_ALGEBRA
+!!$        dFdT(1:NVAR,iadj) = MATMUL(TRANSPOSE(dJdT),Y(1:NVAR,iadj))
+!!$#else
+!!$        CALL JacTR_SP_Vec(dJdT,Y(1,iadj),dFdT(1,iadj))
+!!$#endif
+!!$        CALL WSCAL(NVAR,(-ONE),dFdT(1,iadj),1)
+!!$      END DO
+!!$   END IF
+!!$
+!!$!~~~>  Ydot = -J^T*Y
+!!$#ifdef FULL_ALGEBRA
+!!$   Jac0(1:NVAR,1:NVAR) = -Jac0(1:NVAR,1:NVAR)
+!!$#else
+!!$   CALL WSCAL(LU_NONZERO,(-ONE),Jac0,1)
+!!$#endif
+!!$   DO iadj = 1, NADJ
+!!$#ifdef FULL_ALGEBRA
+!!$     Fcn0(1:NVAR,iadj) = MATMUL(TRANSPOSE(Jac0),Y(1:NVAR,iadj))
+!!$#else
+!!$     CALL JacTR_SP_Vec(Jac0,Y(1,iadj),Fcn0(1,iadj))
+!!$#endif
+!!$   END DO
+!!$    
+!!$!~~~>  Repeat step calculation until current step accepted
+!!$UntilAccepted: DO  
+!!$   
+!!$   CALL ros_PrepareMatrix(H,Direction,ros_Gamma(1), &
+!!$          Jac0,Ghimj,Pivot,Singular)
+!!$   IF (Singular) THEN ! More than 5 consecutive failed decompositions
+!!$       CALL ros_ErrorMsg(-8,T,H,IERR)
+!!$       RETURN
+!!$   END IF
+!!$
+!!$!~~~>   Compute the stages
+!!$Stage: DO istage = 1, ros_S
+!!$      
+!!$      ! Current istage offset. Current istage vector is K(ioffset+1:ioffset+NVAR)
+!!$       ioffset = NVAR*(istage-1)
+!!$      
+!!$      ! For the 1st istage the function has been computed previously
+!!$       IF ( istage == 1 ) THEN
+!!$         DO iadj = 1, NADJ
+!!$           CALL WCOPY(NVAR,Fcn0(1,iadj),1,Fcn(1,iadj),1)
+!!$         END DO
+!!$      ! istage>1 and a new function evaluation is needed at the current istage
+!!$       ELSEIF ( ros_NewF(istage) ) THEN
+!!$         CALL WCOPY(NVAR*NADJ,Y,1,Ynew,1)
+!!$         DO j = 1, istage-1
+!!$           DO iadj = 1, NADJ
+!!$             CALL WAXPY(NVAR,ros_A((istage-1)*(istage-2)/2+j), &
+!!$                K(NVAR*(j-1)+1,iadj),1,Ynew(1,iadj),1) 
+!!$           END DO       
+!!$         END DO
+!!$         Tau = T + ros_Alpha(istage)*Direction*H
+!!$         ! CALL FunTemplate(Tau,Ynew,Fcn)
+!!$         ! ISTATUS(Nfun) = ISTATUS(Nfun) + 1
+!!$         CALL ros_cadj_Y( Tau, Y0 )     
+!!$         CALL JacTemplate(Tau, Y0, Jac)
+!!$         ISTATUS(Njac) = ISTATUS(Njac) + 1
+!!$#ifdef FULL_ALGEBRA
+!!$         Jac(1:NVAR,1:NVAR) = -Jac(1:NVAR,1:NVAR)
+!!$#else
+!!$         CALL WSCAL(LU_NONZERO,(-ONE),Jac,1)
+!!$#endif
+!!$         DO iadj = 1, NADJ
+!!$#ifdef FULL_ALGEBRA
+!!$             Fcn(1:NVAR,iadj) = MATMUL(TRANSPOSE(Jac),Ynew(1:NVAR,iadj))
+!!$#else
+!!$             CALL JacTR_SP_Vec(Jac,Ynew(1,iadj),Fcn(1,iadj))
+!!$#endif
+!!$             !CALL WSCAL(NVAR,(-ONE),Fcn(1,iadj),1)
+!!$         END DO
+!!$       END IF ! if istage == 1 elseif ros_NewF(istage)
+!!$
+!!$       DO iadj = 1, NADJ
+!!$          CALL WCOPY(NVAR,Fcn(1,iadj),1,K(ioffset+1,iadj),1)
+!!$       END DO
+!!$       DO j = 1, istage-1
+!!$         HC = ros_C((istage-1)*(istage-2)/2+j)/(Direction*H)
+!!$         DO iadj = 1, NADJ
+!!$           CALL WAXPY(NVAR,HC,K(NVAR*(j-1)+1,iadj),1, &
+!!$                  K(ioffset+1,iadj),1)
+!!$         END DO
+!!$       END DO
+!!$       IF ((.NOT. Autonomous).AND.(ros_Gamma(istage).NE.ZERO)) THEN
+!!$         HG = Direction*H*ros_Gamma(istage)
+!!$         DO iadj = 1, NADJ
+!!$           CALL WAXPY(NVAR,HG,dFdT(1,iadj),1,K(ioffset+1,iadj),1)
+!!$         END DO
+!!$       END IF
+!!$       DO iadj = 1, NADJ
+!!$         CALL ros_Solve('T', Ghimj, Pivot, K(ioffset+1,iadj))
+!!$       END DO
+!!$      
+!!$   END DO Stage     
+!!$            
+!!$
+!!$!~~~>  Compute the new solution 
+!!$   DO iadj = 1, NADJ
+!!$      CALL WCOPY(NVAR,Y(1,iadj),1,Ynew(1,iadj),1)
+!!$      DO j=1,ros_S
+!!$         CALL WAXPY(NVAR,ros_M(j),K(NVAR*(j-1)+1,iadj),1,Ynew(1,iadj),1)
+!!$      END DO
+!!$   END DO
+!!$
+!!$!~~~>  Compute the error estimation 
+!!$   CALL WSCAL(NVAR*NADJ,ZERO,Yerr,1)
+!!$   DO j=1,ros_S     
+!!$       DO iadj = 1, NADJ
+!!$        CALL WAXPY(NVAR,ros_E(j),K(NVAR*(j-1)+1,iadj),1,Yerr(1,iadj),1)
+!!$       END DO
+!!$   END DO
+!!$!~~~> Max error among all adjoint components    
+!!$   iadj = 1
+!!$   Err = ros_ErrorNorm ( Y(1,iadj), Ynew(1,iadj), Yerr(1,iadj), &
+!!$              AbsTol_adj(1,iadj), RelTol_adj(1,iadj), VectorTol )
+!!$
+!!$!~~~> New step size is bounded by FacMin <= Hnew/H <= FacMax
+!!$   Fac  = MIN(FacMax,MAX(FacMin,FacSafe/Err**(ONE/ros_ELO)))
+!!$   Hnew = H*Fac  
+!!$
+!!$!~~~>  Check the error magnitude and adjust step size
+!!$!   ISTATUS(Nstp) = ISTATUS(Nstp) + 1
+!!$   IF ( (Err <= ONE).OR.(H <= Hmin) ) THEN  !~~~> Accept step
+!!$      ISTATUS(Nacc) = ISTATUS(Nacc) + 1
+!!$      CALL WCOPY(NVAR*NADJ,Ynew,1,Y,1)
+!!$      T = T + Direction*H
+!!$      Hnew = MAX(Hmin,MIN(Hnew,Hmax))
+!!$      IF (RejectLastH) THEN  ! No step size increase after a rejected step
+!!$         Hnew = MIN(Hnew,H) 
+!!$      END IF   
+!!$      RSTATUS(Nhexit) = H
+!!$      RSTATUS(Nhnew)  = Hnew
+!!$      RSTATUS(Ntexit) = T
+!!$      RejectLastH = .FALSE.  
+!!$      RejectMoreH = .FALSE.
+!!$      H = Hnew      
+!!$      EXIT UntilAccepted ! EXIT THE LOOP: WHILE STEP NOT ACCEPTED
+!!$   ELSE           !~~~> Reject step
+!!$      IF (RejectMoreH) THEN
+!!$         Hnew = H*FacRej
+!!$      END IF   
+!!$      RejectMoreH = RejectLastH
+!!$      RejectLastH = .TRUE.
+!!$      H = Hnew
+!!$      IF (ISTATUS(Nacc) >= 1) THEN
+!!$         ISTATUS(Nrej) = ISTATUS(Nrej) + 1
+!!$      END IF    
+!!$   END IF ! Err <= 1
+!!$
+!!$   END DO UntilAccepted 
+!!$
+!!$   END DO TimeLoop 
+!!$      
+!!$!~~~> Succesful exit
+!!$   IERR = 1  !~~~> The integration was successful
+!!$
+!!$  END SUBROUTINE ros_CadjInt
+!!$  
+!!$     
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$ SUBROUTINE ros_SimpleCadjInt (                  &
+!!$        NADJ, Y,                                 &
+!!$        Tstart, Tend, T,                         &
+!!$!~~~> Error indicator
+!!$        IERR )
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$!   Template for the implementation of a generic RosenbrockADJ method 
+!!$!      defined by ros_S (no of stages)  
+!!$!      and its coefficients ros_{A,C,M,E,Alpha,Gamma}
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$
+!!$  IMPLICIT NONE
+!!$   
+!!$!~~~> Input: the initial condition at Tstart; Output: the solution at T   
+!!$   INTEGER, INTENT(IN) :: NADJ
+!!$   REAL(kind=sp), INTENT(INOUT) :: Y(NVAR,NADJ)
+!!$!~~~> Input: integration interval   
+!!$   REAL(kind=sp), INTENT(IN) :: Tstart,Tend      
+!!$!~~~> Output: time at which the solution is returned (T=Tend if success)   
+!!$   REAL(kind=sp), INTENT(OUT) ::  T      
+!!$!~~~> Output: Error indicator
+!!$   INTEGER, INTENT(OUT) :: IERR
+!!$! ~~~~ Local variables        
+!!$   REAL(kind=sp) :: Y0(NVAR)
+!!$   REAL(kind=sp) :: Ynew(NVAR,NADJ), Fcn0(NVAR,NADJ), Fcn(NVAR,NADJ) 
+!!$   REAL(kind=sp) :: K(NVAR*ros_S,NADJ), dFdT(NVAR,NADJ)
+!!$#ifdef FULL_ALGEBRA
+!!$   REAL(kind=sp),DIMENSION(NVAR,NVAR)  :: Jac0, Ghimj, Jac, dJdT
+!!$#else   
+!!$   REAL(kind=sp),DIMENSION(LU_NONZERO) :: Jac0, Ghimj, Jac, dJdT
+!!$#endif   
+!!$   REAL(kind=sp) :: H, HC, HG, Tau 
+!!$   REAL(kind=sp) :: ghinv
+!!$   INTEGER :: Pivot(NVAR), Direction, ioffset, i, j, istage, iadj
+!!$   INTEGER :: istack
+!!$!~~~>  Local parameters
+!!$   REAL(kind=sp), PARAMETER :: ZERO = 0.0d0, ONE  = 1.0d0 
+!!$   REAL(kind=sp), PARAMETER :: DeltaMin = 1.0d-5
+!!$!~~~>  Locally called functions
+!!$!    REAL(kind=sp) WLAMCH
+!!$!    EXTERNAL WLAMCH
+!!$!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!$
+!!$   
+!!$!~~~>  INITIAL PREPARATIONS
+!!$   
+!!$   IF (Tend  >=  Tstart) THEN
+!!$     Direction = -1
+!!$   ELSE
+!!$     Direction = +1
+!!$   END IF               
+!!$   
+!!$!~~~> Time loop begins below 
+!!$TimeLoop: DO istack = stack_ptr,2,-1
+!!$        
+!!$   T = chk_T(istack)
+!!$   H = chk_H(istack-1)
+!!$   !CALL WCOPY(NVAR,chk_Y(1,istack),1,Y0,1)
+!!$   Y0(1:NVAR) = chk_Y(1:NVAR,istack)
+!!$   
+!!$!~~~>   Compute the Jacobian at current time
+!!$   CALL JacTemplate(T, Y0, Jac0)
+!!$   ISTATUS(Njac) = ISTATUS(Njac) + 1
+!!$   
+!!$!~~~>  Compute the function derivative with respect to T
+!!$   IF (.NOT.Autonomous) THEN
+!!$      CALL ros_JacTimeDerivative ( T, Roundoff, Y0, &
+!!$                Jac0, dJdT )
+!!$      DO iadj = 1, NADJ
+!!$#ifdef FULL_ALGEBRA
+!!$        dFdT(1:NVAR,iadj) = MATMUL(TRANSPOSE(dJdT),Y(1:NVAR,iadj))
+!!$#else
+!!$        CALL JacTR_SP_Vec(dJdT,Y(1,iadj),dFdT(1,iadj))
+!!$#endif
+!!$        CALL WSCAL(NVAR,(-ONE),dFdT(1,iadj),1)
+!!$      END DO
+!!$   END IF
+!!$
+!!$!~~~>  Ydot = -J^T*Y
+!!$#ifdef FULL_ALGEBRA
+!!$   Jac0(1:NVAR,1:NVAR) = -Jac0(1:NVAR,1:NVAR)
+!!$#else
+!!$   CALL WSCAL(LU_NONZERO,(-ONE),Jac0,1)
+!!$#endif
+!!$   DO iadj = 1, NADJ
+!!$#ifdef FULL_ALGEBRA
+!!$     Fcn0(1:NVAR,iadj) = MATMUL(TRANSPOSE(Jac0),Y(1:NVAR,iadj))
+!!$#else
+!!$     CALL JacTR_SP_Vec(Jac0,Y(1,iadj),Fcn0(1,iadj))
+!!$#endif
+!!$   END DO
+!!$   
+!!$!~~~>    Construct Ghimj = 1/(H*ham) - Jac0
+!!$     ghinv = ONE/(Direction*H*ros_Gamma(1))
+!!$#ifdef FULL_ALGEBRA
+!!$     Ghimj(1:NVAR,1:NVAR) = -Jac0(1:NVAR,1:NVAR)
+!!$     DO i=1,NVAR
+!!$       Ghimj(i,i) = Ghimj(i,i)+ghinv
+!!$     END DO
+!!$#else
+!!$     CALL WCOPY(LU_NONZERO,Jac0,1,Ghimj,1)
+!!$     CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
+!!$     DO i=1,NVAR
+!!$       Ghimj(LU_DIAG(i)) = Ghimj(LU_DIAG(i))+ghinv
+!!$     END DO
+!!$#endif
+!!$!~~~>    Compute LU decomposition 
+!!$     CALL ros_Decomp( Ghimj, Pivot, j )
+!!$     IF (j /= 0) THEN
+!!$       CALL ros_ErrorMsg(-8,T,H,IERR)
+!!$       PRINT*,' The matrix is singular !'
+!!$       STOP
+!!$   END IF
+!!$
+!!$!~~~>   Compute the stages
+!!$Stage: DO istage = 1, ros_S
+!!$      
+!!$      ! Current istage offset. Current istage vector is K(ioffset+1:ioffset+NVAR)
+!!$       ioffset = NVAR*(istage-1)
+!!$      
+!!$      ! For the 1st istage the function has been computed previously
+!!$       IF ( istage == 1 ) THEN
+!!$         DO iadj = 1, NADJ
+!!$           CALL WCOPY(NVAR,Fcn0(1,iadj),1,Fcn(1,iadj),1)
+!!$         END DO
+!!$      ! istage>1 and a new function evaluation is needed at the current istage
+!!$       ELSEIF ( ros_NewF(istage) ) THEN
+!!$         CALL WCOPY(NVAR*NADJ,Y,1,Ynew,1)
+!!$         DO j = 1, istage-1
+!!$           DO iadj = 1, NADJ
+!!$             CALL WAXPY(NVAR,ros_A((istage-1)*(istage-2)/2+j), &
+!!$                K(NVAR*(j-1)+1,iadj),1,Ynew(1,iadj),1) 
+!!$           END DO       
+!!$         END DO
+!!$         Tau = T + ros_Alpha(istage)*Direction*H
+!!$         CALL ros_Hermite3( chk_T(istack-1), chk_T(istack), Tau, &
+!!$             chk_Y(1:NVAR,istack-1), chk_Y(1:NVAR,istack),       &
+!!$             chk_dY(1:NVAR,istack-1), chk_dY(1:NVAR,istack), Y0 )
+!!$         CALL JacTemplate(Tau, Y0, Jac)
+!!$         ISTATUS(Njac) = ISTATUS(Njac) + 1
+!!$#ifdef FULL_ALGEBRA
+!!$         Jac(1:NVAR,1:NVAR) = -Jac(1:NVAR,1:NVAR)
+!!$#else
+!!$         CALL WSCAL(LU_NONZERO,(-ONE),Jac,1)
+!!$#endif
+!!$         DO iadj = 1, NADJ
+!!$#ifdef FULL_ALGEBRA
+!!$             Fcn(1:NVAR,iadj) = MATMUL(TRANSPOSE(Jac),Ynew(1:NVAR,iadj))
+!!$#else
+!!$             CALL JacTR_SP_Vec(Jac,Ynew(1,iadj),Fcn(1,iadj))
+!!$#endif
+!!$         END DO
+!!$       END IF ! if istage == 1 elseif ros_NewF(istage)
+!!$
+!!$       DO iadj = 1, NADJ
+!!$          CALL WCOPY(NVAR,Fcn(1,iadj),1,K(ioffset+1,iadj),1)
+!!$       END DO
+!!$       DO j = 1, istage-1
+!!$         HC = ros_C((istage-1)*(istage-2)/2+j)/(Direction*H)
+!!$         DO iadj = 1, NADJ
+!!$           CALL WAXPY(NVAR,HC,K(NVAR*(j-1)+1,iadj),1, &
+!!$                  K(ioffset+1,iadj),1)
+!!$         END DO
+!!$       END DO
+!!$       IF ((.NOT. Autonomous).AND.(ros_Gamma(istage).NE.ZERO)) THEN
+!!$         HG = Direction*H*ros_Gamma(istage)
+!!$         DO iadj = 1, NADJ
+!!$           CALL WAXPY(NVAR,HG,dFdT(1,iadj),1,K(ioffset+1,iadj),1)
+!!$         END DO
+!!$       END IF
+!!$       DO iadj = 1, NADJ
+!!$         CALL ros_Solve('T', Ghimj, Pivot, K(ioffset+1,iadj))
+!!$       END DO
+!!$      
+!!$   END DO Stage     
+!!$            
+!!$
+!!$!~~~>  Compute the new solution 
+!!$   DO iadj = 1, NADJ
+!!$      DO j=1,ros_S
+!!$         CALL WAXPY(NVAR,ros_M(j),K(NVAR*(j-1)+1,iadj),1,Y(1,iadj),1)
+!!$      END DO
+!!$   END DO
+!!$
+!!$   END DO TimeLoop 
+!!$      
+!!$!~~~> Succesful exit
+!!$   IERR = 1  !~~~> The integration was successful
+!!$
+!!$  END SUBROUTINE ros_SimpleCadjInt
 
   subroutine sweep_garbage(values, thresholds, all_non_neg)
     ! Check for negatives and clip to zero if below thershold. Adjoint version doesn't
@@ -1741,10 +2189,10 @@ Stage: DO istage = ros_S, 1, -1
    Delta = SQRT(Roundoff)*MAX(DeltaMin,ABS(T))
    print *, 'Not implemented (funtimederiv)'
    stop
-!   !CALL FunTemplate(T+Delta,Y,dFdT)
-!   ISTATUS(Nfun) = ISTATUS(Nfun) + 1
-!   CALL WAXPY(NVAR,(-ONE),Fcn0,1,dFdT,1)
-!   CALL WSCAL(NVAR,(ONE/Delta),dFdT,1)
+   !CALL FunTemplate(T+Delta,Y,dFdT)
+   ISTATUS(Nfun) = ISTATUS(Nfun) + 1
+   CALL WAXPY(NVAR,(-ONE),Fcn0,1,dFdT,1)
+   CALL WSCAL(NVAR,(ONE/Delta),dFdT,1)
 
   END SUBROUTINE ros_FunTimeDerivative
 
@@ -1832,17 +2280,15 @@ Stage: DO istage = ros_S, 1, -1
 
 !~~~>    Construct Ghimj = 1/(H*gam) - Jac0
 #ifdef FULL_ALGEBRA    
-     !slim: CALL WCOPY(N*N,Jac0,1,Ghimj,1)
-     !slim: CALL WSCAL(N*N,(-ONE),Ghimj,1)
-     Ghimj = -Jac0
+     CALL WCOPY(NVAR*NVAR,Jac0,1,Ghimj,1)
+     CALL WSCAL(NVAR*NVAR,(-ONE),Ghimj,1)
      ghinv = ONE/(Direction*H*gam)
      DO i=1,NVAR
        Ghimj(i,i) = Ghimj(i,i)+ghinv
      END DO
 #else
-     !slim: CALL WCOPY(LU_NONZERO,Jac0,1,Ghimj,1)
-     !slim: CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
-     Ghimj(1:LU_NONZERO) = -Jac0(1:LU_NONZERO)
+     CALL WCOPY(LU_NONZERO,Jac0,1,Ghimj,1)
+     CALL WSCAL(LU_NONZERO,(-ONE),Ghimj,1)
      ghinv = ONE/(Direction*H*gam)
      DO i=1,NVAR
        Ghimj(LU_DIAG(i)) = Ghimj(LU_DIAG(i))+ghinv
@@ -2009,106 +2455,97 @@ Stage: DO istage = ros_S, 1, -1
    
    
 ! c(1) = ya;
-!!   CALL WCOPY(NVAR,Ya,1,C(1,1),1)
-   C(1:NVAR,1) = Ya(1:NVAR)
+   CALL WCOPY(NVAR,Ya,1,C(1,1),1)
 ! c(2) = ja;
-!   CALL WCOPY(NVAR,Ja,1,C(1,2),1)
-   C(1:NVAR,2) = Ja(1:NVAR)
+   CALL WCOPY(NVAR,Ja,1,C(1,2),1)
 ! c(3) = 2/(a-b)*ja + 1/(a-b)*jb - 3/(a - b)^2*ya + 3/(a - b)^2*yb  ;
-!   CALL WCOPY(NVAR,Ya,1,C(1,3),1)
-!   CALL WSCAL(NVAR,-3.0*amb(2),C(1,3),1)
-!   CALL WAXPY(NVAR,3.0*amb(2),Yb,1,C(1,3),1)
-!   CALL WAXPY(NVAR,2.0*amb(1),Ja,1,C(1,3),1)
-!   CALL WAXPY(NVAR,amb(1),Jb,1,C(1,3),1)
-
-   C(1:NVAR,3) =  (-3.0*amb(2)) * Ya(1:NVAR) + 3.0*amb(2) * Yb(1:NVAR) &
-                 & + 2.0*amb(1) * Ja(1:NVAR)     + amb(1) * Jb(1:NVAR)
+   CALL WCOPY(NVAR,Ya,1,C(1,3),1)
+   CALL WSCAL(NVAR,-3.0*amb(2),C(1,3),1)
+   CALL WAXPY(NVAR,3.0*amb(2),Yb,1,C(1,3),1)
+   CALL WAXPY(NVAR,2.0*amb(1),Ja,1,C(1,3),1)
+   CALL WAXPY(NVAR,amb(1),Jb,1,C(1,3),1)
 ! c(4) =  1/(a-b)^2*ja + 1/(a-b)^2*jb - 2/(a-b)^3*ya + 2/(a-b)^3*yb ;
-!   CALL WCOPY(NVAR,Ya,1,C(1,4),1)
-!   CALL WSCAL(NVAR,-2.0*amb(3),C(1,4),1)
-!   CALL WAXPY(NVAR,2.0*amb(3),Yb,1,C(1,4),1)
-!   CALL WAXPY(NVAR,amb(2),Ja,1,C(1,4),1)
-!   CALL WAXPY(NVAR,amb(2),Jb,1,C(1,4),1)
-   C(1:NVAR,4) =  (-2.0*amb(3)) *  Ya (1:NVAR) + 2.0*amb(3) * Yb(1:NVAR) &
-                 & + amb(2) * (Jb(1:NVAR) + Ja(1:NVAR))
+   CALL WCOPY(NVAR,Ya,1,C(1,4),1)
+   CALL WSCAL(NVAR,-2.0*amb(3),C(1,4),1)
+   CALL WAXPY(NVAR,2.0*amb(3),Yb,1,C(1,4),1)
+   CALL WAXPY(NVAR,amb(2),Ja,1,C(1,4),1)
+   CALL WAXPY(NVAR,amb(2),Jb,1,C(1,4),1)
    
    Tau = T - a
-!   CALL WCOPY(NVAR,C(1,4),1,Y,1)
-!   CALL WSCAL(NVAR,Tau**3,Y,1)
-   Y(1:NVAR) = Tau**3 * C(1:NVAR,4) 
+   CALL WCOPY(NVAR,C(1,4),1,Y,1)
+   CALL WSCAL(NVAR,Tau**3,Y,1)
    DO j = 3,1,-1
-   !     CALL WAXPY(NVAR,TAU**(j-1),C(1,j),1,Y,1)
-     Y(1:NVAR) = TAU**(j-1)* C(1:NVAR,j) +  Y(1:NVAR)
+     CALL WAXPY(NVAR,TAU**(j-1),C(1,j),1,Y,1)
    END DO       
 
   END SUBROUTINE ros_Hermite3
 
-!!!!!!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
-!!!!!  SUBROUTINE ros_Hermite5( a, b, T, Ya, Yb, Ja, Jb, Ha, Hb, Y )
-!!!!!!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-!!!!!!  Template for Hermite interpolation of order 5 on the interval [a,b]
-!!!!!! P = c(1) + c(2)*(x-a) + ... + c(6)*(x-a)^5
-!!!!!! P[a,b] = [Ya,Yb], P'[a,b] = [Ja,Jb], P"[a,b] = [Ha,Hb]
-!!!!!!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
-!!!!!   IMPLICIT NONE
-!!!!!!~~~> Input variables 
-!!!!!   REAL(kind=sp), INTENT(IN) :: a, b, T, Ya(NVAR), Yb(NVAR)
-!!!!!   REAL(kind=sp), INTENT(IN) :: Ja(NVAR), Jb(NVAR), Ha(NVAR), Hb(NVAR)
-!!!!!!~~~> Output variables     
-!!!!!   REAL(kind=sp), INTENT(OUT) :: Y(NVAR)
-!!!!!!~~~> Local variables     
-!!!!!   REAL(kind=sp) :: Tau, amb(5), C(NVAR,6)
-!!!!!   REAL(kind=sp), PARAMETER :: ZERO = 0.0d0, HALF = 0.5d0
-!!!!!   INTEGER :: i, j
-!!!!!   
-!!!!!   amb(1) = 1.0d0/(a-b)
-!!!!!   DO i=2,5
-!!!!!     amb(i) = amb(i-1)*amb(1)
-!!!!!   END DO
-!!!!!     
-!!!!!! c(1) = ya;
-!!!!!   CALL WCOPY(NVAR,Ya,1,C(1,1),1)
-!!!!!! c(2) = ja;
-!!!!!   CALL WCOPY(NVAR,Ja,1,C(1,2),1)
-!!!!!! c(3) = ha/2;
-!!!!!   CALL WCOPY(NVAR,Ha,1,C(1,3),1)
-!!!!!   CALL WSCAL(NVAR,HALF,C(1,3),1)
-!!!!!   
-!!!!!! c(4) = 10*amb(3)*ya - 10*amb(3)*yb - 6*amb(2)*ja - 4*amb(2)*jb  + 1.5*amb(1)*ha - 0.5*amb(1)*hb ;
-!!!!!   CALL WCOPY(NVAR,Ya,1,C(1,4),1)
-!!!!!   CALL WSCAL(NVAR,10.0*amb(3),C(1,4),1)
-!!!!!   CALL WAXPY(NVAR,-10.0*amb(3),Yb,1,C(1,4),1)
-!!!!!   CALL WAXPY(NVAR,-6.0*amb(2),Ja,1,C(1,4),1)
-!!!!!   CALL WAXPY(NVAR,-4.0*amb(2),Jb,1,C(1,4),1)
-!!!!!   CALL WAXPY(NVAR, 1.5*amb(1),Ha,1,C(1,4),1)
-!!!!!   CALL WAXPY(NVAR,-0.5*amb(1),Hb,1,C(1,4),1)
-!!!!!
-!!!!!! c(5) =   15*amb(4)*ya - 15*amb(4)*yb - 8.*amb(3)*ja - 7*amb(3)*jb + 1.5*amb(2)*ha - 1*amb(2)*hb ;
-!!!!!   CALL WCOPY(NVAR,Ya,1,C(1,5),1)
-!!!!!   CALL WSCAL(NVAR, 15.0*amb(4),C(1,5),1)
-!!!!!   CALL WAXPY(NVAR,-15.0*amb(4),Yb,1,C(1,5),1)
-!!!!!   CALL WAXPY(NVAR,-8.0*amb(3),Ja,1,C(1,5),1)
-!!!!!   CALL WAXPY(NVAR,-7.0*amb(3),Jb,1,C(1,5),1)
-!!!!!   CALL WAXPY(NVAR,1.5*amb(2),Ha,1,C(1,5),1)
-!!!!!   CALL WAXPY(NVAR,-amb(2),Hb,1,C(1,5),1)
-!!!!!   
-!!!!!! c(6) =   6*amb(5)*ya - 6*amb(5)*yb - 3.*amb(4)*ja - 3.*amb(4)*jb + 0.5*amb(3)*ha -0.5*amb(3)*hb ;
-!!!!!   CALL WCOPY(NVAR,Ya,1,C(1,6),1)
-!!!!!   CALL WSCAL(NVAR, 6.0*amb(5),C(1,6),1)
-!!!!!   CALL WAXPY(NVAR,-6.0*amb(5),Yb,1,C(1,6),1)
-!!!!!   CALL WAXPY(NVAR,-3.0*amb(4),Ja,1,C(1,6),1)
-!!!!!   CALL WAXPY(NVAR,-3.0*amb(4),Jb,1,C(1,6),1)
-!!!!!   CALL WAXPY(NVAR, 0.5*amb(3),Ha,1,C(1,6),1)
-!!!!!   CALL WAXPY(NVAR,-0.5*amb(3),Hb,1,C(1,6),1)
-!!!!!   
-!!!!!   Tau = T - a
-!!!!!   CALL WCOPY(NVAR,C(1,6),1,Y,1)
-!!!!!   DO j = 5,1,-1
-!!!!!     CALL WSCAL(NVAR,Tau,Y,1)
-!!!!!     CALL WAXPY(NVAR,ONE,C(1,j),1,Y,1)
-!!!!!   END DO       
-!!!!!
-!!!!!  END SUBROUTINE ros_Hermite5
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+  SUBROUTINE ros_Hermite5( a, b, T, Ya, Yb, Ja, Jb, Ha, Hb, Y )
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
+!  Template for Hermite interpolation of order 5 on the interval [a,b]
+! P = c(1) + c(2)*(x-a) + ... + c(6)*(x-a)^5
+! P[a,b] = [Ya,Yb], P'[a,b] = [Ja,Jb], P"[a,b] = [Ha,Hb]
+!~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~   
+   IMPLICIT NONE
+!~~~> Input variables 
+   REAL(kind=sp), INTENT(IN) :: a, b, T, Ya(NVAR), Yb(NVAR)
+   REAL(kind=sp), INTENT(IN) :: Ja(NVAR), Jb(NVAR), Ha(NVAR), Hb(NVAR)
+!~~~> Output variables     
+   REAL(kind=sp), INTENT(OUT) :: Y(NVAR)
+!~~~> Local variables     
+   REAL(kind=sp) :: Tau, amb(5), C(NVAR,6)
+   REAL(kind=sp), PARAMETER :: ZERO = 0.0d0, HALF = 0.5d0
+   INTEGER :: i, j
+   
+   amb(1) = 1.0d0/(a-b)
+   DO i=2,5
+     amb(i) = amb(i-1)*amb(1)
+   END DO
+     
+! c(1) = ya;
+   CALL WCOPY(NVAR,Ya,1,C(1,1),1)
+! c(2) = ja;
+   CALL WCOPY(NVAR,Ja,1,C(1,2),1)
+! c(3) = ha/2;
+   CALL WCOPY(NVAR,Ha,1,C(1,3),1)
+   CALL WSCAL(NVAR,HALF,C(1,3),1)
+   
+! c(4) = 10*amb(3)*ya - 10*amb(3)*yb - 6*amb(2)*ja - 4*amb(2)*jb  + 1.5*amb(1)*ha - 0.5*amb(1)*hb ;
+   CALL WCOPY(NVAR,Ya,1,C(1,4),1)
+   CALL WSCAL(NVAR,10.0*amb(3),C(1,4),1)
+   CALL WAXPY(NVAR,-10.0*amb(3),Yb,1,C(1,4),1)
+   CALL WAXPY(NVAR,-6.0*amb(2),Ja,1,C(1,4),1)
+   CALL WAXPY(NVAR,-4.0*amb(2),Jb,1,C(1,4),1)
+   CALL WAXPY(NVAR, 1.5*amb(1),Ha,1,C(1,4),1)
+   CALL WAXPY(NVAR,-0.5*amb(1),Hb,1,C(1,4),1)
+
+! c(5) =   15*amb(4)*ya - 15*amb(4)*yb - 8.*amb(3)*ja - 7*amb(3)*jb + 1.5*amb(2)*ha - 1*amb(2)*hb ;
+   CALL WCOPY(NVAR,Ya,1,C(1,5),1)
+   CALL WSCAL(NVAR, 15.0*amb(4),C(1,5),1)
+   CALL WAXPY(NVAR,-15.0*amb(4),Yb,1,C(1,5),1)
+   CALL WAXPY(NVAR,-8.0*amb(3),Ja,1,C(1,5),1)
+   CALL WAXPY(NVAR,-7.0*amb(3),Jb,1,C(1,5),1)
+   CALL WAXPY(NVAR,1.5*amb(2),Ha,1,C(1,5),1)
+   CALL WAXPY(NVAR,-amb(2),Hb,1,C(1,5),1)
+   
+! c(6) =   6*amb(5)*ya - 6*amb(5)*yb - 3.*amb(4)*ja - 3.*amb(4)*jb + 0.5*amb(3)*ha -0.5*amb(3)*hb ;
+   CALL WCOPY(NVAR,Ya,1,C(1,6),1)
+   CALL WSCAL(NVAR, 6.0*amb(5),C(1,6),1)
+   CALL WAXPY(NVAR,-6.0*amb(5),Yb,1,C(1,6),1)
+   CALL WAXPY(NVAR,-3.0*amb(4),Ja,1,C(1,6),1)
+   CALL WAXPY(NVAR,-3.0*amb(4),Jb,1,C(1,6),1)
+   CALL WAXPY(NVAR, 0.5*amb(3),Ha,1,C(1,6),1)
+   CALL WAXPY(NVAR,-0.5*amb(3),Hb,1,C(1,6),1)
+   
+   Tau = T - a
+   CALL WCOPY(NVAR,C(1,6),1,Y,1)
+   DO j = 5,1,-1
+     CALL WSCAL(NVAR,Tau,Y,1)
+     CALL WAXPY(NVAR,ONE,C(1,j),1,Y,1)
+   END DO       
+
+  END SUBROUTINE ros_Hermite5
 
 END SUBROUTINE RosenbrockADJ ! and its internal procedures
   

@@ -237,7 +237,9 @@ MODULE pollution_cloud
     real, dimension(:,:,:), pointer :: mInAir => null()                       ! (nSrc,nSpecies,nz)
     real, dimension(:,:,:), pointer :: vert_mass_0 => null(), vert_mass_M => null()  ! (nSrc,nSpecies,2)
     real, dimension(:,:), pointer :: garbage_mass => null(), mDryDep => null(), mWetDep => null(), &
-                                   & mOut => null(), mIn => null(), mStop => null()  ! (nSrc,nSpecies)
+         & mOut => null(), mIn => null(), mStop => null()  ! (nSrc,nSpecies)
+    real, dimension(:,:), pointer :: aer_att_surf => null(), cld_att_surf => null()
+    real, dimension(:,:), pointer :: tau_aer => null(), tau_cld => null()! (nx, ny)
     type(Temission_processor), pointer :: emission_processor => null()
     !
     ! the boundary structures. Array elements are for N S E W boundaries respectively.
@@ -429,7 +431,7 @@ CONTAINS
     !
     ! Lagrangian environment
     !
-    cloud%lpSet = lagrange_particles_set_missing
+    call set_missing(cloud%lpSet)
 
     ! Need care: the mass maps seem to be usually allocated but set missing. Still handle
     ! the case of not associated maps.
@@ -843,7 +845,7 @@ CONTAINS
                                     & meteo_grid, dispersion_grid, meteo_vertical, dispersion_vertical, &
                                     & iAccuracy, ifRandomise)
     else  ! No Lagrangian dynamics
-      cloud%lpSet = lagrange_particles_set_missing
+      call set_missing(cloud%lpSet)
     endif  ! If Lagrangian present
     if(error)return
 
@@ -903,7 +905,11 @@ CONTAINS
            & cloud%yM_mass(nSrcIds,cloud%nSpTransport,2,nz), &
            & cloud%vert_mass_0 (nSrcIds,cloud%nSpTransport,2), &
            & cloud%vert_mass_M(nSrcIds,cloud%nSpTransport,2), &
-           & cloud%garbage_mass(nSrcIds,cloud%nSpTransport), stat=al_status)
+           & cloud%garbage_mass(nSrcIds,cloud%nSpTransport), &
+           & cloud%aer_att_surf(nx_dispersion,ny_dispersion), &
+           & cloud%cld_att_surf(nx_dispersion,ny_dispersion), &
+           & cloud%tau_aer(nx_dispersion,ny_dispersion), &
+           & cloud%tau_cld(nx_dispersion,ny_dispersion),stat=al_status)
     if(fu_fails(al_status == 0, 'Cannot ALLOCATE total masses space','source_to_initial_cloud'))return
  
     cloud%mInAir(1:nSrcIds,1:cloud%nSpTransport,1:nz) = 0.
@@ -919,7 +925,11 @@ CONTAINS
     cloud%vert_mass_0(1:nSrcIds,1:cloud%nSpTransport,1:2) = 0.
     cloud%vert_mass_M(1:nSrcIds,1:cloud%nSpTransport,1:2) = 0.
     cloud%garbage_mass(1:nSrcIds,1:cloud%nSpTransport) =0.
-
+    cloud%aer_att_surf(1:nx_dispersion,1:ny_dispersion) = 0.
+    cloud%cld_att_surf(1:nx_dispersion,1:ny_dispersion) = 0.
+    cloud%tau_aer(1:nx_dispersion,1:ny_dispersion) = 0.
+    cloud%tau_cld(1:nx_dispersion,1:ny_dispersion) = 0.
+    
     if(.not.error) call msg('Computational environment in pollution cloud is created, memusage kB', fu_system_mem_usage() )
 
 !        call msg('')
@@ -1526,6 +1536,7 @@ endif
                                & cloud%mapConc, &
                                & cloud%mapPx_conc, cloud%mapPy_conc, cloud%mapPz_conc, &
                                & cloud%mapAerosol, &
+                               & cloud%aer_att_surf, cloud%cld_att_surf, cloud%tau_aer, cloud%tau_cld, &
                                & cloud%interpCoefMeteo2DispHoriz, cloud%interpCoefMeteo2DispVert, &
                                & cloud%ifMeteo2DispHorizInterp, cloud%ifMeteo2DispVertInterp, &
                                & IniBoundaryRules, cloud%pBoundaryBuffer, &
@@ -1727,6 +1738,7 @@ endif
                           & tla_traj, &
                           & met_buf, disp_buf, &
                           & meteo_input, &
+                          & cld%aer_att_surf, cld%cld_att_surf, cld%tau_aer, cld%tau_cld, &
                           & cld%interpCoefMeteo2DispHoriz, cld%interpCoefMeteo2DispVert, &
                           & cld%ifMeteo2DispHorizInterp, cld%ifMeteo2DispVertInterp, &
                           & ifDryDep_cumulative_in_output, ifWetDep_cumulative_in_output, &

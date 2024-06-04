@@ -103,6 +103,7 @@ MODULE toolbox
   public write_grads_field
   public write_grads_fieldset
   public mod_obs_stats
+  public nc_char_arr_to_string
   
   public AMOEBA
   public test_AMOEBA
@@ -184,6 +185,21 @@ MODULE toolbox
         character(KIND=C_CHAR), intent(in) :: value(*)
         integer(C_INT), value :: overwrite
      end function setenv
+  end interface
+
+  interface expm1
+     function expm1f(x) bind(C,name='expm1f')
+        use ISO_C_BINDING
+        implicit none
+        REAL(C_FLOAT) expm1f
+        REAL(C_FLOAT), value :: x
+     end function expm1f
+     function expm1l(x) bind(C,name='expm1l')
+        use ISO_C_BINDING
+        implicit none
+        REAL(C_DOUBLE) expm1l
+        REAL(C_DOUBLE), value :: x
+     end function expm1l
   end interface
 
   abstract interface
@@ -5881,7 +5897,11 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
       call report_AMOEBA('Exit with max-iter exceeded', P, Y, nDim, FTOL, arExtra, ITER)
       call msg('AMOEBA Y(IHI),Y(ILO):', Y(IHI),Y(ILO))
     endif
-    call set_error(' Amoeba exceeded maximum number of iterations.','AMOEBA')
+    call msg_warning(' Amoeba exceeded maximum number of iterations.','AMOEBA')
+    !
+    ! Enough to mark the problem upwards
+    !
+    iter = int_missing
 
   END SUBROUTINE AMOEBA
 
@@ -5898,14 +5918,18 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
       character(len=fnlen) :: strTmp
 
       character(len = *), parameter :: sub_name = 'mod_obs_stats'
+      character(len = *), parameter :: formatE = '(A15,X,I9,X,E8.2,X,E8.2,X,F6.3,X,E8.2,X,E8.2,X,E8.2,X,E8.2,X,F6.3,X,F6.3,X,F12.2)'
+      character(len = *), parameter :: formatF = '(A15,X,I9,X,F8.2,X,F8.2,X,F6.3,X,F8.2,X,F8.2,X,F8.2,X,F8.2,X,F6.3,X,F6.3,X,F12.2)'
+
 
       if ( size(obs) /= size(obsvar) .or. size(obs) /= size(mdl)) then
         call msg("mod_obs_stats got sizes", (/size(mdl), size(obs), size(obsvar) /))
         call set_error("Sizes mimatch", sub_name)
       endif
       if (ifHead) then
-        strTmp = "                   N     bias     rmse   corr  modmean  obsmean   modstd   obsstd  fgerr   fac2       cost"
+        strTmp = "                        N     bias     rmse   corr  modmean  obsmean   modstd   obsstd  fgerr   fac2         cost"
 !                     Assim       242 -.14E-02 0.10E-04  1.000 0.98E-03 0.24E-02 0.98E-03 0.24E-02  0.561  0.711     1265.4
+                 ! A:NO2:cncE       677    -0.21     8.98  0.766    16.97    17.18    12.75    13.41  0.319  0.959       757.53
 
         call msg(strTmp)
       endif
@@ -5918,21 +5942,50 @@ print *, 'Final iDay, daylen, requested daylength', iDay, fu_day_length_hrs(fLat
         obsstd  = sqrt( sum((obs - obsmean)**2, mdl/=real_missing) / N)
         bias    = modmean - obsmean
         fracb   = 2* sum( (mdl - obs) / (abs(mdl) + abs(obs) + sqrt(obsvar)), mdl/=real_missing) / N
-        fgerr   = 2* sum( abs(mdl - obs) / (abs(mdl) + abs(obs) + sqrt(obsvar)), mdl/=real_missing) / N 
-        corr    = sum((mdl - modmean)*(obs - obsmean), mdl/=real_missing) / (N * modstd * obsstd) 
+        fgerr   = 2* sum( abs(mdl - obs) / (abs(mdl) + abs(obs) + sqrt(obsvar)), mdl/=real_missing) / N
+        if (modstd > 0) then
+          corr    = sum((mdl - modmean)*(obs - obsmean), mdl/=real_missing) / (N * modstd * obsstd) 
+        else
+          call msg("zero modstd, no correlation!")
+          corr = real_missing
+        endif
         fac2    = 1. * count((mdl < 2*(obs + sqrt(obsvar))) .and. (mdl > 0.5*(obs - sqrt(obsvar))) .and. mdl/=real_missing ) / N
         rmse    = sqrt( sum((obs - mdl)**2, mdl/=real_missing) / N)
         cost    = 0.5 * sum((obs - mdl)**2 / obsvar, mdl/=real_missing)
-
-        write (strTmp, '(A10,X,I9,X,E8.2,X,E8.2,X,F6.3,X,E8.2,X,E8.2,X,E8.2,X,E8.2,X,F6.3,X,F6.3,X,F12.2)') title,  N,  &
-           & bias, rmse, corr, modmean, obsmean, modstd, obsstd, fgerr, fac2, cost
+        
+        !! Can avoid exponential format?
+        if (obsmean > 1. .and. modmean > 1. .and. obsmean < 1e5 .and. modmean < 1e5) then 
+          write (strTmp, formatF) title,  N,  &
+               & bias, rmse, corr, modmean, obsmean, modstd, obsstd, fgerr, fac2, cost
+        else
+          write (strTmp, formatE) title,  N,  &
+               & bias, rmse, corr, modmean, obsmean, modstd, obsstd, fgerr, fac2, cost
+        endif
          call msg(strTmp)
       else
-        call msg("No data, N=",N)
+        call msg("No data for "//trim(title)//" N = ",N)
       endif
 
 
   end subroutine mod_obs_stats
+
+   !*******************************************************
+  
+  character(len = fnlen) function nc_char_arr_to_string(chararr)
+     ! ! No checks, string size must be sufficient
+      implicit none
+      character(len = 1), dimension(:), intent(in) :: chararr
+      character(len = *), parameter :: sub_name = 'nc_char_arr_to_string'
+
+      integer :: ii
+
+      nc_char_arr_to_string=""
+      do ii=1,size(chararr)
+          if (chararr(ii) == CHAR(0)) exit
+          nc_char_arr_to_string(ii:ii) = chararr(ii)
+      enddo
+    ! code
+  end function nc_char_arr_to_string
   
 END MODULE toolbox
 

@@ -558,10 +558,11 @@
 // Equations already in strato part below are not here, also CHBr3 and CH2Br2 are ignored here.
 
 // Reactions that are both in Parrella et al and Yang et al
-{TropoBr01} Br + ALD2 = HBr + C2O3  :  ARRZ(1.3d-11,-360d0) ; {Yang2005/Parrella2010}
+// Sign changes for the temperature dependency of TropoBr01 and TropoBr04 made on Feb 23, 2024
+{TropoBr01} Br + ALD2 = HBr + C2O3  :  ARRZ(1.3d-11,360d0) ; {Yang2005/Parrella2010}
 {TropoBr02} Br + BrONO2 = Br2 + NO3  :  4.9e-11 ; {Parrella2010}
 {TropoBr03} Br + NO3 = BrO + NO2     :  1.6e-11 ; {JPL/Parrella2010}
-{TropoBr04} Br2 + OH = HOBr + Br     :  ARRZ(2.1d-11,240d0) ; {JPL/Parrella2010}
+{TropoBr04} Br2 + OH = HOBr + Br     :  ARRZ(2.1d-11,-240d0) ; {JPL/Parrella2010}
 // Reactions in Yang et al.
 {TropoBr05} Br + ALDX  = HBr + CXO3      :  9.7e-12 ; {Yang2005}
 //{TropoBrXX} BrO + MEO2 = HOBr + HCHO     :  4.1e-12 ; {Yang2005} {Original products HOBr + CH2O2. Where does one O go?}

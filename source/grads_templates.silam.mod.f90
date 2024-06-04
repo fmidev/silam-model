@@ -822,7 +822,7 @@ subroutine decode_template_string(string_in, gr_template)
   character(len = fnlen) :: string
   integer :: i, iIndex, iPos, strLen
 
-  string = fu_expand_environment(string_in)
+  string = fu_expand_environment(adjustl(string_in))
   
   ! Preparation to the string analysis. In particular, if there is no templates
   ! the string will just be stored into gr_template.

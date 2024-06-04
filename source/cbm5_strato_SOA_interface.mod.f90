@@ -35,22 +35,22 @@ module cbm5_strato_SOA_interface
   integer, parameter, public :: precision_cbm5_strato_SOA = sp ! from Precision module
   character(len=substNmLen), dimension(num_species), parameter, private :: &
        & subst_names = (/ &
-                      'CCl3F  ','CCl2F2 ','CCl4   ','AVB0   ','AVB1e0 ','AVB1e1 ', &
-& 'AVB1e2 ','AVB1e3 ','BENZENE','AVB1e4 ','AVB1e5 ','AVB1e6 ', &
-& 'BVB0   ','BVB1e0 ','BVB1e1 ','BVB1e2 ','BVB1e3 ','SESQ   ', &
-& 'CH3CCl3','BrCl   ','BrNO2  ','TOL    ','CH3Br  ','Cl2O2  ', &
-& 'N2O5   ','XYL    ','N      ','PAN    ','N2O    ','HONO   ', &
+                      'CCl3F  ','CCl2F2 ','CCl4   ','AVB0   ','BVB0   ','CH3CCl3', &
+& 'AVB1e6 ','AVB1e5 ','AVB1e4 ','BrCl   ','BrNO2  ','BENZENE', &
+& 'AVB1e0 ','AVB1e1 ','AVB1e2 ','AVB1e3 ','TOL    ','CH3Br  ', &
+& 'Cl2O2  ','N2O5   ','XYL    ','PAN    ','N      ','BVB1e0 ', &
+& 'BVB1e1 ','BVB1e2 ','SESQ   ','BVB1e3 ','N2O    ','HONO   ', &
 & 'FACD   ','ClNO2  ','Br2    ','AACD   ','PACD   ','PNA    ', &
-& 'TO2    ','CH3Cl  ','ETHA   ','MEOH   ','ETOH   ','BrONO2 ', &
-& 'MEPX   ','ROOH   ','MGLY   ','CRO    ','H2O2   ','PANX   ', &
-& 'HCO3   ','FMCL   ','HOBr   ','Cl2    ','HNO3   ','ROR5   ', &
-& 'OPEN   ','CO     ','ClONO2 ','HOCl   ','C5H8_2 ','HBr    ', &
-& 'CRES   ','ETH    ','IOLE   ','OLE5   ','OClO   ','NTR    ', &
+& 'CH3Cl  ','ETHA   ','TO2    ','MEOH   ','ETOH   ','BrONO2 ', &
+& 'MEPX   ','ROOH   ','H2O2   ','CRO    ','MGLY   ','PANX   ', &
+& 'HCO3   ','FMCL   ','HOBr   ','HNO3   ','Cl2    ','ROR5   ', &
+& 'CO     ','OPEN   ','ClONO2 ','HOCl   ','C5H8_2 ','HBr    ', &
+& 'ETH    ','CRES   ','IOLE   ','OLE5   ','OClO   ','NTR    ', &
 & 'ISPD   ','HCl    ','H      ','C5H8   ','XO2N   ','PAR5   ', &
-& 'ALDX   ','CXO3   ','C2O3   ','ClO    ','O1D    ','HCHO   ', &
-& 'XO2    ','MEO2   ','O      ','Cl     ','OH     ','O3     ', &
-& 'HO2    ','NO2    ','ALD2   ','NO     ','BrO    ','NO3    ', &
-& 'Br     ' &
+& 'ALDX   ','CXO3   ','C2O3   ','O1D    ','ClO    ','HCHO   ', &
+& 'BrO    ','NO     ','ALD2   ','MEO2   ','O      ','HO2    ', &
+& 'Cl     ','NO2    ','NO3    ','OH     ','O3     ','Br     ', &
+& 'XO2    ' &
                       & /)
   type(silam_species), dimension(num_species), public, target, save :: species_cbm5_strato_SOA
 
@@ -259,10 +259,10 @@ contains
     RCONST(182) = (ARRZ(7.1d-11,75d0))
     RCONST(183) = (ARRZ(6.0d-11,-155d0))
     RCONST(184) = (ARRZ(1.7d-12,230d0))
-    RCONST(185) = (ARRZ(1.3d-11,-360d0))
+    RCONST(185) = (ARRZ(1.3d-11,360d0))
     ! RCONST(186) = constant rate coefficient
     ! RCONST(187) = constant rate coefficient
-    RCONST(188) = (ARRZ(2.1d-11,240d0))
+    RCONST(188) = (ARRZ(2.1d-11,-240d0))
     ! RCONST(189) = constant rate coefficient
     RCONST(190) = (ARRZ(2.65d-12,-1600.0d0))
     ! RCONST(191) = constant rate coefficient

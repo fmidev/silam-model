@@ -13,6 +13,7 @@ module correlations
   
 use grids_geo
 use silam_levels
+use silam_partitioning
 !$use omp_lib
 
 implicit none
@@ -63,12 +64,13 @@ type t_spatial_correlation
    integer :: method = int_missing
    
    ! grid, vertical - not defined for no-correlation
-   type(silja_grid) :: grid
+   type(silja_grid) :: grid, whole_grid !! correlation will be defined for whole_grid, but 
+                                        !! only components from grid will be stored
    type(silam_vertical) :: vertical
 
    ! Data for the decomposition method
-   real, dimension(:,:), pointer :: eigvec_x, eigvec_y, eigvec_z
-   real, dimension(:), pointer :: sqrt_eigval_x, sqrt_eigval_y, sqrt_eigval_z
+   real, dimension(:,:), allocatable :: eigvec_x, eigvec_y, eigvec_z
+   real, dimension(:), allocatable :: sqrt_eigval_x, sqrt_eigval_y, sqrt_eigval_z
    integer :: nev_x, nev_y, nev_z
 
    ! Data for the diffusion method
@@ -76,8 +78,6 @@ type t_spatial_correlation
 
    logical :: defined = .false.
 end type t_spatial_correlation
-
-real, dimension(:), allocatable, target, private, save :: transf_work, transf_work_2, values_corr_ind
 
 ! When the decomposition method is used, the correlation matrix may eigenvalues near
 ! zero. These correspond to the high wavenumbers "forbidden" by the correlation radius, so
@@ -241,10 +241,10 @@ contains
    
   end function fu_spatial_corr_none
 
-  subroutine set_spatial_corr_from_nl(nl, grid, correlation)
+  subroutine set_spatial_corr_from_nl(nl, grid, covariance_grid, correlation)
     implicit none
     type(Tsilam_namelist), intent(in), target :: nl
-    type(silja_grid), intent(in) :: grid
+    type(silja_grid), intent(in) :: grid, covariance_grid
     type(t_spatial_correlation), intent(out) :: correlation
     
     type(Tsilam_namelist), pointer :: nlptr
@@ -254,7 +254,7 @@ contains
     select case(fu_content(nlptr, 'correlation_method'))
     case ('decomposition')
       if (defined(grid)) then
-        call set_corr_from_nl_decomp(nlptr, grid, correlation)
+        call set_corr_from_nl_decomp(nlptr, grid, covariance_grid, correlation)
       else
         ! vertical only
         call set_corr_from_nl_1d(nlptr, correlation)
@@ -279,7 +279,7 @@ contains
   
   !******************************************************************************
   
-  subroutine set_corr_from_nl_decomp(nl, grid, correlation)
+  subroutine set_corr_from_nl_decomp(nl, grid, covariance_grid, correlation)
     ! 
     ! Initialize the correlation data for use with the decomposition method. Assumes given
     ! x/y correlation distances and an explicit vertical correlation matrix. The resulting
@@ -292,21 +292,34 @@ contains
     ! 
     implicit none
     type(Tsilam_namelist), intent(in) :: nl
-    type(silja_grid), intent(in) :: grid
+    type(silja_grid), intent(in) :: grid, covariance_grid
     type(t_spatial_correlation), intent(out) :: correlation
     
     real :: distance, dx, dy, unit_conv
     character(len=*), parameter :: sub_name = 'set_corr_from_nl_decomp'
-    integer :: status, i, nx, ny
+    integer :: status, i, nx, ny, gnx, gny, offx, offy
     real, dimension(:), pointer :: gridval
     character(len=fnlen) :: content
     character(len=clen) :: unit
 
     correlation%grid = grid
+    correlation%whole_grid = covariance_grid
     if (error) return
-    call grid_dimensions(correlation%grid, nx, ny)
 
-    gridval => fu_work_array()
+    if (grid == covariance_grid) then 
+        call grid_dimensions(correlation%grid, nx, ny)
+        gnx = nx
+        gny = ny
+        offx = 0
+        offy = 0
+    elseif (grid == dispersion_grid .and. covariance_grid == wholeMPIdispersion_grid) then 
+      call smpi_get_decomposition(nx, ny, offx, offy, gnx, gny) 
+    else
+      call set_error("Only dispersion_grid and wholeMPIdispersion_grid so far..", sub_name)
+      return
+    endif
+
+    gridval => fu_work_array(max(gnx, gny))
 
     content = fu_expand_environment(fu_content(nl, 'correlation_distance_x'))
     if (fu_fails(content /= '', 'Missing correlation_distance_x', sub_name)) return
@@ -321,14 +334,14 @@ contains
     end if
     distance = distance * unit_conv
     if (unit == 'm') then
-      dx = fu_dx_cell_m(correlation%grid, nx/2, ny/2)
+      dx = fu_dx_cell_m(covariance_grid, gnx/2, gny/2)
       call msg('Correlation distance x: (gridcells, m) ', distance, int(distance/dx))
     else if (unit == 'deg') then
-      dx = fu_dx_cell_deg(correlation%grid, nx/2, ny/2)
+      dx = fu_dx_cell_deg(covariance_grid, gnx/2, gny/2)
       call msg('Correlation distance x: (gridcells, deg) ', distance, int(distance/dx))
     end if
-    gridval(1:nx) = (/(i*dx, i=1, nx)/)
-    call get_corr_from_dist(distance, nx, gridval, &
+    gridval(1:gnx) = (/(i*dx, i=1, gnx)/)
+    call get_corr_from_dist(distance, gnx, offx, nx, gridval, &
                           & correlation%eigvec_x, correlation%sqrt_eigval_x, correlation%nev_x)
     if (error) return
     call msg('x-dim condition number: ', &
@@ -348,14 +361,14 @@ contains
     end if
     distance = distance * unit_conv
     if (unit == 'm') then
-      dy = fu_dy_cell_m(correlation%grid, nx/2, ny/2)
+      dy = fu_dy_cell_m(correlation%grid, gnx/2, gny/2)
       call msg('Correlation distance y: (gridcells, m) ', distance, int(distance/dy))
     else if (unit == 'deg') then
-      dy = fu_dy_cell_deg(correlation%grid, nx/2, ny/2)
+      dy = fu_dy_cell_deg(covariance_grid, gnx/2, gny/2)
       call msg('Correlation distance y: (gridcells, deg) ', distance, int(distance/dy))
     end if
-    gridval(1:ny) = (/(i*dy, i=1, ny)/)
-    call get_corr_from_dist(distance, ny, gridval, &
+    gridval(1:gny) = (/(i*dy, i=1, gny)/)
+    call get_corr_from_dist(distance, gny, offy, ny, gridval, &
                           & correlation%eigvec_y, correlation%sqrt_eigval_y, correlation%nev_y)
     if (error) return
     call msg('y-dim condition number: ', &
@@ -373,43 +386,47 @@ contains
 
     !==========================================================
   
-    subroutine get_corr_from_dist(distance, dimlen, dimval, eigvec, sqrt_eigval, nev)
+    subroutine get_corr_from_dist(distance, gnx, offx, nx, dimval, eigvec, sqrt_eigval, nev)
       ! Compute the gaussian correlation function and diagonalize.
       implicit none
       real, intent(in) :: distance
-      integer, intent(in) :: dimlen
+      integer, intent(in) :: gnx, offx, nx  !! gnx size of dimval
+                                !! Only subset of eigenvectors to store frfinde by offx, nx
       real, dimension(:), intent(in) :: dimval
-      real, dimension(:,:), pointer :: eigvec
-      real, dimension(:), pointer :: sqrt_eigval
+      real, dimension(:,:), intent(out), allocatable :: eigvec
+      real, dimension(:), intent(out), allocatable :: sqrt_eigval
       integer, intent(out) :: nev
 
       ! precision. It seems preferable to do the eigenvalue computation in double
       ! precision, even if the rest goes in single.
       integer, parameter :: eigval_kind = r8k
-      integer :: i, j, stat, info
+      integer :: i, j, iStat, info, myworksize, nb
       real :: dist_native
       real(eigval_kind), dimension(:,:), allocatable :: corr
       real(eigval_kind), dimension(:), allocatable :: eigval_tmp
       real(eigval_kind), dimension(:), allocatable :: work
-      !real, dimension(:), pointer :: work
 
-      allocate(corr(dimlen, dimlen), eigval_tmp(dimlen), work(worksize), stat=stat)
-      if (fu_fails(stat == 0, 'Allocate failed', 'get_corr_from_dist')) return
+    !!  iStat = ILAENV(1, 'get_corr_from_dist', '', 0,0,0,0)  ! Optimal size of work?
+
+
+
+      allocate(corr(gnx, gnx), eigval_tmp(gnx), work(worksize), stat=iStat)
+      if (fu_fails(iStat == 0, 'Allocate failed', 'get_corr_from_dist')) return
       call msg('no 2*distance used')
-      do i = 1, dimlen
-        do j = 1, dimlen
+      do i = 1, gnx
+        corr(i,i) = 1.
+        do j = i+1, gnx
           corr(i,j) = exp(-(dimval(i)-dimval(j))**2 / (distance**2))
+          corr(j,i) = corr(i,j)
         end do
       end do
-      
-      !work => fu_work_array()
       
       if (eigval_kind == r8k) then
         call dsyev('V', &    ! Compute eigenvalues and eigenvectors
                  & 'U', &    ! Upper part of A is stored (actually both...)
-                 & dimlen, &      ! order of the matrix
+                 & gnx, &      ! order of the matrix
                  & corr, &   ! the matrix, overwritten with eigenvectors
-                 & dimlen, &      ! leading dimension of svec
+                 & gnx, &      ! leading dimension of svec
                  & eigval_tmp, &  ! eigenvalues in ascending order
                  & work, &   ! work array
                  & size(work),&   ! length of work
@@ -417,9 +434,9 @@ contains
       else
         call ssyev('V', &    ! Compute eigenvalues and eigenvectors
                  & 'U', &    ! Upper part of A is stored (actually both...)
-                 & dimlen, &      ! order of the matrix
+                 & gnx, &      ! order of the matrix
                  & corr, &   ! the matrix, overwritten with eigenvectors
-                 & dimlen, &      ! leading dimension of svec
+                 & gnx, &      ! leading dimension of svec
                  & eigval_tmp, &  ! eigenvalues in ascending order
                  & work, &   ! work array
                  & size(work),&   ! length of work
@@ -434,10 +451,10 @@ contains
       end if
 #ifdef DOUBLE_PRECISION
       call process_eigval(corr, eigval_tmp, &
-                        & real(eigval_tmp(dimlen)) / max_cond_nbr, dimlen, eigvec, sqrt_eigval, nev)
+                        & real(eigval_tmp(gnx)) / max_cond_nbr, gnx, offx, nx, eigvec, sqrt_eigval, nev)
 #else
       call process_eigval(real(corr,4), real(eigval_tmp,4), &
-                        & real(eigval_tmp(dimlen)) / max_cond_nbr, dimlen, eigvec, sqrt_eigval, nev)
+                        & real(eigval_tmp(gnx)) / max_cond_nbr, gnx, offx, nx, eigvec, sqrt_eigval, nev)
 #endif
       if (error) return
       deallocate(corr, eigval_tmp, work)
@@ -482,13 +499,11 @@ contains
     implicit none
     type(Tsilam_namelist), intent(in), target :: nl
     type(silam_vertical), intent(out) :: vertical
-    real, dimension(:,:), pointer :: eigvec
-    real, dimension(:), pointer :: sqrt_eigval
+    real, dimension(:,:), intent(out), allocatable :: eigvec
+    real, dimension(:), intent(out), allocatable :: sqrt_eigval
     integer, intent(out) :: nev
 
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: itemptr
-    !real, dimension(:,:), allocatable :: work_2d
-    !real, dimension(:), pointer :: work, eigval_tmp
     integer, parameter :: eigval_kind = r8k
     real(eigval_kind), dimension(:), allocatable :: eigval_tmp, work
     real(eigval_kind), dimension(:,:), allocatable :: work_2d
@@ -498,7 +513,6 @@ contains
     integer :: i
 
     nlptr => nl
-    !work => fu_work_array()
 
     call set_vertical(nlptr, vertical)
     if (error) return
@@ -543,7 +557,7 @@ contains
     end if
 
     call process_eigval(real(work_2d, kind(sqrt_eigval)), real(eigval_tmp, kind(sqrt_eigval)), &
-                      & real(eigval_tmp(nz) / max_cond_nbr, kind(sqrt_eigval)), nz, eigvec, sqrt_eigval, nev)
+                      & real(eigval_tmp(nz) / max_cond_nbr, kind(sqrt_eigval)), nz, 0, nz, eigvec, sqrt_eigval, nev)
 
     call msg('Z-dim condition number: ', (sqrt_eigval(nev) / sqrt_eigval(1))**2)
     call msg('nz, nev(z):', nz, real(nev))
@@ -556,7 +570,7 @@ contains
   
   !********************************************************************************************
   
-  subroutine process_eigval(eigvec, eigval, eigval_lim, dim_full, &
+  subroutine process_eigval(eigvec, eigval, eigval_lim, gnx, offx, nx, &
        & eigvec_trunc, sqrt_eigval_trunc, nev_trunc)
     !
     ! Given eigenvectors and -values, do following:
@@ -565,10 +579,10 @@ contains
     implicit none
     real, dimension(:,:), intent(in) :: eigvec
     real, dimension(:), intent(in) :: eigval
-    integer, intent(in) :: dim_full
+    integer, intent(in) :: gnx, offx, nx
     real, intent(in) :: eigval_lim
-    real, dimension(:,:), pointer :: eigvec_trunc
-    real, dimension(:), pointer :: sqrt_eigval_trunc
+    real, dimension(:,:), allocatable, intent(out) :: eigvec_trunc
+    real, dimension(:), allocatable, intent(out) :: sqrt_eigval_trunc
     integer, intent(out) :: nev_trunc
 
     integer :: ind_ev, stat
@@ -577,25 +591,24 @@ contains
     ! truncate.
 !    call msg('dim_full, eigval_lim:',dim_full, eigval_lim)
 !    call msg('Eigen values:', eigval(1:dim_full))
-    if (fu_fails(eigval(dim_full) > 1e-15, 'The largest eigenvalue vanishes', 'process_eigval')) return
-    do ind_ev = dim_full, 1, -1
+    if (fu_fails(eigval(gnx) > 1e-15, 'The largest eigenvalue vanishes', 'process_eigval')) return
+    do ind_ev = gnx, 1, -1
       !print *, ind_ev, eigval(ind_ev), eigval_lim
       if (eigval(ind_ev) < eigval_lim .or. eigval(ind_ev) < 0) exit
     end do
     !print *, ind_ev
-    nev_trunc = dim_full - ind_ev
+    nev_trunc = gnx - ind_ev
 
-    allocate(sqrt_eigval_trunc(nev_trunc), eigvec_trunc(nev_trunc, dim_full), stat=stat)
+    allocate(sqrt_eigval_trunc(nev_trunc), eigvec_trunc(nev_trunc, nx), stat=stat)
     if (fu_fails(stat == 0, 'Allocate failed', 'init_vertical_correlation')) return
-    sqrt_eigval_trunc = sqrt(eigval(ind_ev+1:dim_full))
-    eigvec_trunc = transpose(eigvec(1:dim_full, ind_ev+1:dim_full))
+    sqrt_eigval_trunc(1:nev_trunc) = sqrt(eigval(ind_ev+1:gnx))
+    eigvec_trunc(1:nev_trunc,1:nx) = transpose(eigvec(1+offx:nx+offx, ind_ev+1:gnx))
 
   end subroutine process_eigval
 
        
        
   !************************************************************************************
-
 
   ! The transformation routines. The summation order is adjusted to allow n^4/3 complexity
   ! instead of n^2.
@@ -642,30 +655,25 @@ contains
     subroutine apply_decomp(values, values_out, svecx, svecy, svecz, sqrt_svx, sqrt_svy, sqrt_svz, &
                           & nsv_x, nsv_y, nsv_z, nx, ny, nz)
       implicit none
-      real, dimension(:), intent(inout) :: values, values_out
+      real, dimension(:), intent(in) :: values
+      real, dimension(:), intent(out) :: values_out
 
       real, dimension(:,:), intent(in) :: svecx, svecy, svecz
       real, dimension(:), intent(in) :: sqrt_svx, sqrt_svy, sqrt_svz
       integer, intent(in) :: nsv_x, nsv_y, nsv_z, nx, ny, nz
       
       integer :: isx, isy, isz, ix, iy, iz, ind_out, ind_in, nn
-      real, dimension(:), pointer :: work
+      real, dimension(:), pointer :: work1, work2
 
-      nn = nx*ny*nz
+      work1 => fu_work_array(nz*nsv_x*nsv_y)
+      work2 => fu_work_array(nz*nsv_x*ny)
 
-      values_out = 0.0
+#ifdef DEBUG      
+      values_out(:) = F_NAN
+      work1(:) = F_NAN
+      work2(:) = F_NAN
+#endif
       
-      if (.not. allocated(transf_work)) then
-        allocate(transf_work(nn), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'transf_adj_3d')) return
-      else if (size(transf_work) < size(values_in)) then
-        deallocate(transf_work)
-        allocate(transf_work(nn), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'transf_adj_3d')) return
-      end if
-      
-      work => transf_work
-
       !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(isx, isy, isz, ix, iy, iz, ind_out, ind_in)
 
       !$OMP DO
@@ -674,10 +682,10 @@ contains
           do iz = 1, nz
             ! isz -> iz
             ind_out = (iz-1)*nsv_x*nsv_y + (isy-1)*nsv_x + isx
-            values_out(ind_out) = 0.0
+            work1(ind_out) = 0.0
             do isz = 1, nsv_z
               ind_in = (isz-1)*nsv_x*nsv_y + (isy-1)*nsv_x + isx
-              values_out(ind_out) = values_out(ind_out) + values(ind_in)*svecz(isz, iz)*sqrt_svz(isz)
+              work1(ind_out) = work1(ind_out) + values(ind_in)*svecz(isz, iz)*sqrt_svz(isz)
             end do
           end do
         end do
@@ -690,10 +698,10 @@ contains
           do iy = 1, ny
             ! isy -> iy
             ind_out = (iz-1)*nsv_x*ny + (iy-1)*nsv_x + isx
-            work(ind_out) = 0.0
+            work2(ind_out) = 0.0
             do isy = 1, nsv_y
               ind_in = (iz-1)*nsv_x*nsv_y + (isy-1)*nsv_x + isx
-              work(ind_out) = work(ind_out) + values_out(ind_in)*svecy(isy, iy) * sqrt_svy(isy)
+              work2(ind_out) = work2(ind_out) + work1(ind_in)*svecy(isy, iy) * sqrt_svy(isy)
             end do
           end do
         end do
@@ -710,7 +718,7 @@ contains
             values_out(ind_out) = 0.0
             do isx = 1, nsv_x
               ind_in = (iz-1)*nsv_x*ny + (iy-1)*nsv_x + isx
-              values_out(ind_out) = values_out(ind_out) + work(ind_in)*svecx(isx, ix)*sqrt_svx(isx)
+              values_out(ind_out) = values_out(ind_out) + work2(ind_in)*svecx(isx, ix)*sqrt_svx(isx)
             end do
           end do
         end do
@@ -718,6 +726,8 @@ contains
       !$OMP END DO
 
       !$OMP END PARALLEL
+      call free_work_array(work1)
+      call free_work_array(work2)
      end subroutine apply_decomp
   end subroutine transf_fwd_3d
 
@@ -767,33 +777,14 @@ contains
       integer :: isx, isy, isz, ix, iy, iz, ind_out, ind_in, nn, nn_phys
       real, dimension(:), pointer :: work1, work2
 
-      nn = nsv_x*nsv_y*nsv_z
-      nn_phys = nx*ny*nz
+      work1 => fu_work_array(nsv_z*nx*ny)
+      work2 => fu_work_array(nsv_z*nx*nsv_y)
 
-      if (.not. allocated(transf_work)) then
-        call msg('Allocating transformation work array')
-        allocate(transf_work(nn_phys), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'transf_adj_3d')) return
-      else if (size(transf_work) < size(values)) then
-        deallocate(transf_work)
-        call msg('Reallocating transformation work array')
-        allocate(transf_work(nn_phys), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'transf_adj_3d')) return
-      end if
-
-      if (.not. allocated(transf_work_2)) then
-        call msg('Allocating transformation work array 2')
-        allocate(transf_work_2(nn_phys), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'transf_adj_3d')) return
-      else if (size(transf_work_2) < size(values)) then
-        deallocate(transf_work_2)
-        call msg('Reallocating transformation work array 2')
-        allocate(transf_work_2(nn_phys), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed', 'transf_adj_3d')) return
-      end if
-
-      work1 => transf_work
-      work2 => transf_work_2
+#ifdef DEBUG      
+      values_out(:) = F_NAN
+      work1(:) = F_NAN
+      work2(:) = F_NAN
+#endif
       
       !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(isx, isy, isz, ix, iy, iz, ind_in, ind_out)
 
@@ -849,6 +840,8 @@ contains
       end do
       !$OMP END DO
       !$OMP END PARALLEL
+      call free_work_array(work1)
+      call free_work_array(work2)
 
     end subroutine apply_decomp
   end subroutine transf_adj_3d
@@ -1074,7 +1067,7 @@ contains
 
     if (error) return
     
-    call set_corr_from_nl_decomp(nlptr, grid, correlation)
+    call set_corr_from_nl_decomp(nlptr, grid, grid, correlation)
     if (error) return
     
     allocate(corr_list_ptr(1))
@@ -1136,7 +1129,7 @@ contains
     !call add_namelist_item(nlptr, 'layer_thickness', '50. 100. 150.')
     !call add_namelist_item(nlptr, 'level_type', 'HEIGHT_FROM_SURFACE')
     nlevs = fu_NbrOfLevels(vertical)
-    corr => fu_work_array()
+    corr => fu_work_array(nlevs)
     do ilev = 1, nlevs
       corr(1:nlevs) = 0.0
       corr(ilev) = 1.0
@@ -1150,7 +1143,7 @@ contains
 
     if (error) return
     
-    call set_corr_from_nl_decomp(nlptr, grid, correlation)
+    call set_corr_from_nl_decomp(nlptr, grid, grid, correlation)
     if (error) return
     if (fu_fails(fu_cmp_verts_eq(correlation%vertical, vertical), 'Vertical changed', 'test_correlations')) return
 

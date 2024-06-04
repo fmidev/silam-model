@@ -359,14 +359,14 @@ module ensemble_driver
       ! dummy array, non-master process with master-only analysis
       allocate(ens_full(1,1), stat=stat)
     end if
-    if (fu_fails(stat == 0, 'Allocating full ensemble failed', 'run_enkf')) return
+    if (fu_fails(stat == 0, 'Allocating full ensemble failed', sub_name)) return
 
     allocate(model_integr%perturbations(count_max_perturbations), stat=stat)
-    if (fu_fails(stat == 0, 'Allocate failed', 'run_enkf')) return
+    if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
     call set_perturbations(model_integr%perturbations, &
                          & fu_species_emission(model%cloud), &
                          & fu_species_transport(model%cloud), &
-                         & darules, dispersion_grid, dispersion_vertical, now)
+                         & darules, dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, now)
     if (error) return
     call init_random_seed(smpi_global_rank)
     simrules_integr%if_finalize = .false.
@@ -387,7 +387,7 @@ module ensemble_driver
         if (fatal) return
         if (error) then
           call msg('ENKF: assimilation failed, ensemble not changed')
-          call unset_error('run_enkf')
+          call unset_error(sub_name)
         else
           call msg('ENKF: assimilation done')
         end if
@@ -470,9 +470,8 @@ module ensemble_driver
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
 
-      obs_size = model_3dvar%obs_ptr%obs_size
-      mdl_obs_val => fu_work_array(sum(obs_size))
-      obs_var => fu_work_array(sum(obs_size))
+      call collect_model_data(model_integr%obs_ptr)
+      call get_obs_pointers(model_3dvar%obs_ptr, obs_data,  mdl_obs_val, obs_var, obs_size)
       
       if (smpi_ens_rank == 0) then
         allocate(mdl_obs_ens(sum(obs_size), ens%ens_size), obs_localisation(2, sum(obs_size)), stat=stat)
@@ -489,15 +488,13 @@ module ensemble_driver
       call forward_3d(model_3dvar)
       if (error) return
 
-      call collect_model_data(model_3dvar%obs_ptr, mdl_obs_val) !, obs_size)
+      call collect_model_data(model_3dvar%obs_ptr)
       call msg('ENKF: gather ensemble')
       call start_count('ensemble_scatter_gather')
       call gather_ensemble(ens, ens_full, mdl_obs_val, mdl_obs_ens, obs_size)
       call stop_count('ensemble_scatter_gather')
       if (error) return
       
-      call get_obs_data(model_3dvar%obs_ptr, obs_data, obs_size)
-      call collect_variance(model_3dvar%obs_ptr, obs_var) !, obs_size)
       if (simrules_3d%darules%output_level > da_out_none_flag) then
         call msg('Dumping FC observations...')
         write(time_str, fmt='(I4,I2.2,I2.2,I2.2,I2.2)') fu_year(now), fu_mon(now), fu_day(now), &
@@ -557,8 +554,6 @@ module ensemble_driver
       end if
 
       ! cleanup 
-      call free_work_array(mdl_obs_val)
-      call free_work_array(obs_var)
       if (allocated(model_localisation)) deallocate(model_localisation)
       if (allocated(obs_localisation)) deallocate(obs_localisation)
       if (allocated(mdl_obs_ens)) deallocate(mdl_obs_ens)
@@ -615,9 +610,7 @@ module ensemble_driver
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
 
-      obs_size = model_3dvar%obs_ptr%obs_size
-      mdl_obs_val_single => fu_work_array(sum(obs_size))
-      obs_var => fu_work_array(sum(obs_size))
+      call  get_obs_pointers(model_3dvar%obs_ptr, obs_data, mdl_obs_val_single, obs_var, obs_size)
       
       allocate(mdl_obs_ens(sum(obs_size), ens%ens_size), obs_localisation(2, sum(obs_size)), stat=stat)
       if (fu_fails(stat == 0, 'Allocate master obs arrays failed', sub_name)) continue
@@ -630,7 +623,7 @@ module ensemble_driver
       if (error) return
 
       call start_count('EnKF evaluate observations')
-      call collect_model_data(model_3dvar%obs_ptr, mdl_obs_val_single) !, obs_size)
+      call collect_model_data(model_3dvar%obs_ptr)
 
       call get_localisation(model_3dvar%obs_ptr, obs_localisation)
       call stop_count('EnKF evaluate observations')
@@ -642,8 +635,6 @@ module ensemble_driver
       call stop_count('ensemble_transpose')
       if (error) return
       
-      call get_obs_data(model_3dvar%obs_ptr, obs_data, obs_size)
-      call collect_variance(model_3dvar%obs_ptr, obs_var) !, obs_size)
       if (simrules_3d%darules%output_level > da_out_none_flag) then
         call msg('Dumping FC observations...')
         write(time_str, fmt='(I4,I2.2,I2.2,I2.2,I2.2)') fu_year(now), fu_mon(now), fu_day(now), &
@@ -723,8 +714,6 @@ module ensemble_driver
       end if
 
       ! cleanup 
-      call free_work_array(mdl_obs_val_single)
-      call free_work_array(obs_var)
       !if (allocated(model_localisation)) deallocate(model_localisation_full)
       if (allocated(obs_localisation)) deallocate(obs_localisation)
       if (allocated(mdl_obs_ens)) deallocate(mdl_obs_ens)
@@ -1178,7 +1167,7 @@ module ensemble_driver
     call set_perturbations(model_integr%perturbations, &
                          & fu_species_emission(model%cloud), &
                          & fu_species_transport(model%cloud), &
-                         & darules, dispersion_grid, dispersion_vertical, now)
+                         & darules, dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, now)
     if (error) return
 
     !call init_random_seed(smpi_global_rank)
@@ -1436,7 +1425,7 @@ module ensemble_driver
       type(t_ensemble), intent(inout) :: ens
       logical, intent(out) :: fatal_error
 
-      real, dimension(:), pointer :: mdl_obs_val_single, obs_data, obs_var, ptr_val
+      real, dimension(:), pointer :: mdl_obs_val_single, mdl_data, obs_data, obs_var, ptr_val
       real, dimension(:,:), allocatable :: obs_loc, mdl_obs_val_all
       integer :: my_size, my_offset
       character(len=*), parameter :: sub_name = 'assimilate'
@@ -1461,19 +1450,18 @@ module ensemble_driver
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
       
-      obs_size = model_integr%obs_ptr%obs_size
-      mdl_obs_val_single => fu_work_array(sum(obs_size))
-      obs_var => fu_work_array(sum(obs_size))
+      call collect_model_data(model_integr%obs_ptr)
+      call get_obs_pointers(model%obs_ptr, obs_data,  mdl_obs_val_single, obs_var, obs_size)
 
       allocate(mdl_obs_ens(sum(obs_size), ens%ens_size), obs_localisation(2, sum(obs_size)), stat=stat)
       if (fu_fails(stat == 0, 'Allocate master obs arrays failed', sub_name)) continue
       fatal_error = .not. sync_errors()
       if (error .or. fatal_error) return
 
-      call collect_model_data(model_integr%obs_ptr, mdl_obs_val_single) !, obs_size)
       
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       if (darules%use_log_obs) then
+        call set_error("Fixme! Destructive action on observations!", sub_name)
         mdl_obs_val_single = log(mdl_obs_val_single+0.02)
       end if
 
@@ -1488,14 +1476,11 @@ module ensemble_driver
       call stop_count('ensemble_transpose')
       if (error) return
 
-      call get_obs_data(model_integr%obs_ptr, obs_data, obs_size)
-
       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       if (darules%use_log_obs) then
         obs_data = log(obs_data+0.02)
       end if
 
-      call collect_variance(model_integr%obs_ptr, obs_var) !, obs_size)
       fatal_error = .not. sync_errors()
       if (fatal_error .or. error) return
 
@@ -1558,9 +1543,6 @@ module ensemble_driver
       fatal_error = .not. sync_errors()
       if (fatal_error) return
       !call msg('mean of my chunk after:', sum(ens_full) / size(ens_full)) 
-
-      call free_work_array(mdl_obs_val_single)
-      call free_work_array(obs_var)
 
       if (.not. error) then
         call msg('ENKF: scatter ensemble')

@@ -446,7 +446,8 @@ contains
 !  subroutine get_photorates_column(lon, lat, now, cos_zen_angle, col_press, col_cwcabove, &
 !        &cwc_totcol, aodcolumn, alb_sfc, fCloudCover, rates)
   subroutine  get_photorates_column(metdat_col, zenith_cos, alb_sfc_fixed, now, &
-         & aod_ext, aod_scat, o3_col, rates, ifPhotoAOD, PhotoO3colType, tau_above_bott, ssa, cloud_model)
+       & aod_ext, aod_scat, o3_col, rates, ifPhotoAOD, PhotoO3colType, tau_above_bott, ssa, &
+       & cloud_model, aer_att_surf, cld_att_surf, aer_att_0, cld_att_0)
     ! 
     ! Interpolate the LUT to obtain photolysis rates for each reaction in each vertical
     ! level defined by pressures in col_press. 
@@ -462,13 +463,15 @@ contains
     logical, intent(in) :: ifPhotoAOD   !! Account for aod_ext, and aod_scat for photolysis
     integer, intent(in) :: PhotoO3colType !! Account for total O3 column above for photolysis
     real, dimension(:), intent(in) :: tau_above_bott
-    real, intent(in) :: ssa !, tcc
+    real, intent(in) :: ssa  !, tcc
     integer, intent(in) :: cloud_model
+    real, intent(out) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0
     
 !    real, intent(in) :: lon, lat
 !    real, intent(in) :: cos_zen_angle, alb_sfc, cwc_totcol, fCloudCover
 !    real, dimension(:), intent(in) :: col_press, col_cwcabove, aodcolumn! (level)
 
+    real, dimension(max_levels) :: tau_above_bott_aer
     integer :: ind_sza, ind_o3, ind_alb, ind_lat, ind_lat2, ind_lev !!!Indices in LUT
     integer :: ind_press, ind_season, ind_region, ind_react, num_levs, istepalb, icld
     real, dimension(4) :: p, q
@@ -485,6 +488,8 @@ contains
     real :: o3_col_std ! ozone column above for standard atmosphere (DU)
     real :: o3factor ! ozone column above / the ozone column above for the standard atmosphera
     real :: o3_totcol_meteo !! meteorological O3 column (DU)
+    real :: toa_scaling
+    integer :: julian_day
 
     real, parameter :: min_cc = 0.02 !! MInimum cloud cover to calculate the attenuation
     character (len=*), parameter :: sub_name = "get_photorates_column"
@@ -495,6 +500,10 @@ contains
     !
     if (sza > lut_sza_rad(size(lut_sza_rad))) then
       rates = 0.0
+      aer_att_surf = 0.0
+      cld_att_surf = 0.0
+      aer_att_0 = 0.0
+      cld_att_0 = 0.0
       return
     end if
 
@@ -520,30 +529,48 @@ contains
     !call msg('Risto test press4column = ',col_press)
     !call msg('Risto test albedo = ',albedo)
 
+    julian_day = fu_julian_date(now)
+
     if (fCloudCover > min_cc) then
       if (cloud_model == fake_cloud) then
         !No science here. Clouds assumed in 900-700hPa    
         albedo_cld = 0.9
         fTmp = (alb_sfc*alb_sfc + 1.) * 0.5  !! attenuation under the cloud                 
         cld_att(1:num_levs) = fTmp + (1.-fTmp)*max(0.,min(1., (90000.-col_press(1:num_levs))/(20000.)))
-
+        cld_att_surf = cld_att(1)
       else if (cloud_model == simple_cloud .or. cloud_model == detailed_cloud) then
         cwc_cloud(1:num_levs) = metdat_col(imet_cwc3d, 1:num_levs)/fCloudCover
         cwc_totcol = metdat_col(imet_cwc3d, 1) !col_cwcabove(1)
         fTmp = cwc_totcol/fCloudCover  
         call effective_albedo_cld(cwc_cloud, fTmp, alb_sfc, zenith_cos, num_levs, cld_att, &
-             & albedo_cld, cloud_model, tau_above_bott, ssa)
+             & albedo_cld, cloud_model, tau_above_bott, ssa, cld_att_0)
+        cld_att_surf = cld_att(1)
       else
-        albedo_cld = alb_sfc  !!! Actually, should not be used 
+        albedo_cld = alb_sfc  !!! Actually, should not be used
+        cld_att_surf = 1 
       endif
+    else
+      cld_att_surf = 1
     end if
 
     if (ifPhotoAOD) then
-      call effective_albedo_aer(aod_ext, aod_scat, alb_sfc, zenith_cos,  num_levs, aer_att, albedo_aer)
+       call effective_albedo_aer(aod_ext, aod_scat, alb_sfc, zenith_cos, num_levs, aer_att, &
+            & albedo_aer, tau_above_bott_aer(1:num_levs), aer_att_0)
     else
       aer_att(1:num_levs) = 1.
       albedo_aer = alb_sfc
     endif
+    
+    aer_att_surf = aer_att(1)
+
+    !if (cld_att_surf >= 1.) then
+    !   call msg('dbg1 no cloud attenuation: cld_att_surf, aer_att_surf, zenith_cos', (/ cld_att_surf, aer_att_surf, zenith_cos /))
+    !end if
+
+    !call msg('dbgx aer_att_surf, cld_att_surf', (/ aer_att_surf, cld_att_surf /))
+    
+    !tau_aer = tau_above_bott_aer(1)
+    !tau_cld = tau_above_bott(1)
 
     !RISTO TEST 8JAN2019: Investigate the effect of aerosols and clouds on the photolysis rates
     !call msg("ZZtop", (/alb_sfc, albedo_aer, albedo_cld, fCloudCover, aer_att(1:num_levs), cld_att(1:num_levs)/))
@@ -718,13 +745,17 @@ contains
                                                              & ind_o3:ind_o3+1, &
                                                              & ind_sza:ind_sza+1, &
                                                              & ind_press:ind_press+1)))
+
+          ! scaling of the top-of-the-atmosphere radiation based on the julian day (distance to the sun)
+          toa_scaling = 1 + 0.034 * cos(2*3.14159 * julian_day / 365.25)
           if (icld == 0) then
-            rates(ind_react, ind_lev) = fTmp * aer_att(ind_lev) * (1-fCloudCover)  !!Cloud-free subcell
+            rates(ind_react, ind_lev) = toa_scaling * fTmp * aer_att(ind_lev) * (1-fCloudCover)  !!Cloud-free subcell
           else
             !!Cloudy subcell
-            rates(ind_react, ind_lev) =  rates(ind_react, ind_lev) + fTmp * cld_att(ind_lev)  * fCloudCover 
+             rates(ind_react, ind_lev) =  rates(ind_react, ind_lev) + toa_scaling * fTmp * cld_att(ind_lev) * aer_att(ind_lev) * fCloudCover
+             !rates(ind_react, ind_lev) =  rates(ind_react, ind_lev) + toa_scaling * fTmp * cld_att(ind_lev) * fCloudCover
           endif
-
+         
 
 !!!#ifdef DEBUG      
           if (.not. rates(ind_react, ind_lev) >= 0.) then
@@ -814,7 +845,7 @@ contains
   !************************************************************************************
 
   subroutine effective_albedo_cld(col_cwcabove, cwc_totcol, alb_sfc, &
-       & cosza, num_levs, cld_att, alb_eff, cloud_model, tau_above_bott, ssa)
+       & cosza, num_levs, cld_att, alb_eff, cloud_model, tau_above_bott, ssa, att0)
 
     implicit none
     real, dimension(:), intent(in) :: col_cwcabove
@@ -824,7 +855,7 @@ contains
     real, dimension(max_levels) :: tau_above_bott
     real :: ssa
     real, dimension(:), intent(out) :: cld_att
-    real, intent(out) :: alb_eff
+    real, intent(out) :: alb_eff, att0
 
     integer :: iLev
 
@@ -848,13 +879,13 @@ contains
       ssa = 0.9999
     end if
 
-    call effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, cosza, num_levs, cld_att, alb_eff)
+    call effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, cosza, num_levs, cld_att, alb_eff, att0, 0)
 
   end subroutine effective_albedo_cld
   
   !************************************************************************************
 
-  subroutine effective_albedo_aer(col_ext, col_scat, alb_sfc, cosza, num_levs, aer_att, alb_eff)
+  subroutine effective_albedo_aer(col_ext, col_scat, alb_sfc, cosza, num_levs, aer_att, alb_eff, tau_above_bott, att0)
     !
     ! Simple aerosol attenuation scheme
     ! aerosol properties are considered uniform over vertical
@@ -864,14 +895,15 @@ contains
     real, dimension(:), intent(in) :: col_ext, col_scat
     real, intent(in) :: alb_sfc, cosza
     integer, intent(in) :: num_levs
+    real, dimension(max_levels), intent(out) :: tau_above_bott
     
     real, dimension(:), intent(out) :: aer_att
-    real, intent(out) :: alb_eff
-    real, dimension(max_levels) :: tau_above_bott
+    real, intent(out) :: alb_eff, att0
     integer :: iLev
 
     real :: ssa
     real, parameter :: g = 0.6  !!Asymmetry
+    real, parameter :: aer_att_exponent = 1.7 ! to take into account for multiple scattering with gases/water droplets
     ! Lose median from 
     ! Andrews, E., et al. (2006), Comparison of methods for deriving aerosol asymmetry parameter, J. Geophys. Res., 111,
     !D05S04, doi:10.1029/2004JD005734.
@@ -884,15 +916,20 @@ contains
     do iLev=num_levs,1,-1
       tau_above_bott(iLev) = tau_above_bott(iLev+1)+col_ext(iLev)
     enddo
-    call effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, cosza, num_levs, aer_att, alb_eff)
+    call effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, cosza, num_levs, aer_att, alb_eff, att0, 1)
 
+    ! Multiple scattering between aerosols cloud droplets and atmospheric gases are ignored above. This is to compensate for it.
+    ! Can be replaced with something more rigorous later. The value of aer_att_exponent is purely based on fitting the
+    ! global SILAM surface ozone with measurements.
+
+    aer_att(1:num_levs) = aer_att(num_levs)**aer_att_exponent
 
   end subroutine effective_albedo_aer
 
             
   !************************************************************************************
 
-  subroutine effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, cosza_in, num_levs, att_prof, alb_eff)
+  subroutine effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, cosza_in, num_levs, att_prof, alb_eff, att0_sp, input_type)
     !
     ! Full 2-stream implementation
     !
@@ -904,9 +941,11 @@ contains
     real, intent(in) :: ssa, g, alb_sfc, cosza_in
     real, dimension(:), intent(in) :: tau_above_bott
     integer, intent(in) :: num_levs
+    integer, intent(in) :: input_type
     
     real, dimension(:), intent(out) :: att_prof
     real, intent(out) :: alb_eff
+    real, intent(out) :: att0_sp
 
     integer :: iLev
     real(8) :: f, ssap, taufactor, gprime ! parameters for delta-function adjustment
@@ -939,9 +978,20 @@ contains
       
     taup0 = min(tau_above_bott(1)*taufactor, maxtau)
 
-    if (fk*taup0 > 1e-3) then
+    !if (input_type == 0) then
+    !   if (fk*taup0 <= 1e-3) call msg('dbg very small taup0 for cld detected, tau_above_bott(1), max(tau_above_bott), cosza_in, ssa, g, alb_sfc ', &
+    !        & (/ tau_above_bott(1), maxval(tau_above_bott(1:num_levs)), cosza_in, ssa, g, alb_sfc /))
+    !   if (fk*taup0 <= 1e-3) call msg('dbg very small taup0 for cld detected, fk, taup0, cosza, taufactor', (/ fk, taup0, cosza, taufactor /))
+    !else
+    !   if (fk*taup0 <= 1e-3) call msg('dbg very small taup0 for aer detected, fk, taup0, cosza, taufactor', (/ fk, taup0, cosza, taufactor /))
+    !end if
+
+    !if (fk*taup0 <= 1e-5) call msg('dbg extremely small taup0 detected!!!!!')
+
+    if (fk*taup0 > 1e-5) then
       d = exp(fk*taup0)
       att0 = exp(-taup0/cosza)
+      att0_sp = att0
 
       alb_eff =  -(((d**2-att0*d)*gama*u**2+(1-d**2)*eps*u*v+(att0*d-1)*gama*v**2+(att0*d*cosza*v**2-att0*d*cosza*u**2))*alb_sfc+(d**2-att0*d)*eps*v**2+(1-d**2)*gama*u*v+(att0*d-1)*eps*u**2)/((cosza*u**2-d**2*cosza*v**2)+(d**2-1)*cosza*u*v*alb_sfc)
 
@@ -975,6 +1025,7 @@ contains
 !      endif
 
     else
+       att0_sp = 1.  
        alb_eff = alb_sfc
        att_prof(1:num_levs) = 1.
     endif
@@ -1017,7 +1068,7 @@ contains
 
   !***********************************************************************************
 
-  subroutine compute_water_cloud_properties(numberconc, metdat_col, col_ext, col_scat, &
+  subroutine compute_water_cloud_properties(numberconc, metdat_col, &
        & soot_col, pwc_col, tau_above_bott, ssa)
 
     ! Used for both the detailed cloud model for photolysis and the precipitable water
@@ -1029,7 +1080,7 @@ contains
     ! wet_deposition_scheme = 2020_SCAVENGING
 
     real, dimension(:,:), intent(in) :: metdat_col
-    real, dimension(:), intent(in) :: numberconc, col_ext, col_scat, soot_col
+    real, dimension(:), intent(in) :: numberconc, soot_col
 
     real, intent(out) :: ssa !, tcc_photo, tcc_scav
     real, dimension(:), intent(out):: pwc_col, tau_above_bott
@@ -1057,12 +1108,12 @@ contains
       return
     endif
 
-    if (maxval(metdat_col(imet_cwc,:) + metdat_col(imet_cic,:)) < 1e-25) then
+    num_levs = size(metdat_col,2)
+
+    if (maxval(metdat_col(imet_cwc,1:num_levs) + metdat_col(imet_cic,1:num_levs)) < 1e-25) then
       ssa = 0.9999
       return
     end if
-
-    num_levs = size(metdat_col,2)
 
     area = metdat_col(imet_dx_size,1) * metdat_col(imet_dy_size,1)
 
@@ -1103,13 +1154,13 @@ contains
           cdnc = 15.0
         end if
 
-        dp_dyn = 7*(1e9*lwc_d/cdnc)**0.33
-        dp_dyn = max(dp_dyn, 4.0)
+        dp_dyn = 7.0*(1e9*lwc_d/cdnc)**0.33
+        dp_dyn = max(dp_dyn, 3.0) 
 
         pwc_col(iLev) = lwc_col(iLev) * exp(-m_liq/dp_dyn) * (1 + m_liq/dp_dyn + &
              & (1/2.)*(m_liq/dp_dyn)**2 + (1/6.)*(m_liq/dp_dyn)**3)
 
-        dp_dyn = min(dp_dyn, 15.)
+        dp_dyn = min(dp_dyn, 20.) 
         
         tau = 3/(2*1000*dp_dyn*1e-6) * lwc_col(iLev)
       else
@@ -1124,19 +1175,15 @@ contains
         T = min(metdat_col(imet_temp, iLev), 272.99)
         B = -2 + 1e-3 * (273.-T)**1.5 * log10(iwc_normalized)
         dp_dyn = 377.4 + 203.3*B + 37.91*B**2 + 2.3696*B**3
-        dp_dyn = max(dp_dyn, 5.0)
 
+        dp_dyn = max(dp_dyn, 3.0)
+        
         pwc_col(iLev) = pwc_col(iLev) + iwc_col(iLev)*exp(-m_ice/dp_dyn) * (1 + m_ice/dp_dyn + &
              & (1/2.)*(m_ice/dp_dyn)**2 + (1/6.)*(m_ice/dp_dyn)**3)
         tau = tau + 3/(2*910*dp_dyn*1e-6) * iwc_col(iLev)     
       end if
-
-      if (tau < col_ext(iLev))  then
-        tau = col_ext(iLev)
-        ssa0 = 0.999 * col_scat(iLev)/col_ext(iLev)
-      else
-        ssa0 = max(0.8, 0.9999 - (0.005*soot_col(iLev)/(iwc_col(iLev)+lwc_col(iLev)))/8e-6)
-      endif
+      
+      ssa0 = max(0.8, 0.9999 - (0.005*soot_col(iLev)/(iwc_col(iLev)+lwc_col(iLev)))/8e-6)
 
       !Computation of the average ssa weighted by tau                                                                      
       ssa = ssa + ssa0*tau !*ccover
@@ -1165,6 +1212,12 @@ contains
       end if
       !$OMP END CRITICAL
     end do
+
+    !if (tau_above_bott(1) <= 0.0) then
+    !   call msg('zero or negative tau cld at surface, tau_above_bott(1), max(tau_above_bott), sum(clw_dens_col), sum(ciw_dens_col), sum(lwc_col), sum(iwc_col), sum(cwc), sum(iwc), max(ccover)', &
+    !        & (/ tau_above_bott(1), maxval(tau_above_bott(1:num_levs)), sum(clw_dens_col(1:num_levs)), sum(ciw_dens_col(1:num_levs)), sum(lwc_col(1:num_levs)), &
+    !        & sum(iwc_col(1:num_levs)), sum(cwc(1:num_levs)), sum(cic(1:num_levs)), maxval(ccover(1:num_levs))  /))
+    !end if
 
     ssa = ssa/norm
 
@@ -1520,17 +1573,17 @@ contains
       real, parameter :: ssa=0.999, g=0.78  !!!aerosol/drop parameters
 
       real, dimension(nlevs) :: tau_above_bott, photoatt
-      real :: alb_eff
+      real :: alb_eff, att0
 
       real, parameter :: tautot=30, alb_sfc=0.1, mu0=1.0
 
-
+      
       integer :: i
 
       do i=1,nlevs
         tau_above_bott(i)=tautot*(nlevs-i+1)*1.0/nlevs
       enddo
-      call effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, mu0, nlevs, photoatt, alb_eff)
+      call effective_albedo_v2(ssa, g, tau_above_bott, alb_sfc, mu0, nlevs, photoatt, alb_eff, att0, 0)
 
       print *, "tautot=", tautot, "alb_sfc=",alb_sfc, "mu0=", mu0, "albeff=", alb_eff
       print *, "tau_above_bott(i), photoatt(i)"

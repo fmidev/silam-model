@@ -801,6 +801,7 @@ CONTAINS
     ! pollen
     iTmp = fu_merge_integer_to_array(emission_mask_flag,               q_disp_st)
     iTmp = fu_merge_integer_to_array(pollen_correction_flag,           q_disp_st)
+    iTmp = fu_merge_integer_to_array(ln_emission_scaling_flag,           q_disp_st)
     iTmp = fu_merge_integer_to_array(pollen_left_relative_flag,        q_disp_st)
     iTmp = fu_merge_integer_to_array(pollen_total_per_m2_flag,         q_disp_st)
     iTmp = fu_merge_integer_to_array(pollen_rdy_to_fly_flag,           q_disp_st)
@@ -889,12 +890,14 @@ CONTAINS
     type(silja_field_id) :: id, idTmp
     logical :: ifOK
     type(silam_sp) :: strTmp
-    integer :: iFlds, iTmp, nQuantities, ix, iy
+    integer :: iFlds, iTmp, nQuantities, ix, iy, quant
     type(Tsilam_namelist), pointer :: nlPtr
     type(silja_field), pointer :: fieldPtr
     type(silam_vertical) :: vertTmp
     type(silja_field), pointer :: field
     real :: fSum
+
+    integer, dimension(2), parameter :: scaling_q = (/pollen_correction_flag, ln_emission_scaling_flag/)
     
     q_disp_dyn => fu_work_int_array()
     q_disp_stat => fu_work_int_array()
@@ -977,29 +980,35 @@ CONTAINS
         pValues(1:fs_dispersion) = 0.0
       
       else  ! No dynamic plant growth
-        call find_field_from_stack(met_src_missing, &
-                                 & pollen_correction_flag,&
-                                 & time_missing,&
-                                 & fu_stack(dispersionMarketPtr, 1),&
-                                 & fieldPtr, &
-                                 & ifOK, &
-                                 & fu_species_src(srcPollen, pollen_correction_flag, .true.))
-        if(ifOK)then
+        pValues(1:fs_dispersion) =  srcPollen%standardPollenTotal
+        do iTmp=1,2 
+          quant = scaling_q(iTmp)
+
+          call find_field_from_stack(met_src_missing, &
+                                   & quant,&
+                                   & time_missing,&
+                                   & fu_stack(dispersionMarketPtr, 1),&
+                                   & fieldPtr, &
+                                   & ifOK, &
+                                   & fu_species_src(srcPollen, quant, .true.))
+          if(.not.  ifOK)then
+            call set_error('No '//trim(fu_quantity_string(quant))//' field in dispersion stack','init_emission_pollen')
+            return
+          endif
           pTmp1 => fu_grid_data(fieldPtr)
           if(error)return
 
+
           ! The amount of pollen per m2 is zero outside the source area and is a year-corrected 
           ! standard constant inside
-          fSum = 0.0
-          do iTmp = 1, fs_dispersion
-              pValues(iTmp) = srcPollen%standardPollenTotal * pTmp1(iTmp)
-              fSum = fSum + srcPollen%standardPollenTotal * pTmp1(iTmp)
-          end do
-          call msg('Total pollen without source mask:', fSum*fu_cell_size(dispersion_grid,iTmp))
-        else
-          call set_error('No pollen-amount correction field in dispersion stack','init_emission_pollen')
-          return
-        endif
+          if (quant == ln_emission_scaling_flag) then
+            pValues(1:fs_dispersion) = pValues(1:fs_dispersion) * exp(pTmp1(1:fs_dispersion))
+          else
+            pValues(1:fs_dispersion) = pValues(1:fs_dispersion) * pTmp1(1:fs_dispersion) !just scaling
+          endif
+        enddo
+        fSum = sum(pValues(1:fs_dispersion))
+        call msg('Total pollen without source mask:', fSum*fu_cell_size(dispersion_grid,iTmp))
       endif   ! if HSGrowth or SWGrowth
     endif  ! pollen_total_per_m2_flag is in market
  
@@ -1371,7 +1380,7 @@ write(55,'(A)') "## year mon day hour, min, iDayInYear_  now_sec_since_sunrise_ 
       
       ! We have two types of quantities so far: those, which are universal for all pollen sources,
       ! and those, which are related to the pollen or allergen release of the specific taxon. 
-      case (pollen_rdy_to_fly_flag, pollen_correction_flag, &
+      case (pollen_rdy_to_fly_flag, pollen_correction_flag, ln_emission_scaling_flag, &
           & pollen_left_relative_flag, pollen_total_per_m2_flag, &
           & start_calday_threshold_flag, end_calday_threshold_flag, &
           & start_heatsum_threshold_flag, end_heatsum_threshold_flag, &
@@ -2585,10 +2594,15 @@ write(55,'(6I4,12(F,1x),D)') &
       ! Imported parameters
       real, intent(in) :: fNow, fStartThres, fEndThres, delta, fURelStart, fURelEnd, fTotalPollen
       type(Tfade_inout), intent(in) :: fade_inout_params
-     
-      fu_mk_new_pollen_linear = fTotalPollen *  delta / (fEndThres - fStartThres) * & 
-                    & fu_fade_in(fNow / fStartThres, fURelStart, fade_inout_params) * &   ! start treshold fade-in
-                    & fu_fade_out(fNow / fEndThres, fURelEnd, fade_inout_params)      ! end treshold fade-out
+
+      if (fEndThres - fStartThres > 0.) then
+         
+          fu_mk_new_pollen_linear = fTotalPollen *  delta / (fEndThres - fStartThres) * & 
+                        & fu_fade_in(fNow / fStartThres, fURelStart, fade_inout_params) * &   ! start treshold fade-in
+                        & fu_fade_out(fNow / fEndThres, fURelEnd, fade_inout_params)      ! end treshold fade-out
+      else
+         fu_mk_new_pollen_linear = 0.
+      endif
 
 if(fu_mk_new_pollen_linear < 0.)then
   call msg('Negative fu_mk_new_pollen_linear:',fu_mk_new_pollen_linear )

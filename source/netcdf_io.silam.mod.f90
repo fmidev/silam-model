@@ -1213,7 +1213,7 @@ CONTAINS
 #ifdef WITH_PNETCDF
     if (nf%ncver==3 .and. nf%ifmpiio) then
         iStat =  nf90mpi_begin_indep_data(nf%unit_bin)
-        if (fu_fails(iStat == 0, "nf90mpi_end_indep_data: "//nf90mpi_strerror(iStat), sub_name)) return
+        if (fu_fails(iStat == 0, "nf90mpi_begin_indep_data: "//nf90mpi_strerror(iStat), sub_name)) return
     endif
 #endif
     
@@ -3304,124 +3304,6 @@ CONTAINS
         
       end subroutine read_2d_gridvar
    
-      subroutine parse_times(time_start, increments, num_times, incr_unit, calendar_type, times_parsed)
-        implicit none
-        type(silja_time), intent(in) :: time_start
-        real(r8k), dimension(:), intent(in) :: increments
-        integer, intent(in) :: num_times
-        character(len=*), intent(in) :: incr_unit, calendar_type
-        type(silja_time), dimension(:), intent(out) :: times_parsed
-        
-        integer :: days_year, ref_year, incr_years
-        real(r8k) :: reftime_sec, incr_unit_sec, jul_date_start, incr_sec, incr_days, incr_unit_days
-        real :: fSec
-        character(len=nf90_max_name) :: chInterval
-        integer :: nMod, nday, nHr, nMin, iT
-        
-        select case(calendar_type)
-        case('standard','gregorian','proleptic_gregorian','proleptic')
-          !
-          ! Normal calendar
-          !
-          write(chInterval, fmt=*) '1 ', trim(fu_str_l_case(incr_unit))
-          incr_unit_sec = fu_sec8(fu_set_named_interval(chInterval))
-          reftime_sec = silja_time_to_real8(time_start)
-
-
-          do iT = 1, nf%nDims(iTmp)%dimLen
-            !force 1-sec precision 
-            times_parsed(iT) = real8_to_silja_time(1D0*nint(reftime_sec + incr_unit_sec * increments(iT),kind=8))
-          end do
-          
-        case('noleap', '365_day', 'all_leap', '366_day', '365_days')
-          !
-          ! All years are considered to have 365 or 366 days. Below julian dates are taken
-          ! wrt this. The algorithm is subject to roundoff errors, but using seconds
-          ! avoids this in most practical cases.
-          !
-          if (calendar_type == 'noleap' .or. calendar_type == '365_day' .or. calendar_type == '365_days') then 
-            days_year = 365
-            ref_year = 2007
-          else
-            days_year = 366
-            ref_year = 2008
-          end if
-          
-          tTmp = fu_set_time_utc(ref_year, &
-                           & fu_mon(time_start), fu_day(time_start), fu_hour(time_start), &
-                           & fu_min(time_start), fu_sec(time_start))
-          jul_date_start = fu_julian_date_real(tTmp)
-          incr_unit_sec = fu_conversion_factor(fu_str_l_case(incr_unit), 'sec')
-          
-          do iT = 1, nf%nDims(iTmp)%dimLen             
-            incr_sec = increments(iT) * real(incr_unit_sec, r8k)
-            incr_years = int((jul_date_start + incr_sec / (3600*24)) / days_year)
-            ! correct day and month, wrong year:
-            times_parsed(iT) = fu_julian_date_to_time(jul_date_start+(incr_sec/(24*3600)) &
-                                                    & - incr_years*days_year, ref_year)
-            times_parsed(iT) = fu_set_time_utc(fu_year(time_start) + incr_years, &
-                                         & fu_mon(times_parsed(iT)), &
-                                         & fu_day(times_parsed(iT)), &
-                                         & fu_hour(times_parsed(iT)), &
-                                         & fu_min(times_parsed(iT)), &
-                                         & fu_sec(times_parsed(iT)))
-          end do
-          if(error)return
-          
-        case ('360_day')
-          !
-          ! Stupid year with 30 days per month. CAREFUL
-          !
-          
-          incr_unit_days = fu_conversion_factor(fu_str_l_case(incr_unit), 'day')
-          days_year = 360
-          
-          incr_years = int(increments(iT) / days_year * incr_unit_days) ! years passed
-          incr_days = increments(iT) * incr_unit_days - incr_years * days_year  ! fraction of the year, [day]
-          nMon = int(incr_days / 30)
-          nDay = int(incr_days - nMon * 30)
-          nHr = int((incr_days - nMon * 30 - nDay) * 24)
-          nMin = int((incr_days - nMon * 30 - nDay - nHr/24) * 1440)
-          fSec = (incr_days - nMon * 30 - nDay - nHr/24 - nMin/1440) * 86400
-          nMon = fu_mon(time_start) + nMon
-          nDay = fu_day(time_start) + nDay
-          nHr = fu_hour(time_start) + nHr
-          nMin = fu_min(time_start) + nMin
-          fSec = fu_mon(time_start) + fSec
-          if(fSec >= 60)then 
-            fSec = fSec - 60
-            nMin = nMin + 1
-          endif
-          if(nMin >= 60)then
-            nMin = nMin - 60
-            nHr = nHr + 1
-          endif
-          if(nHr >= 24)then
-            nHr = nHr - 24
-            nDay = nDay + 1
-          endif
-          if(nDay > 30)then
-            nDay = nDay - 30
-            nMon = nMon + 1
-          endif
-          if(nMon > 12)then
-            nMon = nMon - 1
-            incr_years = incr_years + 1
-          endif
-          
-          times_parsed(iT) = fu_set_time_utc(fu_year(time_start) + incr_years, &
-                                       & nMon, &
-                                       & nDay, &
-                                       & nHr, &
-                                       & nMin, &
-                                       & fSec)
-          
-        case default
-          call set_error(fu_connect_strings('Unsupported calendar type: ', calendar_type), sub_name)
-          return
-        end select  ! type of calendar
-        
-      end subroutine parse_times
 
   end function open_netcdf_file_i
 

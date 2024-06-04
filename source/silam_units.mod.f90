@@ -553,7 +553,7 @@ module silam_units
           case('Bq','kBq','MBq')
             chSI_unit = 'Bq'
 
-          case('pg','ng','mkg','mg','g','kg','Mg','Gg','ton','kton','Mton','Gton','t','kt','Mt','Gt')
+          case('pg','ng','mkg', 'ug', 'mg','g','kg','Mg','Gg','ton','kton','Mton','Gton','t','kt','Mt','Gt')
             chSI_unit = 'kg'
 
           case default

@@ -785,6 +785,7 @@ CONTAINS
       if(quantities(iCount) == int_missing)exit
       if(fu_multi_level_quantity(quantities(iCount)))then
         n_flds3d = n_flds3d + 1
+        n_flds = n_flds + n_windflds  ! n_windflds == nlevs
       else
         n_flds = n_flds + 1
       endif

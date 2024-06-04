@@ -4816,6 +4816,10 @@ CONTAINS
     ! Local variables
     integer :: iSource
 
+    if (error) then
+        call set_error("Error set on start, returning","finalise_output")
+        return
+    endif
     !
     ! Write trajectories
     !
@@ -6605,6 +6609,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
     type(silam_sp) :: spContent, spSupplem, sp
     type(silam_species) :: speciesTmp
     type(silam_species), dimension (max_species) :: CustomList
+    character(len=substNmLen), dimension(max_species) :: arSubstNms
     integer :: nCustomSpecies
     real :: avUnit
     integer, dimension(:), pointer :: arQ
@@ -6772,7 +6777,7 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
           if(error)return
           if (any(fu_get_SILAM_quantity(chVar) == (/drydep_flag,wetdep_flag/))) then
             if (any(iInventory == (/iFullInventory, iShortLivingInventory/))) then
-              call msg_warning("No depositions for thes species:" + chSubstNm,  'read_output_configuration')
+              call msg_warning("No depositions for species:" + chSubstNm,  'read_output_configuration')
               call msg("Please correct your output config.")
               call msg("SOURCE_INVENTORY or TRANSPORT_INVENTORY might be good options")
               call set_error("Inventory "//trim(chSubstNm)//" is not allowed for "//trim(chVar), 'read_output_configuration')
@@ -6795,11 +6800,15 @@ call msg('Found species:' + fu_species_output_name(pSpeciesData(iSpecies)))
         if(arQ(iAvTmp) == int_missing)then
           arQ(iAvTmp) = iTmp    ! OK, new quantity
           arQ(iAvTmp+1) = int_missing
+          arSubstNms(iAvTmp) = chSubstNm
+          arSubstNms(iAvTmp+1) = ''
           exit
         endif
         if(arQ(iAvTmp) == iTmp)then
-          call set_error('Duplicate output quantity:' + chVar,'read_output_configuration')
-          return
+          if(arSubstNms(iAvTmp) == chSubstNm)then
+            call set_error('Duplicate output quantity:' + chVar,'read_output_configuration')
+            return
+          endif
         endif
       end do
       

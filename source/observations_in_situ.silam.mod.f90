@@ -27,10 +27,10 @@ module observations_in_situ
   public observe_in_situ
   public observe_eruption
 
-  public fu_initInSituObservation
+  public fu_initInSituObservation1
   public fu_initObservationStation
   public fu_initEruptionObservation
-  public fu_label
+  public fu_station_label
   public fu_lat
   public fu_lon
 
@@ -42,10 +42,11 @@ module observations_in_situ
   public inSituObservation
   public t_eruptionObservation
   public test_in_situ
-  public obs_to_file
+  public obs_to_file_in_situ
+  public obs_station_to_file_in_situ
   public fu_size
-  public get_data
-  public set_data
+  public get_data_in_situ
+  public get_data_eruption
   public report
   public get_localisation
   public restart_in_situ
@@ -73,21 +74,6 @@ module observations_in_situ
   interface defined
      module procedure fu_station_defined
   end interface
-
-  interface obs_to_file
-     module procedure obs_to_file_in_situ
-  end interface
-
-  interface set_data
-     module procedure set_data_in_situ
-     module procedure set_data_eruption
-  end interface
-
-  interface get_data
-     module procedure get_data_in_situ
-     module procedure get_data_eruption
-  end interface
-
 
   interface get_localisation
      module procedure get_localisation_in_situ
@@ -141,21 +127,22 @@ module observations_in_situ
 
   type inSituObservation
      ! something to identify this observation in the dump file.
-     character(len=substNmLen) :: tag = '???'
+     character(len=clen) :: tag = '???'
      integer :: iInterpolation =  nearest_point
      ! for each measurement:
      type(silja_time), dimension(:), allocatable :: endTimes   !startingTimes ! => null()
      type(silja_interval), dimension(:), allocatable :: durations
      ! the real observed data, and that "observed" from the model
-     real, dimension(:), allocatable :: obsData, modelData !!! silamMassUnit/kgAir or silamMassUnit/m3
+     real, dimension(:, :), allocatable :: obsData, modelData !!! silamMassUnit/kgAir or silamMassUnit/m3
                                                                   !! depending of ifmmr
-     real, dimension(:), allocatable :: variance  !! Square of Data
-     real, dimension(:), allocatable ::inject_scaling !! Scaling for inject depending on 
-                                    ! unit and  passmap metrics 
+     real, dimension(:,:), allocatable :: variance  !! (nt,nst) Square of Data unit
+     real, dimension(:,:), allocatable ::inject_scaling  !! (nt,nst)  Scaling for inject depending on 
+                                    ! unit and massmap metrics 
      logical :: ifmmr = .false. !! true: Treat observation as mixing ratio (silamMassUnit/kgAir)
                                 !! false: Treat observation as concentrations (silamMassUnit/m3)
 
-     type(observationStation) :: station = station_missing
+     type(observationStation), dimension(:), allocatable :: station
+     logical :: inThisSubdomain !! True if any station belongs to this subdomain
      integer :: ilevel = 1
 
      ! The mapping from (possibly several) transport to the observed species. Also
@@ -165,16 +152,19 @@ module observations_in_situ
      integer :: num_obs_species
 
      ! the length of data and modelData
-     integer :: dataLength
+     integer :: dataLength  !! valid observed data points in array. Those will be exposed to assimilator
+     ! The number of obsData that are not real_missing
+     ! For single-station observation it should be 
+     integer :: nStations, nTimes !! Array size 
 
      ! the counter. As the model proceeds, and observer/inject routines are
      ! called, the observation keeps a count of the index of current measurement.
-     ! In forward run, it runs from 1 to dataLength, and the opposite in the adjoint
+     ! In forward run, it runs from 1 to nTimes, and the opposite in the adjoint
      ! case.
      integer :: observationTimestep = 1
      integer :: time_direction
      ! Volume of the grid cell, for conversion from mass to concentration (only if geometrical metric used).
-     real :: cell_volume
+     real, dimension(:), allocatable :: cell_volume
   end type inSituObservation
 
   type t_eruptionObservation
@@ -194,12 +184,13 @@ contains
   ! locations, and time windows. The returned object is ready for use
   ! at any time.  Array pointers endTimes and durations should be
   ! allocated and dipersionGrid should be defined in advance.
+  !! WARNING: Initializes a single-station observation
 
 
   !***********************************************************************************************
 
 
-  function fu_initInSituObservation(endTimes, durations, obsData, variance, &
+  function fu_initInSituObservation1(endTimes, durations, obsData, variance, &
                                   & n_values, variance_flag, ifmmr,&
                                   & ind_obs2transp, scale_transp2obs, nSpecies, &
                                   & station, &
@@ -207,47 +198,55 @@ contains
                                   & result(newObservation)
     implicit none
     ! input
-    type(silja_time), dimension(:), intent(in)  :: endTimes
-    type(silja_interval), dimension(:), intent(in) :: durations
-    real, dimension(:), intent(in) :: obsData, variance
+    integer, intent(in) :: variance_flag, n_values, nSpecies
+    type(silja_time), dimension(n_values), intent(in)  :: endTimes
+    type(silja_interval), dimension(n_values), intent(in) :: durations
+    real, dimension(n_values), intent(in) :: obsData, variance
     integer, dimension(:), intent(in) :: ind_obs2transp
     real, dimension(:), intent(in) :: scale_transp2obs
     logical, intent(in) :: ifmmr
-    integer, intent(in) :: variance_flag, n_values, nSpecies
     ! the durations are currently assumed to be given in hours. True,
     ! silja_interval would make sense in this context.
-    type(observationStation), intent(in), target:: station
+    type(observationStation), intent(in) :: station
     type(silam_vertical), intent(in) :: vertical
     character(len=*), intent(in) :: tag
 
     type(inSituObservation) :: newObservation
 
+    !
+    ! This sub only sets a single-station observation
+    ! for multistation observations NetCDF input of TSMartix to be used
+
     ! local
     integer :: status, isp_obs
 
     allocate(newobservation%endTimes(n_values), newObservation%durations(n_values), &
-           & newObservation%obsData(n_values), newObservation%variance(n_values), &
-           & newObservation%modelData(n_values), newObservation%inject_scaling(n_values), &
+           & newObservation%obsData(1,n_values), newObservation%variance(1,n_values), &
+           & newObservation%modelData(1,n_values), newObservation%inject_scaling(1,n_values), &
            & newObservation%ind_obs2transp(nSpecies), &
+           & newObservation%station(1), &
            & newObservation%scale_transp2obs(nSpecies),stat=status)
     if(fu_fails(status == 0, 'Allocate failed', 'fu_initInSituObservation1'))return
 
     newObservation%tag = tag
     newObservation%endTimes = endTimes(1:n_values)
     newObservation%durations = durations(1:n_values)
-    newObservation%obsData = obsData(1:n_values)
+    newObservation%obsData(1,:) = obsData(1:n_values)
     newObservation%dataLength = n_values
-    newObservation%station = station
+    newObservation%nTimes = n_values 
+    newObservation%nStations = 1
+    newObservation%station(1) = station
+    newObservation%inThisSubdomain = station%inThisSubdomain !! Here we have the only station
     newObservation%ifmmr = ifmmr
 
-    newObservation%modelData(:) = 0.0
-    newObservation%inject_scaling(:) = 0.0 !! They will be filled
+    newObservation%modelData(:,:) = 0.0
+    newObservation%inject_scaling(:,:) = 0.0 !! They will be filled
 
     select case(variance_flag)
     case (variable_variance)
-      newObservation%variance = variance(1:n_values)
+      newObservation%variance(1,:) = variance(1:n_values)
     case (constant_variance)
-      newObservation%variance(:) = variance(1)
+      newObservation%variance(1,:) = variance(1)
     case default
       call set_error('Strange variance_flag', 'fu_initInSituObservation1')
       return
@@ -262,9 +261,9 @@ contains
     newObservation%cell_volume = newObservation%station%cell_area * &
                                             & fu_layer_thickness_m(fu_level(vertical, 1))
 
-    newObservation%obsData = obsData(1:n_values)
+    newObservation%obsData(1,:) = obsData(1:n_values)
 
-  end function fu_initInSituObservation
+  end function fu_initInSituObservation1
 
   function fu_initEruptionObservation(endTime, duration, obsData, variance, &
                                   & lat, lon, n_values, tag) &
@@ -306,7 +305,7 @@ contains
 
   !***********************************************************************************************
 
-  function fu_initObservationStation(ID, label, lon, lat, z, grid) result(new_station)
+  function fu_initObservationStation(ID, label, lon, lat, z) result(new_station)
 
     ! Create an observation station. Dispersion grid is needed for computing the
     ! projection from the geo grid. No interpolation is implemented due to
@@ -316,7 +315,6 @@ contains
     implicit none
     character(len=*), intent(in) :: id, label
     real, intent(in) :: lat, lon, z ! z doesn't do anything yet
-    type(silja_grid), intent(in) :: grid
 
     type(observationStation) :: new_station
 
@@ -422,27 +420,44 @@ contains
     type(silam_species), dimension(:), intent(in) :: species_trn
     integer, intent(in) :: file_unit
 
-    integer :: ii
+    integer :: ii, iT, iSt
     character (len=worksize_string) :: sp
-
-    if (.not.  obs%station%inThisSubdomain) return !! Report only our stations
 
     sp = fu_str(species_trn(obs%ind_obs2transp(1)))
     do ii = 2, size(obs%ind_obs2transp)
       sp = sp + "__" + fu_str(species_trn(obs%ind_obs2transp(ii)))
-    end do
+    enddo
 
-    do ii = 1, obs%datalength
-      write(file_unit, fmt='(2(A,1x), I4, 2I3, 1x, 2(F5.2,1x), 3G12.3)') &
-                  & trim(obs%station%id), trim(sp), &
-                  & fu_year(obs%endTimes(ii)), fu_mon(obs%endTimes(ii)), fu_day(obs%endTimes(ii)), &
-                  & fu_hour(obs%endTimes(ii)) + fu_min(obs%endTimes(ii)) / 60. + &
-                                              & fu_sec(obs%endTimes(ii)) / 3600., &
-                  & fu_hours(obs%durations(ii)), &
-                  & obs%obsData(ii), obs%modeldata(ii), obs%variance(ii)
-    end do
+    do iSt = 1, obs%nStations
+      do iT = 1, obs%nTimes
+        if (obs%obsData(iSt,iT) == real_missing) cycle
+        write(file_unit, fmt='(2(A,1x), I4, 2I3, 1x, 2(F9.2,1x), 4G12.3)') &
+                    & trim(obs%station(iSt)%id), trim(sp), &
+                    & fu_year(obs%endTimes(iT)), fu_mon(obs%endTimes(iT)), fu_day(obs%endTimes(iT)), &
+                    & fu_hour(obs%endTimes(iT)) + fu_min(obs%endTimes(iT)) / 60. + &
+                                                & fu_sec(obs%endTimes(iT)) / 3600., &
+                    & fu_hours(obs%durations(iT)), &
+                    & obs%obsData(iSt,iT), obs%modelData(iSt,iT), obs%variance(iSt,iT), obs%inject_scaling(iSt,iT)
+      enddo !iT
+    enddo !iSt
   end subroutine obs_to_file_in_situ
 
+  !************************************************************************************
+  subroutine obs_station_to_file_in_situ(obs, file_unit,ifHead)
+    implicit none
+    type(inSituOBservation), intent(in) :: obs
+    logical, intent(in) :: ifHead
+    integer, intent(in) :: file_unit
+    integer :: iSt
+
+    if (ifHead) write(file_unit, fmt='(A)') '# ID lon lat label'
+
+    do iSt = 1, obs%nStations
+      write(file_unit, fmt='(A35,X,F10.5, X,F10.5,X,A)') &
+                 & obs%station(iSt)%id, obs%station(iSt)%lon, obs%station(iSt)%lat, obs%station(iSt)%label
+    enddo
+
+  end subroutine obs_station_to_file_in_situ
 
 
   !**********************************************************************************
@@ -462,9 +477,8 @@ contains
     type(silja_interval), intent(in) :: timestep
     integer, intent(in) :: iThread, nThreads
 
-    integer :: ind_obs, iSeconds, ind_src, ix_obs, iy_obs, ilev_obs, isp_obs
+    integer :: iTobs, iSeconds, ind_src, ix_obs, iy_obs, ilev_obs, isp_obs, iSt
     real ::  obs_val, mdl_val, inject_mass, mass_fract
-    real :: cmX, cmY !! Station location with respect to the cell-center (+- 0.5)
     real ::  mOld, mAdd ! mass in the map prior to inhection and it increment
     integer :: isp_transp
     type(silja_interval) :: overlap
@@ -472,17 +486,13 @@ contains
     type(silja_time) :: obs_start, step_start !Earliest time of the step (timestep+now)
     character(len=*), parameter :: sub_name = 'inject_in_situ'
 
-    if (.not. obs%station%inThisSubdomain) return ! Station from foreign subdomain
+    if (.not. obs%inThisSubdomain) return ! All statons from foreign subdomain
 
-    ix_obs = obs%station%ix_dispersion
-    if (mod(ix_obs, nThreads) /= iThread) return !!!Make it possible for parallel injection
-    iy_obs = obs%station%iy_dispersion
-    cmX = obs%station%xLoc_dispGrid     ! injection goes into the centre of mass == location of station
-    cmY = obs%station%yLoc_dispGrid
-    ilev_obs = obs%station%ind_lev
+    ix_obs = obs%station(1)%ix_dispersion
+    if (obs%nstations==1 .and.  mod(ix_obs, nThreads) /= iThread) return !!!speedup single-station injection
 
     if (obs%time_direction == forwards) then
-      obs%observationTimestep = obs%datalength
+      obs%observationTimestep = obs%nTimes
       obs%time_direction = backwards
     end if
 
@@ -495,23 +505,23 @@ contains
     !!
     step_start = now + timestep !negative timesep! earliest time to inject
     ! fast-backward through later observations
-    do ind_obs = obs%observationTimestep,1,-1
-      obs_start =  obs%endTimes(ind_obs) - obs%durations(ind_obs)
+    do iTobs = obs%observationTimestep,1,-1
+      obs_start =  obs%endTimes(iTobs) - obs%durations(iTobs)
       if (obs_start <= now) exit  !observation might affect current time step
     enddo
 
-    if (ind_obs < 1) return ! no more obs
+    if (iTobs < 1) return ! no more obs
 
-    obs%observationTimestep = ind_obs !save for future use
+    obs%observationTimestep = iTobs !save for future use
 
     
-    do ind_obs = obs%observationTimestep,1,-1
+    do iTobs = obs%observationTimestep,1,-1
 
       fWeight = 0.
       if ( iSeconds == 0) then  !! instant massmap (e.g. 3Dvar) -> only instant obs. possible
-        if (obs%endTimes(ind_obs) < step_start) exit  !observation is fully before 
-        if (obs%endTimes(ind_obs) ==  now) then
-            if (.not. obs%durations(ind_obs) == zero_interval) then
+        if (obs%endTimes(iTobs) < step_start) exit  !observation is fully before 
+        if (obs%endTimes(iTobs) ==  now) then
+            if (.not. obs%durations(iTobs) == zero_interval) then
               call set_error("Non-instant observation from instant step", sub_name)
             endif
             fWeight = 1.
@@ -519,9 +529,9 @@ contains
         endif
       else  
         !finite  time steps
-        if (obs%endTimes(ind_obs) <= step_start) exit  !observation is fully before or at 
+        if (obs%endTimes(iTobs) <= step_start) exit  !observation is fully before or at 
 
-       if ( fu_sec(obs%durations(ind_obs)) < 1.) then
+       if ( fu_sec(obs%durations(iTobs)) < 1.) then
          !instant
          fWeight = 1.
        else
@@ -531,9 +541,9 @@ contains
 
 
 
-         fObsEnd = (fu_sec(obs%endTimes(ind_obs) - now)) / (-iSeconds)
+         fObsEnd = (fu_sec(obs%endTimes(iTobs) - now)) / (-iSeconds)
          if (fObsEnd < -1.) call set_error("Must never happen",sub_name)
-         fObsDur = fu_sec(obs%durations(ind_obs)) / (-iSeconds)
+         fObsDur = fu_sec(obs%durations(iTobs)) / (-iSeconds)
              !                                                                !
              !                          |                                     !
              !                          |                                     !
@@ -563,51 +573,58 @@ contains
       if ( fWeight < 1e-5) cycle
 
       
+      do iSt = 1, obs%nStations
+        if (.not. obs%station(iSt)%inThisSubdomain) cycle 
+        !Actual value to the massmap
 
-      !Actual value to the massmap
 
+        ix_obs = obs%station(iSt)%ix_dispersion
+        if (mod(ix_obs, nThreads) /= iThread) cycle !!!Make it possible for parallel injection
+        iy_obs = obs%station(iSt)%iy_dispersion
+        ilev_obs = obs%station(iSt)%ind_lev
+        !!! separate positive, zeros and negative
+        obs_val = obs%obsData(iSt,iTobs)
+        if (obs_val == real_missing) cycle
+        mdl_val = obs%modelData(iSt,iTobs)
+        if (abs(obs_val) <  5e-15) then  ! nasty: dimentional variable
+          ind_src = DA_ZERO
+        else if (obs_val > mdl_val) then
+          ind_src = DA_NEGATIVE
+          fWeight = fWeight*DA_NEGT_COEF_OBS
+        else
+          ind_src = DA_POSITIVE
+        end if
 
-      !!! separate positive, zeros and negative
-      obs_val = obs%obsData(ind_obs)
-      mdl_val = obs%modelData(ind_obs)
-      if (abs(obs_val) <  5e-15) then  ! nasty: dimentional variable
-        ind_src = DA_ZERO
-      else if (obs_val > mdl_val) then
-        ind_src = DA_NEGATIVE
-        fWeight = fWeight*DA_NEGT_COEF_OBS
-      else
-        ind_src = DA_POSITIVE
-      end if
-
-      inject_mass = fWeight * (mdl_val - obs_val)  * observation_scaling /obs%variance(ind_obs)
-      !! Handles inconsistency between massmap metrics and observed quantity
-      inject_mass = inject_mass  * obs%inject_scaling(ind_obs) 
+        inject_mass = fWeight * (mdl_val - obs_val)  * observation_scaling /obs%variance(iSt, iTobs)
+        !! Handles inconsistency between massmap metrics and observed quantity
+        inject_mass = inject_mass * obs%inject_scaling(iSt, iTobs)
+       !!call msg("INJ: "//trim(obs%station(iSt)%ID), inject_mass)
 #ifdef DEBUG_OBS
-obs_start =  obs%endTimes(ind_obs) - obs%durations(ind_obs)
+obs_start =  obs%endTimes(iTobs) - obs%durations(iTobs)
 call msg("")
-call msg(trim(fu_str(ind_obs))//' obs_start: ' // fu_str(obs_start) // ', obs_end: ' // fu_str(obs%endTimes(ind_obs) ) // ', now: '// fu_str(now))
-call msg('Station ' // trim(obs%station%id)//': obs , model',  obs%obsData(ind_obs), obs%modeldata(ind_obs))
+call msg(trim(fu_str(iTobs))//' obs_start: ' // fu_str(obs_start) // ', obs_end: ' // fu_str(obs%endTimes(iTobs) ) // ', now: '// fu_str(now))
+call msg('Station ' // trim(obs%station(iSt)%id)//': obs , model',  obs%obsData( obs%modeldata(iTobs,iTobs)))
 call msg('Fraction to inject:', fWeight )
 
 #endif 
 
+          !call msg('weight, var', weight, obs%variance(iTobs))
+          do isp_obs = 1, obs%num_obs_species
+            isp_transp = obs%ind_obs2transp(isp_obs)
+            mass_fract = obs%scale_transp2obs(isp_obs)
+            if (mass_fract > 0.0) then
 
-      !call msg('weight, var', weight, obs%variance(ind_obs))
-      do isp_obs = 1, obs%num_obs_species
-        isp_transp = obs%ind_obs2transp(isp_obs)
-        mass_fract = obs%scale_transp2obs(isp_obs)
-        if (mass_fract > 0.0) then
+              !call msg('Injecting mass in:' + fu_str(ix_obs) + ',' &
+              !       & + fu_str(iy_obs), mass_fract*weight*inject_mass)
 
-          !call msg('Injecting mass in:' + fu_str(ix_obs) + ',' &
-          !       & + fu_str(iy_obs), mass_fract*weight*inject_mass)
-
-          map_c%ifColumnValid(ind_src, ix_obs, iy_obs) = .true.
-          map_c%ifGridValid(1, ind_src) = .true.
-          mOld = map_c%arm(isp_transp,ind_src,ilev_obs,ix_obs, iy_obs) !What is there
-          mAdd = mass_fract*inject_mass !increment
-          map_c%arm(isp_transp,ind_src,ilev_obs,ix_obs, iy_obs)  = mOld + mAdd
-        end if   ! mass_fract > 0
-     end do   ! obs_species
+              map_c%ifColumnValid(ind_src, ix_obs, iy_obs) = .true.
+              map_c%ifGridValid(1, ind_src) = .true.
+              mOld = map_c%arm(isp_transp,ind_src,ilev_obs,ix_obs, iy_obs) !What is there
+              mAdd = mass_fract*inject_mass !increment
+              map_c%arm(isp_transp,ind_src,ilev_obs,ix_obs, iy_obs)  = mOld + mAdd
+            end if   ! mass_fract > 0
+         end do   ! obs_species
+      enddo !! iSt
 
     end do ! loop over measurements
 
@@ -635,12 +652,13 @@ call msg('Fraction to inject:', fWeight )
     type(silja_interval), intent(in) :: timestep
     type(TField_buffer), intent(in) :: disp_buf_ptr
 
-    integer :: ind_obs, iSeconds
-    real :: val, fObsEnd,fObsDur,fOverStart,fOverEnd,fL,fR, fWeight, mass2obs, delta2injmass
+    integer :: iTobs, iSeconds
+    real, dimension(obs%nStations) :: val, mass2obs, delta2injmass
+    real :: fObsEnd,fObsDur,fOverStart,fOverEnd,fL,fR, fWeight
     type(silja_time) :: time_start, time_end !Debug output
     character(len=*), parameter :: sub_name = 'observe_in_situ'
 
-    if (.not. obs%station%inThisSubdomain) return ! Station from foreign subdomain
+    if (.not. obs%inThisSubdomain) return ! No stations from obs to observe here
 
     if (obs%time_direction == backwards) then
       obs%observationTimestep = 1
@@ -655,35 +673,35 @@ call msg('Fraction to inject:', fWeight )
 
 
     time_start = now-timestep !Sic! earliest time that can be affected by "now"
-    do ind_obs = obs%observationTimestep, obs%datalength
-        if (obs%endTimes(ind_obs) >= time_start) exit
+    do iTobs = obs%observationTimestep, obs%nTimes
+        if (obs%endTimes(iTobs) >= time_start) exit
     enddo
 
-    if (ind_obs > obs%datalength) return ! no more obs
+    if (iTobs > obs%nTimes) return ! no more obs
 
-    obs%observationTimestep = ind_obs !save for future use
+    obs%observationTimestep = iTobs !save for future use
 
 
     ! Distribute it over slots
-    val = real_missing
-    do ind_obs = obs%observationTimestep, obs%datalength
+    val(1) = real_missing
+    do iTobs = obs%observationTimestep, obs%nTimes
       fWeight = 0.
       if ( iSeconds == 0) then  !! instant massmap (e.g. 3Dvar) -> only instant obs. possible
-        if (obs%endTimes(ind_obs) ==  now) then
-            if (.not. obs%durations(ind_obs) == zero_interval) then
+        if (obs%endTimes(iTobs) ==  now) then
+            if (.not. obs%durations(iTobs) == zero_interval) then
               call set_error("Non-instant observation from instant step", sub_name)
             endif
             fWeight = 1.
 
         endif
-        if (obs%endTimes(ind_obs) > now) exit
+        if (obs%endTimes(iTobs) > now) exit
       else
 
        !normalize all times so that [now-timestep:now+timestep] maps to [-1 : 1] 
-         fObsEnd = (fu_sec(obs%endTimes(ind_obs) - now)) / iSeconds
+         fObsEnd = (fu_sec(obs%endTimes(iTobs) - now)) / iSeconds
          if (fObsEnd < -1.) call set_error("Must never happen",sub_name)
 
-         fObsDur = fu_sec(obs%durations(ind_obs)) / iSeconds
+         fObsDur = fu_sec(obs%durations(iTobs)) / iSeconds
              !                        1_|                                     !
              !                          ^                                     !
              !                         /|\                                    !
@@ -721,32 +739,34 @@ call msg('Fraction to inject:', fWeight )
 
       !Actual value from the massmap
       if (fWeight > 0) then
-        if (val == real_missing) then
+        if (val(1) == real_missing) then
              call   mass_to_obs_scalingAtStation(mass2obs, delta2injmass, obs, map_c, disp_buf_ptr, &
                                    & cloud_metric_flag, iSpOnes, now)
-           val = mass2obs * fu_getValueAtStation(obs, map_c, map_cmX, map_cmY, now)
+           val = fu_getValueAtStation(obs, map_c, map_cmX, map_cmY)
+           val = val * mass2obs
         endif
-!        if (obs%modeldata(ind_obs) /= 0)then
-!          call msg('obs%modeldata(ind_obs) /= 0:', ind_obs, obs%modeldata(ind_obs))
-!          call msg_warning('obs%modeldata(ind_obs) /= 0:', 'observe_in_situ')
+!        if (obs%modeldata(iTobs) /= 0)then
+!          call msg('obs%modelData( iTobs, obs%modeldata(iTobs,iTobs) /= 0:'))
+!          call msg_warning('obs%modelData( 'observe_in_situ',iTobs) /= 0:')
 !        endif
-        obs%modeldata(ind_obs) = obs%modeldata(ind_obs) + fWeight*val
+        obs%modelData(:,iTobs) = obs%modelData(:,iTobs) + fWeight*val(:)
         !! Here we assume that scaling also averages
-        obs%inject_scaling(ind_obs)   = obs%inject_scaling(ind_obs) + fWeight * delta2injmass
+        obs%inject_scaling(:,iTobs)   = obs%inject_scaling(:,iTobs) + fWeight * delta2injmass
 
 
 #ifdef DEBUG_OBS
-time_end = obs%endTimes(ind_obs)
-time_start = time_end - obs%durations(ind_obs)
+time_end = obs%endTimes(iTobs)
+time_start = time_end - obs%durations(iTobs)
 call msg('obs_start: ' // fu_str(time_start) // ', obs_end: ' // fu_str(time_end) // ', now: '// fu_str(now))
 call msg('obs: ' // trim(obs%station%id))
-call msg('step, obs data', ind_obs, obs%obsData(ind_obs))
-call msg('modeldata, new val', obs%modeldata(ind_obs), val)
+call msg('step, obs data tStep='//fu_str(iTobs), obs%obsData(iTobs,:))
+call msg('modeldata', obs%modelData(iTobs,:))
+call msg('val',  val)
 call msg('Mean over concentration', sum(map_c%arM))
 #endif
       endif
 
-    enddo !ind_obs
+    enddo !iTobs
 
   end subroutine observe_in_situ
 
@@ -762,33 +782,56 @@ call msg('Mean over concentration', sum(map_c%arM))
   !************************************************************************************
   ! get_data/set_data: collect the observed model values into arrays, or set them from an
   ! array (the latter is used by the line search algorithm).
+
   subroutine get_data_in_situ(obs, values_obs, values_mdl, variance)
     implicit none
     type(inSituObservation), intent(in) :: obs
     real, dimension(:), intent(out), optional :: values_obs, values_mdl, variance
 
-    integer :: ii
+    integer :: ii, iT, iSt
 
-    if (present(values_obs)) then
-      do ii = 1, obs%datalength
-        values_obs(ii) = obs%obsData(ii)
+   !!   call msg("obs%dataLength "//trim(obs%tag), (/obs%nTimes, obs%nStations, obs%dataLength/))
+    ii = 0
+    do iT = 1, obs%nTimes
+      do iSt = 1, obs%nStations
+        if (obs%obsData(iSt,iT) == real_missing) cycle
+        ii = ii + 1
+        if (present(values_obs)) values_obs(ii) = obs%obsData(iSt,iT)
+        if (present(values_mdl)) values_mdl(ii) = obs%modelData(iSt,iT)
+        if (present(variance)) variance(ii) = obs%variance(iSt,iT)
       end do
-    end if
+    end do
 
-    if (present(values_mdl)) then
-      do ii = 1, obs%datalength
-        values_mdl(ii) = obs%modeldata(ii)
-      end do
-    end if
-
-    if (present(variance)) then
-      do ii = 1, obs%datalength
-        variance(ii) = obs%variance(ii)
-      end do
-    end if
+    if (ii /= obs%dataLength) &
+      & call set_error("Mismatch in valid data size", "get_data_in_situ")
 
   end subroutine get_data_in_situ
 
+  !************************************************************************************
+
+  subroutine set_data_in_situ(obs, values_mdl)
+    !! Set obs data: to be done after sub_domain exchange
+    implicit none
+    type(inSituObservation), intent(inout) :: obs
+    real, dimension(:), intent(in), optional :: values_mdl
+
+    integer :: ii, iT, iSt
+
+    ii = 0
+    do iT = 1, obs%nTimes
+      do iSt = 1, obs%nStations
+        if (obs%obsData(iSt,iT) == real_missing) cycle
+        ii = ii + 1
+        obs%modelData(iSt,iT) = values_mdl(ii)
+      end do
+    end do
+
+    if (ii /= obs%dataLength) &
+      & call set_error("Mismatch in valid data size", "set_data_in_situ")
+
+  end subroutine set_data_in_situ
+
+  !************************************************************************************
 
   subroutine get_data_eruption(obs, values_obs, values_mdl, variance)
     implicit none
@@ -809,51 +852,43 @@ call msg('Mean over concentration', sum(map_c%arM))
 
   end subroutine get_data_eruption
 
-  subroutine set_data_eruption(obs, values_obs, values_mdl, variance)
+  !************************************************************************************
+
+  subroutine set_data_eruption(obs, values_mdl)
     implicit none
     type(t_eruptionObservation), intent(inout) :: obs
-    real, dimension(:), intent(in), optional :: values_obs, values_mdl, variance
+    real, dimension(:), intent(in) :: values_mdl
 
     integer :: ind_param
 
-    if (present(values_obs)) then
-      obs%obs_eruption_height(1) = values_obs(1)
-    end if
-    if (present(values_mdl)) then
       obs%model_eruption_height(1) = values_mdl(1)
-    end if
-    if (present(variance)) then
-      obs%variance(1) = variance(1)
-    end if
 
   end subroutine set_data_eruption
 
-  subroutine set_data_in_situ(obs, values_mdl)
-    implicit none
-    type(inSituObservation), intent(inout) :: obs
-    real, dimension(:), intent(in) :: values_mdl
-
-    integer :: ii
-
-    do ii = 1, obs%datalength
-      obs%modeldata(ii) = values_mdl(ii)
-    end do
-
-  end subroutine set_data_in_situ
+  !************************************************************************************
 
   subroutine get_localisation_in_situ(obs, lonlats)
     implicit none
     type(inSituObservation), intent(in) :: obs
     real, dimension(:,:), intent(out) :: lonlats
 
-    integer :: ii
+    integer :: ii, iSt, iT
 
-    do ii = 1, obs%datalength
-      lonlats(1,ii) = obs%station%lon
-      lonlats(2,ii) = obs%station%lat
+    ii = 0
+    do iT = 1, obs%nTimes
+      do iSt = 1, obs%nStations
+        if (obs%obsData(iSt,it) == real_missing) cycle
+        ii = ii + 1
+        lonlats(1,ii) = obs%station(iSt)%lon
+        lonlats(2,ii) = obs%station(iSt)%lat
+      end do
     end do
+    if (ii /= obs%dataLength) &
+      & call set_error("Mismatch in valid data size", "get_localisation_in_situ")
 
   end subroutine get_localisation_in_situ
+
+  !************************************************************************************
 
   subroutine get_localisation_eruption(obs, lonlats)
     implicit none
@@ -940,12 +975,12 @@ call msg('Mean over concentration', sum(map_c%arM))
     call grid_dimensions(grid, nx, ny)
     lon = fu_lon_native_from_grid(real(nx/2), real(ny/2), grid)
     lat = fu_lat_native_from_grid(real(nx/2), real(ny/2), grid)
-    station = fu_initObservationStation('S1', 'S1', lon, lat, 10.0, grid)
-    obs = fu_initInSituObservation(obs_times_start, obs_durations, obs_data, variance, &
+    station = fu_initObservationStation('S1', 'S1', lon, lat, 10.0)
+    obs = fu_initInSituObservation1(obs_times_start, obs_durations, obs_data, variance, &
       & obs_len, constant_variance, .false., & !!ifmmr = .false.
                                  & ind_obs2transp,scale_transp2obs, 1, station, vert, 'test')
     if (error) return
-    obs%obsData = obs_data
+    obs%obsData(1,:) = obs_data
     call set_mass_map(map_c,  concentration_flag, 3, 0, grid, vert, (/species/), val=2.0)
     call set_mass_map(map_px, advection_moment_x_flag, 3, 0, grid, vert, (/species/), val=0.0)
     call set_mass_map(map_py, advection_moment_y_flag, 3, 0, grid, vert, (/species/), val=0.0)
@@ -1011,14 +1046,13 @@ call msg('Mean over concentration', sum(map_c%arM))
 
   !**********************************************************************************
 
-  function fu_getValueAtStation(obs, mapConc, map_cmX, map_cmY, now) result(v)
+  function fu_getValueAtStation(obs, mapConc, map_cmX, map_cmY) result(v)
     !gets a value corresponding to the  observation from the massmap
 
     implicit none
-    real :: v
     type(InSituObservation), intent(in) :: obs
     type(Tmass_map), intent(in)  :: mapConc, map_cmX, map_cmY ! concentrations and mass centres
-    type(silja_time), intent(in) :: now
+    real, dimension(obs%nStations) :: v  !! Vector of values
 
     integer :: ispecies_transp, ispecies_obs, iTmp
     real :: fract, weight, weight_past, cmX, cmY, fStdX, fStdY
@@ -1026,19 +1060,20 @@ call msg('Mean over concentration', sum(map_c%arM))
 
     real :: air_mass, air_dens, ones_mass
     logical :: ifNeedDens, ifNeedCellmass 
+    integer :: iSt !! Station index of the observation
 
 
     integer :: ind_air_mass, ind_air_dens
     character(len=*), parameter :: sub_name = 'fu_getValueAtStation'
 
-    v = 0.  !! Should stay zero if the station fully out of our domain
+    v(:) = 0.  !! Should stay zero if the station fully out of our domain
     ! Whole domain is obtained by smpi_allreduce_add
     ! Warning! Stations not filled by anyone will be silently reported as zeros
     !
     ! There can be several ways to deal with data extraction.
-    ! For the time being, we allow either grid-cell average (a.c.a. nearest_neighbour)
+    ! For the time being, we allow either grid-cell average (a.k.a. nearest_neighbour)
     ! or interpolated to the mass centre point. In the latter case, we limit the variation
-    ! of the mass-centre to the extent when trapecoid turns into triangle: empty space
+    ! of the mass-centre to the extent when trapezoid turns into triangle: empty space
     ! in the grid cell is not allowed. Hence, -1/6 < cm < 1/6
     !
     ! For the stations from outside the domain coordinates set 
@@ -1047,38 +1082,44 @@ call msg('Mean over concentration', sum(map_c%arM))
 
     select case(obs%iInterpolation)
     case(nearest_point)
-      
-      do ispecies_obs = 1, obs%num_obs_species
-        ispecies_transp = obs%ind_obs2transp(ispecies_obs)
-        fract = obs%scale_transp2obs(ispecies_obs)
-        
-        !!!! 
-        v = v + mapconc%arm(ispecies_transp, 1, obs%iLevel, obs%station%ix_dispersion, &
-               & obs%station%iy_dispersion)  * fract 
+      do iSt = 1, obs%nStations
+        if (.not. obs%station(iSt)%inThisSubdomain) cycle 
+        do ispecies_obs = 1, obs%num_obs_species
+          ispecies_transp = obs%ind_obs2transp(ispecies_obs)
+          fract = obs%scale_transp2obs(ispecies_obs)
+          
+          !!!! 
+          v(iSt) = v(iSt) + mapconc%arm(ispecies_transp, 1, obs%iLevel, obs%station(iSt)%ix_dispersion, &
+                 & obs%station(iSt)%iy_dispersion)  * fract 
 
-      enddo !iSp                                                                                                                               
+        enddo !iSp
+      enddo ! iSt
       
     case(linear)
       call set_error('Linear interpolation between the grid cells is considered wrong',sub_name)
       return
       
     case(toMassCentreLinear)
-      do ispecies_obs = 1, obs%num_obs_species
-        ispecies_transp = obs%ind_obs2transp(ispecies_obs)
-        fract = obs%scale_transp2obs(ispecies_obs)
-        cmX = max(-fZcTrimax, min(fZcTrimax, map_cmX%arm(ispecies_transp, 1, obs%ilevel, &
-             & obs%station%ix_dispersion, &
-             & obs%station%iy_dispersion)))
-        cmY = max(-fZcTrimax, min(fZcTrimax, map_cmY%arm(ispecies_transp, 1, obs%ilevel, &
-             & obs%station%ix_dispersion, &
-             & obs%station%iy_dispersion)))
-        fStdX = obs%station%xLoc_dispGrid
-        fStdY = obs%station%yLoc_dispGrid
-        ! Slope on each dimension is: 12 * cm                                                                                                  
-        weight = (1. + 12. * cmX * fStdX) * (1. + 12. * cmY * fStdY)
-        v = v + mapconc%arm(ispecies_transp, 1, obs%iLevel, obs%station%ix_dispersion, &
-             & obs%station%iy_dispersion) * fract * weight
-      enddo !iSp                                                                                                                               
+      do iSt = 1, obs%nStations
+        if (.not. obs%station(iSt)%inThisSubdomain) cycle 
+        do ispecies_obs = 1, obs%num_obs_species
+          ispecies_transp = obs%ind_obs2transp(ispecies_obs)
+          fract = obs%scale_transp2obs(ispecies_obs)
+          cmX = max(-fZcTrimax, min(fZcTrimax, map_cmX%arm(ispecies_transp, 1, obs%ilevel, &
+               & obs%station(iSt)%ix_dispersion, &
+               & obs%station(iSt)%iy_dispersion)))
+          cmY = max(-fZcTrimax, min(fZcTrimax, map_cmY%arm(ispecies_transp, 1, obs%ilevel, &
+               & obs%station(iSt)%ix_dispersion, &
+               & obs%station(iSt)%iy_dispersion)))
+          fStdX = obs%station(iSt)%xLoc_dispGrid
+          fStdY = obs%station(iSt)%yLoc_dispGrid
+          ! Slope on each dimension is: 12 * cm                                                                                                  
+          weight = (1. + 12. * cmX * fStdX) * (1. + 12. * cmY * fStdY)
+          v(iSt) = v(iSt) + mapconc%arm(ispecies_transp, 1, obs%iLevel, obs%station(iSt)%ix_dispersion, &
+               & obs%station(iSt)%iy_dispersion) * fract * weight
+        enddo !iSp
+      enddo ! iSt
+
     case default
       call set_error('Unknown interpolation type:' + fu_str(toMassCentreLinear),sub_name)
       return
@@ -1093,16 +1134,16 @@ call msg('Mean over concentration', sum(map_c%arM))
     !gets a value corresponding to the  observation from the massmap
 
     implicit none
-    real, intent(out) :: mass2obs, & !! Scale massmap quantity to observed units
+    type(InSituObservation), intent(in) :: obs
+    real, dimension(obs%nStations), intent(out) :: mass2obs, & !! Scale massmap quantity to observed units
                      & delta2injmass !! scale injected discrepancy  (obs - mod)/variance according 
                                      !! to the used massmap metric
-    type(InSituObservation), intent(in) :: obs
     type(Tmass_map), intent(in)  :: mapConc ! concentrations, inly ones might be needed
     integer, intent(in) :: cloud_metric_flag, iSpOnes
     type(TField_buffer), intent(in) :: buf !Dispersion buffer
     type(silja_time), intent(in) :: now
 
-    integer :: ispecies_transp, ispecies_obs, iTmp
+    integer :: ispecies_transp, ispecies_obs, iDisp, iSt
     real :: weight_past
 
     real :: air_mass, air_dens, ones_mass
@@ -1117,7 +1158,6 @@ call msg('Mean over concentration', sum(map_c%arM))
     if (ifNeedCellmass .or. ifNeedDens) then
       !! weight_past is normally for the mid-timestep here we are at the 'moment' 
       weight_past = (buf%time_future - now) / (buf%time_future - buf%time_past)
-      iTmp = obs%station%ix_dispersion+(obs%station%iy_dispersion-1)*mapConc%nx !!Dispersion index
     endif
 
     if (ifNeedDens) then
@@ -1127,53 +1167,68 @@ call msg('Mean over concentration', sum(map_c%arM))
         call set_error('Failed to find the air density field', sub_name)
         return
       end if
-      
-      air_dens = buf%p4d(ind_air_dens)%past%p2d(obs%iLevel)%ptr(iTmp) * weight_past + &
-                 & buf%p4d(ind_air_dens)%future%p2d(obs%iLevel)%ptr(iTmp) * (1. - weight_past)
     endif
 
-
-    select case (cloud_metric_flag)
-      case (cloud_metric_geometry_flag)
-         if (obs%ifmmr) then
-           mass2obs = 1. / (obs%cell_volume * air_dens)
-           delta2injmass =  1. / air_dens !! vmr in geometrical metric
-         else
-           mass2obs = 1./ obs%cell_volume
-           delta2injmass = 1. !! concentration in gemetrical metric
-         endif
-
-       case (cloud_metric_cellmass_flag)
-         ind_air_mass = fu_index(buf, disp_cell_airmass_flag)
-         if (ind_air_mass < 1) then                              
-           call set_error('Failed to find the air mass field', sub_name)
-           return
-         end if
-         air_mass = buf%p4d(ind_air_mass)%past%p2d(obs%iLevel)%ptr(iTmp) * weight_past + &
-                  & buf%p4d(ind_air_mass)%future%p2d(obs%iLevel)%ptr(iTmp) * (1. - weight_past)
-
-         if (obs%ifmmr) then
-           mass2obs = 1. / air_mass
-           delta2injmass = 1.
-         else
-           mass2obs = air_dens / air_mass !! Same inverse cell volume, but without geometry.
-           delta2injmass =  air_dens
-         endif
-
-       case(cloud_metric_ones_flag)
-         ones_mass =  mapconc%arm(iSpOnes, 1, obs%iLevel, obs%station%ix_dispersion, obs%station%iy_dispersion)
-         if (obs%ifmmr) then
-           mass2obs = 1. / ones_mass  !! As above, but ones_mass instead of air_mass
-           delta2injmass = 1.
-         else
-           mass2obs = air_dens / ones_mass   
-           delta2injmass =  air_dens
-         endif
-
-      case default
-        call set_error("Strange cloud_metric_flag: "//trim(fu_str(cloud_metric_flag)), sub_name)
-    end select 
+    if (ifNeedCellmass) then
+       ind_air_mass = fu_index(buf, disp_cell_airmass_flag)
+       if (ind_air_mass < 1) then                              
+         call set_error('Failed to find the air mass field', sub_name)
+         return
+       end if
+    endif
     
+    do iSt = 1, obs%nStations
+      if (.not. obs%station(iSt)%inthissubdomain) then
+          mass2obs(iSt) = real_missing !! Just not to leave uninitialized
+          delta2injmass(iSt) = real_missing
+          cycle !! cannot do anything beyond our domain
+      endif
+
+      if (ifNeedCellmass .or. ifNeedDens) then 
+        iDisp = obs%station(iSt)%ix_dispersion+(obs%station(iSt)%iy_dispersion-1)*mapConc%nx !!Dispersion index
+      endif
+      if (ifNeedDens) then
+        air_dens = buf%p4d(ind_air_dens)%past%p2d(obs%iLevel)%ptr(iDisp) * weight_past + &
+                 & buf%p4d(ind_air_dens)%future%p2d(obs%iLevel)%ptr(iDisp) * (1. - weight_past)
+      endif
+
+
+      select case (cloud_metric_flag)
+        case (cloud_metric_geometry_flag)
+           if (obs%ifmmr) then
+             mass2obs(iSt) = 1. / (obs%cell_volume(iSt) * air_dens)
+             delta2injmass(iSt) =  1. / air_dens !! vmr in geometrical metric
+           else
+             mass2obs(iSt) = 1./ obs%cell_volume(iSt)
+             delta2injmass(iSt) = 1. !! concentration in gemetrical metric
+           endif
+
+         case (cloud_metric_cellmass_flag)
+           air_mass = buf%p4d(ind_air_mass)%past%p2d(obs%iLevel)%ptr(iDisp) * weight_past + &
+                    & buf%p4d(ind_air_mass)%future%p2d(obs%iLevel)%ptr(iDisp) * (1. - weight_past)
+
+           if (obs%ifmmr) then
+             mass2obs(iSt) = 1. / air_mass
+             delta2injmass(iSt) = 1.
+           else
+             mass2obs(iSt) = air_dens / air_mass !! Same inverse cell volume, but without geometry.
+             delta2injmass(iSt) =  air_dens
+           endif
+
+         case(cloud_metric_ones_flag)
+           ones_mass =  mapconc%arm(iSpOnes, 1, obs%iLevel, obs%station(iSt)%ix_dispersion, obs%station(iSt)%iy_dispersion)
+           if (obs%ifmmr) then
+             mass2obs(iSt) = 1. / ones_mass  !! As above, but ones_mass instead of air_mass
+             delta2injmass(iSt) = 1.
+           else
+             mass2obs(iSt) = air_dens / ones_mass   
+             delta2injmass(iSt) =  air_dens
+           endif
+
+        case default
+          call set_error("Strange cloud_metric_flag: "//trim(fu_str(cloud_metric_flag)), sub_name)
+      end select 
+    enddo   !! Stations
   end subroutine mass_to_obs_scalingAtStation
   
 
@@ -1182,13 +1237,12 @@ call msg('Mean over concentration', sum(map_c%arM))
   ! Accessor functions
   !
   !**********************************************************************************
-
-  function fu_label(stat)
+  function fu_station_label(stat)
     implicit none
     type(observationStation), intent(in) :: stat
-    character(len=4) :: fu_label
-    fu_label = stat%label
-  end function fu_label
+    character(len=STATION_LABEL_LENGTH) :: fu_station_label
+    fu_station_label = stat%label
+  end function fu_station_label
 
   integer function fu_size_in_situ(obs) result(n)
     implicit none

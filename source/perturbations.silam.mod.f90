@@ -91,13 +91,13 @@ CONTAINS
   !************************************************************************************
 
   subroutine set_perturbations(perturbations, species_emission, species_transport, &
-                             & rules, analysis_grid, analysis_vertical, analysis_time)
+                             & rules, analysis_grid, correlation_grid, analysis_vertical, analysis_time)
     implicit none
     ! note intent inout: perturbations(:)%perturb_type sets the request.
     type(t_perturbation), dimension(:), intent(out) :: perturbations
     type(silam_species), dimension(:), intent(in), target :: species_emission, species_transport
     type(da_rules), intent(in) :: rules
-    type(silja_grid), intent(in) :: analysis_grid
+    type(silja_grid), intent(in) :: analysis_grid, correlation_grid
     type(silam_vertical), intent(in) :: analysis_vertical
     type(silja_time), intent(in) :: analysis_time
     
@@ -154,7 +154,7 @@ CONTAINS
       ! Use a background covariance. This can be conveniently read from a config file. Later
       ! the content will be wrapped into a t_perturbation though.
       call set_cov_mdl(bgr_cov, backgr_invalid, species_emission, species_transport,  rules, &
-                     & analysis_grid, analysis_vertical, analysis_time, rules%perturbVariable)
+                     & analysis_grid, correlation_grid, analysis_vertical, analysis_time, rules%perturbVariable)
       if (error) return
     end if
 
@@ -490,7 +490,7 @@ CONTAINS
 
     if (.not. pert%first_time) return
 
-    values => fu_data(proc)
+    values => fu_data(proc, forwards)
     if (fu_fails(associated(values), 'values not associated', subname)) return
     
     call msg('...first time. Perturbing emission processor z-t')
@@ -671,7 +671,7 @@ CONTAINS
     call msg('average storage before perturbation', sum(pert%storage(1:nn))/nn)
     call msg('max storage before perturbation', maxval(pert%storage(1:nn)))
 
-    proc_data => fu_data(proc)
+    proc_data => fu_data(proc, forwards)
     if (fu_fails(associated(proc_data), 'proc_data not associated', sub_name)) return
 
     values_pert => fu_work_array(nn)
@@ -854,7 +854,7 @@ CONTAINS
 
     ! vertical attribution
     num_species = size(fu_species_list(proc))
-    proc_data => fu_data(proc)
+    proc_data => fu_data(proc, forwards)
 
     if (fu_fails(size(proc_data) == num_species*num_levs, 'proc is wrong size', sub_name)) return
     do ind_species = 1, num_species

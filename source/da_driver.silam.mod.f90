@@ -140,8 +140,9 @@ contains
     character(len=*), parameter :: sub_name = 'run_xdvar_seq'
     type(t_tla_trajectory), target :: tla_traj_missing
     real, dimension(1) :: dummyarr
-    logical :: ifProgressFile
+    logical :: ifProgressFile, ifOk
     integer :: assimilations_total,  assimilations_failed
+    character(len=20) :: counter_name
     
     cloud => model%cloud
     darules = model%rules%darules
@@ -184,7 +185,7 @@ contains
     call da_msg('Spin-up, from:'+fu_str(model%rules%startTime) + ', to:' + fu_str(model%rules%darules%da_begin))
     model_integr%rules%startTime = model%rules%startTime
     model_integr%rules%periodToCompute = model%rules%darules%da_begin - model%rules%startTime
-    call model_forward(model_integr, model_integr%obs_ptr, model_integr%rules, make_output=.true.)
+    call model_forward(model_integr,  model_integr%rules, make_output=.true.)
 
     call da_msg('Spin-up complete, Now: '//trim(fu_str(model%rules%darules%da_begin)))
 
@@ -239,11 +240,11 @@ contains
       if (darules%method == flag_3dvar) then
         call msg ("run_xdvar_seq memusage before assimilate (kB)", fu_system_mem_usage())
         call start_count('Assimilate')
-        call assimilate(background)
+        call assimilate(background, ifOk)
         call stop_count('Assimilate')
         call msg ("run_xdvar_seq memusage after assimilate (kB)", fu_system_mem_usage())
       else if (darules%method == flag_4dvar_seq) then
-        call assimilate_4d(background)
+        call assimilate_4d(background, ifOk)
       else
         call set_error('Bad darules%method', sub_name)
         return
@@ -253,7 +254,13 @@ contains
       !
      
       assimilations_total = assimilations_total + 1
-      if(error) then
+      
+      if(error) then 
+          ifOk = .FALSE.
+          call unset_error('run_xdvar_seq')
+      endif
+
+      if(.not. ifOk ) then
         assimilations_failed = assimilations_failed + 1
         call msg('assimilate returned with error, fallback to background'// &
                & " failed "//trim(fu_str(assimilations_failed))// &
@@ -261,7 +268,6 @@ contains
         call copy_control(background, control_physical, if_allocate=.false.)
         if (defined(analysis)) call destroy(analysis)
         if (defined(bgr_cov)) call kill_bgr_cov(bgr_cov)
-        call unset_error('run_xdvar_seq')
       else
         !
         ! 4Dvar returns analysis in control space, while 3Dvar seems to set it in physical
@@ -326,17 +332,19 @@ contains
 
   contains
     
-    subroutine assimilate(background)
+    subroutine assimilate(background, ifOk)
       implicit none
       type(da_control), intent(in) :: background
+      logical, intent(out) :: ifOk
       !type(da_control), intent(inout) :: control
 
       real, dimension(:), pointer :: p_values
-      logical :: ok
       integer :: iPurpose
       character(len=fnlen) :: analysis_file_name, background_file_name
       type(Tmass_map), save, target :: mass_map_adjoint
       type(da_rules), pointer :: pDA_rules
+
+      ifOk = .FALSE.
 
       model_3dvar%rules%darules%da_begin = now
       model_3dvar_adj = model_3dvar
@@ -361,17 +369,24 @@ contains
                           & fu_species_transport(cloud), &
                           & fu_species_optical(cloud), model%obs_ptr)
       if (error) return
+
+      if ( .not. model%obs_ptr%hasObservations ) then
+        call msg_warning("No observations, returning", sub_name)
+        call destroy_observations(model%obs_ptr)
+        return
+      endif
       call msg ("run_xdvar_seq memusage after set_observations (kB)", fu_system_mem_usage())
 
-      if (smpi_adv_rank == 0) then
-        call set_cov_mdl(bgr_cov, background, fu_species_emission(cloud), fu_species_transport(cloud), &
-                       & model_3dvar%rules%darules, wholeMPIdispersion_grid, &
+
+
+      counter_name = 'Set cov mdl'
+      call start_count(chCounterNm=counter_name)
+      call set_cov_mdl(bgr_cov, background, fu_species_emission(cloud), fu_species_transport(cloud), &
+                       & model_3dvar%rules%darules, dispersion_grid, wholeMPIdispersion_grid, &
                        & dispersion_vertical, now, model_3dvar%rules%darules%controlVariable)
-        if (error) return
-        call msg ("run_xdvar_seq memusage after set_cov_mdl (kB)", fu_system_mem_usage())
-      else
-        bgr_cov = background_covariance_missing
-      endif 
+      if (error) return
+      call stop_count(chCounterNm=counter_name)
+      call msg ("run_xdvar_seq memusage after set_cov_mdl (kB)", fu_system_mem_usage())
       call init_control_from_cloud(analysis, cloud, darules, control_space, 0.0, bgr_cov)
       if (error) return
         call msg ("run_xdvar_seq memusage after init_control (kB)", fu_system_mem_usage())
@@ -380,25 +395,21 @@ contains
       
       !call gradient_test(model_3dvar)
       !stop
-      if (smpi_adv_rank == 0) then
-        if (simrules_3d%darules%output_level >= da_out_first_last_flag) then
+      if (simrules_3d%darules%output_level >= da_out_first_last_flag) then
           background_file_name = simrules_3d%darules%outputdir + dir_slash + 'background_da_' + &
                                & fu_time_fname_string_utc(simrules_3d%darules%da_begin) + '.grads'
           call control_to_file(background, background, model_3dvar%rules%darules, background_file_name)
           call msg ("run_xdvar_seq memusage after control_to_file (kB)", fu_system_mem_usage())
-        end if
       endif
 
       select case(model%rules%darules%numerics%searchMethod)
-      case (steepest_descent_flag)
-        call steepest(model_3dvar, model_3dvar_adj, analysis, background, bgr_cov, report_iterates=.false.)
-      case (m1qn3_flag)
-        call quasi_newton(model_3dvar, model_3dvar_adj, analysis, background, bgr_cov, .false.)
-      case (l_bfgs_b_flag)
-        call l_bfgs_b(model_3dvar, model_3dvar_adj, analysis, background, bgr_cov, .false.)
-      case default
-        call set_error('Strange search method', 'run_xdvar_seq__assimilate')
-        return
+        case (m1qn3_flag)
+          call quasi_newton(model_3dvar, model_3dvar_adj, analysis, background, bgr_cov, .false.)
+        case (l_bfgs_b_flag)
+          call l_bfgs_b(model_3dvar, model_3dvar_adj, analysis, background, bgr_cov, .false.)
+        case default
+          call set_error('Strange search method', 'run_xdvar_seq__assimilate')
+          return
       end select
       call msg ("run_xdvar_seq memusage after optimize (kB)", fu_system_mem_usage())
     
@@ -406,37 +417,42 @@ contains
         call msg('Error on analysis step, reverting to background')
         call unset_error('assimilate')
         p_values = 0.0
-      elseif (simrules_3d%darules%output_level > da_out_none_flag .and. smpi_adv_rank == 0) then
+      elseif (simrules_3d%darules%output_level > da_out_none_flag) then
         !
         ! Store the new analysis to file
         !
         analysis_file_name = simrules_3d%darules%outputdir + dir_slash + 'analysis_da_' + &
-                           & fu_time_fname_string_utc(simrules_3d%darules%da_begin) + '.grads' 
-        !        call ooops("writing analysis.grads, valid time: "//fu_str(model%rules%darules%da_begin)) 
+                             & fu_time_fname_string_utc(simrules_3d%darules%da_begin) + '.grads' 
+          !        call ooops("writing analysis.grads, valid time: "//fu_str(model%rules%darules%da_begin)) 
         call control_to_file(analysis, background, model%rules%darules, analysis_file_name)
         call msg ("run_xdvar_seq memusage after control_to_file (kB)", fu_system_mem_usage())
         !
         ! Dump observations
         !
-        do iPurpose = 1, 2
-          call dump_observations(model%obs_ptr, fu_species_transport(cloud), &
-                & simrules_3d%darules%outputdir + dir_slash + 'obs_final' + chObsPurpose(iPurpose) + &
-                & 'da_' + fu_time_fname_string_utc(model%rules%darules%da_begin), &
-                & iPurpose)
-        end do
-        call msg ("run_xdvar_seq memusage after dump_observations (kB)", fu_system_mem_usage())
+        if (smpi_adv_rank == 0) then
+            do iPurpose = 1, 2
+              call dump_observations(model%obs_ptr, fu_species_transport(cloud), &
+                    & simrules_3d%darules%outputdir + dir_slash + 'obs_final' + chObsPurpose(iPurpose) + &
+                    & 'da_' + fu_time_fname_string_utc(model%rules%darules%da_begin), &
+                    & iPurpose)
+            end do
+            call msg ("run_xdvar_seq memusage after dump_observations (kB)", fu_system_mem_usage())
+        endif
       endif
 
       call destroy_observations(model%obs_ptr)
+
+      ifOk = .TRUE.
       call msg ("run_xdvar_seq memusage after destroy_observations (kB)", fu_system_mem_usage())
       
     end subroutine assimilate
 
     !=================================================================
 
-    subroutine assimilate_4d(background)
+    subroutine assimilate_4d(background, ifOk)
       implicit none
       type(da_control), intent(in) :: background
+      logical, intent(out) :: ifOk
 
       !call msg('BEFORE_ASSIMILATE_4D')
       !call report_real_work_arrays()
@@ -456,6 +472,7 @@ contains
       call run_4dvar(model_3dvar, background, analysis, bgr_cov)
 
       call set_bgr_cov_ptr(analysis, bgr_cov)
+      ifOk = .not. error
 
     end subroutine assimilate_4d
 
@@ -475,16 +492,16 @@ contains
 
     type(da_control) :: control, gradient, background
     real :: cost
-    real, dimension(:), pointer :: obs_values => null(), obs_variance =>null(), background_values =>null()
+    real, dimension(:), pointer :: background_values
     real, dimension(2) :: cost_bgr
 !    character(len=128) :: log_str
     type(da_rules), pointer :: darules
     type(t_background_covariance) :: bgr_cov
-    type(silam_pollution_cloud), pointer :: cloud => null()
+    type(silam_pollution_cloud), pointer :: cloud
     character(len=fnlen) :: analysis_file_name, background_file_name
     integer :: iPurpose
     type(model_container) :: model_adj
-    type(silam_pollution_cloud), pointer :: cloud_adj =>null()
+!    type(silam_pollution_cloud), pointer :: cloud_adj =>null()
     type(Tsilam_namelist) :: nl_dummy
     integer, save :: num_timesteps_prev = -1
     type(DA_rules), pointer :: pDA_rules
@@ -493,6 +510,8 @@ contains
     cloud => model%cloud
     darules => model%rules%darules
     model%rules%if_finalize = .false.
+    background_values =>null()
+
     !model%rules%if_collect_linearization = .true.
     !model%rules%if_collect_linearization = .false.
     
@@ -511,17 +530,6 @@ contains
     call da_msg('===========================================================')
     call da_msg('4dvar starting')
     call da_msg('Analysis time: ' // trim(fu_str(darules%da_begin)))
-    !
-    ! Get observation data and their variances
-    !
-    obs_variance => fu_work_array(sum(model%obs_ptr%obs_size))
-    obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
-    call collect_obs_data(model%obs_ptr, obs_values) !, n_obs_values)
-    if (error) return
-
-    call collect_variance(model%obs_ptr, obs_variance) !, n_obs_values)
-    if (error) return
-    !
     ! Inititalise controls in physical space
     ! Background can be given from above (sequential 4D-var) or made here
     ! Control_physical is a storage place, will be used later for reloading the
@@ -576,7 +584,7 @@ contains
 
     call set_cov_mdl(bgr_cov, background, fu_species_emission(cloud), &
                    & fu_species_transport(cloud), darules, &
-                   & wholeMPIdispersion_grid, dispersion_vertical, &
+                   & dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, &
                    & darules%da_begin, darules%controlVariable)
     if (error) return
     call init_control_from_cloud(control, cloud, darules, control_space, 0.0, bgr_cov)
@@ -604,7 +612,7 @@ contains
       !
       mapConc => fu_concMM_ptr(model%cloud)
       call alloc_tla_trajs(model%tla_traj, mapConc%nx, mapConc%ny, mapConc%n3d, &
-                         & fu_nbr_of_timesteps(model%rules), 10000000000_8 / smpi_adv_tasks, & 
+                         & fu_nbr_of_timesteps(model%rules), 14000000000_8 / smpi_adv_tasks, & 
                          & model%rules%darules%outputdir ) 
                        !!! Keep 10G memory storage for all memebers together
       if (error) return
@@ -646,9 +654,6 @@ contains
 #endif
 
     select case(model%rules%darules%numerics%searchMethod)
-      case (steepest_descent_flag)
-        call msg('4DVar steepest descent')
-        call steepest(model, model_adj, control, background, bgr_cov, report_iterates=.true.)
       case (m1qn3_flag)
         call msg('4DVAR m1qn3')
         call quasi_newton(model, model_adj, control, background, bgr_cov, .true.)
@@ -688,7 +693,7 @@ contains
     if (present(bgr_cov_out)) bgr_cov_out = bgr_cov
     if (error) return
 
-    if (model%rules%darules%output_level > da_out_none_flag) then    
+    if (model%rules%darules%output_level > da_out_none_flag .and. smpi_adv_rank == 0) then    
       do iPurpose = 1, 2
         call dump_observations(model%obs_ptr, fu_species_transport(cloud), &
                 & model%rules%darules%outputdir + dir_slash + 'obs_final'  + chObsPurpose(iPurpose) + &
@@ -703,8 +708,6 @@ contains
     call destroy_observations(model%obs_ptr)
     call destroy(control)
     call destroy(background)
-    call free_work_array(obs_variance)
-    call free_work_array(obs_values)
 
   end subroutine run_4dvar
 
@@ -864,7 +867,8 @@ contains
     real :: cost, unit
     real, dimension(2) :: cost_obs
     real, dimension(5) :: cost_bgr
-    integer, dimension(2) :: ncid, obs_space_dim
+    integer, dimension(2) :: ncid
+    integer, dimension(2) :: obs_space_dim ! (assim,eval)
     integer :: stat, nc_var_id, iPurpose
     type(t_background_covariance) :: bgr_cov
     character(len=*), parameter :: sub_name = 'h_matrix'
@@ -882,12 +886,13 @@ contains
                         & fu_species_transport(model%cloud), &
                         & fu_species_optical(model%cloud), model%obs_ptr)
     if (error) return
+    call get_obs_pointers(model%obs_ptr, obs_values, mdl_obs_values, obs_variance, obs_space_dim)
 
     call init_control_from_cloud(background, cloud, darules, physical_space, 0.0)
     if (error) return
     call set_cov_mdl(bgr_cov, background, fu_species_emission(cloud), &
                    & fu_species_transport(cloud), darules, &
-                   & wholeMPIdispersion_grid, dispersion_vertical, &
+                   & dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, &
                    & darules%da_begin, darules%controlVariable)
     if (error) return
     call init_control_from_cloud(control, cloud, darules, control_space, bgr_cov=bgr_cov)
@@ -895,19 +900,11 @@ contains
 
     contr_space_dim = fu_size(control)
     contr_val => fu_values_ptr(control)
-    obs_space_dim = model%obs_ptr%obs_size   ! (assim,eval)
 
     call da_msg('Creating H matrix')
     call da_msg('Control space dimension:', ival=contr_space_dim)
     call da_msg('Observation space assimilation dimension:', ival=obs_space_dim(1))
     call da_msg('Observation space evaluation dimension:', ival=obs_space_dim(2))
-
-    mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
-    !obs_values => fu_work_array()
-    !obs_variance => fu_work_array()
-    
-    obs_values => fu_obs_data(model%obs_ptr)
-    obs_variance => fu_obs_variance(model%obs_ptr)
         
     call update_da_outdir(model, darules, model%rules%startTime)
     if (error) return
@@ -928,7 +925,7 @@ contains
       contr_val = 0.0
       contr_val(ind_contr) = unit
       call da_msg('Processing H matrix column', ival=ind_contr)
-      call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost, mdl_obs_values)
+      call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost)
       if (error) return
       call column_to_nc(ncid, nc_var_id, ind_contr, mdl_obs_values, obs_space_dim)
       if (error) return
@@ -1007,228 +1004,6 @@ contains
   end subroutine run_h_matrix
 
 
-  !*****************************************************************************
-
-  subroutine steepest(model, model_adj, control, background, bgr_cov, report_iterates)
-    implicit none
-    type(model_container), intent(inout) :: model, model_adj
-    type(da_control), intent(inout) :: control
-    type(da_control), intent(in) :: background
-    type(t_background_covariance), intent(in) :: bgr_cov
-    logical, intent(in) :: report_iterates
-
-    type(da_control) :: control_linesearch, gradient
-    integer :: ii, iter, iline, n_obs_values, control_size, outputlev, iPurpose, itercount
-    real, dimension(2) :: cost_bgr, cost_obs
-    real :: norm, cost_try, delta, delta_old, cost_old, grad_norm_first, cost, largest_change, cost_first
-    logical :: have_moved
-    type(DA_numericalParameters) :: numerics
-    character(len=128) :: strCount   !log_str, 
-    character(len=fnlen) :: output_dir, chOutFNm
-    real, dimension(:), pointer :: grad_vals, control_linsrch_vals, control_vals, mdl_obs_values, &
-                                 & mdl_obs_values_prev
-
-    outputlev = model%rules%darules%output_level
-
-    numerics = model%rules%darules%numerics
-    output_dir = model%rules%darules%outputdir
-    if (outputlev > da_out_none_flag) then 
-      if (fu_fails(output_dir /= char_missing, 'outputdir not set', 'steepest')) return
-    endif
-
-    call init_control_from_cloud(control_linesearch, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
-    call init_control_from_cloud(gradient, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
-
-    mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
-    mdl_obs_values_prev => fu_work_array(sum(model%obs_ptr%obs_size))
-
-!    call collect_variance(model%obs_ptr, mdl_obs_values) !, n_obs_values) ! just to get n_obs_values
-    n_obs_values = sum(model%obs_ptr%obs_size)
-    
-    !**********************************************************************************
-    !
-    ! The first forward run
-    !
-    !**********************************************************************************
-
-    if (outputlev > da_out_none_flag) then
-      chOutFnm = fu_next_iter_file(output_dir, 'control_da_', model%rules%darules%da_begin, 1) 
-      call control_to_file(control, background, model%rules%darules, chOutFnm)
-    end if
-    strCount = 'initial forward run'
-    call start_count(chCounterNm = strCount)
-
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost, mdl_obs_values)
-    if (error) return
-    if (outputlev > da_out_none_flag) then
-      chOutFNm = fu_next_obs_file(output_dir, model%rules%darules%da_begin, 1)
-      do iPurpose = 1, 2
-        call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), &
-                             & chOutFNm + chObsPurpose(iPurpose), iPurpose)
-      end do
-    endif
-    if (error) return
-
-    call stop_count(chCounterNm = strCount)
-
-    call da_msg('===========================================================')
-    call da_msg('Initial forward run complete')
-    call report_cost(0, cost_obs, cost_bgr, cost, fu_mode(control)) !, log_str)
-!    call da_msg(log_str)
-    if (da_test) return
-    delta = -1.0
-    cost_first = cost
-
-    grad_vals => fu_values_ptr(gradient)
-    control_linsrch_vals => fu_values_ptr(control_linesearch)
-    control_vals => fu_values_ptr(control)
-
-    control_size = fu_control_space_dim(bgr_cov)
-
-    strCount = 'gradient search'
-    call start_count(chCounterNm = strCount)
-
-    itercount = 0
-    GRADIENT_SEARCH: do iter = 1, numerics%maxIterations
-      itercount = itercount + 1
-      have_moved = .false.
-
-      if (defined(model%tla_traj) .and. delta > 0) then
-        call da_msg('Re-evaluate forward for tla trajectory')
-        call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost, mdl_obs_values)
-        if (error) return
-      end if
-
-      !call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost, mdl_obs_values)
-      call get_gradient(control, gradient, background, bgr_cov, model_adj, mdl_obs_values)
-      if (error) return
-      if (report_iterates) then
-        call msg('Reporting gradient')
-        call report(gradient)
-      end if
-      if (outputlev > da_out_first_last_flag) then
-        chOutFnm = fu_next_iter_file(output_dir, 'gradient_da_', model%rules%darules%da_begin, iter)
-        call control_to_file(gradient, background, model%rules%darules, chOutFnm)
-      end if
-
-      if (error) return
-
-      norm = sqrt(sum(grad_vals(1:control_size)**2))
-      if (iter == 1) grad_norm_first = norm
-
-      call da_msg('===========================================================')
-      call da_msg('Adjoint run complete, ||grad||: ', norm)
-
-      if (norm .eps. 0.0) then
-        call da_msg('Iteration finished, vanishing gradient')
-        exit 
-      else if (norm < grad_norm_first*numerics%grad_rel_tol) then
-        call da_msg('Iteration finished, ||grad|| < a*||grad_0||, a = ', numerics%grad_rel_tol)
-        exit
-      end if
-
-      grad_vals = grad_vals/norm
-
-      if (delta < 0) then
-        delta = cost / norm * 20
-      else
-        delta = delta / numerics%stepDecreaseCoefMS
-      end if
-
-      strCount = 'line_search'
-      call start_count(chCounterNm = strCount)
-
-      LINE_SEARCH: do iline = 1, numerics%maxLineSearchSteps
-        itercount = itercount + 1
-        call da_msg('Trying step: ', delta)
-        do ii = 1, fu_size(control)
-          control_linsrch_vals(ii) = control_vals(ii) - delta * grad_vals(ii)
-        end do
-        if (report_iterates) then
-          call msg('Report control_linesearch')
-          call report(control_linesearch)
-        end if
-        if (outputlev > da_out_first_last_flag) then
-          chOutFnm = fu_next_iter_file(output_dir,  'control_da_', model%rules%darules%da_begin, itercount)
-          call control_to_file(control_linesearch, background, model%rules%darules, chOutFnm)
-          if (error) return
-        end if
-
-        call evaluate(control_linesearch, background, bgr_cov, model, &
-                    & cost_obs, cost_bgr, cost_try, mdl_obs_values)
-        if (error) return
-
-        call report_cost(itercount, cost_obs, cost_bgr, cost_try, fu_mode(control)) !, log_str)
-!        call da_msg(log_str)
-        if (outputlev > da_out_first_last_flag)then
-          chOutFNm = fu_next_obs_file(output_dir, model%rules%darules%da_begin, itercount)
-          do iPurpose = 1, 2
-            call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), &
-                                 & chOutFNm + chObsPurpose(iPurpose), iPurpose)
-          end do
-        endif
-        if (error) return
-
-        if (have_moved .and. cost_try < cost_old .or. .not. have_moved .and. cost_try < cost) then
-          if (2 * abs(cost - cost_try) / (cost + cost_try) < numerics%cost_incr_rel_tol) then
-            call da_msg('===========================================================')
-            call da_msg('Iteration finished: 2 * (cost - cost_try) / (cost + cost_try) < a, a = ', &
-                      & numerics%cost_incr_rel_tol)
-            exit GRADIENT_SEARCH
-          else if (cost_try < numerics%cost_rel_tol * cost_first) then
-            call da_msg('===========================================================')
-            call da_msg('Iteration finished: J(u) < a*J_0, a = ', numerics%cost_rel_tol)
-            exit GRADIENT_SEARCH
-          end if
-
-          delta_old = delta
-          delta = delta * numerics%stepIncreaseCoefMS
-          cost_old = cost_try
-          mdl_obs_values_prev(1:n_obs_values) = mdl_obs_values(1:n_obs_values)
-          !call getModelDataContainerArray(model%obs_ptr, arrayMDC)
-          have_moved = .true.
-          cycle LINE_SEARCH
-
-        else
-          ! Not improving. If first linesearch step, try shorter
-          ! delta. Otherwise revert to the last improving value and
-          ! return to gradient search.
-          if (.not. have_moved) then
-            delta = delta / numerics%stepDecreaseCoefMS
-            if (delta < numerics%minimumStepLength) then
-              call da_msg('===========================================================')
-              call da_msg('Iteration finished: step length below', numerics%minimumStepLength)
-              exit GRADIENT_SEARCH
-            end if
-            cycle LINE_SEARCH
-          else
-            delta = delta_old
-            call set_mdl_data(model%obs_ptr, mdl_obs_values_prev)
-            control_vals = control_vals - delta*grad_vals
-            cost = cost_old
-!!$            if (largest_change < numerics%minmax) then
-!!$              call da_msg('===========================================================')
-!!$              call da_msg('Iteration finished: max(abs(d*grad/(x + d*grad))) < ',numerics%minmax)
-!!$              exit GRADIENT_SEARCH
-!!$            end if
-            exit LINE_SEARCH
-          end if
-        end if
-
-      end do LINE_SEARCH
-
-      call stop_count(chCounterNm = strCount)
-
-    end do GRADIENT_SEARCH
-
-    call free_work_array(mdl_obs_values)
-    call free_work_array(mdl_obs_values_prev)
-
-    strCount = 'gradient search'
-    call stop_count(chCounterNm = strCount)
-
-  end subroutine steepest
-
   !**********************************************************************************
 
   subroutine quasi_newton(model, model_adj, control, background, bgr_cov, report_iterates)
@@ -1249,16 +1024,16 @@ contains
     real(optimizer_precision) :: epsg, df1
     real, dimension(10) :: fit_params = real_missing
     real, dimension(2) :: evalstat
-    real, dimension(:,:),allocatable ::  cost_bgr,  cost_obs, control_vals_store
+    real, dimension(:,:),allocatable ::  cost_bgr,  cost_obs, control_vals_store, grads_store
     real, dimension(:), allocatable :: costs, gradnorms
     integer :: contr_size, worksize_optimizer
     real(optimizer_precision), dimension(:), allocatable :: control_dp, gradient_dp, optimizer_work
-    real, dimension(:), pointer :: mdl_obs_values, control_values, gradient_values
+    real, dimension(:), pointer :: control_values, gradient_values
     real(optimizer_precision) :: cost_dp
     type(DA_numericalParameters) :: numerics
     type(da_control) :: gradient
     character(len=fnlen) :: output_dir, chFnm
-    integer :: outputlev, impres, iPurpose, best_iter, iTmp
+    integer :: outputlev, impres, iPurpose, best_iter, iTmp, jTmp
 
     logical :: ifMaster
     integer (kind=8):: count_start,count1, count2, eval_cnt,getgrad_cnt,copy2dp_cnt,copy2sp_cnt,opt_cnt,gradnorm_cnt
@@ -1285,7 +1060,6 @@ contains
     
     numerics = model%rules%darules%numerics
 
-    mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
     control_values => fu_values_ptr(control)
     nsim = numerics%maxIterations
     niter = numerics%maxIterations
@@ -1297,7 +1071,7 @@ contains
       call da_msg("allocating control store, size: " &
                 &//trim(fu_str(contr_size))//"x"//trim(fu_str(nsim+1)))
       allocate(control_dp(contr_size), gradient_dp(contr_size), optimizer_work(worksize_optimizer), &
-          & control_vals_store(contr_size,0:nsim),  cost_bgr(2,0:nsim),  cost_obs(2,0:nsim), & 
+          & control_vals_store(contr_size,0:nsim), grads_store(contr_size,0:nsim),  cost_bgr(2,0:nsim),  cost_obs(2,0:nsim), & 
           & costs(0:nsim), gradnorms(0:nsim), stat=iTmp)
     else 
       allocate(cost_bgr(2,0:nsim),  cost_obs(2,0:nsim),  costs(0:nsim), stat=iTmp)
@@ -1317,60 +1091,71 @@ contains
       copy2sp_cnt = copy2sp_cnt + count2 - count1
 
       call evaluate(control, background, bgr_cov, model, cost_obs(:,iter), &
-                     & cost_bgr(:,iter), costs(iter), mdl_obs_values)
+                     & cost_bgr(:,iter), costs(iter))
       CALL SYSTEM_CLOCK(count1)
        eval_cnt =  eval_cnt + count1 - count2
       if (error) return
       call report_cost(iter, cost_obs(:,iter), cost_bgr(:,iter), costs(iter), fu_mode(control)) !, log_str)
 !      call da_msg(log_str)
-      if (outputlev > da_out_none_flag .and. ifMaster) then
+      if (outputlev > da_out_none_flag) then
         chFnm = fu_next_iter_file(output_dir, 'background_da_', model%rules%darules%da_begin, 0) !iter
-        call control_to_file(control, background, model%rules%darules, chFnm)
+        call control_to_file(control, background, model%rules%darules, chFnm) !! collective call
+      endif
+      
+      if (ifMaster) then
+        if (outputlev > da_out_none_flag) then !! dump_observations is no longer collective call
+          do iPurpose =1, 2
+            chFnm = fu_next_obs_file(output_dir, model%rules%darules%da_begin, iter) !obs
+            call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), chFnm + chObsPurpose(iPurpose), iPurpose)
+          end do
+          if (iter==0) then 
+            chFNm = fu_next_obs_file(output_dir, model%rules%darules%da_begin, 0) + "_stations"
+            call dump_observation_stations(model%obs_ptr,  chFNm)
+          endif
+        end if
       endif
 
-      if (outputlev > da_out_none_flag) then !! dump_observations is a collective call
-        do iPurpose =1, 2
-          chFnm = fu_next_obs_file(output_dir, model%rules%darules%da_begin, iter) !obs
-          call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), chFnm + chObsPurpose(iPurpose), iPurpose)
-        end do
-      end if
-
       CALL SYSTEM_CLOCK(count1)
-      call get_gradient(control, gradient, background, bgr_cov, model_adj, mdl_obs_values)
+      call get_gradient(control, gradient, background, bgr_cov, model_adj)
       CALL SYSTEM_CLOCK(count2)
       getgrad_cnt =  getgrad_cnt + count2 - count1
+      if (ifMaster) grads_store(:,iter) = gradient_values(:) ! Store gradients
       if (error) return
 
+
+      if (outputlev > da_out_none_flag) then
+        chFnm = fu_next_iter_file(output_dir, 'control_da_', model%rules%darules%da_begin, iter)
+        call control_to_file(control, background, model%rules%darules, chFnm)
+        chfnm = fu_next_iter_file(output_dir, 'gradient_da_', model%rules%darules%da_begin, iter)
+        call control_to_file(gradient, background, model%rules%darules, chFnm)
+      end if
+
       if (ifMaster) then
-
-        if (outputlev > da_out_none_flag) then
-          chFnm = fu_next_iter_file(output_dir, 'control_da_', model%rules%darules%da_begin, iter)
-          call control_to_file(control, background, model%rules%darules, chFnm)
-        end if
-
         CALL SYSTEM_CLOCK(count1)
-        gradnorms(iter) = sqrt(dot_product(gradient_values, gradient_values)) 
+        gradnorms(iter) = NORM2(gradient_values)
         CALL SYSTEM_CLOCK(count2)
         gradnorm_cnt =  gradnorm_cnt + count2 - count1
         call da_msg('||grad|| = ', gradnorms(iter))
-        if (outputlev > da_out_first_last_flag) then
-          chfnm = fu_next_iter_file(output_dir, 'gradient_da_', model%rules%darules%da_begin, iter)
-          call control_to_file(gradient, background, model%rules%darules, chFnm)
-        end if
 
         if (iter==0) then
-          df1 = costs(iter) * numerics%quasi_newton_df1
-          call da_msg("Cost reduction guess", real(df1, kind=4))
-          call da_msg("Cost reduction factor to initial cost",  numerics%quasi_newton_df1)
 
-          CALL SYSTEM_CLOCK(count1)
-          control_dp(:) = control_values(:)
-          CALL SYSTEM_CLOCK(count2)
-          copy2dp_cnt =  copy2dp_cnt + count2 - count1
+          if (gradnorms(iter) < 0.01 ) then !! No data
+              icom = -1  !! Do not call m1qn3
+              iterstat = 12!! Termination status (not one from m1ql)
+          else
+            df1 = costs(iter) * numerics%quasi_newton_df1
+            call da_msg("Cost reduction guess", real(df1, kind=4))
+            call da_msg("Cost reduction factor to initial cost",  numerics%quasi_newton_df1)
 
-          icom = 1
-          imode = (/0,0/)
-          impres = 5
+            CALL SYSTEM_CLOCK(count1)
+            control_dp(:) = control_values(:)
+            CALL SYSTEM_CLOCK(count2)
+            copy2dp_cnt =  copy2dp_cnt + count2 - count1
+
+            icom = 1
+            imode = (/0,0/)
+            impres = 5
+          endif
 
         else  
           icom = 2
@@ -1388,7 +1173,7 @@ contains
               iterstat = 10 !! Termination status (not one from m1ql)
           endif
           if ((icom > 0))then
-              refcost = 1.05*costs(best_iter) !! Last two within 5% of the best one
+              refcost = 1.01*costs(best_iter) !! Last two within 5% of the best one
                                          !! otherwise no substantial improvement
               if (all(refcost > costs(iter-2:iter-1))) then !! 
                 icom = -1  !! Do not call m1qn3
@@ -1397,6 +1182,14 @@ contains
               endif
           endif
         endif  ! iter > 4
+
+        if (icom > 0)then 
+           if ( abs(costs(iter)) >= costs(0) * 100 ) then !! Blew up
+              costs(iter) = 100*costs(0) !! just limit, so poor amoeba does not crash
+              icom = -1  !! Do not call m1qn3
+              iterstat = 13 !! Termination status (not one from m1ql)
+            endif
+        endif
 
         if (icom > 0) then  !! New iteration needed
           CALL SYSTEM_CLOCK(count1)
@@ -1430,13 +1223,6 @@ contains
           CALL SYSTEM_CLOCK(count2)
           opt_cnt =  opt_cnt + count2 - count1
         endif
-        !
-        ! If iterations over, get the optimal one and put it in best_iter, which until now was
-        ! used for determining the ultimate stop of iterations (and guaranteed the overfit)
-        !
-        if(icom < 0) call best_iter_L_curve(iter, cost_obs(1,0:iter), &
-                                          & cost_bgr(1,0:iter)+cost_bgr(2,0:iter), best_iter, &
-                                          & fit_params)
       endif !! ifMaster
     
       ! Bcast iteration status from master
@@ -1449,9 +1235,6 @@ contains
           iterstat = nint(evalstat(2))
         endif
       endif
-
-       !Check after initial only 
-      if (fu_fails(iter>0 .or. icom == 4, 'Minimizer had an error', 'optimize')) return
 
       if (icom <= 0) then
         select case(iterstat)
@@ -1466,6 +1249,10 @@ contains
             call da_msg('No more improvement. Breaking now.')
           case(11)
             call da_msg('Too slow improvement. Breaking now.')
+          case(12)
+            call da_msg('Zero inital gradient. Breaking now.')
+          case(13)
+            call da_msg('Iterations blew up. Breaking now.')
           case(0) 
             call da_msg('Termination with omode = 0')
           case default
@@ -1473,27 +1260,52 @@ contains
         end select
         exit
       end if
-    end do
+    end do !!iterations
 
-    call da_msg('Best iteration found in quasi_newton = ', ival=best_iter)
-    control_values(:) = control_vals_store(:,best_iter) !!restore best_iter control
+    !
+    ! If iterations over, get the optimal one and put it in best_iter, which until now was
+    ! used for determining the ultimate stop of iterations (and guaranteed the overfit)
+    !
+    if(ifMaster) then
+      if (iter > 4 ) then
+         call best_iter_L_curve(iter, cost_obs(1,0:iter), &
+                                        & cost_bgr(1,0:iter)+cost_bgr(2,0:iter), best_iter, &
+                                        & fit_params)
+         call da_msg('Best iteration L-curve in quasi_newton = ', ival=best_iter)
+
+         best_iter = minloc(costs(0:iter),1) - 1 !! Minimal cost
+         refcost = 1.1*costs(best_iter)
+         do iTmp = 0, best_iter - 1 !! best_iter on no match
+             if (costs(iTmp) < refcost) exit
+         enddo
+         best_iter = iTmp
+         call da_msg('Best iteration 1.1mincost in quasi_newton = ', ival=best_iter)
+         call da_msg('1.1mincost  will be used as analysis')
+
+      else
+        ! call da_msg('AMOEBA disabled!')
+         call da_msg('Keeping minimal-cost iteration in quasi_newton = ', ival=best_iter)
+      endif
+      control_values(:) = control_vals_store(:,best_iter) !!restore best_iter control
    
 
-    CALL SYSTEM_CLOCK(count1)
-    call da_msg('Iterations over, gradient evaluations: '+ fu_str(iter+1))
-    call msg("Counters: eval_cnt,getgrad_cnt,copy2dp_cnt,copy2sp_cnt,opt_cnt,gradnorm_cnt, total")
-    call msg ("ms",int(1e-6*(/eval_cnt,getgrad_cnt,copy2dp_cnt,copy2sp_cnt,opt_cnt,gradnorm_cnt, count1-count_start/)))
+      CALL SYSTEM_CLOCK(count1)
+      call da_msg('Iterations over, gradient evaluations: '+ fu_str(iter+1))
+      call msg("Counters: eval_cnt,getgrad_cnt,copy2dp_cnt,copy2sp_cnt,opt_cnt,gradnorm_cnt, total")
+      call msg ("ms",int(1e-6*(/eval_cnt,getgrad_cnt,copy2dp_cnt,copy2sp_cnt,opt_cnt,gradnorm_cnt, count1-count_start/)))
+      call da_report_metrics(control_vals_store, grads_store, contr_size, iter)
+
+    endif
     
     if (error) return 
     if (iter > niter) then
       call da_msg('Iteration terminated: maximum number of iterations')
     end if
-    call free_work_array(mdl_obs_values)
     call destroy(gradient)
 
     if(ifMaster) then 
       deallocate(control_dp, gradient_dp, optimizer_work,  control_vals_store,  cost_bgr,  cost_obs, & 
-          & costs, gradnorms)
+          & costs, gradnorms, grads_store)
     else 
       deallocate(cost_bgr,  cost_obs,  costs)
     endif
@@ -1501,6 +1313,47 @@ contains
     call da_msg('quasi_newton finished, iter',ival=iter)
   end subroutine quasi_newton
 
+   !*******************************************************
+  
+  subroutine da_report_metrics(controls,grads,  Nval, Niter)
+    !! Report some metrics of controls and gradients 
+      implicit none
+      integer, intent(in) :: Nval, Niter
+      real, dimension(Nval,0:Niter), intent(in) :: controls, grads !!
+
+      integer :: iTmp, jTmp
+      real, dimension(0:Niter) :: tmp_values, gradnorms
+      character(len=worksize_string) :: work_string
+
+      character(len = *), parameter :: sub_name = 'da_report_metrics'
+
+      call da_msg("Control-vector distance norm between iterations")
+      do iTmp=0,Niter
+        do jTmp = 0,iTmp
+           tmp_values(jTmp) = NORM2(controls(:,iTmp)-controls(:,jTmp))
+        enddo
+        write (work_string, "(I4,*(2x,E11.5))") iTmp, tmp_values(0:iTmp)
+        call da_msg(work_string)
+      enddo
+      write (work_string, "(4x,*(2x,I11))") (iTmp, iTmp=0,Niter)
+
+      call da_msg("")
+
+      call da_msg("Gradient metrics:")
+      gradnorms(0:Niter) = NORM2(grads(:,:), dim=1)
+      write (work_string, "((A4),*(1x,I8))") "ItNo",(iTmp, iTmp=0,Niter)
+      call da_msg(work_string)
+      write (work_string, "((A4),*(1x,E8.2))") "Norm", gradnorms(0:Niter)
+      call da_msg(work_string) !! Relative increment
+      write (work_string, "((A4,X,A8),*(1x,F8.4))") "Rinc", "1", (gradnorms(iTmp)/gradnorms(iTmp-1), iTmp=1,Niter)
+      call da_msg(work_string) !! Increment norm
+      write (work_string, "((A4,X,A8),*(1x,E8.2))") "incN", "0", (NORM2(grads(:,iTmp) - grads(:,iTmp-1)), iTmp=1,Niter)
+      call da_msg(work_string) !! Increment cosine
+      write (work_string, "((A4,X,A8),*(1x,F8.4))") "iCos", "1", &
+          & (dot_product(grads(:,iTmp-1),grads(:,iTmp))/(gradnorms(iTmp-1)*gradnorms(iTmp)) , iTmp=1,Niter)
+      call da_msg(work_string)
+
+  end subroutine da_report_metrics
 
   !**********************************************************************************************
   
@@ -1530,10 +1383,11 @@ contains
     integer, parameter :: num_corrects = 15, print_opt = 40
     real(optimizer_precision), dimension(:), allocatable :: control_dp, gradient_dp, optimizer_work, &
          & lower_bounds, upper_bounds
-    real, dimension(:), pointer :: mdl_obs_values, control_values, gradient_values
+    real, dimension(:), pointer ::  control_values, gradient_values
     real(optimizer_precision) :: cost_dp
     real :: gradient_norm, gradient_norm_first, xscale
     character(len=60) :: task, l_bfgs_b_csave
+    character(len=clen) :: task_clen
     real(optimizer_precision), parameter :: l_bfgs_b_factr = 0, l_bfgs_b_pgtol = 0 !! Sippres internal BFGS criteria
     real(optimizer_precision), dimension(29) :: l_bfgs_b_dsave
     integer, dimension(:), allocatable :: l_bfgs_b_iwa, bound_def
@@ -1545,15 +1399,18 @@ contains
     real, dimension(:), allocatable :: cost
     character(len=fnlen) :: output_dir, chOutFNm   !log_str, 
     real, dimension(10) :: fit_params
-    real, dimension(:,:), allocatable :: contol_vals_store
+    real, dimension(:,:), allocatable :: control_vals_store
+    logical :: ifMaster
     character(len=*), parameter :: sub_name = 'l_bfgs_b'
+
+    ifMaster = (smpi_adv_rank==0)
     !
     ! Organise the DA output
     !
     outputlev = model%rules%darules%output_level
 
-    if (outputlev >= da_out_first_last_flag) then 
-      output_dir = model%rules%darules%outputdir
+    output_dir = model%rules%darules%outputdir
+    if (outputlev > da_out_none_flag .and. ifMaster) then
       if (fu_fails(output_dir /= char_missing, 'outputdir not set', sub_name)) return
       unitPrint = fu_next_free_unit()
       open(unitPrint, status = 'unknown', &
@@ -1568,190 +1425,180 @@ contains
     contr_size = fu_size(control)
     worksize_optimizer = (2*num_corrects + 5) * contr_size + 11*num_corrects**2 + 8 * num_corrects
     numerics = model%rules%darules%numerics
+
+    control_values => fu_values_ptr(control)
+
     max_iter = numerics%maxIterations
     best_iter = int_missing
     fit_params(:) = real_missing
 
-    call da_msg("allocating control store, size: " &
-                    &//trim(fu_str(contr_size))//"x"//trim(fu_str(max_iter+1)))
-    allocate(control_dp(contr_size), gradient_dp(contr_size), optimizer_work(worksize_optimizer), &
-           & l_bfgs_b_iwa(3*contr_size), &
-           & lower_bounds(contr_size), upper_bounds(contr_size), bound_def(contr_size), &
-           & cost_bgr(2,0:max_iter),  cost_obs(2,0:max_iter), cost(0:max_iter), &
-           & contol_vals_store(contr_size,0:max_iter), stat=iTmp)
+    if(ifMaster) then
+      call da_msg("allocating control store, size: " &
+                      &//trim(fu_str(contr_size))//"x"//trim(fu_str(max_iter+1)))
+      allocate(control_dp(contr_size), gradient_dp(contr_size), optimizer_work(worksize_optimizer), &
+             & l_bfgs_b_iwa(3*contr_size), &
+             & lower_bounds(contr_size), upper_bounds(contr_size), bound_def(contr_size), &
+             & cost_bgr(2,0:max_iter),  cost_obs(2,0:max_iter), cost(0:max_iter), &
+             & control_vals_store(contr_size,0:max_iter), stat=iTmp)
+    else
+      allocate(cost_bgr(2,0:max_iter),  cost_obs(2,0:max_iter),  cost(0:max_iter), stat=iTmp)
+    endif
     if(fu_fails(iTmp == 0,'Allocation failed.',sub_name))return
+    
+    if(ifMaster) then
+      call get_posit_constr(control, background, bgr_cov, lower_bounds, bound_def)
+      if (error) return
+    endif
 
-    mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
-    control_values => fu_values_ptr(control)
-
-    call get_posit_constr(control, background, bgr_cov, lower_bounds, bound_def)
-    if (error) return
-
-    gradient_norm_first = -9999.0
-    cost = 1e30  ! something big enough
-    xscale = 100./sqrt(1.*contr_size) !! 
-    control_dp(:) = control_values(:)*xscale !!!Copy to double precision array
+    xscale = 1.  !! First-guess control vector norm (bg) -> 0.5
+     !100./sqrt(1.*contr_size) !! 
+    if(ifMaster) control_dp(:) = control_values(:)*xscale !!!Copy to double precision array
     !lower_bounds = lower_bounds * xscale 
 
     call init_control_from_cloud(gradient, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
     gradient_values => fu_values_ptr(gradient)
-    
-    task = 'START'
-
-    call da_msg('To iteration loop...')
-
-    eval_count = 0 
-    do iterCost = 0, numerics%maxIterations
-      !
-      ! Run BFGS iteration
-      !
+   
+   !! Initialize the iterator 
+    if (ifMaster) then
+      task = 'START'
       call setulb(contr_size, num_corrects, &
                 & control_dp, lower_bounds, upper_bounds, bound_def, &
                 & cost_dp, gradient_dp, l_bfgs_b_factr, l_bfgs_b_pgtol, &
                 & optimizer_work, l_bfgs_b_iwa, task, print_opt, &
                 & l_bfgs_b_csave, l_bfgs_b_lsave, l_bfgs_b_isave, l_bfgs_b_dsave, &
                 & unitPrint)
-      call da_msg('Task on exit from setulb:' // trim(task(1:5)))
-      if (task(1:5) == 'NEW_X') then
-        !! New_x is usually very close to the last-evaluated. 
-        !! Not much sense to evaluate again,
-        !! Re-evaluating the same vector triggers termination on too small change of cost or gradient
-        !! So just re-launch it again
-        call setulb(contr_size, num_corrects, &
-                  & control_dp, lower_bounds, upper_bounds, bound_def, &
-                  & cost_dp, gradient_dp, l_bfgs_b_factr, l_bfgs_b_pgtol, &
-                  & optimizer_work, l_bfgs_b_iwa, task, print_opt, &
-                  & l_bfgs_b_csave, l_bfgs_b_lsave, l_bfgs_b_isave, l_bfgs_b_dsave, &
-                  & unitPrint)
-        call da_msg('Task on exit from setulb on newX retry:' // trim(task(1:5)))
-      endif
+      call da_msg('Task after start setulb:' // trim(task(1:5)))
+    else
+      task = 'FG_ST' !! Could do bcast here..
+    endif
 
-      !
-      ! There are several possible regimes BFGS finishes with
-      !
-      if (task(1:2) == 'FG') then   ! <<<<<<-----------------------------------------------
+    call da_msg('To iteration loop...')
+
+    eval_count = 0 
+    do iterCost = 0, numerics%maxIterations
+
+      if (task(1:5) /= 'FG_ST' .and. task(1:5) /= 'FG_LN') then   !
+            call da_msg("Wrong task")
+            call set_error("Wrong task at start of iteration: "//trim(task), sub_name)
+            return
+      endif
         !
         ! Next state obtained, evaluate the costs to see if job done
         !
-        if  (iterCost /= 0) then 
+      if (ifMaster) then
           control_values = control_dp / xscale !! extract to single-precision
-        endif
-        contol_vals_store(1:contr_size, iterCost) =  control_values(1:contr_size) !! Save control
-        
-        !
-        ! If requested, dump control and observations.
-        ! Note that minimization is done in control space x'=B^-1/2(x-xb), whereas storage is needed
-        ! in physical space x = B^1/2 * x' + xb. Sizes are the same but meaning differs.
-        !
-        if (outputlev > da_out_first_last_flag .or. &
-          & outputlev == da_out_first_last_flag .and. iterCost == 1) then
-          ! physical space - the solution
-          chOutFNm = fu_next_iter_file(output_dir, 'control_da_', model%rules%darules%da_begin, iterCost)
-          call control_to_file(control, background, model%rules%darules, chOutFNm)
-          ! Observations
+          control_vals_store(1:contr_size, iterCost) =  control_values(1:contr_size) !! Save control
+      endif !ifMaster
+          
+      !
+      ! If requested, dump control and observations.
+      ! Note that minimization is done in control space x'=B^-1/2(x-xb), whereas storage is needed
+      ! in physical space x = B^1/2 * x' + xb. Sizes are the same but meaning differs.
+      !
+      if (outputlev > da_out_first_last_flag .or. &
+        & outputlev == da_out_first_last_flag .and. iterCost == 1) then
+        ! physical space - the solution
+        chOutFNm = fu_next_iter_file(output_dir, 'control_da_', model%rules%darules%da_begin, iterCost)
+        call control_to_file(control, background, model%rules%darules, chOutFNm)
+        ! Observations
+        if (ifMaster) then 
           chOutFNm = fu_next_obs_file(output_dir, model%rules%darules%da_begin, iterCost)
           do iPurpose = 1, 2
             call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), &
                                  & chOutFNm  + chObsPurpose(iPurpose), iPurpose)
           end do
-        end if
-        if(error)return
-
-        
-!        if (task(1:2) == 'FG') then   ! <<<<<<-----------------------------------------------
-          !! New evaluation and gradient requested -- calculate it!
-          call evaluate(control, background, bgr_cov, model, &
-                      & cost_obs(:,iterCost), cost_bgr(:,iterCost), cost(iterCost), mdl_obs_values)
-          if (error) return
-          !
-          ! The forward run has finished, report costs for assimilated sites and, if any, evaluation ones
-          !
-          call report_cost(iterCost, cost_obs(:,iterCost), cost_bgr(:,iterCost), cost(iterCost), fu_mode(control))
-          !
-          ! Next round: get the gradient
-          !
-          call get_gradient(control, gradient, background, bgr_cov, model_adj, mdl_obs_values)
-          if (error) return
-          
-          !!! Prepare for next iteration
-          cost_dp = cost(iterCost)
-          gradient_dp = gradient_values / xscale 
-          eval_count = eval_count + 1
-        
-!        else !!! New X
-!          cost(iterCost) = cost_dp !! Projcted cost
-!          call da_msg("Iter   "//trim(fu_str(iterCost))//" Projected cost = ", cost(iterCost) )
-!          gradient_values = gradient_dp(:)  !! projected gradient
-!          cost_obs(:,iterCost) = cost_obs(:,iterCost-1) ! Placeholder costs not to break l-curve fit
-!          cost_bgr(:,iterCost) = cost_bgr(:,iterCost-1) !
-!        endif
-
-        gradient_norm = sqrt(sum(gradient_values**2))
-        call da_msg('||grad|| = ', gradient_norm)
-        !
-        ! Should we break the iterations?
-        ! This one guarantees most cases, can be used as ultimate stop. cost is bckgr + obs deviation
-        best_iter = minloc(cost(0:iterCost),1) - 1 !!! Minimal-cost iteration
-        !
-        if (iterCost > 4) then 
-          !
-          ! We are done if: 
-          ! - Three last iterations are worse than the best one in total cost
-          ! - last two iterations were within 5% from the absolute best one
-          ! Should it materialise, overwrite the task in order to exit          
-          !
-          if (best_iter + 3 < iterCost)then
-            task = 'FG3BAD'
-          elseif(all(1.05*cost(best_iter) > cost(iterCost-2:iterCost-1))) then
-            task = 'FGSLOW'
-          endif
-          !
-          ! Get the optimal iteration instead of minimal-cost iteration
-          !
-          call best_iter_L_curve(iterCost, cost_obs(1,0:iterCost), &
-                               & cost_bgr(1,0:iterCost)+cost_bgr(2,0:iterCost), best_iter, fit_params)
-        endif  ! iterCost > 4
-        if(error)return
-
-        if (outputlev > da_out_first_last_flag) then
-          chOutFNm = fu_next_iter_file(output_dir, 'gradient_da_', model%rules%darules%da_begin, iterCost)
-          call control_to_file(gradient, background, model%rules%darules, chOutFNm)
-        end if
-
-        if (gradient_norm_first < 0) then 
-          gradient_norm_first = gradient_norm
-        else if (gradient_norm < numerics%grad_rel_tol*gradient_norm_first) then
-          call da_msg('Iteration finished FG, ||grad|| < a*||grad_0||, a = ', numerics%grad_rel_tol)
-          exit         
-        end if
-
-        !! Relative tolerance of cost
-        if (cost(iterCost) < numerics%cost_rel_tol * cost(0)) then
-          call da_msg('Iteration finished NEW_X: J(u) < a*J_0, a = ', numerics%cost_rel_tol)
-          exit
         endif
+      end if
+      if(error)return
 
-        ! Cost increment 
-        if (iterCost > 5)then
-          if(abs(cost(iterCost) - cost(iterCost-1)) &
-           & < numerics%cost_incr_rel_tol * 0.5*(cost(iterCost) + cost(iterCost))) then
-            call da_msg('Brekaing iterations: 2 * (cost - cost_prev) / (cost + cost_prev) < a, a = ', &
-                      & numerics%cost_incr_rel_tol)
-            call msg('cost, cost_prev', cost(iterCost), cost(iterCost-1))
-            exit
+       !! New evaluation and gradient requested -- calculate it!
+       call evaluate(control, background, bgr_cov, model, &
+                   & cost_obs(:,iterCost), cost_bgr(:,iterCost), cost(iterCost))
+       if (error) return
+       !
+       ! The forward run has finished, report costs for assimilated sites and, if any, evaluation ones
+       !
+       call report_cost(iterCost, cost_obs(:,iterCost), cost_bgr(:,iterCost), cost(iterCost), fu_mode(control))
+       !
+       ! Next round: get the gradient
+       !
+       call get_gradient(control, gradient, background, bgr_cov, model_adj)
+       if (error) return
+       
+       if (outputlev > da_out_first_last_flag) then
+         chOutFNm = fu_next_iter_file(output_dir, 'gradient_da_', model%rules%darules%da_begin, iterCost)
+         call control_to_file(gradient, background, model%rules%darules, chOutFNm)
+       end if
+
+       if (ifMaster) then 
+          gradient_norm = sqrt(sum(gradient_values**2))
+          call da_msg('||grad|| = ', gradient_norm)
+          if (iterCost == 0) gradient_norm_first = gradient_norm
+          !
+
+
+          !! Stopping criteria:
+          best_iter = minloc(cost(0:iterCost),1) - 1 !!! Minimal-cost iteration
+          if (best_iter + 3 < iterCost)then 
+              task = 'FG3BAD' !Three last iterations are worse than the best one in total cost
+          elseif (gradient_norm < numerics%grad_rel_tol*gradient_norm_first) then
+              task = "FGGRAD"         !! ||grad|| < a*||grad_0||
+          elseif (cost(iterCost) < numerics%cost_rel_tol * cost(0)) then
+              task = "FGCOST" !! Relative tolerance of cost
+            elseif(iterCost > 2) then
+              if (all(1.05*cost(best_iter) > cost(iterCost-2:iterCost))) then
+                 task = 'FGSLOW' !last two iterations were within 5% from the absolute best one
+              endif 
           endif
-        end if
 
-      elseif (task(1:5) == 'NEW_X') then
+          !! Get next itrate if not yet over
+          if (task(1:5) == 'FG_ST' .or. task(1:5) == 'FG_LN' ) then
+            !
+            ! Run BFGS iteration
+            !
+            cost_dp = cost(iterCost)
+            gradient_dp = gradient_values / xscale 
+            call setulb(contr_size, num_corrects, &
+                      & control_dp, lower_bounds, upper_bounds, bound_def, &
+                      & cost_dp, gradient_dp, l_bfgs_b_factr, l_bfgs_b_pgtol, &
+                      & optimizer_work, l_bfgs_b_iwa, task, print_opt, &
+                      & l_bfgs_b_csave, l_bfgs_b_lsave, l_bfgs_b_isave, l_bfgs_b_dsave, &
+                      & unitPrint)
+            call da_msg('Task on exit from setulb:' // trim(task(1:5)))
+            if (task(1:5) == 'NEW_X') then
+              !! New_x is usually very close to the last-evaluated. 
+              !! Not much sense to evaluate again,
+              !! Re-evaluating the same vector triggers termination on too small change of cost or gradient
+              !! So just re-launch it again
+              call setulb(contr_size, num_corrects, &
+                        & control_dp, lower_bounds, upper_bounds, bound_def, &
+                        & cost_dp, gradient_dp, l_bfgs_b_factr, l_bfgs_b_pgtol, &
+                        & optimizer_work, l_bfgs_b_iwa, task, print_opt, &
+                        & l_bfgs_b_csave, l_bfgs_b_lsave, l_bfgs_b_isave, l_bfgs_b_dsave, &
+                        & unitPrint)
+              call da_msg('Task on exit from setulb on newX retry:' // trim(task(1:5)))
+            endif
+          endif !! new iterate neded
+      endif !ifMaster
+      
+      !! bcast status
+      if (smpi_adv_tasks > 1) then
+        task_clen(1:60) = task(:)
+        call smpi_bcast_string(task_clen, smpi_adv_comm)
+        task(:) = task_clen(1:60)
+      endif
+
+      !!! Stop iterations if needed
+      if (task(1:5) == 'NEW_X') then
         call set_error("NEW_X returned on retry", sub_name)
         return
-      else if (task(1:4) == 'CONV') then    ! <<<<<<-----------------------------------------------
+      elseif (task(1:4) == 'CONV') then    ! <<<<<<-----------------------------------------------
         call da_msg('Normal termination CONV')
         exit
-      else if (task(1:4) == 'ABNO') then    ! <<<<<<-----------------------------------------------
+      elseif (task(1:4) == 'ABNO') then    ! <<<<<<-----------------------------------------------
         call set_error('Abnormal termination ABNO', sub_name)
         return
-      else if (task(1:5) == 'ERROR') then   ! <<<<<<-----------------------------------------------
+      elseif (task(1:5) == 'ERROR') then   ! <<<<<<-----------------------------------------------
         call da_msg('L-BFGS-B had an error')
         call set_error('L-BFGS-B had an error', sub_name)
         return
@@ -1761,36 +1608,50 @@ contains
       elseif(task(1:6) == 'FGSLOW') then    ! <<<<<<-----------------------------------------------
         call da_msg('Three iterations with slow improvement SLOW')
         exit
-      else                                  ! <<<<<<-----------------------------------------------
-        call set_error('Strange task:' + task, sub_name)
-        return
-      end if
+      elseif(task(1:6) == 'FGGRAD') then    ! <<<<<<-----------------------------------------------
+        call da_msg('Iteration finished FG, ||grad|| < a*||grad_0||, a = ', numerics%grad_rel_tol)
+        exit
+      elseif(task(1:6) == 'FGCOST') then    ! <<<<<<-----------------------------------------------
+        call da_msg('Iteration finished NEW_X: J(u) < a*J_0, a = ', numerics%cost_rel_tol)
+        exit
+        !!! Strange tasks wil be handled in the begiining of the next loop
+      end if 
     end do  ! iterations
 
-    if (task(1:2) /= 'FG')  iterCost = iterCost - 1  !!Last iteration not evaluated
-    
     call da_msg('Iteration:' + fu_str(iterCost) + ', out of:' + fu_str(numerics%maxIterations))
-    call da_msg('Iterations over, gradient evaluations: '+ fu_str(eval_count))
+    call da_msg('Iterations over, gradient evaluations: '+ fu_str(iterCost+1))
 
-    if (best_iter > 0) then
-      call da_msg('Applying iteration (L-curve):' + fu_str(best_iter))
-    else
-      if (iterCost > 0) then
-        best_iter  = minloc(cost(0:iterCost), 1)-1 !! Not enough iters for L-curve: use the smallest
-        call da_msg('Applying iteration (cost):' + fu_str(best_iter))
+    call destroy(gradient)
+
+    if (ifMaster) then
+      !!! "Best" iteration
+      if (iterCost > 4) then 
+        ! L-curve iteration
+        call best_iter_L_curve(iterCost, cost_obs(1,0:iterCost), &
+                             & cost_bgr(1,0:iterCost)+cost_bgr(2,0:iterCost), best_iter, fit_params)
+      endif  ! iterCost <5
+      if(error)return
+      if (best_iter > 0) then
+        call da_msg('Applying iteration (L-curve):' + fu_str(best_iter))
       else
-        best_iter = 0  !! Use background 
-        call da_msg("Fallback to  background")
+        if (iterCost > 0) then
+          best_iter  = minloc(cost(0:iterCost), 1)-1 !! Not enough iters for L-curve: use the smallest
+          call da_msg('Applying iteration (cost):' + fu_str(best_iter))
+        else
+          best_iter = 0  !! Use background 
+          call da_msg("Fallback to  background")
+        endif
       endif
-    endif
-      !! Restore the control
-    control_values(1:contr_size) = contol_vals_store(1:contr_size, best_iter)
+        !! Restore the control
+      control_values(1:contr_size) = control_vals_store(1:contr_size, best_iter)
 
-    !Cleanup
-    deallocate(contol_vals_store, control_dp, gradient_dp, optimizer_work, l_bfgs_b_iwa, &
-            & lower_bounds, upper_bounds, bound_def)
-    call free_work_array(mdl_obs_values)
-    if ( .not. any(unitPrint == (/run_log_funit, 6/)))    close(unitPrint) !! Close if it was a file
+      !Cleanup
+      deallocate(control_vals_store, control_dp, gradient_dp, optimizer_work, l_bfgs_b_iwa, &
+              & lower_bounds, upper_bounds, bound_def, cost_bgr,  cost_obs,  cost)
+      if ( .not. any(unitPrint == (/run_log_funit, 6/)))    close(unitPrint) !! Close if it was a file
+    else
+      deallocate(cost_bgr,  cost_obs,  cost)
+    endif
 
   end subroutine l_bfgs_b
 
@@ -1868,13 +1729,7 @@ contains
 
     character(len=fnlen) :: filename
 
-    if (smpi_adv_tasks > 1) then
-      filename = dir + dir_slash + 'obs_da_' + &
-             & fu_time_fname_string_utc(da_begin) + '_' + fu_str(iterNo, 2)+ '_MPI'+ fu_str(smpi_adv_rank, 2)
-    else
-      filename = dir + dir_slash + 'obs_da_' + &
-             & fu_time_fname_string_utc(da_begin) + '_' + fu_str(iterNo, 2)
-    endif
+    filename = dir + dir_slash + 'obs_da_' + fu_time_fname_string_utc(da_begin) + '_' + fu_str(iterNo, 2)
     call msg('Next obs file: ' // trim(filename))
   end function fu_next_obs_file
   
@@ -1902,8 +1757,7 @@ contains
 
   !************************************************************************************
 
-  subroutine evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost_total, &
-                    & mdl_obs_values)
+  subroutine evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost_total)
     !
     ! Runs the forward model and gets its predictions at the observation points
     !
@@ -1914,28 +1768,31 @@ contains
     type(model_container), intent(inout) :: model
     
     real, intent(out) :: cost_total
-    real, dimension(:), intent(out) :: cost_obs, cost_bgr, mdl_obs_values
+    real, dimension(:), intent(out) :: cost_obs, cost_bgr
     
-    real, dimension(:), pointer :: control_values, obs_values, variance, bgr_values
+    real, dimension(:), pointer :: control_values, obs_values, variance, bgr_values, mdl_obs_values
     integer :: ii,jj
-    integer, dimension(2) :: n_obs
+    integer, dimension(2) :: n_obs ! (assim, eval)
 
     if (.not. defined(control_physical)) then
       call init_control_from_cloud(control_physical, model%cloud, model%rules%darules, physical_space)
       if (error) return
     end if
 
+    !!! Every memer gets the state vector
+    call bcast_control(control) 
     call to_physical(control, background, control_physical)
     !call report(control_physical)
     if (error) return
-    n_obs(:) = model%obs_ptr%obs_size(:)    ! (assim, eval)
-    if (fu_fails(size(mdl_obs_values) > sum(n_obs), 'mdl_obs_values too small', 'evaluate')) return
+
     !
     !------------------------------------------------------------------------------
     !
     ! Run the model and get observations from it
     !
-    call obs_from_mdl(control_physical, model, mdl_obs_values)
+    call obs_from_mdl(control_physical, model)
+    call get_obs_pointers(model%obs_ptr, obs_values, mdl_obs_values, variance, n_obs)
+
     if (error) return
     call msg("mdl_obs_values ASSIM from model, nobs="//trim(fu_str(n_obs(1)))//": min, max, mean", &
            & (/minval(mdl_obs_values(1:n_obs(1))), maxval(mdl_obs_values(1:n_obs(1))), &
@@ -1951,15 +1808,11 @@ contains
 
     !------------------------------------------------------------------------------
     !
-    obs_values => fu_obs_data(model%obs_ptr)
 !    call msg("obs_values min, max, mean", (/minval(obs_values(1:n_obs)), maxval(obs_values(1:n_obs)), sum(obs_values(1:n_obs))/))
-    variance => fu_obs_variance(model%obs_ptr)
-    if (fu_fails(associated(obs_values), 'obs_values not associated', 'evaluate')) return
-    if (fu_fails(associated(variance), 'obs_variance not associated', 'evaluate')) return
     
     !!sum only stations within domain                                       
     ii = 1; jj = n_obs(1) !! Assimilation
-    cost_obs(ii) = 0.5 * sum((obs_values(ii:jj) - mdl_obs_values(ii:jj))**2 / variance(ii:jj), &
+    cost_obs(1) = 0.5 * sum((obs_values(ii:jj) - mdl_obs_values(ii:jj))**2 / variance(ii:jj), &
                                & mdl_obs_values(ii:jj) /= real_missing)
     call mod_obs_stats("Assim", mdl_obs_values(ii:jj), obs_values(ii:jj), variance(ii:jj), .TRUE.)
 
@@ -1975,7 +1828,6 @@ contains
     case (DA_INITIAL_STATE, DA_EMISSION_CORRECTION, DA_EMISSION_TIME_HEIGHT)
       control_values => fu_values_ptr(control)
       cost_bgr(1) = 0.5 * sum(control_values(1:fu_size(control))**2)
-      bgr_values => fu_values_ptr(background)
       cost_total = cost_obs(1) + cost_bgr(1)
 
     case (DA_EMISSION_AND_INITIAL)
@@ -2004,7 +1856,7 @@ contains
   
   !************************************************************************************
 
-  subroutine get_gradient(control, gradient, background, bgr_cov, model, mdl_obs_values)
+  subroutine get_gradient(control, gradient, background, bgr_cov, model)
     !
     ! Computes the gradient of the cost function via adjoint run through the assimilation window
     !
@@ -2013,12 +1865,11 @@ contains
     type(da_control), intent(inout) :: gradient
     type(t_background_covariance), intent(in) :: bgr_cov
     type(model_container), intent(inout) :: model
-    real, dimension(:), intent(in) :: mdl_obs_values
 
     integer :: idim, ii
     
     real, dimension(:), pointer :: grad_ptr, control_ptr
-    integer(kind=8) :: count1, count2, count3
+    integer(kind=8) :: count1, count2, count3, count4
 
     if (.not. defined(control_physical)) then
       call init_control_from_cloud(control_physical, model%cloud, model%rules%darules, physical_space)
@@ -2031,16 +1882,17 @@ contains
     call get_obs_grad(model, control_physical)
     CALL SYSTEM_CLOCK(count2)
 
-    if (smpi_adv_rank > 0) return !! Only master gets proper control vector
-
     ! Gradient is now in physical space: M*H*(y-HMx)
     !
     if (error) return
     ! Apply the inverse square root of B:
     call to_control(control_physical, gradient)
     CALL SYSTEM_CLOCK(count3)
+    call allreduce_gradient(gradient)
+    CALL SYSTEM_CLOCK(count4)
 
-    call msg("get_obs_grad, to_control, ms", int(1e-6*(count2-count1)), int(1e-6*(count3 - count2)))
+    call msg("get_obs_grad, to_control, reduce ms", (/int(1e-6*(count2-count1)), &
+          &  int(1e-6*(count3 - count2)), int(1e-6*(count4 - count3))/))
 
     if (debug_level > 0) then
       call msg('Reporting gradient norm by species before background')
@@ -2101,20 +1953,18 @@ contains
     real :: fdiff, cost2, cost1
     real :: background_val = 0.0, background_init = 5e-6
 
-    mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
-    
     ! Kill emissions
     !
     proc_ptr => fu_emission_processor_ptr(model%cloud)
     call set_emission_processor(fu_emisMM_ptr(model%cloud), fu_species_transport(model%cloud), &
                               & processor_scaling_flag, proc_ptr)
-    call zero_processor(proc_ptr)
+    call zero_processor_grad(proc_ptr)
 
     call init_control_from_cloud(background, model%cloud, model%rules%darules, physical_space, background_init)
     
     call set_cov_mdl(bgr_cov, background, &
                    & fu_species_emission(model%cloud), fu_species_transport(model%cloud), &
-                   & model%rules%darules, wholeMPIdispersion_grid, dispersion_vertical, &
+                   & model%rules%darules, dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, &
                    & model%rules%darules%da_begin, model%rules%darules%controlVariable)
     call init_control_from_cloud(control, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
     call init_control_from_cloud(random, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
@@ -2148,18 +1998,18 @@ contains
     ! Evaluate at -delta
     !initial_values(ind) = background_val - delta
     initial_values = background_val - delta*rand_values
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost1, mdl_obs_values)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost1)
 
     ! Evaluate at delta
     !initial_values(ind) = background_val + delta
     initial_values = background_val + delta*rand_values
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost2, mdl_obs_values)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost2)
 
     ! Gradient at zero
     initial_values(ind) = background_val
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost, mdl_obs_values)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost)
     call finalise_output(model%cloud, model%out_def, model%wdr, model%source)
-    call get_gradient(control, gradient, background, bgr_cov, model, mdl_obs_values)
+    call get_gradient(control, gradient, background, bgr_cov, model)
     !call to_physical(gradient, background, bgr_cov)
     call control_to_file(gradient, background, model%rules%darules, 'gradient')
 
@@ -2186,7 +2036,7 @@ contains
     
     type(da_control) :: control, gradient, background
     type(t_background_covariance) :: bgr_cov
-    real, dimension(:), pointer ::mdl_obs_values, grad_values, proc_values
+    real, dimension(:), pointer :: grad_values, proc_values
     real :: cost_obs(2), cost_bgr(2), cost
 
     integer :: ix, iy, iz, isp, nx, ny, nz, nsp, ind, iPurpose
@@ -2199,12 +2049,10 @@ contains
     
 
 
-    mdl_obs_values => fu_work_array(sum(model%obs_ptr%obs_size))
-    
     proc_ptr => fu_emission_processor_ptr(model%cloud)
     call set_emission_processor(fu_emisMM_ptr(model%cloud), fu_species_transport(model%cloud), &
                               & processor_scaling_flag, proc_ptr)
-    proc_values => fu_data(proc_ptr)
+    proc_values => fu_data(proc_ptr, forwards)
     proc_values = 1.0
 
     call init_control_from_cloud(control, model%cloud, model%rules%darules, control_space, 0.0)
@@ -2213,7 +2061,7 @@ contains
     
     call set_cov_mdl(bgr_cov, background, &
                    & fu_species_emission(model%cloud), fu_species_transport(model%cloud), &
-                   & model%rules%darules, dispersion_grid, dispersion_vertical, &
+                   & model%rules%darules, dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, &
                    & model%rules%darules%da_begin, model%rules%darules%controlVariable)
     !model%rules%if_collect_linearization = .false.
 
@@ -2236,23 +2084,23 @@ contains
 
     ! Evaluate at -delta
     proc_values(ind) = background_val - delta
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost1, mdl_obs_values)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost1 )
     do iPurpose = 1, 2
       call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), &
                            & 'obs-delta' + chObsPurpose(iPurpose), iPurpose)
     end do
     ! Evaluate at delta
     proc_values(ind) = background_val + delta
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost2, mdl_obs_values)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost2)
     do iPurpose = 1, 2
      call dump_observations(model%obs_ptr, fu_species_transport(model%cloud), &
                           & 'obs+delta' + chObsPurpose(iPurpose), iPurpose)
     end do
     ! Gradient at zero
     proc_values(ind) = background_val
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost, mdl_obs_values)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost)
     call finalise_output(model%cloud, model%out_def, model%wdr, model%source)
-    call get_gradient(control, gradient, background, bgr_cov, model, mdl_obs_values)
+    call get_gradient(control, gradient, background, bgr_cov, model)
     !call to_physical(gradient, background, bgr_cov)
     call control_to_file(gradient, background, model%rules%darules, 'gradient')
 
@@ -2298,7 +2146,7 @@ contains
     
     type(da_control) :: control, gradient, background, control_phys
     type(t_background_covariance) :: bgr_cov
-    real, dimension(:), pointer ::mdl_obs_values, grad_values, proc_values, bgr_values
+    real, dimension(:), pointer :: grad_values, proc_values, bgr_values
     real :: cost_obs(2), cost_bgr(2), cost
 
     integer :: ix, iy, iz, isp, nx, ny, nz, nsp, ind, ii
@@ -2326,14 +2174,13 @@ contains
     mdl_data => fu_work_array()
     obs_data => fu_work_array()
     obs_var => fu_work_array()
-    mdl_obs_values => fu_work_array()
 
     call init_control_from_cloud(background, model%cloud, model%rules%darules, physical_space, 0.0)
     call init_control_from_cloud(control_phys, model%cloud, model%rules%darules, physical_space) 
     
     call set_cov_mdl(bgr_cov, background, &
                    & fu_species_emission(model%cloud), fu_species_transport(model%cloud), &
-                   & model%rules%darules, dispersion_grid, dispersion_vertical, &
+                   & model%rules%darules, dispersion_grid, wholeMPIdispersion_grid, dispersion_vertical, &
                    & model%rules%darules%da_begin, model%rules%darules%controlVariable)
     call init_control_from_cloud(control, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
     call init_control_from_cloud(gradient, model%cloud, model%rules%darules, control_space, 0.0, bgr_cov)
@@ -2347,16 +2194,15 @@ contains
       proc_ptr => fu_emission_processor_ptr(model%cloud)
       call set_emission_processor(fu_emisMM_ptr(model%cloud), fu_species_transport(model%cloud), &
                                 & processor_scaling_flag, proc_ptr)
-      call zero_processor(proc_ptr)
+      call zero_processor_grad(proc_ptr)
     end if
 
-    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost1, mdl_obs_values)
-    call collect_model_data(model%obs_ptr, mdl_data) !, n_obs_val)
-    call get_obs_data(model%obs_ptr,  obs_data, n_obs_val)
-    call collect_variance(model%obs_ptr, obs_var) !, n_obs_val)
+    call evaluate(control, background, bgr_cov, model, cost_obs, cost_bgr, cost1)
+    call collect_model_data(model%obs_ptr) 
+    call get_obs_pointers(model%obs_ptr,  obs_data, mdl_data, obs_var,  n_obs_val)
     ! can now compute R^{-1}(Hx-y)
 
-    call get_gradient(control, gradient, background, bgr_cov, model, mdl_obs_values)
+    call get_gradient(control, gradient, background, bgr_cov, model)
     grad_values => fu_values_ptr(gradient)
     !call copy_control(control, control_phys, .false.)
     !call to_physical(control_phys, background)
@@ -2421,7 +2267,7 @@ contains
     test_cov_ini_file = trim(test_file_name) + '.nl'
     file_unit = fu_next_free_unit()
     open(file_unit, file=test_cov_ini_file, action='write')
-    call make_correlation(file_unit, emission_scaling_flag)
+    call make_correlation(file_unit, ln_emission_scaling_flag)
     call make_correlation(file_unit, concentration_flag)
     close(file_unit)
    
@@ -2440,13 +2286,13 @@ contains
     wrk(1:fs) = stdev
     call msg('SO2, stdev', stdev)
 
-    fid = fu_set_field_id(met_src_missing, emission_scaling_flag, sometime, zero_interval, &
+    fid = fu_set_field_id(met_src_missing, ln_emission_scaling_flag, sometime, zero_interval, &
                         & correlation%grid, surface_level, species=species_transport(1))
     call write_next_field_to_gradsfile(igf, fid, wrk(1:fs))
     if (error) return
     stdev = 1.5
     wrk(1:fs) = stdev
-    fid = fu_set_field_id(met_src_missing, emission_scaling_flag, sometime, zero_interval, &
+    fid = fu_set_field_id(met_src_missing, ln_emission_scaling_flag, sometime, zero_interval, &
                         & correlation%grid, surface_level, species=species_transport(2))
     call write_next_field_to_gradsfile(igf, fid, wrk(1:fs))
     if (error) return
@@ -2491,7 +2337,7 @@ contains
     print *, 'is_open', is_open
 
     call set_cov_mdl(bgr_cov, ctrl_background, species_emission, species_transport, &
-                   & darules, correlation%grid, correlation%vertical, sometime, darules%controlVariable)
+                   & darules, correlation%grid, correlation%grid, correlation%vertical, sometime, darules%controlVariable)
     
   contains
     

@@ -156,8 +156,9 @@ MODULE source_terms_wind_blown_dust
     real, dimension(:), pointer :: levFractDispVert, fzDisp
     type(Tsilam_namelist), pointer :: nlInputFiles  ! namelist for names of supplementary files
     type(silam_species), dimension(:), pointer :: species
-    type(silja_field), pointer :: source_mask
-    logical, dimension(:), pointer :: ifNumberFlux
+    type(silja_field) :: source_mask
+    real, dimension(:), allocatable ::  fluxScale ! (nModes)
+    logical, dimension(:), allocatable :: ifNumberFlux
     type(chemical_adaptor) :: adaptor
     type(Twind_gust_lookup) :: wgl
     type(silja_logical) :: defined
@@ -259,12 +260,25 @@ CONTAINS
                               & expected_species, fu_content(nlSetup,'wind_blown_dust_substance_name'), &
                               & nlSetup)
     if(error)return
+
+
+    allocate(srcWBDust%ifNumberFlux(srcWBDust%nSpecies), srcWBDust%fluxScale(srcWBDust%nSpecies), stat=iTmp)
+    if(fu_fails(iTmp == 0, 'Failed to allocate number-mass switcher array','fill_wb_dust_src_from_namelist'))return
+
+    chtmp = fu_content(nlSetup,'mode_scaling')
+    if (chtmp == '')  then
+      srcWBDust%fluxScale(1:srcWBDust%nSpecies) = 1.
+    else
+      call split_string( chtmp, ' ',  srcWBDust%fluxScale, srcWBDust%nSpecies)
+      if (error) return
+      call msg("wind-blown dust emission mode scaling", srcWBDust%fluxScale)
+    endif
+
+
+
     !
     ! If number-emission is neeed, it has to be requested via nbr_aer in the species 
     !
-    allocate(srcWBDust%ifNumberFlux(srcWBDust%nSpecies), stat=iTmp)
-    if(fu_fails(iTmp == 0, 'Failed to allocate number-mass switcher array','fill_wb_dust_src_from_namelist'))return
-
     do iTmp = 1, srcWBDust%nSpecies
       srcWBDust%ifNumberFlux(iTmp) = (fu_name(fu_material(srcWBDust%species(iTmp))) == 'nbr_aer')
     end do
@@ -563,8 +577,6 @@ CONTAINS
         if(error)return
 
         if(defined(id)) then
-          allocate(srcWBDust%source_mask, stat=iTmp)
-          if(fu_fails(iTmp == 0,'Failed wind-blown dust source mask allocation','init_emission_wb_dust'))return
           call set_field(id, arPtr, srcWBDust%source_mask, .true.)
         else
           call set_error('Failed to get the source mask','init_emission_wb_dust')
@@ -624,6 +636,10 @@ CONTAINS
       if(error)return
 
     end do    ! species
+
+    !! Apply scaling
+    srcWBDust%fluxPerModeNbr = srcWBDust%fluxPerModeNbr * srcWBDust%fluxScale
+    srcWBDust%fluxPerModeVol = srcWBDust%fluxPerModeVol * srcWBDust%fluxScale
     !
     !
     ! Now, create the lookup table for the gust impact

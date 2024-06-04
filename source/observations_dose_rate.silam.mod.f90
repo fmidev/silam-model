@@ -121,14 +121,14 @@ contains
     a%obs => obs                   !appoint observation
     a%ifGroundToo = ifGroundToo    !define if groundshine is included
     
-    xpos = a%obs%station%xLoc_dispGrid      ! local variables defined for xpos,
-    ypos = a%obs%station%yLoc_dispGrid      ! ypos and
-    ilev = a%obs%station%ind_lev   ! ilev to make the code more readable
+    xpos = a%obs%station(1)%xLoc_dispGrid      ! local variables defined for xpos,
+    ypos = a%obs%station(1)%yLoc_dispGrid      ! ypos and
+    ilev = a%obs%station(1)%ind_lev   ! ilev to make the code more readable
     
     !smpi decomposition subroutine brings the necessary offsets plus global and local maximum indices
     call smpi_get_decomposition(nx, ny, offx, offy, gnx, gny)
     !project point to grid brings necessary wholeMPIdispersiongrid and indices in it
-    call project_point_to_grid(a%obs%station%lon, a%obs%station%lat, &
+    call project_point_to_grid(a%obs%station(1)%lon, a%obs%station(1)%lat, &
                               & wholeMPIdispersion_grid, x, y)
     y0 = nint(y) !center indices into nearest integers
     x0 = nint(x)
@@ -555,7 +555,9 @@ contains
     real, dimension(:), allocatable :: scales
 
     allocate(newobservation%endTimes(n_values), newObservation%durations(n_values), &
-            & newObservation%obsData(n_values), newObservation%variance(n_values), stat=status)
+            & newObservation%obsData(n_values,1), newObservation%variance(n_values,1), &
+            & newobservation%station(1), &
+            & newObservation%modelData(n_values,1), stat=status)
     if (status /= 0) then
       call set_error('Allocate failed', 'fu_init_dose_rate_obs')
       return
@@ -564,21 +566,19 @@ contains
     newObservation%tag = tag
     newObservation%endTimes = endTimes(1:n_values)
     newObservation%durations = durations(1:n_values)
-    newObservation%obsData = obsData(1:n_values)
+    newObservation%obsData(:,1) = obsData(1:n_values)
     newObservation%dataLength = n_values
-    newObservation%station = station
-    allocate(newObservation%modelData(n_values), stat=status)
-    if (status /= 0) then
-      call set_error('Cannot initialize observation: allocate failed.','fu_init_dose_rate_obs')
-      return
-    end if
+    newObservation%nStations = 1
+    newObservation%nTimes = n_values
+    newObservation%station(1) = station
+    newObservation%inThisSubdomain = station%inThisSubdomain !! Here we have the only station
     newObservation%modelData = 0.0
 
     select case(variance_flag)
     case (variable_variance)
-      newObservation%variance = variance(1:n_values)
+      newObservation%variance(:,1) = variance(1:n_values)
     case (constant_variance)
-      newObservation%variance = variance(1)
+      newObservation%variance(:,1) = variance(1)
     case default
       call set_error('Strange variance_flag', 'fu_init_dose_rate_obs')
       return
@@ -644,7 +644,7 @@ contains
          & = newObservation%station%cell_area & 
          &   * fu_layer_thickness_m(fu_level(vertical, 1)) !function fu_layer_thickness defined in silja levels
     
-    newObservation%obsData = obsData(1:n_values)
+    newObservation%obsData(1:n_values,1) = obsData(1:n_values)
   end function fu_init_dose_rate_obs
  
   
@@ -698,17 +698,17 @@ contains
     if (time_start >= now) return ! used all observations
     
     !Find station nearest gridpoint
-    x = addition%obs%station%ix_dispersion
-    y = addition%obs%station%iy_dispersion
+    x = addition%obs%station(1)%ix_dispersion
+    y = addition%obs%station(1)%iy_dispersion
     do while (time_end > step_start)
        overlap = fu_time_overlap(time_start, time_end, step_start, now)  
        if (fu_fails(.not.(overlap == zero_interval), 'Impossible error', 'inject_dose_rate')) return
        time_fract = fu_sec(overlap) / fu_sec(obs%durations(ind_obs))
        !Data assimilation rules are different for negative and positive values
-       if (obs%obsData(ind_obs) .eps. 0.0) then
+       if (obs%obsData(ind_obs,1) .eps. 0.0) then
           ind_src = DA_ZERO
           weight = 1.0
-       else if (obs%obsData(ind_obs) > obs%modelData(ind_obs)) then
+       else if (obs%obsData(ind_obs,1) > obs%modelData(ind_obs,1)) then
           ind_src = DA_NEGATIVE
           weight = DA_NEGT_COEF_OBS
        else
@@ -722,10 +722,10 @@ contains
        if (error) return
        if (addition%ifGroundToo .eqv. .false.) then !inject only to air
           inj_air_dose = time_fract &
-                       & * (obs%modelData(ind_obs) &!difference between model and
-                          & - obs%obsData(ind_obs)) &  !observation data
+                       & * (obs%modelData(ind_obs,1) &!difference between model and
+                          & - obs%obsData(ind_obs,1)) &  !observation data
                        & * observation_scaling &    !numerical trick see the beginning of this module
-                       & / obs%variance(ind_obs)    !divide by variance
+                       & / obs%variance(ind_obs,1)    !divide by variance
           !Same logic in the below formulas for inject doses where 
           !ground is getting injected too plus the cloud_ground_ratio 
           !proportianating the dose between air, wet and dry.
@@ -735,26 +735,26 @@ contains
        else !Inject proportionally to air and ground (DEFAULT)
           !air
           inj_air_dose = time_fract &
-                       & * (obs%modelData(ind_obs) & 
-                          & - obs%obsData(ind_obs)) &
+                       & * (obs%modelData(ind_obs,1) & 
+                          & - obs%obsData(ind_obs,1)) &
                        & * (1.0 - addition%cloud_ground_ratio(1,ind_obs) & 
                           & - addition%cloud_ground_ratio(2,ind_obs)) & 
                        & * observation_scaling &
-                       & / obs%variance(ind_obs)
+                       & / obs%variance(ind_obs,1)
           !ground wet
           inj_wet_ground_dose = time_fract &
-                              & * (obs%modelData(ind_obs) &
-                                 & - obs%obsData(ind_obs)) &
+                              & * (obs%modelData(ind_obs,1) &
+                                 & - obs%obsData(ind_obs,1)) &
                               & * addition%cloud_ground_ratio(1,ind_obs) &
                               & * observation_scaling &
-                              & / obs%variance(ind_obs)
+                              & / obs%variance(ind_obs,1)
           !ground dry
           inj_dry_ground_dose = time_fract &
-                              & * (obs%modelData(ind_obs) &
-                                 & - obs%obsData(ind_obs)) &
+                              & * (obs%modelData(ind_obs,1) &
+                                 & - obs%obsData(ind_obs,1)) &
                               & * addition%cloud_ground_ratio(2,ind_obs) & 
                               & * observation_scaling &
-                              & / obs%variance(ind_obs)
+                              & / obs%variance(ind_obs,1)
        end if
        if (isnan(inj_air_dose)) call set_error('Injecting NaNs','inject_dose_rate')
        if (isnan(inj_wet_ground_dose)) call set_error('Injecting NaNs','inject_dose_rate')
@@ -884,7 +884,7 @@ contains
       time_fract = fu_sec(overlap) / fu_sec(obs%durations(ind_obs))
       !Obs model data is the actual dose rate at the station and addition model data
       !also contains how it is distributed and weighted in physical space and nuclides.
-      obs%modeldata(ind_obs) = obs%modeldata(ind_obs) & 
+      obs%modeldata(ind_obs,1) = obs%modeldata(ind_obs,1) & 
                              & + time_fract &
                                & * fu_get_dose_rate_at_station(addition, map_c, map_wet, map_dry)
       !Above is the actual dose rate observation and
@@ -932,7 +932,7 @@ contains
       time_end = obs%endTimes(ind_obs)
       time_start = time_end - obs%durations(ind_obs)
       !Values are reset for each new observation index
-      obs%modeldata(ind_obs) = 0.0
+      obs%modeldata(ind_obs,1) = 0.0
       addition%relative_dose(:,:,:,:,ind_obs) = 0.0
       addition%cloud_ground_ratio(:,ind_obs) = 0.0
       addition%relative_wet(:,ind_obs) = 0.0
@@ -1006,7 +1006,7 @@ contains
     obs_data = 1.0   !are actually 
     variance = 100.0 !observed
     call project_point_to_grid(0.0, 0.0, wholeMPIdispersion_grid,x,y)
-    station = fu_initObservationStation('S1', 'S1', 0.0, 0.0, 1000.0, wholeMPIdispersion_grid)
+    station = fu_initObservationStation('S1', 'S1', 0.0, 0.0, 1000.0)
     obs = fu_init_dose_rate_obs(obs_times_start, obs_durations, obs_data, variance, &
                               & obs_len, constant_variance, spc, &
                               & 'mole', station, level_missing, vert, 'test')
@@ -1018,8 +1018,8 @@ contains
       if (error) return
       now = now + timestep
     end do
-    obs%obsData = obs%modelData(1)*0.9
-    observed_data = obs%modelData(1)
+    obs%obsData(:,1) = obs%modelData(1,1)*0.9
+    observed_data = obs%modelData(1,1)
 
     do while (now >= time_start)
       call inject_dose_rate(addition, obs, map_c, map_px, map_py, map_pz, wetdep, drydep, now, fu_opposite(timestep))
@@ -1032,7 +1032,7 @@ contains
       now = now + timestep
     end do
 
-    injected_data = obs%modelData(1)
+    injected_data = obs%modelData(1,1)
   end subroutine test_dose_rate
 
 
@@ -1069,8 +1069,8 @@ contains
        end do
     end do
     !get the dose rate at station from groundshine (closest grid point represents the ground source)
-    x = addition%obs%station%ix_dispersion
-    y = addition%obs%station%iy_dispersion
+    x = addition%obs%station(1)%ix_dispersion
+    y = addition%obs%station(1)%iy_dispersion
     do ispecies_obs = 1,addition%obs%num_obs_species
        ispecies_transp = addition%obs%ind_obs2transp(ispecies_obs)
        v = v + (wetdep%arm(ispecies_transp,1,1,x,y) + drydep%arm(ispecies_transp,1,1,x,y)) &
@@ -1138,8 +1138,8 @@ contains
     !get the dose rate at station from groundshine
     ground_wet = 0.0
     ground_dry = 0.0
-    x = addition%obs%station%ix_dispersion
-    y = addition%obs%station%iy_dispersion
+    x = addition%obs%station(1)%ix_dispersion
+    y = addition%obs%station(1)%iy_dispersion
     do ispecies_obs = 1,addition%obs%num_obs_species
        ispecies_transp = addition%obs%ind_obs2transp(ispecies_obs)
        ground_wet = ground_wet + wetdep%arm(ispecies_transp,1,1,x,y) &
@@ -1163,8 +1163,8 @@ contains
     real, dimension(:), allocatable :: weights
     integer :: ispecies_transp, ispecies_obs, x, y
     allocate(weights(addition%obs%num_obs_species))
-    x = addition%obs%station%ix_dispersion
-    y = addition%obs%station%iy_dispersion
+    x = addition%obs%station(1)%ix_dispersion
+    y = addition%obs%station(1)%iy_dispersion
     do ispecies_obs = 1,addition%obs%num_obs_species
        ispecies_transp = addition%obs%ind_obs2transp(ispecies_obs)
        weights(ispecies_obs) = depmap%arm(ispecies_transp,1,1,x,y) &

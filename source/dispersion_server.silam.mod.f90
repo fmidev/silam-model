@@ -139,14 +139,17 @@ CONTAINS
   ! **************************************************************************
   
   subroutine set_LMML_missing(LMML)
-    type(TLagrangeToMassMapLink), intent(inout) :: LMML
+    type(TLagrangeToMassMapLink), intent(out) :: LMML
+    integer :: iTmp
     
     LMML%iVerticalTreatment = int_missing
     LMML%iAveragingType = int_missing
     LMML%AveragingPeriod = interval_missing
     LMML%IntegrationStart = time_missing
     LMML%adaptor = chemical_adaptor_missing()
-    LMML%pLpSetIn = lagrange_particles_set_ptr_missing
+    do iTmp = 1, size(LMML%pLpSetIn)
+      call set_missing(LMML%pLpSetIn(iTmp))
+    enddo
     LMML%iLPSetType = int_missing
     LMML%pMMOut = Mass_Map_missing
   end subroutine set_LMML_missing

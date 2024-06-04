@@ -49,7 +49,7 @@ MODULE max_sizes_and_limits
 
   integer, PARAMETER, PUBLIC :: max_divisions = 130
   
-  INTEGER, PARAMETER, PUBLIC :: max_times = 3000 
+  INTEGER, PARAMETER, PUBLIC :: max_times = 5000 
 
   INTEGER, PARAMETER, PUBLIC :: worksize = 10000000 ! size of some work
   ! -vectors used when the actual sizes are yet unknown. Should be bigger 

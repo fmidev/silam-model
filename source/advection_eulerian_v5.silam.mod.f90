@@ -199,6 +199,7 @@ CONTAINS
     iTmp = fu_merge_integer_to_array(disp_flux_celltop_flag, q_disp_dynamic)
     iTmp = fu_merge_integer_to_array(disp_flux_celleast_flag, q_disp_dynamic)
     iTmp = fu_merge_integer_to_array(disp_flux_cellnorth_flag, q_disp_dynamic)
+    iTmp = fu_merge_integer_to_array(air_density_flag, q_disp_dynamic) !! Might not be needed here yet, but hack for observations
 !    if(fu_leveltype(dispersion_vertical) .ne. layer_btw_2_hybrid)then
 !        !Needed to properly interpolate meteo quantities
         !Always needed 
@@ -2067,10 +2068,11 @@ nPass = 0
   subroutine adv_diffusion_vertical_v5(pDispFlds, &
                                            & moment_x, moment_y, moment_z, &
                                            & pAerosolFlds, & ! Not needed here
+                                           & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, &
                                            & pHorizInterpStruct, pVertInterpStruct, &
                                            & ifHorizInterp, ifVertInterp, &
                                            & pMetBuf, pDispBuf, &
-                                           & seconds, weight_past, &
+                                           & seconds, weight_past, now, &
                                            & garbage, &
                                            & bottom_mass, top_mass, &
                                            & pDryDep, &
@@ -2090,7 +2092,9 @@ nPass = 0
     type(TVertInterpStruct), pointer :: pVertInterpStruct
     logical, intent(in) :: ifHorizInterp, ifVertInterp
     type(Tfield_buffer), intent(in) :: pMetBuf, pDispBuf
+    real, dimension(:,:), intent(in) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0
     real, intent(in) :: seconds, weight_past
+    TYPE(silja_time), INTENT(in) :: now
     real, dimension(:,:), intent(inout) :: garbage
     real, dimension(:,:,:), intent(inout) :: bottom_mass, top_mass
     type(Tchem_rules), intent(in) :: chem_rules
@@ -2121,12 +2125,14 @@ nPass = 0
     integer, dimension(:), pointer :: iarrPtr
     type(Taerosol_rules), pointer :: rulesAerosol
     type(Tdeposition_rules), pointer :: deprules
-    real ::    weightUp 
+    real ::    weightUp
+    real :: lat, lon, cosza
     integer :: leveltype, n_time_steps, iThread, iOrder
     integer :: levMinadvection, levMaxadvection
     integer :: bark_count, total_bark
     logical, dimension(2) :: ifPoles
-    integer :: spthread = int_missing ! Thread made souh pole advection, saved for reporting 
+    integer :: spthread = int_missing ! Thread made souh pole advection, saved for reporting
+    integer :: julian_day
 
     logical :: ifSettlingNeeded, ifTunedRs
     !    type(TwetParticle) :: WetParticle
@@ -2231,6 +2237,7 @@ nPass = 0
     ifPoles(southern_boundary) = (pBBuf%iBoundaryType(southern_boundary) == polar_boundary_type)
 
     !if(error)return
+    julian_day = fu_julian_date(now)
     
     !$OMP PARALLEL DEFAULT(NONE) &
     !$OMP & PRIVATE(ilev, ix, iy,  iLevMinDiff, iLevMaxDiff, iThread, mystuff, &
@@ -2241,7 +2248,8 @@ nPass = 0
     !$OMP         &  tmp_garbage, ftmp, indexDisp, ftmp1, &
     !$OMP         & fMinAdvectedMass,  fVd, iVd2m, p2m, cnc2mfrac1, cnc2mfrac2,  weight_up, ifColparamsNotReady, &
     !$OMP         & weightUp,  ps, isrc,  N_time_steps, XcmTmp, YcmTmp, ZcmTmp, &
-    !$OMP         & levMinadvection, levMaxadvection, ifBark, bark_count, iOrder, cmDiff, passDiff, passDiffBak) &
+    !$OMP         & levMinadvection, levMaxadvection, ifBark, bark_count, iOrder, cmDiff, passDiff, passDiffBak, &
+    !$OMP         & lat, lon, cosza) &
     !$OMP & SHARED( stuff, z_ind, r_down_met_ind, m_ind, w_ind, wadj_ind,  ifAdvFirst, &
     !$OMP        & ps_ind,  temper_ind, rh_ind, zSize_ind, ifSettlingNeeded, do_vert_diff, &
     !$OMP        & nspecies,  leveltype, nSrc, top_mass, bottom_mass,  spthread, nthreads,&
@@ -2251,7 +2259,8 @@ nPass = 0
     !$OMP        & ny_dispersion, nx_meteo,  fs_meteo, nz_meteo, disp_layer_top_m, a_met, b_met, &
     !$OMP        & arMinAdvMass, depRules, nz_dispersion, have_negatives, wdr,  ifAllMoments, &
     !$OMP        & pXCellSize, pYCellSize,  error, pcnc2m, EulerStuff,  total_bark, &
-    !$OMP        & ifPoles,  ifTalk, ifTunedRs, do_molec_diff, diffuse_cm_vert, maxpass, maxz)
+    !$OMP        & ifPoles,  ifTalk, ifTunedRs, do_molec_diff, diffuse_cm_vert, maxpass, maxz, &
+    !$OMP        & dispersion_grid, now, aer_att_0, cld_att_0, aer_att_surf, cld_att_surf, julian_day)
 
 
     iThread = 0
@@ -2499,10 +2508,14 @@ endif
           if ( deprules%RsType == DryD_Rs_standard) then
             call get_rs(pDispFlds%species, nspecies, indexMeteo, weight_past, deprules, mystuff%R_Surf)
           else
+            lat = fu_lat_geographical_from_grid(real(ix), real(iy), dispersion_grid)
+            lon = fu_lon_geographical_from_grid(real(ix), real(iy), dispersion_grid)
+            cosza = fu_solar_zenith_angle_cos(lon, lat, now)
             ! Get mmr of species for near-surface cell (sum over sources)
             call get_Rs_2013(pDispFlds%species, sum(mystuff%passengers(0,1,:,:),dim=2)/ mystuff%cellmass(1),  &
-                           & nspecies, indexMeteo, weight_past, deprules, &
-                           & mystuff%R_Surf, ifTunedRs)
+                 & aer_att_surf(ix,iy), cld_att_surf(ix,iy), aer_att_0(ix,iy), cld_att_0(ix,iy), &
+                 & cosza, nspecies, indexMeteo, weight_past, deprules, &
+                 & mystuff%R_Surf, ifTunedRs, julian_day)
           endif
 
           ! Can be done once for all species

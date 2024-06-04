@@ -28,21 +28,18 @@ module observation_server
 
   public destroy_observations
   public dump_observations
+  public dump_observation_stations
   public reset_all
 
-  public fu_obs_data
-  public fu_obs_variance
   public collect_model_data
-  public collect_obs_data
-  public get_obs_data
-  public collect_variance
-  public set_mdl_data
+  public get_obs_pointers
   public set_observations
   public fu_number_of_observed_cells
 
   public test_read_timeseries
   public get_localisation
   
+  private collect_obs_data
   private read_observations
   private searchStationWithID
   private stations_from_namelist_ptr
@@ -55,8 +52,7 @@ module observation_server
   !integer, parameter, public :: DA_INITIAL_STATE = 13001, DA_EMISSION = 13002, DA_MODEL_ONLY = 13000, &
   !     & DA_INITIAL_STATE_MOMENT = 13003, DA_EMISSION_CORRECTION = 13004, DA_EMISSION_AND_INITIAL = 13005, &
   !     & DA_EMISSION_CORRECTION_LOG = 13006, DA_EMISSION_TIME_HEIGHT = 13007
-  integer, parameter, public :: LINE_SEARCH_ARMIJO = 1, LINE_SEARCH_MS = 2
-  integer, parameter, public :: steepest_descent_flag = 91, m1qn3_flag = 92, l_bfgs_b_flag = 93
+  integer, parameter, public :: m1qn3_flag = 92, l_bfgs_b_flag = 93
   integer, parameter, public :: max_column_observations = 100000
   integer, parameter, public :: max_eruption_observations = 1000
 
@@ -75,15 +71,17 @@ module observation_server
      type(t_eruptionObservation), dimension(:), pointer :: observationsEruption 
      type(inSituObservation), dimension(:), pointer :: observationsDoseRate
      type(t_dose_rate_obs_addition), dimension(:), pointer :: DoseRateAddition
-
-     real, dimension(:), pointer :: obs_values
-     real, dimension(:), pointer :: obs_variance
+     
+     !! Aggregate values in a single array
+     real, dimension(:), allocatable :: obs_values, obs_variance, mdl_values
      ! observations are split to asssimilation and evalution subsets put one after another, in
      ! this order. Hence, dimension = 2
      integer, dimension(2) :: nInSituObsID = 0, nVerticalObsID = 0, nDoseRateObsID = 0, &
                             & nEruptionObsID = 0
      integer, dimension(2) :: obs_size = (/0,0/)
      logical :: hasObservations = .false. 
+     logical :: mdlCollected = .false.  !! safeguard against double collecting causes trouble in MPI
+                           
   end type ObservationPointers
   public observationPointers
 
@@ -92,12 +90,11 @@ contains
  
   !************************************************************************************
 
-  subroutine stations_from_namelist_no_ptr(nlPtr, station_list, nstations, grid)
+  subroutine stations_from_namelist_no_ptr(nlPtr, station_list, nstations)
     implicit none
     type(Tsilam_namelist), pointer :: nlPtr
     type(observationStation), dimension(:), pointer :: station_list
     integer, intent(out) :: nstations
-    type(silja_grid), intent(in) :: grid
 
     integer :: nitems, stat, i, iStat
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: items
@@ -139,7 +136,7 @@ contains
         end if
         name = label
       end if
-      station_list(iStat) = fu_initObservationStation(label, name, lon, lat, hgt, grid)
+      station_list(iStat) = fu_initObservationStation(label, name, lon, lat, hgt)
       if(defined(station_list(iStat))) iStat = iStat + 1  ! if initialization was successful
     end do
     nstations = iStat - 1 ! the number of actually initialised stations
@@ -150,7 +147,7 @@ contains
 
   !************************************************************************************
 
-  subroutine stations_from_namelist_ptr(nlPtr, station_list, nstations, grid)
+  subroutine stations_from_namelist_ptr(nlPtr, station_list, nstations)
     !
     ! Reads the stations metadata from namelist
     ! ATTENTION!
@@ -161,7 +158,6 @@ contains
     type(Tsilam_namelist), intent(in) :: nlPtr
     type(observationStation), dimension(:), allocatable :: station_list
     integer, intent(out) :: nstations
-    type(silja_grid), intent(in) :: grid
 
     integer :: nitems, stat, ii, iStat
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: items
@@ -199,7 +195,7 @@ contains
         end if
         name = label
       end if
-      station_list(iStat) = fu_initObservationStation(label, name, lon, lat, hgt, grid)
+      station_list(iStat) = fu_initObservationStation(label, name, lon, lat, hgt)
       if(defined(station_list(iStat)))then
         iStat = iStat + 1
       endif
@@ -254,6 +250,7 @@ contains
     integer :: obs_index, iObsPurpose, iFileStart, iFileEnd
     logical :: ifGroundToo, force_instant, ifAssim
     type(silja_time) :: time_in_filename
+    type(silja_interval) :: template_step
     !!FIXME some smarter allocation needed here
     integer, parameter :: max_n_obs_per_time_window = 24
     character(len=*), parameter :: sub_name = 'read_observations'
@@ -271,7 +268,8 @@ contains
     n_eruption = 0
 
     call msg("Before allocating observations memory usage (kB)",  fu_system_mem_usage())
-    allocate(observations_tmp(max_n_obs_per_time_window*nstations*n_transp_species), &
+    !! Trick: observations_tmp allocated for nstations+1, to allow for tsmatr, that needs no external stations
+    allocate(observations_tmp(max_n_obs_per_time_window*(nstations+1)*n_transp_species), &
            & dose_rate_obs_tmp(nstations*n_transp_species), &
            & dose_rate_addition_tmp(nstations*n_transp_species), &
            & vert_obs_tmp(max_column_observations), &
@@ -307,17 +305,17 @@ contains
         !
         ! Processing depends on the type of observations
         !
-        if (any(obs_type==(/'cnc    ','cncEU  ','cncWHO ','perkilo','permole'/))) then
+        if (any(obs_type==(/'cnc    ','cncEU  ','cncWHO ','perkilo','permole', 'TSmatr '/))) then
           !
           ! In-situ concentrations
           ! file_name is <obs_unit> <obs_file_name>
           !
           time_in_filename = obs_start
-          if (fu_fails(nstations > 0, 'Surface observation given but no stations', sub_name)) return
           obs_unit = trim(file_name(1:index(file_name,' '))) 
           file_name = trim(file_name(index(file_name,' ')+1:))
 
           call decode_template_string(file_name, obs_templ)
+          template_step = fu_template_timestep(obs_templ)
           if (error) return
 
           file_name_old = ""
@@ -325,12 +323,10 @@ contains
             call expand_template(obs_templ, time_in_filename, file_name)
             if (file_name /= file_name_old) then
               if (.not. error) then
-                open(uFile, file=file_name, status='old', action='read', iostat=status)
-                if (fu_fails(status == 0, 'Failed to open: ' // trim(file_name), sub_name)) return
-                call msg('Reading point observations from ' // file_name)
-                call timeseries_from_file(uFile, obs_type, obs_unit, observations_tmp(sum(n_in_situ)+1:), &
-                                        & nread, force_instant)
-                close(uFile)
+                call timeseries_from_file(file_name, obs_type, obs_unit, observations_tmp(sum(n_in_situ)+1:), &
+                                        & nread, force_instant, obs_start, obs_period, &
+                                        & station_list, nstations, &
+                                        & transport_species, n_transp_species)
                 n_in_situ(iObsPurpose) = n_in_situ(iObsPurpose) + nread
                 if (error) return
               end if
@@ -338,7 +334,7 @@ contains
             else
               if(error) call unset_error(sub_name)
             end if
-            time_in_filename = time_in_filename + fu_set_interval_h(1)
+            time_in_filename = time_in_filename + template_step
           end do
         
         elseif (obs_type == 'dose_rate_no_ground') then
@@ -352,7 +348,9 @@ contains
             call msg('Reading dose rate no-ground observations from ' // file_name)
             call timeseries_from_file_dose_rate(ifGroundToo, uFile, obs_unit, &
                                               & dose_rate_obs_tmp(sum(n_dose_rate)+1:), &
-                                              & dose_rate_addition_tmp(sum(n_dose_rate)+1:), nread)
+                                              & dose_rate_addition_tmp(sum(n_dose_rate)+1:), nread, &
+                                              & station_list, nstations, obs_start, obs_period, &
+                                              & transport_species, n_transp_species)
             close(uFile)
             n_dose_rate(iObsPurpose) = n_dose_rate(iObsPurpose) + nread
           else
@@ -370,7 +368,9 @@ contains
             call msg('Reading dose rate with-ground observations from ' // file_name)
             call timeseries_from_file_dose_rate(ifGroundToo, uFile, obs_unit, &
                                               & dose_rate_obs_tmp(sum(n_dose_rate)+1:), &
-                                              & dose_rate_addition_tmp(sum(n_dose_rate)+1:), nread)
+                                              & dose_rate_addition_tmp(sum(n_dose_rate)+1:), nread, &
+                                              & station_list, nstations, obs_start, obs_period, &
+                                              & transport_species, n_transp_species)
             close(uFile)
             n_dose_rate(iObsPurpose) = n_dose_rate(iObsPurpose) + nread
           else
@@ -520,7 +520,7 @@ contains
     call stop_count(sub_name)
     !call report_time(icounter, chCounterNm=sub_name)
 
-    CONTAINS
+  end subroutine read_observations
 
     !==================================================================================
                             
@@ -552,7 +552,366 @@ contains
 
     !================================================================================
 
-    subroutine timeseries_from_file(uFile, obs_param, obs_amt_unit, observations, nread, force_instant)
+    subroutine timeseries_from_TSmatr(ncfilename, cockt_name, newObservation, force_instant,&
+          & obs_start, obs_period, transport_species, n_transp_species)
+      !
+      ! Get timeseries from TSmatrix netcdf file
+      ! The file must have two variables: 
+      !  (vmr and vmrErr) or  (cnc and cncErr)
+      !  
+      use netcdf
+      implicit none
+      
+      ! Imported parameters
+      character(len=*), intent(in) :: ncfilename, cockt_name !! Cocktail name not stored in TSmatrix
+      type(inSituObservation), intent(out) :: newObservation
+      logical, intent(in) :: force_instant !Disregard duration and force it to zero
+      type(silja_time), intent(in) :: obs_start
+      type(silja_interval), intent(in) :: obs_period
+      type(silam_species), dimension(:), intent(in) :: transport_species
+      integer, intent(in) :: n_transp_species
+
+      type(Tcocktail_descr) :: cockt_descr
+      type(silam_species), dimension(:), pointer :: cockt_species
+
+      integer :: ncid, var_id, dim_id !! ids
+      integer :: iStat, nSt, nStr, nVar, nT, nSpecies, nStout, nTout !! sizes
+      integer :: iT, iTout, iSt, iStout, isp_obs, ii, iTstart, iTend !! Counters
+
+      !!Stuff needed fo NetCDF parsing
+      character (len=fnlen) :: strTmp1, strTmp2
+      character (len=clen) :: obs_amt_unit
+      TYPE(silja_time) :: origin
+      TYPE(silja_interval) :: deltat
+      real :: fMissVal, scale_to_silam, fScale
+      real, dimension(:), allocatable :: lat, lon, alt, timesd
+      logical, dimension(:), allocatable :: timesselect, stationselect
+      logical :: ifmmr, ifSpecies
+      !      real (kind=8), dimension(:), allocatable :: timesd
+      real, dimension(:,:,:), allocatable :: valvar
+      character, dimension(:,:), allocatable :: station_name, station_code, varnames, units
+      TYPE(silja_time), dimension(:), allocatable :: times
+      TYPE(observationStation), dimension(:), allocatable :: station
+      type(chemical_adaptor) :: adaptor
+      type(silam_material), pointer :: material
+
+      character(len=*), parameter :: sub_name = 'timeseries_from_TSmatr'
+
+      !! How many species?
+      call msg("Reading cocktail '"//trim(cockt_name)//"' from '"//trim(ncfilename)//"'")
+
+      call set_cocktail_description(cockt_name, cockt_descr, ifSpecies)
+      call get_inventory(cockt_descr, cockt_species, nSpecies)
+
+
+      
+      !! Check tsmatrix dimensions
+      iStat = nf90_open(ncfilename, 0, ncid)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to open nc file: ' // trim(ncfilename), sub_name)) return
+
+      iStat = nf90_inq_dimid(ncid, 'station', dim_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to inquire station dimID', sub_name)) return
+      iStat = NF90_INQUIRE_DIMENSION(ncid, dim_id, len=nSt)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to inquire station dim', sub_name)) return
+
+      iStat = nf90_inq_dimid(ncid, 'time', dim_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get time dimID', sub_name)) return
+      iStat = NF90_INQUIRE_DIMENSION(ncid, dim_id, len=nT)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get time dim size', sub_name)) return
+
+      iStat = nf90_inq_dimid(ncid, 'name_strlen', dim_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get name_strlen dimID', sub_name)) return
+      iStat = NF90_INQUIRE_DIMENSION(ncid, dim_id, len=nStr)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get name_strlen dim size', sub_name)) return
+
+      iStat = nf90_inq_dimid(ncid, 'variable', dim_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get variable dimID', sub_name)) return
+      iStat = NF90_INQUIRE_DIMENSION(ncid, dim_id, len=nVar)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get variable dim size', sub_name)) return
+    
+      if (fu_fails(nVar == 2, "file must contain 2 vars", sub_name) )return
+
+      !! Temporary structures fot TSmatrix, essentially just arrays to read NetCDF
+      allocate(times(nT),timesd(nT),timesselect(nT), &
+         & stationselect(nSt), lat(nSt), lon(nSt), alt(nSt), station_code(nStr,nSt), &
+         & station_name(nStr,nSt), units(nStr,nVar), station(nSt), &
+         & varnames(nStr,nVar), valvar(nSt,nT,nVar), stat=iStat)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to allocate temporaries', sub_name)) return
+
+
+      !! Parse and select times
+      iStat = nf90_inq_varid(ncid, 'time', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get time var_id', sub_name)) return
+      iStat = nf90_get_att(ncid, var_id, 'units', strTmp1)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get time units', sub_name)) return
+      iStat = nf90_get_att(ncid, var_id, 'calendar', strTmp2)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get time units', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, timesd, start=(/1/), count=(/nT/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get time data', sub_name)) return
+
+      ! Time list
+      call parse_time_units_and_origin(strTmp1, strTmp2, origin, deltat)
+      do iT  =  1, nT
+          times(iT) = origin + deltat * timesd(iT)
+      enddo
+
+      ! Times must be equally-spaced unless the values are instant
+      if (force_instant) then 
+          deltat = zero_interval
+      else
+        deltat = (times(nT) - times(0)) * (1. / (nT - 1))
+        do iT  =  2, nT !! Check for equal spacing
+            if ( times(iT) - times(iT-1) == deltat) cycle
+            call report(times(iT-1))
+            call report(times(iT))
+            call report(deltat)
+            call set_error("Unequally spaced times in "//trim(ncfilename), sub_name)
+        enddo
+      endif
+      ! Select times within th eobservation range
+      do iT=1,nT
+        if (times(iT) - deltat >= obs_start) exit
+        timesselect(iT) = .FALSE.
+      enddo
+      iTstart = iT
+      iTend = 0 !! (iTstart > iTend) on no valid timestamps
+      do iT=iT,nT !! All iT have to be iterated, observation must be fully covered!
+        timesselect(iT) = (times(iT) <= obs_start + obs_period)
+        if (timesselect(iT)) iTend = iT
+      enddo
+
+      !! Get station features (area_type, source_type ignored here)
+      iStat = nf90_inq_varid(ncid, 'lon', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get lon var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, lon, start=(/1/), count=(/nSt/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get lon data', sub_name)) return
+
+      iStat = nf90_inq_varid(ncid, 'lat', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get lat var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, lat, start=(/1/), count=(/nSt/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get lat data', sub_name)) return
+
+      iStat = nf90_inq_varid(ncid, 'alt', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get alt var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, alt, start=(/1/), count=(/nSt/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get alt data', sub_name)) return
+
+      iStat = nf90_inq_varid(ncid, 'station_code', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get station_code var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, station_code, start=(/1,1/), count=(/nStr,nSt/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get station_code data', sub_name)) return
+
+      iStat = nf90_inq_varid(ncid, 'station_name', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get station_name var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, station_name, start=(/1,1/), count=(/nStr,nSt/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get station_name data', sub_name)) return
+
+      !! Make stations and select them
+      do iSt = 1, nSt
+          strTmp1 = nc_char_arr_to_string(station_code(:,iSt))
+          strTmp2 = nc_char_arr_to_string(station_name(:,iSt))
+          station(iSt) = fu_initObservationStation(strTmp1, strTmp2, lon(iSt), lat(iSt), alt(iSt)) 
+          stationselect(iSt) = defined(station(iSt))
+      enddo
+
+      !! Figure out variable and unit
+      iStat = nf90_inq_varid(ncid, 'variable', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get variable var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, varnames, start=(/1,1/), count=(/nStr,2/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get variable data', sub_name)) return
+      strTmp1 = nc_char_arr_to_string(varnames(:,1)) !! Variable
+      strTmp2 = nc_char_arr_to_string(varnames(:,2)) !! its std (err)
+      ii = len_trim(strTmp1)
+      if (strTmp2(1:ii) /= strTmp1 .or. strTmp2(ii+1:) /= 'err' ) then
+        call set_error("Inconsistent 'variable' var: "//trim(strTmp1)//" and "//trim(strTmp2), sub_name)
+        return
+      endif
+
+      ! Check unit
+      iStat = nf90_inq_varid(ncid, 'unit', var_id) !! reuse varnames array
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get variable var_id', sub_name)) return
+      iStat = NF90_get_var(ncid, var_id, varnames, start=(/1,1/), count=(/nStr,2/))
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get variable data', sub_name)) return
+      if (.not. all(varnames(1,:) == varnames(1,:) )) then
+        call set_error("Variable and error units mismatch", sub_name)
+        return
+      endif
+      strTmp2 = nc_char_arr_to_string(varnames(:,1))  !! Unit
+
+      call  parse_obs_unit(strTmp1, strTmp2, obs_amt_unit, scale_to_silam, ifmmr)
+      call msg("Variabe from file: "//trim(strTmp1)//", unit: "//trim(strTmp2) )
+      if (ifmmr) then
+         call msg("Conversion factor to "//trim(obs_amt_unit)//"/kg", scale_to_silam)
+      else
+        call msg("Conversion factor to "//trim(obs_amt_unit)//"/m3", scale_to_silam)
+      endif
+
+      !! read the data
+      iStat = nf90_inq_varid(ncid, 'val', var_id)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get sval var_id', sub_name)) return
+      !! Read only needed times
+
+      if (iTend >= iTstart) then !! Some data to read
+        iStat = NF90_get_var(ncid, var_id, valvar(:,iTstart,1), start=(/1,iTstart,1/), count=(/nSt,iTend-iTstart+1,1/))
+        if (fu_fails(iStat == NF90_NOERR, 'Failed to get val data1', sub_name)) return
+        iStat = NF90_get_var(ncid, var_id, valvar(:,iTstart,2), start=(/1,iTstart,2/), count=(/nSt,iTend-iTstart+1,1/))
+        if (fu_fails(iStat == NF90_NOERR, 'Failed to get val data2', sub_name)) return
+      endif
+      iStat = nf90_get_att(ncid, var_id, '_FillValue', fMissVal)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get _FillValue', sub_name)) return
+      iStat =  nf90_close(ncid)
+      if (fu_fails(iStat == NF90_NOERR, 'Failed to get _FillValue', sub_name)) return
+
+
+      !! Now finally init the newobservation structure
+      nTout = count(timesselect(1:nT))
+      nStout = count(stationselect(1:nSt))
+
+
+      !! Finally allocate the observations
+      allocate(newobservation%endTimes(nTout), newObservation%durations(nTout), &
+               & newObservation%station(nStout), &
+               & newObservation%cell_volume(nStout), &
+               & newObservation%obsData(nStout,nTout), newObservation%variance(nStout,nTout), &
+               & newObservation%modelData(nStout,nTout), newObservation%inject_scaling(nStout,nTout), &
+               & newObservation%ind_obs2transp(nSpecies), &
+               & newObservation%scale_transp2obs(nSpecies), &
+               & stat=iStat)
+
+      if(fu_fails(iStat == 0, 'Allocate failed', sub_name))return
+
+      
+      newObservation%tag =  trim(cockt_name)//':'//trim(strTmp1)//':'//trim(strTmp2) 
+      newObservation%ifmmr = ifmmr
+
+      newObservation%nStations = nStout
+      newObservation%nTimes = nTout
+
+      iStout = 0
+      newObservation%inThisSubdomain = .FALSE.
+      do iSt = 1, nSt 
+        if (.not. stationselect(iSt)) cycle
+        iStout = iStout + 1
+        newObservation%station(iStout) = station(iSt)
+        newObservation%inThisSubdomain = newObservation%inThisSubdomain .OR. station(iSt)%inThisSubdomain 
+        newObservation%cell_volume(iStOut) = newObservation%station(iStOut)%cell_area * &
+                                            & fu_layer_thickness_m(fu_level(dispersion_vertical, 1))
+      enddo 
+      
+      newObservation%dataLength = 0
+      iTout = 0
+      do iT = iTstart, iTend
+        if (.not. timesselect(iT)) cycle
+        iTout = iTout + 1
+        newObservation%endTimes(iTout) = times(iT)
+        newObservation%durations(iTout) = deltat
+        iStout = 0
+        do iSt = 1, nSt 
+          if (.not. stationselect(iSt)) cycle
+          iStout = iStout + 1
+          if ( valvar(iSt,iT,1) == fMissVal) then
+              newObservation%obsData(iStout,iTout)  = real_missing
+              newObservation%variance(iStout,iTout) = F_NAN !!! Should never be used
+          else
+              newObservation%obsData(iStout,iTout)  = valvar(iSt,iT,1) 
+              newObservation%variance(iStout,iTout) = &  !! STD stored there 
+                  &   valvar(iSt,iT,2) * valvar(iSt,iT,2) 
+              newObservation%dataLength = newObservation%dataLength  + 1 ! Only valid points count
+          endif
+        enddo
+      enddo
+
+    newObservation%num_obs_species = nSpecies
+
+    !! Map observation to massmap
+    call create_adaptor(cockt_species, transport_species, adaptor)
+    newObservation%ind_obs2transp(1:nSpecies) = adaptor%isp(1:nSpecies)
+
+    do isp_obs = 1, nSpecies
+      material => fu_material(transport_species(adaptor%isp(isp_obs)))
+      if (error) return
+      fScale = fu_conversion_factor(fu_basic_mass_unit(material), obs_amt_unit, material) / scale_to_silam
+      ! From basic unit to the unit of observation - preparation to the obs operator.
+      newObservation%scale_transp2obs(isp_obs) = fScale
+      if (error) return
+      if (fu_fails( fScale > 0.0, 'Bad conversion factor to obs unit', sub_name)) return
+      call msg('Factor transp2obs' //trim(fu_str(cockt_species(isp_obs))), fScale )
+    end do
+
+    !! Clean up the mess
+    deallocate(times,timesd,timesselect, &
+         & stationselect, lat, lon, alt, station_code, &
+         & station_name, units, station, &
+         & varnames, valvar)
+
+    end subroutine timeseries_from_TSmatr
+
+    !================================================================================
+
+    
+
+    subroutine timeseries_from_file(file_name, obs_param, obs_amt_unit, observations, nread,&
+         & force_instant,  obs_start, obs_period, station_list, nstations, &
+         & transport_species, n_transp_species)
+      !
+      ! Get in_situ timeseries from a file
+      ! Dispatcher for text and netcdf files
+      !
+      implicit none
+      
+      ! Imported parameters
+      character(len=*), intent(in) :: file_name, obs_param 
+         !! can be cnc (per m3), cncEU (per 1.204kg of air), cncWHO(per 1.184 kg of air ), 
+         !! vmr (per mole of air), mmr (per kilo of air), or TSmatr (quantity comes from NetCDF)
+      character(len=*), intent(in) :: obs_amt_unit !! kg or mole or whatever
+                                 !! cocktail name for TSmatr
+      type(inSituObservation), dimension(:), intent(inout) :: observations
+      logical, intent(in) :: force_instant !Disregard duration and force it to zero
+      integer, intent(out) :: nread
+      type(observationStation), dimension(:), intent(in) :: station_list
+      integer, intent(in) :: nstations
+      type(silja_time), intent(in) :: obs_start
+      type(silja_interval), intent(in) :: obs_period
+      type(silam_species), dimension(:), intent(in) :: transport_species
+      integer, intent(in) :: n_transp_species
+
+      integer :: uFile, iStat
+
+      character(len=*), parameter :: sub_name = 'timeseries_from_file'
+
+      if (obs_param == "TSmatr") then
+        !!  TSmatrix -- multistation observation with regular times
+        if (1 > size(observations)) then
+          call set_error('Too many observations', sub_name)
+          return
+        end if
+        !!!!cockt_name = obs_amt_unit !! The second word in the line is used for cocktail
+        call timeseries_from_TSmatr(file_name, obs_amt_unit, observations(1), &
+           & force_instant, obs_start, obs_period, &
+           & transport_species, n_transp_species)
+        nread = 1
+      else
+        !!  MMAS file with a bunch of single-station timeseries
+         if (fu_fails(nstations > 0, 'Surface observation given but no stations', sub_name)) return
+           
+        uFile = fu_next_free_unit()
+        open(uFile, file=file_name, status='old', action='read', iostat=iStat)
+        if (fu_fails(iStat == 0, 'Failed to open: ' // trim(file_name), sub_name)) return
+        call msg('Reading point observations from ' // file_name)
+
+        call  timeseries_from_text_file(uFile, obs_param, obs_amt_unit, observations, nread,&
+         & force_instant,  obs_start, obs_period, station_list, nstations, &
+         & transport_species, n_transp_species)
+         close(uFile)
+      endif
+    end subroutine timeseries_from_file
+    !================================================================================
+
+    
+
+    subroutine timeseries_from_text_file(uFile, obs_param, obs_amt_unit, observations, nread,&
+         & force_instant,  obs_start, obs_period, station_list, nstations, &
+         & transport_species, n_transp_species)
       !
       ! Get timeseries from text file. The MMAS format
       ! site_id, cocktail/species_name, year, month, day, hour, duration_hours, value, stdev
@@ -563,11 +922,18 @@ contains
       integer, intent(in) :: uFile
       character(len=*), intent(in) :: obs_param 
          !! can be cnc (per m3), cncEU (per 1.204kg of air), cncWHO(per 1.184 kg of air ), 
-         !! vmr (per mole of air), mmr (per kilo of air)
+         !! vmr (per mole of air), mmr (per kilo of air), or TSmatr (quantity comes from NetCDF)
       character(len=*), intent(in) :: obs_amt_unit !! kg or mole or whatever
+                                 !! cocktail name for TSmatr
       type(inSituObservation), dimension(:), intent(inout) :: observations
       logical, intent(in) :: force_instant !Disregard duration and force it to zero
       integer, intent(out) :: nread
+      type(silja_time), intent(in) :: obs_start
+      type(silja_interval), intent(in) :: obs_period
+      type(observationStation), dimension(:), intent(in) :: station_list
+      integer, intent(in) :: nstations
+      type(silam_species), dimension(:), intent(in) :: transport_species
+      integer, intent(in) :: n_transp_species
 
       ! Local variables
       logical :: eof, same_series, found, same_cocktail, store_value, flush_values
@@ -594,6 +960,8 @@ contains
       logical :: ifSpecies
       real :: scale_to_silam
       logical :: ifmmr
+
+      character(len=*), parameter :: sub_name = 'timeseries_from_text_file'
 
       prev_time = time_missing
       prev_cockt_name = ''
@@ -648,6 +1016,9 @@ contains
 
           if (defined(prev_time)) then
             if (prev_id == id .and. prev_time >= time) then
+              call msg_warning('Cannot read: timeseries not sorted', sub_name)
+              call msg(id + ', prev_time > time:' + fu_time_fname_string_utc(prev_time) + &
+                                            & '>' + fu_time_fname_string_utc(time))
               call set_error('Cannot read: timeseries not sorted', sub_name)
               return
             end if
@@ -669,7 +1040,7 @@ contains
               material => fu_material(transport_species(ind_obs2transp(isp_obs)))
               if (error) return
               ! From basic unit to the unit of observation - preparation to the obs operator.
-              scale_transp2obs(isp_obs) = fu_conversion_factor(fu_basic_mass_unit(material), obs_unit, material) / scale_to_silam
+              scale_transp2obs(isp_obs) = fu_conversion_factor(fu_basic_mass_unit(material), obs_amt_unit, material) / scale_to_silam
               if (error) return
               if (fu_fails(scale_transp2obs(isp_obs) > 0.0, 'Bad conversion factor to obs unit', sub_name)) return
 !!                call msg('Observed species, transport species', isp_obs, ind_obs2transp(isp_obs))
@@ -693,7 +1064,7 @@ contains
               call set_error('Too many observations', sub_name)
               return
             end if
-            observations(nread) = fu_initInSituObservation(times_tmp, &
+            observations(nread) = fu_initInSituObservation1(times_tmp, &
                                                          & durations_tmp, &
                                                          & values_tmp, &
                                                          & variances_tmp, &
@@ -727,7 +1098,7 @@ contains
       deallocate(times_tmp, durations_tmp)
       call free_work_array(values_tmp)
       call free_work_array(variances_tmp)
-    end subroutine timeseries_from_file
+    end subroutine timeseries_from_text_file
 
     !========================================================================================
 
@@ -829,7 +1200,9 @@ contains
 
     !==========================================================================
 
-    subroutine timeseries_from_file_dose_rate(ifGroundToo, uFile, obs_unit, observations_dose_rate, dose_rate_addition, nread)
+    subroutine timeseries_from_file_dose_rate(ifGroundToo, uFile, obs_unit, observations_dose_rate, &
+          & dose_rate_addition, nread, station_list, nstations, obs_start, obs_period, &
+         & transport_species, n_transp_species)
       !edit: no cocktail here compared to normal timeseries from file!
       !dose rate measurement doesn't know what is emitting
       implicit none
@@ -841,6 +1214,12 @@ contains
       
       type(t_dose_rate_obs_addition), dimension(:), intent(out) :: dose_rate_addition
       integer, intent(out) :: nread
+      type(observationStation), dimension(:), intent(in) :: station_list
+      integer, intent(in) :: nstations
+      type(silja_time), intent(in) :: obs_start
+      type(silja_interval), intent(in) :: obs_period
+      type(silam_species), dimension(:), intent(in) :: transport_species
+      integer, intent(in) :: n_transp_species
       
       logical :: eof, same_series, found, store_value, flush_values
       integer :: iostat
@@ -911,6 +1290,9 @@ contains
 
           if (defined(prev_time)) then
             if (prev_id == id .and. prev_time >= time) then
+              call msg_warning('Cannot read: timeseries not sorted', sub_name)
+              call msg(id + ', prev_time > time:' + fu_time_fname_string_utc(prev_time) + &
+                                            & '>' + fu_time_fname_string_utc(time))
               call set_error('Cannot read: timeseries not sorted', sub_name)
               return
             end if
@@ -971,7 +1353,6 @@ contains
       call free_work_array(variances_tmp)
     end subroutine timeseries_from_file_dose_rate
 
-  end subroutine read_observations
   
   !****************************************************************************************
   !****************************************************************************************
@@ -1377,7 +1758,7 @@ contains
       nl_stations => fu_read_namelist(uFile, .false.)
       close(uFile)
       ! Set station indices for current subdomain
-      call stations_from_namelist_ptr(nl_stations, station_list, n_stations, dispersion_grid)
+      call stations_from_namelist_ptr(nl_stations, station_list, n_stations)
       call msg('Number of found stations: ', n_stations)
       call destroy_namelist(nl_stations)
       if (error) return
@@ -1411,21 +1792,31 @@ contains
     !
 !    observations%obs_size = fu_count_obs_size(observations)
     call count_obs_size(observations)
-    allocate(observations%obs_values(sum(observations%obs_size)), &
-           & observations%obs_variance(sum(observations%obs_size)), stat=status)
+    ii = sum(observations%obs_size)
+    allocate(observations%obs_values(ii), observations%obs_variance(ii), &
+                & observations%mdl_values(ii), stat=status)
     if (fu_fails(status == 0, 'Allocate failed', 'set_observations')) return
-    call collect_obs_data(observations, observations%obs_values) !, observations%obs_size)
-    call collect_variance(observations, observations%obs_variance) !, observations%obs_size)
-    observations%hasObservations = .true.
+    call collect_obs_data(observations, observations%obs_values, observations%obs_variance) 
+#ifdef DEBUG
+    observations%mdl_values(1:ii) = F_NAN !! Reset modlevalues
+#endif
 
-   ! print *, 'Max obs value: ', maxval(observations%obs_values)
-   ! print *, 'Number of obs: ', observations%obs_size
-    call msg('Max obs value: ', maxval(observations%obs_values))
-    call msg('Ave obs value: ', sum(observations%obs_values)/size(observations%obs_values))
-    call msg('Number of obs (assi,vali):', observations%obs_size)
+    observations%mdlCollected = .false.
+
+    if (size(observations%obs_values) > 0) then
+      call msg('Max obs value: ', maxval(observations%obs_values))
+      call msg('Ave obs value: ', sum(observations%obs_values)/size(observations%obs_values))
+      call msg('Number of obs (assi,vali):', observations%obs_size)
+      observations%hasObservations = .true.
+    else
+      call msg_warning("No observations read", 'set_observations')
+      observations%hasObservations = .false.
+    endif
     if (allocated(station_list)) deallocate(station_list)
 
-  contains
+  end subroutine set_observations
+
+  !************************************************************************************
 
     subroutine count_obs_size(obs)
       implicit none
@@ -1472,133 +1863,188 @@ contains
 
     end subroutine count_obs_size
 
-  end subroutine set_observations
 
 
   !************************************************************************************
 
-  subroutine collect_model_data(observations, values)
+  subroutine collect_model_data(obs)
     !
-    ! Picks model-subdomain-observed data from observations structure into values array
-    ! makes exchange to form whole-MPI values array
+    ! Picks model-subdomain-observed data from observations structure into obs%mdl_values array
+    ! makes exchange to form whole-MPI obs%mdl_values array
     !
     implicit none
-    type(observationPointers), intent(in) :: observations
-    real, dimension(:), intent(out) :: values
+    type(observationPointers), intent(inout) :: obs
 
-    integer :: ind_obs, ind_start, n_values, n_values_total
-    real, dimension(:), pointer :: wrk
+    integer :: ind_obs, ind_start, n_values, n_values_total, max_values
+    real, dimension(:), pointer :: wrk, obsvals, obsvar
+    character(len=clen) :: chTmp
     logical :: ok
+    character(len = *), parameter :: sub_name = 'collect_model_data'
+     
     
+    if ( .not. obs%hasObservations) then
+        call msg("No observations to collect in "//sub_name)
+        return
+    endif
+
+    if (obs%mdlCollected) then
+       call set_error("Doble-collect model data", sub_name)
+       return
+     endif
+
     ind_start = 1
     n_values_total = 0
+    max_values = 0
 
     call msg('Collecting model data')
 
-    do ind_obs = 1, sum(observations%nInSituObsID)
-      n_values = fu_size(observations%observationsInSitu(ind_obs))
-      call get_data(observations%observationsInSitu(ind_obs), values_mdl=values(ind_start:))
+    do ind_obs = 1, sum(obs%nInSituObsID)
+      n_values = fu_size(obs%observationsInSitu(ind_obs))
+      call get_data_in_situ(obs%observationsInSitu(ind_obs), values_mdl=obs%mdl_values(ind_start:))
       ind_start = ind_start + n_values
       n_values_total = n_values_total + n_values
-      if (fu_fails(ind_start <= size(values), 'values too small', 'get_model_data')) return
+      max_values = max(max_values, n_values)
     end do
 
-    do ind_obs = 1, sum(observations%nEruptionObsID)
-      n_values = fu_size(observations%observationsEruption(ind_obs))  
-      call get_data(observations%observationsEruption(ind_obs), values_mdl=values(ind_start:))
+    do ind_obs = 1, sum(obs%nEruptionObsID)
+      n_values = fu_size(obs%observationsEruption(ind_obs))  
+      call get_data_eruption(obs%observationsEruption(ind_obs), values_mdl=obs%mdl_values(ind_start:))
       ind_start = ind_start + n_values
       n_values_total = n_values_total + n_values
-      if (fu_fails(ind_start <= size(values), 'values too small', 'get_model_data')) return
+      max_values = max(max_values, n_values)
     end do
     
-    do ind_obs = 1, sum(observations%nDoseRateObsID)
-      n_values = fu_size(observations%observationsDoseRate(ind_obs))
-      call get_data(observations%observationsDoseRate(ind_obs), values_mdl=values(ind_start:))
+    do ind_obs = 1, sum(obs%nDoseRateObsID)
+      n_values = fu_size(obs%observationsDoseRate(ind_obs))
+      call get_data_in_situ(obs%observationsDoseRate(ind_obs), values_mdl=obs%mdl_values(ind_start:))
       ind_start = ind_start + n_values
       n_values_total = n_values_total + n_values
-      if (fu_fails(ind_start <= size(values), 'values too small', 'get_model_data')) return
+      max_values = max(max_values, n_values)
     end do
 
-    do ind_obs = 1, sum(observations%nVerticalObsID)
-      n_values = fu_size(observations%observationsVertical(ind_obs))
-!      call msg('Calling get data for vertical observation', ind_obs)
-      call get_data(observations%observationsVertical(ind_obs), values_mdl=values(ind_start:))
-!      call msg('ave values', sum(values(ind_start:ind_start + n_values))/size(values(ind_start:ind_start + n_values)))
-!      call msg('max values', maxval(values(ind_start:ind_start + n_values)))
-!      call msg('ind_start, n_values', ind_start, n_values)
+    do ind_obs = 1, sum(obs%nVerticalObsID)
+      n_values = fu_size(obs%observationsVertical(ind_obs))
+      call get_data_vertical(obs%observationsVertical(ind_obs), values_mdl=obs%mdl_values(ind_start:))
       ind_start = ind_start + n_values
       n_values_total = n_values_total + n_values
-      if (fu_fails(ind_start <= size(values), 'values too small', 'get_model_data')) return
+      max_values = max(max_values, n_values)
     end do
 
-!    call msg('n values total', n_values_total)
-!    call msg('size values', size(values))
+    if (fu_fails(ind_start == size(obs%mdl_values)+1, 'wrong size obs%mdl_values', sub_name)) return
 
-
-    if (smpi_global_tasks > 1) then
+    !! Do exchange and refit observations with modle data
+    !! So they can be reported/evaluated by any MPI memeber 
+    if (smpi_adv_tasks > 1) then
 #ifdef DEBUG
-      call msg("LOCAL Sum of observarions from model", sum(values(1:n_values_total)))
-      call msg("LOCAL values(1:10)", values(1:10))
+      call msg("LOCAL Sum of observarions from model", sum(obs%mdl_values(1:n_values_total)))
+      call msg("LOCAL obs%mdl_values(1:10)", obs%mdl_values(1:10))
 #endif
       ! Synchronize model observationss
       wrk=>fu_work_array(n_values_total)
-      wrk(1:n_values_total)=values(1:n_values_total)
-!      print *, "n_values_total", n_values_total
-!      print *, wrk(1:10)
-!      print *, values(1:10)
-      call smpi_reduce_add(wrk(1:n_values_total), values(1:n_values_total), 0, smpi_adv_comm, ok)
+      wrk(1:n_values_total)=obs%mdl_values(1:n_values_total)
+      call smpi_reduce_add(wrk(1:n_values_total), obs%mdl_values(1:n_values_total), 0, smpi_adv_comm, ok)
       call free_work_array(wrk)
-      if (.not. ok) call set_error("failed MPI COMM", "collect_model_data")
-      
-      ! call ooops("Reducing obs")
+      if (.not. ok) call set_error("failed MPI COMM", sub_name)
 
+      ind_start = 1
+      do ind_obs = 1, sum(obs%nInSituObsID)
+        n_values = fu_size(obs%observationsInSitu(ind_obs))
+        call set_data_in_situ(obs%observationsInSitu(ind_obs), obs%mdl_values(ind_start:))
+        ind_start = ind_start + n_values
+      end do
+
+      do ind_obs = 1, sum(obs%nEruptionObsID)
+        n_values = fu_size(obs%observationsEruption(ind_obs))  
+        call set_data_eruption(obs%observationsEruption(ind_obs), obs%mdl_values(ind_start:))
+        ind_start = ind_start + n_values
+      end do
+
+      do ind_obs = 1, sum(obs%nDoseRateObsID)
+        n_values = fu_size(obs%observationsDoseRate(ind_obs))
+        call set_data_in_situ(obs%observationsDoseRate(ind_obs), obs%mdl_values(ind_start:))
+        ind_start = ind_start + n_values
+      end do
+
+      do ind_obs = 1, sum(obs%nVerticalObsID)
+        n_values = fu_size(obs%observationsVertical(ind_obs))
+        call set_data_vertical(obs%observationsVertical(ind_obs), obs%mdl_values(ind_start:))
+        ind_start = ind_start + n_values
+      end do
+    endif
+
+    !!! Separate report over in_situ TSmatrices
+    if (max_values > 100) then 
+      call msg("In situ scores:")
+      ind_start= 1
+      do ind_obs = 1, sum(obs%nInSituObsID)
+        n_values = fu_size(obs%observationsInSitu(ind_obs))
+        if (n_values >  20) then !! No wasting space for small observations
+  !        call ooops("Here")
+          if (ind_obs <= obs%nInSituObsID(1)) then 
+              chTmp = 'A:'//trim(obs%observationsInSitu(ind_obs)%tag)
+          else
+              chTmp = 'V:'//trim(obs%observationsInSitu(ind_obs)%tag)
+          endif
+  !        call msg (chTmp)
+  !        call msg("ind_obs Nvalues, max_values", (/ ind_obs, n_values, max_values /))
+          call mod_obs_stats( chTmp, obs%mdl_values(ind_start: ind_start + n_values - 1),  &
+                               &     obs%obs_values(ind_start: ind_start + n_values - 1), &
+                               &   obs%obs_variance(ind_start: ind_start + n_values - 1),&
+                               ind_obs == 1)
+        endif
+        ind_start = ind_start + n_values
+      end do
     endif
 #ifdef DEBUG
-    call msg("Sum of observarions from model , n_values_total", sum(values(1:n_values_total)), n_values_total)
-    call msg("values(1:10)", values(1:10))
+    call msg("Sum of observarions from model , n_values_total", sum(obs%mdl_values(1:n_values_total)), n_values_total)
+    call msg("obs%mdl_values(1:10)", obs%mdl_values(1:10))
 #endif
+    obs%mdlCollected = .TRUE.
   end subroutine collect_model_data
 
 
   !************************************************************************************
 
-  subroutine collect_obs_data(observations, values) !, n_values_total)
+  subroutine collect_obs_data(observations, values, variances)
+    !
+    !  Collects observations and variances into a single array. Should be called only once
+    !  immediately after observations red. Just for convenient access to the values
+    !  together with model data 
+
     implicit none
     type(observationPointers), intent(in) :: observations
-    real, dimension(:), intent(out) :: values
-!    integer, intent(out) :: n_values_total
+    real, dimension(:), intent(out) :: values, variances
 
     integer :: ind_obs, ind_start, n_values
     
     ind_start = 1
-!    n_values_total = 0
 
     do ind_obs = 1, sum(observations%nInSituObsID)
       n_values = fu_size(observations%observationsInSitu(ind_obs))
-      call get_data(observations%observationsInSitu(ind_obs), values_obs=values(ind_start:))
+      call get_data_in_situ(observations%observationsInSitu(ind_obs), & 
+                     & values_obs=values(ind_start:), variance = variances(ind_start:))
       ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
     end do
 
     do ind_obs = 1, sum(observations%nEruptionObsID)
       n_values = fu_size(observations%observationsEruption(ind_obs))
-      call get_data(observations%observationsEruption(ind_obs), values_obs=values(ind_start:))
+      call get_data_eruption(observations%observationsEruption(ind_obs), &
+                     & values_obs=values(ind_start:), variance = variances(ind_start:))
       ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
     end do
     
     do ind_obs = 1, sum(observations%nDoseRateObsID)
       n_values = fu_size(observations%observationsDoseRate(ind_obs))
-      call get_data(observations%observationsDoseRate(ind_obs), values_obs=values(ind_start:))
+      call get_data_in_situ(observations%observationsDoseRate(ind_obs), &
+                     & values_obs=values(ind_start:), variance = variances(ind_start:))
       ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
     end do
     
     do ind_obs = 1, sum(observations%nVerticalObsID)
       n_values = fu_size(observations%observationsVertical(ind_obs))
-      call get_data(observations%observationsVertical(ind_obs), values_obs=values(ind_start:))
+      call get_data_vertical(observations%observationsVertical(ind_obs), &
+                     & values_obs=values(ind_start:), variance = variances(ind_start:))
       ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
     end do
     
   end subroutine collect_obs_data
@@ -1606,132 +2052,36 @@ contains
 
   !************************************************************************************
 
-  function fu_obs_data(observations) result(obs_data)
+  subroutine get_obs_pointers(observations, obsvals, mdlvals, obsvar, n_values_total)
+    !! Unified getter for values arrays
+    !! If you modify them -- you get what you deserve
     implicit none
-    type(observationPointers), intent(in) :: observations
-    real, dimension(:), pointer :: obs_data
-    obs_data => observations%obs_values
-  end function fu_obs_data
+    type(observationPointers), intent(in), target :: observations
+    real, dimension(:), pointer, intent(out)  :: obsvals, mdlvals, obsvar
+    integer, dimension(2), intent(out) :: n_values_total
+    character(len = *), parameter :: sub_name = 'get_obs_pointers'
 
-
-  !************************************************************************************
-
-  function fu_obs_variance(observations) result(obs_variance)
-    implicit none
-    type(observationPointers), intent(in) :: observations
-    real, dimension(:), pointer :: obs_variance
-    obs_variance => observations%obs_variance
-  end function fu_obs_variance
-
-
-  !************************************************************************************
-
-  subroutine get_obs_data(observations, values, n_values_total)
-    implicit none
-    type(observationPointers), intent(in) :: observations
-    real, dimension(:), pointer :: values
-    integer, dimension(:), intent(out) :: n_values_total
+    if (.not. observations%mdlCollected) then 
+        call set_error("Observations not collected by collect_obs_data", sub_name)
+        return
+    endif
     
-    n_values_total = 0
-
-    values => observations%obs_values
+    obsvals => observations%obs_values
+    mdlvals => observations%mdl_values
+    obsvar => observations%obs_variance
     n_values_total = observations%obs_size
 #ifdef DEBUG
-    call msg("get_obs_data, sum, ndata", sum(values(1:sum(n_values_total))), real(sum(n_values_total)))
+    call msg(sub_name//", sum, ndata", sum(obsvals(:)), real(sum(observations%obs_size)))
 #endif
     
-  end subroutine get_obs_data
-
-
-  !************************************************************************************
-
-  subroutine set_mdl_data(observations, values)
-    implicit none
-    type(observationPointers), intent(inout) :: observations
-    real, dimension(:), intent(in) :: values
-
-    integer :: ind_obs, ind_start, n_values
-    
-    ind_start = 1
-
-    do ind_obs = 1, sum(observations%nInSituObsID)
-      n_values = fu_size(observations%observationsInSitu(ind_obs))
-      call set_data(observations%observationsInSitu(ind_obs), values_mdl=values(ind_start:))
-      ind_start = ind_start + n_values
-    end do
-
-    do ind_obs = 1, sum(observations%nEruptionObsID)
-      n_values = fu_size(observations%observationsEruption(ind_obs))
-      call set_data(observations%observationsEruption(ind_obs), values_mdl=values(ind_start:))
-      ind_start = ind_start + n_values
-    end do
-
-    
-    do ind_obs = 1, sum(observations%nDoseRateObsID)
-      n_values = fu_size(observations%observationsDoseRate(ind_obs))
-      call set_data(observations%observationsDoseRate(ind_obs), values_mdl=values(ind_start:))
-      ind_start = ind_start + n_values
-    end do
-    
-    do ind_obs = 1, sum(observations%nVerticalObsID)
-      n_values = fu_size(observations%observationsVertical(ind_obs))
-      call set_data(observations%observationsVertical(ind_obs), values_mdl=values(ind_start:))
-      ind_start = ind_start + n_values
-    end do
-    
-  end subroutine set_mdl_data
-
-
-  !************************************************************************************
-
-  subroutine collect_variance(observations, values) !, n_values_total)
-    implicit none
-    type(observationPointers), intent(in) :: observations
-    real, dimension(:), intent(out) :: values
-!    integer, intent(out) :: n_values_total
-
-    integer :: ind_obs, ind_start, n_values
-    
-    ind_start = 1
-!    n_values_total = 0
-
-    do ind_obs = 1, sum(observations%nInSituObsID)
-      n_values = fu_size(observations%observationsInSitu(ind_obs))
-      call get_data(observations%observationsInSitu(ind_obs), variance=values(ind_start:))
-      ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
-    end do
-    
-    do ind_obs = 1, sum(observations%nEruptionObsID)
-      n_values = fu_size(observations%observationsEruption(ind_obs))
-      call get_data(observations%observationsEruption(ind_obs), variance=values(ind_start:))
-      ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
-    end do
-
-    do ind_obs = 1, sum(observations%nDoseRateObsID)
-      n_values = fu_size(observations%observationsDoseRate(ind_obs))
-      call get_data(observations%observationsDoseRate(ind_obs), variance=values(ind_start:))
-      ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
-    end do
-    
-    do ind_obs = 1, sum(observations%nVerticalObsID)
-      n_values = fu_size(observations%observationsVertical(ind_obs))
-      call get_data(observations%observationsVertical(ind_obs), variance=values(ind_start:))
-      ind_start = ind_start + n_values
-!      n_values_total = n_values_total + n_values
-    end do
-
-  end subroutine collect_variance
-
+  end subroutine get_obs_pointers
   
   !************************************************************************************
 
   subroutine get_localisation_all(obs_ptr, locations)
     implicit none
     type(observationPointers), intent(in) :: obs_ptr
-    real, dimension(:,:) :: locations
+    real, dimension(:,:), intent(out) :: locations
     
     integer :: ind_obs, ind_start, num_values
 
@@ -1743,25 +2093,25 @@ contains
     num_values = 0
     do ind_obs = 1, sum(obs_ptr%nInSituObsID)
       num_values = fu_size(obs_ptr%observationsInSitu(ind_obs))
-      call get_localisation(obs_ptr%observationsInSitu(ind_obs), locations(:,ind_start:))
+      call get_localisation_in_situ(obs_ptr%observationsInSitu(ind_obs), locations(:,ind_start:))
       ind_start = ind_start + num_values
     end do
     
     do ind_obs = 1, sum(obs_ptr%nEruptionObsID)
       num_values = fu_size(obs_ptr%observationsEruption(ind_obs))
-      call get_localisation(obs_ptr%observationsEruption(ind_obs), locations(:,ind_start:))
+      call get_localisation_eruption(obs_ptr%observationsEruption(ind_obs), locations(:,ind_start:))
       ind_start = ind_start + num_values
     end do
 
     do ind_obs = 1, sum(obs_ptr%nDoseRateObsID)
       num_values = fu_size(obs_ptr%observationsDoseRate(ind_obs))
-      call get_localisation(obs_ptr%observationsDoseRate(ind_obs), locations(:,ind_start:))
+      call get_localisation_in_situ(obs_ptr%observationsDoseRate(ind_obs), locations(:,ind_start:))
       ind_start = ind_start + num_values
     end do
 
     do ind_obs = 1, sum(obs_ptr%nVerticalObsID)
       num_values = fu_size(obs_ptr%observationsVertical(ind_obs))
-      call get_localisation(obs_ptr%observationsVertical(ind_obs), locations(:,ind_start:))
+      call get_localisation_vertical(obs_ptr%observationsVertical(ind_obs), locations(:,ind_start:))
       ind_start = ind_start + num_values
     end do
     
@@ -1790,6 +2140,8 @@ contains
     do ii = 1, sum(observations%nVerticalObsID)
       call restart_vertical(observations%observationsVertical(ii), ifNullifyModel)
     end do
+    observations%mdl_values(:) = F_NAN
+    observations%mdlCollected = .FALSE.
 
   end subroutine reset_all
 
@@ -1826,7 +2178,7 @@ contains
     if (sum(pointers%nVerticalObsID) > 0) deallocate(pointers%observationsVertical)
     pointers%nVerticalObsID = 0
 
-    if (sum(pointers%obs_size) > 0) deallocate(pointers%obs_values, pointers%obs_variance)
+    if (sum(pointers%obs_size) > 0) deallocate(pointers%obs_values, pointers%obs_variance, pointers%mdl_values,)
     
     pointers%obs_size = 0
     pointers%hasObservations = .false.
@@ -1864,9 +2216,55 @@ contains
 
   !************************************************************************************
 
+  subroutine dump_observation_stations(pointers, file_name)
+    !
+    ! Dumpr the observation data to a file, separating the assimilated / evaluation data
+    !
+    implicit none
+    type(observationPointers), intent(in) :: pointers
+    character(len=*), intent(in) :: file_name
+    type(silam_species), dimension(:), pointer :: species_trn
+
+    ! Local variables
+    integer :: uFile, ind_obs, iostat, iStart, nobs
+    character(len = *), parameter :: sub_name = 'dump_observation_stations'
+    
+    if (smpi_adv_rank /= 0) return !! Only rank  0 writes 
+    call msg('Observation stations to file: ' // trim(file_name))
+    
+    uFile = fu_next_free_unit()
+    iStart = 0
+   
+    nobs = sum(pointers%nInSituObsID(:))
+    if (nobs > 0) then
+      open(uFile, file=file_name + '.in_situ', iostat=iostat, action='write')
+      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), sub_name)) return
+
+      do ind_obs = 1, nobs
+        call obs_station_to_file_in_situ(pointers%observationsInSitu(ind_obs), uFile, ind_obs == 1)
+        if (error) exit
+      end do
+      close(uFile)
+    endif
+    
+    nobs = sum(pointers%nDoseRateObsID(:))
+    if (nobs > 0) then
+      call set_error("Dose station dump not yet implemented", sub_name)
+    endif
+    
+    nobs = sum(pointers%nVerticalObsID(:))
+    if (nobs > 0) then
+      call set_error("Dose station dump not yet implemented", sub_name)
+    endif
+    
+  end subroutine dump_observation_stations
+
+  !************************************************************************************
+
   subroutine dump_observations(pointers, species_trn, file_name, iPurpose)
     !
     ! Dumpr the observation data to a file, separating the assimilated / evaluation data
+    ! Only master should do it. Exchange doen bu collect_observations
     !
     implicit none
     type(observationPointers), intent(in) :: pointers
@@ -1876,8 +2274,14 @@ contains
 
     ! Local variables
     integer :: uFile, ind_obs, iostat, iStart
+    character(len = *), parameter :: sub_name = 'dump_observations'
     
     call msg('Observations to file: ' // trim(file_name))
+
+    if (smpi_adv_rank /= 0) then
+      call set_error("Only advection master can dump obserations", sub_name)
+      return
+    endif
     
     uFile = fu_next_free_unit()
     iStart = 0
@@ -1886,10 +2290,10 @@ contains
       if(iPurpose == 2) iStart = pointers%nInSituObsID(1)  ! evaluation data are after asssimilated 
       open(uFile, file=file_name + '.in_situ', iostat=iostat, action='write')
 !      call msg('iostat', iostat)
-      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), 'dump_observations')) return
-      write(uFile, fmt='(A)') '# In-situ observations # station_id, time, obs_data, model_data, obs_variance'
+      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), sub_name)) return
+      write(uFile, fmt='(A)') '# In-situ observations # station_id, time, obs_data, model_data, obs_variance, obs_inj_scaling'
       do ind_obs = 1, pointers%nInSituObsID(iPurpose)
-        call obs_to_file(pointers%observationsInSitu(ind_obs + iStart), species_trn, uFile)
+        call obs_to_file_in_situ(pointers%observationsInSitu(ind_obs + iStart), species_trn, uFile)
         if (error) exit
       end do
       close(uFile)
@@ -1898,9 +2302,9 @@ contains
     if(pointers%nDoseRateObsID(iPurpose) > 0)then
       if(iPurpose == 2) iStart = pointers%nDoseRateObsID(1)  ! evaluation data are after asssimilated 
       open(uFile, file=file_name + '.dose_rate', iostat=iostat, action='write')
-      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), 'dump_observations')) return
+      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), sub_name)) return
       do ind_obs = 1, pointers%nDoseRateObsID(iPurpose)
-        call obs_to_file(pointers%observationsDoseRate(ind_obs + iStart), species_trn, uFile)
+        call obs_to_file_in_situ(pointers%observationsDoseRate(ind_obs + iStart), species_trn, uFile)
         if (error) exit
       end do
       close(uFile)
@@ -1909,7 +2313,7 @@ contains
     if(pointers%nVerticalObsID(iPurpose) > 0)then
       if(iPurpose == 2) iStart = pointers%nVerticalObsID(1)  ! evaluation data are after asssimilated 
       open(uFile, file=file_name + '.vertical', iostat=iostat, action='write')
-      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), 'dump_observations')) return
+      if (fu_fails(iostat == 0, 'Failed to open file: ' // trim(file_name), sub_name)) return
       do ind_obs = 1, pointers%nVerticalObsID(iPurpose)
         call obs_to_file(pointers%observationsVertical(ind_obs + iStart), species_trn, uFile)
         if (error) exit
@@ -1920,8 +2324,10 @@ contains
   end subroutine dump_observations
 
   !*******************************************************
- 
+
   subroutine parse_obs_param(param, scale_to_silam, ifmmr)
+    !! Unit conversion of text-style observations
+    !! Assumes observed mass unit is basic one, tells if it is cnc or mmr
     !! Treats concentration and mixing-ratio observations
     !! and converts them to "per m3" or "per kg"
      implicit none
@@ -1958,6 +2364,78 @@ contains
       end select 
      endif
  end subroutine parse_obs_param
+
+  !***************************************************************************************
+ 
+  subroutine parse_obs_unit(obsvar, obsunit, obs_amt_unit, scale_to_silam, ifmmr)
+    !! Parses obs unit (comes from NetCDF time series),
+    !! and gets the basic amount unit and scaling to it
+    !! moreflexible wrapper for  parse_obs_param 
+     implicit none
+     character(len = *), intent(in) ::  obsvar, obsunit
+     character(len = *), intent(out) :: obs_amt_unit !! Needed for further massmap tp cocktail conversion
+     real, intent(out) :: scale_to_silam  !! Scale of obs to silam unit (per kg or per m3)
+     logical, intent(out) :: ifmmr !! "true" == "per kg of air"
+
+     integer :: iTmp
+     real :: fFactor
+     character(len = clen) :: obsuntitstuff, obsunitair, param
+     character(len = 1) :: sepchar
+    character(len=*), parameter :: sub_name = 'parse_obs_unit'
+
+     !! slash or space separated unit
+     iTmp = index(obsunit,"/")
+     if (iTmp  == 0) iTmp = index(obsunit," ")
+     
+     if (iTmp > 1) then 
+       obsuntitstuff = obsunit(1:iTmp-1)
+       obsunitair = obsunit(iTmp+1:)
+       sepchar = obsunit(iTmp:iTmp)
+     else
+       call set_error("Strange obsunit '"//trim(obsunit)//"'", sub_name)
+       return
+     endif
+
+     !! What is the quantity?
+     !! Can be cnc with e.g. units of EUug/m3
+     if (any(obsvar== (/'cnc   ','cncEU ','cncWHO'/))) then 
+          param = obsvar
+          if (obsuntitstuff(1:2) == "EU")  then
+              param = "cncEU"
+              obsuntitstuff = obsuntitstuff(3:)
+          elseif (obsuntitstuff(1:3) == "WHO")  then
+              param = "cncWHO"
+              obsuntitstuff = obsuntitstuff(4:)
+          endif
+          if ( ( sepchar=='/' .and. all(obsunitair /= (/'m3  ','m^3 ','m**3'/) ) ) .or. &
+             & ( sepchar==' ' .and. all(obsunitair /= (/'m-3  ','m^-3 ','m**-3'/) ) ) ) then
+             call set_error("Unparsable unit of concentration //'"//trim(obsunit)//"'", sub_name)
+             return
+          endif
+     elseif (obsvar == "vmr") then
+       if (.not. any(obsunitair == (/'mole', 'mol '/))) then
+          call set_error("Unparsable unit of vmr //'"//trim(obsunit)//"'", sub_name)
+       endif
+       param = "permole"
+     elseif (obsvar == 'mmr') then 
+       if (obsunitair /= 'kg') then
+          call set_error("Unparsable unit of mmr //'"//trim(obsunit)//"'", sub_name)
+        endif
+        param = "perkilo"
+     else
+        call set_error("Unknown variable name //'"//trim(obsunit)//"'", sub_name)
+     endif
+
+     !! Conversion from e.g ug
+     obs_amt_unit = fu_SI_unit(obsuntitstuff) !! Shold be mole kg or something else
+     fFactor =  fu_conversion_factor(obsuntitstuff, obs_amt_unit)
+
+     call  parse_obs_param(param, scale_to_silam, ifmmr)
+     if (error) return
+
+     scale_to_silam = scale_to_silam * fFactor
+
+ end subroutine parse_obs_unit
 
   !***************************************************************************************
   
@@ -2037,7 +2515,6 @@ contains
     character(len=*), parameter :: tmpfilename = 'tmp.dat'
     type(silja_grid) :: grid
     integer :: obs_size, ind_obs, num_val, nObsItems
-    character(len=*), parameter :: sub_name = 'test_read_timeseries'
     logical :: failure
     real, dimension(:), pointer :: dataptr
     real, parameter :: dummy_obs_val = 1.0
@@ -2047,6 +2524,7 @@ contains
     type(t_eruptionObservation), pointer, dimension(:) :: null_eruption_obs_lst
     type(silja_time) :: obs_start
     type(silja_interval) :: obs_period
+    character(len=*), parameter :: sub_name = 'test_read_timeseries'
 
     grid = fu_set_lonlat_grid('testgrid', 20.0, 40.0, .true., &
                             & 100, 100, pole_geographical, 1.0, 1.0)
@@ -2139,9 +2617,9 @@ contains
         num_val = fu_size(obs_list(ind_obs))
         call msg('num_val, obs_size', num_val, obs_size)
         failure = fu_fails(num_val == obs_size, 'Obs are wrong size', sub_name)
-        failure = fu_fails(obs_list(ind_obs)%station%id == station_list(ind_obs)%id, &
+        failure = fu_fails(obs_list(ind_obs)%station(1)%id == station_list(ind_obs)%id, &
              & 'wrong id', sub_name)
-        call get_data(in_situ_list(ind_obs), values_obs=dataptr)
+        call get_data_in_situ(in_situ_list(ind_obs), values_obs=dataptr)
         if (fu_fails(all(dataptr(1:obs_size) .eps. expect_values), 'Wrong values', sub_name)) then
           call msg('ind_obs:', ind_obs)
           print *, 'Expected:', expect_values(1:obs_size)
@@ -2167,8 +2645,7 @@ contains
         write(code, fmt='("A",I0)') ind_station
         write(name, fmt='("station_", I0)') ind_station
         station_list(ind_station) = fu_initObservationStation(trim(code), trim(name), &
-                                             & 30.0 + ind_station, 55.0 + ind_station, 2.0, &
-                                             & grid)
+                                             & 30.0 + ind_station, 55.0 + ind_station, 2.0)
       end do
       
     end subroutine make_stations

@@ -520,20 +520,22 @@ MODULE derived_field_quantities
     case(stomatal_conductance_flag)
         select case(fu_LAIsrc(wdr))
            case (LAI_dynamic_1, LAI_dynamic_2)
-             list(1:6) = (/  surface_pressure_flag,&
+             list(1:7) = (/  surface_pressure_flag,&
                        & total_cloud_cover_flag, &
                         & temperature_2m_flag, &
                         & relative_humidity_2m_flag,&
                         & leaf_area_index_flag, &
+                        & water_eq_snow_depth_flag, &
                         & soil_moisture_vol_frac_nwp_flag/)
              list_st(1:2) = (/c4_frac_flag,&
-                        & irrigated_area_flag/)
+                  & irrigated_area_flag/)
 
            case (LAI_static_1, LAI_static_2)
-             list(1:5) = (/  surface_pressure_flag,&
+             list(1:6) = (/  surface_pressure_flag,&
                        & total_cloud_cover_flag, &
                         & temperature_2m_flag, &
                         & relative_humidity_2m_flag, &
+                        & water_eq_snow_depth_flag, &
                         & soil_moisture_vol_frac_nwp_flag/)
              list_st(1:3) = (/leaf_area_index_flag, &
                         & c4_frac_flag, &
@@ -583,13 +585,10 @@ MODULE derived_field_quantities
         list(1) = NWP_latent_heatflux_ac_flag
 
       case (surface_roughness_meteo_flag)    ! Surface roughness has to be combined 
-        list(1) = land_roughness_meteo_flag  ! from soil and water roughnesses
-!        requests(1) =  1 !!!request Can force default
-!        !list_st(1:2) = (/land_roughness_meteo_flag, fraction_of_land_flag/)  !DOES NOT WORK!!!
-!        !requests_st(1:2) =(/1, request/)  
-        list_st(1) = fraction_of_land_flag
-!        requests_st(1) = request
-
+        list_st(1:2) = (/land_roughness_meteo_flag, fraction_of_land_flag/)  
+        !! add to METEO_PARAMETERS
+        !! static_meteo_file = TEST_FIELD  land_rough_met   SURFACE_LEVEL  0.05 
+        !! to restore old "default land roughness of 0.05m" if map is not available from meteo
       case (surface_roughness_disp_flag)             ! Surface roughness has to be combined 
          !Request both then priority is: Dynamic -> static -> default
         list(1) =  land_roughness_disp_flag  ! from soil and water roughnesses 
