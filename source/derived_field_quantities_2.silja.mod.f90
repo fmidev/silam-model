@@ -32,8 +32,6 @@ MODULE derived_field_quantities_2
   PUBLIC dq_relative_vorticity
   PUBLIC dq_abs_vorticity_advection
   PUBLIC dq_isentropic_pot_vorticity
-  PUBLIC dq_thermal_front_parameter
-  PUBLIC dq_bulk_thermal_front_parameter
   PUBLIC dq_bulk_richardson_number
   public dq_gradient_richardson_number
   public dq_brunt_vaisala_freq
@@ -935,302 +933,6 @@ CONTAINS
 !    call free_work_array(IPV)
 
   END SUBROUTINE dq_isentropic_pot_vorticity
-
-
-
-
-  !**********************************************************************
-
-
-  SUBROUTINE dq_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
-
-    ! Description:
-    ! Calculates thermal front parameter (TFP) [K/m2]
-    !
-    ! TFP = vector product [(change of temperaturegradient) and
-    !       (projetion in direction of the temperature gradient)]
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Current code owner: Pilvi Siljamo, FMI 
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    integer, dimension(:,:), intent(in) :: idxTimes
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-    ! Local declarations:
-    TYPE(silja_time) :: time
-    TYPE(silja_3d_field), POINTER :: t3d
-    TYPE(silja_field_id) :: id
-    TYPE(silja_grid) :: scalar_grid
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, iS
-    INTEGER :: l, fs, tloop, i
-    REAL,DIMENSION(:), POINTER :: T
-    REAL,DIMENSION(:), POINTER :: abs_nabla_T 
-    REAL,DIMENSION(:), POINTER :: dT_dy, dT_dx
-    REAL,DIMENSION(:), POINTER :: dabsnablaT_dx, dabsnablaT_dy
-    REAL,DIMENSION(:), POINTER :: TFP
-
-    abs_nabla_T => fu_work_array() 
-!    TFP => fu_work_array()
-    dT_dx => fu_work_array()
-    dT_dy => fu_work_array()
-    dabsnablaT_dx => fu_work_array()
-    dabsnablaT_dy => fu_work_array()
-    IF (error) RETURN
-    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
-
-    loop_over_times: DO tloop = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
-      time = valid_times(tloop)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src, & ! Already done before?
-                       & tfp_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .true.,&
-                       & .false., &
-                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
-
-      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, time, single_time)
-      IF (error) RETURN
-
-      CALL vertical_levels(t3d, levels, number_of_levels)
-      IF (error) RETURN
-
-      scalar_grid = fu_grid(t3d)
-      IF (error) RETURN
-
-      TFP = 0.
-      fs = fu_number_of_gridpoints(scalar_grid)
-
-      loop_over_levels: DO l = 1, number_of_levels
-
-        T => fu_grid_data_from_3d(t3d, l)
-        IF (error) RETURN
-
-         ! dT_dx:
-        CALL ddx_of_field(T, scalar_grid, scalar_grid, dT_dx)
-        IF (error) RETURN
-
-        ! dT_dy:
-        CALL ddy_of_field(T, scalar_grid, scalar_grid, dT_dy)
-        IF (error) RETURN
-
-        abs_nabla_T(1:fs) = SQRT(dT_dx(1:fs)**2. + dT_dy(1:fs)**2.)
-
-        ! dabsnablaT_dx 
-        CALL ddx_of_field(abs_nabla_T(1:fs), scalar_grid, scalar_grid,dabsnablaT_dx(1:fs))
-        IF (error) RETURN
-
-        ! dabsnablaT_dy 
-        CALL ddy_of_field(abs_nabla_T(1:fs), scalar_grid, scalar_grid,dabsnablaT_dy(1:fs))
-        IF (error) RETURN
-
-
-        ! ------------------------------------------
-        !
-        ! Calculates thermal front parameter
-        !
-        ! ------------------------------------------
-
-        id = fu_set_field_id(fu_met_src(t3d), &
-                           & tfp_flag, &
-                           & fu_analysis_time(t3d), &
-                           & fu_forecast_length(t3d), &
-                           & fu_grid(t3d), &
-                           & levels(l))
-        call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, TFP)
-        if(fu_fails(.not.error,'Failed TFP field data pointer','dq_thermal_front_parameter'))return
-
-        DO i = 1, fs
-          IF (abs_nabla_T(i)==0.) THEN
-            TFP(i) = 0.
-          ELSE
-            TFP(i) = -1*((dabsnablaT_dx(i)* dT_dx(i))+&
-                   & (dabsnablaT_dy(i)* dT_dy(i)))/abs_nabla_T(i)
-          END IF
-          IF (error) RETURN
-        END DO
-
-
-!        CALL dq_store_2d(meteoMarketPtr, id, TFP, multi_time_stack_flag )
-        IF (error) RETURN
-
-      END DO loop_over_levels
-    END DO loop_over_times
-
-!    CALL free_all_work_arrays()
-    call free_work_array(abs_nabla_T) 
-!    call free_work_array(TFP)
-    call free_work_array(dT_dx)
-    call free_work_array(dT_dy)
-    call free_work_array(dabsnablaT_dx)
-    call free_work_array(dabsnablaT_dy)
-
-  END SUBROUTINE dq_thermal_front_parameter
-
-
-  !********************************************************
-
-  SUBROUTINE dq_bulk_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
-
-    ! Description:
-    ! Calculates thermal front parameter (TFP) [K/m2] from layer thickness
-    ! (1000 hPa ->)
-    !
-    ! TFP = vector product [(change of temperaturegradient) and
-    !       (projetion in direction of the temperature gradient)]
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Current code owner: Pilvi Siljamo, FMI 
-    ! 
-    IMPLICIT NONE
-    
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    integer, dimension(:,:), intent(in) :: idxTimes
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    TYPE(silja_time) :: time
-    TYPE(silja_3d_field), POINTER :: thickness3d
-    TYPE(silja_field_id) :: id
-    TYPE(silja_grid) :: scalar_grid
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels
-    INTEGER :: l, fs, tloop, i, iS
-    REAL,DIMENSION(:), POINTER :: thickness
-    REAL,DIMENSION(:), POINTER :: abs_nabla_Thick 
-    REAL,DIMENSION(:), POINTER :: dThick_dy, dThick_dx
-    REAL,DIMENSION(:), POINTER :: dabsnablaThick_dx, dabsnablaThick_dy
-    REAL,DIMENSION(:), POINTER :: bulkTFP
-    REAL, DIMENSION(:), POINTER :: pressure_bottom, pressure_top
-
-    abs_nabla_Thick => fu_work_array() 
-!    bulkTFP => fu_work_array()
-    dThick_dx => fu_work_array()
-    dThick_dy => fu_work_array()
-    dabsnablaThick_dx => fu_work_array()
-    dabsnablaThick_dy => fu_work_array()
-    pressure_bottom  => fu_work_array()
-    pressure_top => fu_work_array()
-    IF (error) RETURN
-    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
-
-    loop_over_times: DO tloop = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(tloop))) EXIT loop_over_times
-      time = valid_times(tloop)
-
-      IF (fu_field_in_sm(meteoMarketPtr, met_src, & ! Already done before?
-                       & bulk_tfp_flag, &
-                       & time, &
-                       & level_missing, &
-                       & .true., &
-                       & .false., &
-                       & idxTimeStack_=idxTimes(iS,tloop))) CYCLE loop_over_times
-
-      thickness3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, &
-                                          & temperature_flag, &
-                                          & time,&
-                                          & single_time)
-      IF (error) RETURN
-
-      CALL vertical_levels(thickness3d, levels, number_of_levels)
-      IF (error) RETURN
-
-      scalar_grid = fu_grid(thickness3d)
-      IF (error) RETURN
-
-      bulkTFP = 0.
-      fs = fu_number_of_gridpoints(scalar_grid)
-
-      CALL pressure_on_level(thickness3d, 1, pressure_bottom) !?onko alin?
-      IF (error) RETURN
-
-      loop_over_levels: DO l = 1, number_of_levels
-
-        thickness => fu_grid_data_from_3d(thickness3d, l)
-        IF (error) RETURN
-
-        ! dThick_dx:
-        CALL ddx_of_field(thickness, scalar_grid, scalar_grid, dThick_dx)
-        IF (error) RETURN
-
-        ! dThick_dy:
-        CALL ddy_of_field(thickness, scalar_grid, scalar_grid, dThick_dy)
-        IF (error) RETURN
-
-        abs_nabla_Thick(1:fs) = SQRT(dThick_dx(1:fs)**2. + dThick_dy(1:fs)**2.)
-        
-        ! dabsnablaThick_dx 
-        CALL ddx_of_field(abs_nabla_Thick(1:fs), scalar_grid,&
-            & scalar_grid,dabsnablaThick_dx(1:fs))
-        IF (error) RETURN
-
-        ! dabsnablaThick_dy 
-        CALL ddy_of_field(abs_nabla_Thick(1:fs), scalar_grid,&
-            & scalar_grid,dabsnablaThick_dy(1:fs))
-        IF (error) RETURN
-                
-        ! ------------------------------------------
-        !
-        ! Calculates thermal front parameter
-        !
-        ! ------------------------------------------
-
-
-        CALL pressure_on_level(thickness3d, l, pressure_top) 
-        IF (error) RETURN
-
-        id = fu_set_field_id(fu_met_src(thickness3d), &
-                           & bulk_tfp_flag, &
-                           & fu_analysis_time(thickness3d), &
-                           & fu_forecast_length(thickness3d), &
-                           & fu_grid(thickness3d), &
-                           & levels(l))
-        call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, bulkTFP)
-        if(fu_fails(.not.error,'Failed bulkTFP field data pointer','dq_bulk_thermal_front_parameter'))return
-
-        loop_over_gridpoints: DO i = 1, fs
-          IF (abs_nabla_Thick(i)==0.) THEN
-            bulkTFP(i) = 0.
-          ELSE
-            bulkTFP(i) = -1*(((dabsnablaThick_dx(i)* dThick_dx(i))+&
-                &(dabsnablaThick_dy(i)* dThick_dy(i)))/abs_nabla_Thick(i)) *&
-                & (-g/gas_constant_dryair)/&
-                & LOG(pressure_bottom(i)/pressure_top(i))
-          END IF
-          IF (error) RETURN
-        END DO loop_over_gridpoints
-
-!        CALL dq_store_2d(meteoMarketPtr, id, bulkTFP, multi_time_stack_flag )
-        IF (error) RETURN
-
-      END DO loop_over_levels
-    END DO loop_over_times
-
-!    CALL free_all_work_arrays()
-    call free_work_array(abs_nabla_Thick) 
-!    call free_work_array(bulkTFP)
-    call free_work_array(dThick_dx)
-    call free_work_array(dThick_dy)
-    call free_work_array(dabsnablaThick_dx)
-    call free_work_array(dabsnablaThick_dy)
-    call free_work_array(pressure_bottom)
-    call free_work_array(pressure_top)
-
-  END SUBROUTINE dq_bulk_thermal_front_parameter
 
   !************************************************************
 
@@ -4022,11 +3724,12 @@ CONTAINS
          & psrf, cwc, cic, lcwc_above, pLCWC_prev
 
     REAL :: dag, dbg  !! sfc pressure to level airmass coefffs
-    INTEGER :: fs, lev,  number_of_levels
+    INTEGER :: fs, lev,  number_of_levels, iTmp
     LOGICAL :: ifOnecwc, ifCWCinSM, ifPWCinSM, ifLCWCinSM
     real, dimension(max_levels) :: a_met, b_met, a_half_met, b_half_met
 
     REAL :: fTmp, fWe1, fWe2   ! tmp, weights for heights for level thickness
+    character(len=*), parameter :: sub_name = 'dq_cwcabove_3D'
 
     IF (error) RETURN
 
@@ -4105,14 +3808,31 @@ CONTAINS
 
         
       grid = fu_grid(cwc3d) ! Any non-shifted field
+      fs = fu_number_of_gridpoints(grid)
       
       number_of_levels = fu_NbrOfLevels(meteo_vertical)
       IF (error) RETURN
 
-      call hybrid_coefs(meteo_vertical, a_full=a_met, b_full=b_met) 
-       !Indeed, a_half, b_half) should be used here
+      iTmp = fu_leveltype(meteo_vertical)
+
+      if (iTmp == hybrid) then
+        !!! Invert  meteo to half-level coefficients
+        call hybrid_coefs(meteo_vertical, a_full=a_met, b_full=b_met) 
+        a_half_met(1) = 0.
+        b_half_met(1) = 1.
+        DO lev = 1,number_of_levels
+            a_half_met(lev+1) = a_half_met(lev) + 2*(a_met(lev)-a_half_met(lev))
+            b_half_met(lev+1) = b_half_met(lev) + 2*(b_met(lev)-b_half_met(lev))
+        enddo
+      elseif (iTmp == layer_btw_2_hybrid) then 
+
+        call hybrid_coefs(meteo_vertical, a_half=a_half_met, b_half=b_half_met) 
+      else
+          call msg("Strange leveltype for meteo_vertical:", iTmp)
+          call set_error("Only hubrid_level and hybrid layers supported so far", sub_name)
+          return
+      endif
         
-      fs = fu_number_of_gridpoints(grid)
       
       !-----------------------------------------------------
       !
@@ -4121,17 +3841,9 @@ CONTAINS
       !    'layer' boundaries are taken as mid-heights between levels
       !    or ground
       !
-!      cwc_above = 0.
 
-!!! Invert  meteo to half-level coefficients
         !prepare da db calvulation: attempt to reconstruct half-level coefficients
         ! FIXME Meteo vertical could have half-levels: grib files do have them
-      a_half_met(1) = 0.
-      b_half_met(1) = 1.
-      DO lev = 1,number_of_levels
-          a_half_met(lev+1) = a_half_met(lev) + 2*(a_met(lev)-a_half_met(lev))
-          b_half_met(lev+1) = b_half_met(lev) + 2*(b_met(lev)-b_half_met(lev))
-      enddo
 
 
       DO lev = number_of_levels, 1, -1 ! top->bottom
@@ -4146,8 +3858,10 @@ CONTAINS
         dag = dag / g  !! dag+dbg*psrf gives airmass  of meteo layer in kg/m2
         dbg = dbg / g
 #ifdef DEBUG        
-        if( dag+dbg*40000 < 0) then 
-           call msg("minval(psrf)", minval(psrf(1:fs)))
+        fTmp =  minval(psrf(1:fs))  !! Levels should not collapse at 90% of this pressure
+        if( dag+dbg*0.9*fTmp < 0) then 
+           call msg("0.9 * minval(psrf)", 0.9 * minval(psrf(1:fs)))
+           call msg("levels will collapse at psrf = ", - dag/dbg )
            call set_error("Negative meteo layer mass", "dq_cwcabove_3D")
         endif
 #endif        
@@ -4160,7 +3874,7 @@ CONTAINS
                              & grid,&
                              & fu_level(meteo_vertical, lev))
           call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, cwc_above)
-          if(fu_fails(.not.error,'Failed cwc_above field data pointer','dq_cwcabove_3D'))return
+          if(fu_fails(.not.error,'Failed cwc_above field data pointer',sub_name))return
 
           if (lev == number_of_levels) then !! Init accumulation
              pCWC_prev => cwc_above
@@ -4186,7 +3900,7 @@ CONTAINS
                              & grid,&
                              & fu_level(meteo_vertical, lev))
           call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, lcwc_above)
-          if(fu_fails(.not.error,'Failed lcwc_above field data pointer','dq_cwcabove_3D'))return
+          if(fu_fails(.not.error,'Failed lcwc_above field data pointer',sub_name))return
           if (lev == number_of_levels) then !! Init accumulation      
              pLCWC_prev => lcwc_above
              lcwc_above(1:fs) = 0.
@@ -4206,7 +3920,7 @@ CONTAINS
                              & grid,&
                              & fu_level(meteo_vertical, lev))
           call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, pwc_above)
-          if(fu_fails(.not.error,'Failed pwc_above field data pointer','dq_cwcabove_3D'))return
+          if(fu_fails(.not.error,'Failed pwc_above field data pointer',sub_name))return
 
           if (lev == number_of_levels) then !! Init accumulation
              pPWC_prev => pwc_above
@@ -4235,7 +3949,7 @@ CONTAINS
                              & grid,&
                              & surface_level)
           call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, cwc_above)
-          if(fu_fails(.not.error,'Failed cwc_above_sfc field data pointer','dq_cwcabove_3D'))return
+          if(fu_fails(.not.error,'Failed cwc_above_sfc field data pointer',sub_name))return
           cwc_above(1:fs) = pCWC_prev(1:fs)
       endif
 
@@ -4248,7 +3962,7 @@ CONTAINS
                              & grid,&
                              & surface_level)
             call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, lcwc_above)
-            if(fu_fails(.not.error,'Failed cwc_above_sfc field data pointer','dq_cwcabove_3D'))return
+            if(fu_fails(.not.error,'Failed cwc_above_sfc field data pointer',sub_name))return
             lcwc_above(1:fs) = pLCWC_prev(1:fs)
           end if
       endif
@@ -4261,13 +3975,12 @@ CONTAINS
                              & grid,&
                              & surface_level)
           call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, pwc_above)
-          if(fu_fails(.not.error,'Failed cwc_above_sfc field data pointer','dq_cwcabove_3D'))return
+          if(fu_fails(.not.error,'Failed cwc_above_sfc field data pointer',sub_name))return
           pwc_above(1:fs) = pPWC_prev(1:fs)
       endif
 
     END DO loop_over_times
 
-!    CALL free_work_array(cwc_above)
 
   END SUBROUTINE dq_cwcabove_3D
 

@@ -977,7 +977,7 @@ MODULE aer_dyn_simple
     SO4tot  = SO4c + SO4f
     excNH3  = NH3 - SO4tot * 1.5
 
-    if(excNH3 <= 0) then ! 1 mole of NH4_1.5_SO4 takes 1.5 moles of NH3
+    if(excNH3 < 0.) then ! 1 mole of NH4_1.5_SO4 takes 1.5 moles of NH3
         !MAS Too little NH3, sulpathes take it all 
         fracc = SO4c / SO4tot ! 
         fracf = SO4f / SO4tot ! !!!NOT (1 - fracc)!!
@@ -1001,6 +1001,7 @@ MODULE aer_dyn_simple
       endif
     else 
         ! abundance of ammonia, engage all SO4, free ammonia left
+        ! Also handles the case of SO4tot == 0. and NH3 == 0.
       if (seconds > 0) then
         vMassTrn(iSO4c_aer) = 0.0
         vMassTrn(iSO4f_aer) = 0.0

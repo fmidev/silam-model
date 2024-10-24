@@ -415,11 +415,10 @@ MODULE grib_api_io
     integer, INTENT(in) :: indGrib
     type(silja_grid), INTENT(out) :: grid
     logical, intent(inout) :: ifNewGrid 
-    !! To be set for True if grid is missing from the cache
+    !! To be set for True if grid is missing from the cache 
     !! and update is not done due to OMP parallelism
-    !! In such case the whole file should be parsed again in sigle-thread
-
-
+    !! Also set in sigle-thread if cache grid has been upated with more precise one
+    !! In such case the whole file should be re-parsed again in sigle-thread
 
     ! Local declarations:
     type(grib_grid) :: grGrid
@@ -437,7 +436,6 @@ MODULE grib_api_io
     character (len=1024) :: strGridType ! 
     character (len=*), parameter :: sub_name="parse_grib_grid"
     real, dimension(3), parameter :: precision4edition = (/1e-3, 1e-6, 1e-6/) !!lon and lat precision
-    logical :: updateGrid
 
     !
     grid = grid_missing
@@ -623,31 +621,25 @@ MODULE grib_api_io
     !! Check if a lower-precision grid already there 
     do iCacheInd = 1, max_nbr_of_GRIB_grids
         grGridPtr => grib_grid_cache(iCacheInd)%grGrid
-        if (.not. grGridPtr%defined) exit
+        if (.not. grGridPtr%defined) exit !! iCacheInd is free
         if (grGridPtr%proj4string== grGrid%proj4string) then
           if (grGridPtr%nx == nx .and. grGridPtr%ny == ny) then
              lonlatdelta=max(abs(grib_grid_cache(iCacheInd)%crnrlon - corner_lon), &
                            & abs(grib_grid_cache(iCacheInd)%crnrlat - corner_lat))
              if  (lonlatdelta < grib_grid_cache(iCacheInd)%lonlatepsilon) then
-               call msg("Second search found a grid:")
-               call report(grib_grid_cache(iCacheInd)%silam_grid)
-               call set_error("This grid should have been found ealier!", sub_name)
-               return
-                exit
-             else
-                call msg("Updating lower-precision grid")
+                call msg("Updating lower-precision grid in cache")
+                call report(grib_grid_cache(iCacheInd)%silam_grid)
                 call msg("missmatch corner in cache: lat", grib_grid_cache(iCacheInd)%crnrlat, corner_lat )
                 call msg("missmatch corner in cache: lon", grib_grid_cache(iCacheInd)%crnrlon, corner_lon )
                 ifNewGrid = .True. !!  Grid has been updated -- rerun grid parsing again
-                grid = grid_missing
-                return
+                exit !! Add it here
              endif
-          else
-            call msg("mismatch size", (/grGridPtr%nx, nx, grGridPtr%ny, ny/))
-          endif
-        else
-          call msg("mismatch proj '"//trim(grGridPtr%proj4string) //"' vs '"// trim(grGrid%proj4string)//"'")
-      endif
+!          else
+!            call msg("mismatch size", (/grGridPtr%nx, nx, grGridPtr%ny, ny/))
+          endif !!size
+!        else
+!          call msg("mismatch proj '"//trim(grGridPtr%proj4string) //"' vs '"// trim(grGrid%proj4string)//"'")
+      endif !proj
       call msg("")
     enddo
 
@@ -711,6 +703,11 @@ MODULE grib_api_io
 
     !and finally enable grid for use
     grib_grid_cache(iCacheInd)%grgrid = grGrid
+
+    if ( ifNewGrid) then
+        call msg("updated grid in GRIB cache:")
+        call report(grid)
+    endif
   end subroutine parse_grib_grid
 
   !*****************************************************************
@@ -2702,10 +2699,11 @@ endif
       if(nCoef == 2)then
         a = fCoefs(1)
         b = fCoefs(2)
+        level = fu_set_hybrid_level(iLevel, a, b) ! Level number, a, b Not much we can do here
 
       elseif(fu_centre(source_of_data) == centre_moscow .and. fu_model(source_of_data) == model_cosmo) then
           !! Dirty hack for cosmo "hybrid-pressure" levels
-          !! Unlike people are uesd to the surface pressure in cosmo is "standard" one,
+          !! Unlike people are uesd to, the surface pressure in cosmo is "standard" one,
           !! not the actual one, so levels stay fixed in space. 
           !! See "vertical coordinate parameters in the cosmo model grib"
           !! http://www.cosmo-model.org/content/model/modules/coding/grib/gribVerticalCoordinates.pdf
@@ -2726,6 +2724,8 @@ endif
             a = sigma*p0sl
             b = 0
           endif
+          level = fu_set_hybrid_level(iLevel, a, b) ! Level number, a, b
+          !FIXME could have been turned into layers
       elseif(MOD(ncoef, 2) == 0)then ! Even number
         if (source_of_data == smhi_echam_src) then
           if(iLevel*2 > nCoef)then
@@ -2734,13 +2734,21 @@ endif
             a = fCoefs(iLevel)
             b = fCoefs(iLevel+nCoef/2)
           endif
+          level = fu_set_hybrid_level(iLevel, a, b) ! Level number, a, b Not much we can do here
           
         elseif (ABS(fCoefs(nCoef-1)) >= 1.0e-9 .or. (source_of_data == centre_model_ecmwf_src))THEN
+          ! make layers: ecmwf levels are actually layers
           if(iLevel*2 + 2 > nCoef)then
             call set_error('Insufficient  123123 half-level coefs','fu_grib_level')
           else
-            a = 0.5 * (fCoefs(iLevel) + fCoefs(iLevel+1))
-            b = 0.5 * (fCoefs(iLevel+nCoef/2) + fCoefs(iLevel+1+nCoef/2))
+            a  = fCoefs(iLevel) 
+            b  = fCoefs(iLevel+nCoef/2)
+            a2 = fCoefs(iLevel+1)
+            b2 = fCoefs(iLevel+1+nCoef/2)
+            level = fu_set_layer_between_two(layer_btw_2_hybrid, &     ! Level type
+                                     & iLevel,&        ! top
+                                     & iLevel+1, & ! bottom
+                                     & a, b, a2, b2)
           endif
         else
           if(iLevel*2 + 2 > nCoef)then
@@ -2749,6 +2757,7 @@ endif
             a = 0.5 * (fCoefs(2*iLevel-1) + fCoefs(2*iLevel+1))
             b = 0.5 * (fCoefs(2*iLevel)   + fCoefs(2*iLevel+2))
           endif
+          level = fu_set_hybrid_level(iLevel, a, b) ! Layers, probably, here as well
         end if
         if (error) then !Report the trouble
           call msg_warning('Error set','fu_grib_level')
@@ -2771,7 +2780,6 @@ endif
         call msg('Nbr of vertical parameters: ',nCoef)
         return
       end if
-      level = fu_set_hybrid_level(iLevel, a, b) ! Level number, a, b
 
     elseif(chLevType == 'hybridLayer')then                 ! All coefs must be in psec
 

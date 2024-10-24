@@ -71,7 +71,7 @@ MODULE grads_io
   public get_grads_times
   public get_grads_total
   public fu_validity_length
-  public fu_data_time_features
+  public fu_data_time_features_grads
   public get_grads_var_metadata
   public get_grads_IDs
   public report
@@ -90,7 +90,6 @@ MODULE grads_io
   private report_grads_file
   private fu_find_grads_structure_i
   private fu_validity_length_from_grads
-  private fu_data_time_features_grads
   private field_to_buffer
   private init_grads_buffer
   private free_grads_buffer
@@ -99,11 +98,6 @@ MODULE grads_io
   interface fu_validity_length
     module procedure fu_validity_length_from_grads
   end interface
-
-  interface fu_data_time_features
-    module procedure fu_data_time_features_grads
-  end interface
-
 
   interface write_next_field_to_gradsfile
     module procedure wr_nxt_field_to_gf_from_fld
@@ -171,6 +165,7 @@ MODULE grads_io
      integer :: buf_first_fld = int_missing  !! For input: number of the first buggered field in the binary file
      logical :: defined = .false.
   END TYPE grads_buffer
+  type (grads_buffer), private, parameter :: grads_buffer_missing = grads_buffer( )
 
   !---------------------------------------------------------------------
   ! Structure completely defining a single GrADS file  
@@ -178,23 +173,23 @@ MODULE grads_io
   TYPE grads_file
     PRIVATE
     CHARACTER (LEN=fnlen) :: super_ctl_fname='', fname='', fname_initial = '', chTemplate=''
-    type(grads_template) :: grTemplate
+    type(grads_template) :: grTemplate = grads_template_missing
     INTEGER :: unit_bin=-1 !, unit_ctl=-1
-    TYPE(grads_grid) :: ggrid
-    type(silja_grid) :: silamGrid
-    TYPE(grads_levels) :: glevs
-    type(silam_vertical) :: silamVertical
-    TYPE(grads_variable), DIMENSION(max_variables) :: gvars
-    TYPE(grads_time) :: gtime
-    type(grads_buffer) :: gradsbuf  
-    integer, DIMENSION(max_variables) :: first_field_offset_in_tstep  !!  Only for input, offsets in fields
+    TYPE(grads_grid) :: ggrid = grads_grid_missing
+    type(silja_grid) :: silamGrid = grid_missing
+    TYPE(grads_levels) :: glevs = grads_levels_missing
+    type(silam_vertical) :: silamVertical = vertical_missing
+    TYPE(grads_variable), DIMENSION(max_variables) :: gvars = grads_variable_missing
+    TYPE(grads_time) :: gtime = grads_time_missing
+    type(grads_buffer) :: gradsbuf = grads_buffer_missing
+    integer, DIMENSION(max_variables) :: first_field_offset_in_tstep = int_missing  !!  Only for input, offsets in fields
     INTEGER :: n_times=1, n_vars=1, n_levs=1, n_times_bin=1 ! Numbers of aliases
     INTEGER :: time_nbr=1, var_nbr=1, lev_nbr=1, rec=1 ! Expected field indices
     INTEGER :: levType = int_missing       ! Type of 3D levels in the file
     integer :: time_label_position = int_missing
     integer :: data_time_features = dynamic_map
-    real :: missing_value
-    logical :: ifBigEndian, ifYInverse, ifZInverse
+    real :: missing_value = real_missing
+    logical :: ifBigEndian = .FALSE., ifYInverse = .FALSE., ifZInverse = .FALSE.
     logical :: ifMPIIO=.false., ifBuffered=.false.
     TYPE(silja_logical) :: defined = silja_false
  END TYPE grads_file
@@ -211,8 +206,9 @@ MODULE grads_io
   INTEGER, public, PARAMETER :: max_nbr_of_grads_files = 92 ! Start from unit=20, should not exceed 99
   INTEGER, private :: nbr_grads_files = 92 ! Start from unit=20, should not exceed 99^M 
 
-  TYPE(grads_file_ptr), DIMENSION(:), PRIVATE, POINTER, SAVE :: gfile   
-
+  TYPE(grads_file_ptr), DIMENSION(:), PRIVATE, allocatable, SAVE :: gfile   
+  TYPE(grads_file), parameter  ::  grads_file_missing = grads_file( ) !! Defailt initializers used here
+  
 
 CONTAINS
 
@@ -276,7 +272,7 @@ CONTAINS
     ! Local variables
     integer :: i
 
-    do i=1, nbr_grads_files-1
+    do i=1, nbr_grads_files
       if(gfile(i)%ptr%defined == silja_false)then
         if(gfile(i)%ptr%unit_bin == -1)then
           index = i
@@ -304,9 +300,9 @@ CONTAINS
     integer :: i
 
     fu_find_grads_structure_i = int_missing
-    if(.not. associated(gfile))return
+    if(.not. allocated(gfile))return
 !call msg('Looking for the file:' + chCtlFNm)
-    do i=1, nbr_grads_files-1
+    do i=1, nbr_grads_files
       if(gfile(i)%ptr%defined == silja_true)then
 !call msg('Occupied GrADS structure:' + gfile(i)%ptr%fname, i)
         if(trim(gfile(i)%ptr%fname) == trim(chCtlFNm))then
@@ -489,8 +485,7 @@ CONTAINS
     endif
 
     if(len_trim(fu_content(nlPtr, 'validity_length')) > 0)then
-      gf%gtime%validity_length = &
-                                     & fu_set_named_interval(fu_content(nlPtr, 'validity_length'))
+      gf%gtime%validity_length = fu_set_named_interval(fu_content(nlPtr, 'validity_length'))
     else
       if(gf%data_time_features == static_climatology)then
         gf%gtime%validity_length = very_long_interval
@@ -953,7 +948,7 @@ CONTAINS
 
 
 
-
+    call set_error('Not implemented','update_grads_buffer_i')
 
 
   end subroutine update_grads_buffer_i
@@ -3186,12 +3181,8 @@ CONTAINS
     !
     ! Some preparations first
     !
-    if(.not. associated(gfile))then
+    if(.not. allocated(gfile))then
       call set_error('gf not associated','get_grads_total')
-      return
-    endif
-    if(.not. associated(gfile(ugf)%ptr))then
-      call set_error('gf ptr not associated','get_grads_total')
       return
     endif
     gf => gfile(ugf)%ptr
@@ -4296,7 +4287,7 @@ CONTAINS
 
     INTEGER, INTENT(in) :: gIndex
 
-    gfile(gIndex)%ptr = gfile(nbr_grads_files)%ptr ! The last structure is always undefined
+    gfile(gIndex)%ptr = grads_file_missing
 
   END SUBROUTINE release_index
 

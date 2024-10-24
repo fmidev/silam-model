@@ -49,6 +49,9 @@ BOX_MAIN = box_model
 # The main program for grads-grib converter
 GRADS2GRIB_MAIN = grads_2_grib2
 
+# The main program for ascii-nc converter
+ASCII2NC_MAIN = ascii_2_nc
+
 # The main program for is4fires
 IS4FIRES_MAIN = frp_main_v2_0
 
@@ -81,6 +84,11 @@ is4fires : expand config_is4fires last.revision
 	mkdir -p $(OBJDIR) $(BINDIR)	
 	$(MAKE) -f$(BUILDDIR)/makefile.is4fires
 
+ascii2nc: expand config_ascii2nc last.revision
+	mkdir -p $(OBJDIR) $(BINDIR)	
+	$(MAKE) -f$(BUILDDIR)/makefile.ascii2nc
+
+
 
 clean:
 	rm -f $(OBJDIR)*.o $(OBJDIR)*.mod $(BINDIR)$(PROGRAM)
@@ -106,6 +114,12 @@ config_grads2grib:
 config_is4fires:
 	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
 	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(IS4FIRES_MAIN) $(ARCH) \
+	rm $(BUILDDIR)/sourcelist
+	@echo Config OK.
+
+config_ascii2nc:
+	ls -1 $(SRCDIR)*.f90 > $(BUILDDIR)/sourcelist
+	perl $(BUILDDIR)/config.pl $(BUILDDIR)/sourcelist $(ASCII2NC_MAIN) $(ARCH) \
 	rm $(BUILDDIR)/sourcelist
 	@echo Config OK.
 

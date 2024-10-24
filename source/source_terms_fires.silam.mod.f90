@@ -398,13 +398,6 @@ CONTAINS
         return
       endif
      
-      if (fs%nFireLists /= 1)  then
-        call set_error("Only one firelist supported so far", sub_name)
-        !
-        ! Speed-up with keeping fire index assumes only one firelist is used
-        !
-        return
-      endif
       allocate(fs%FireList(fs%nFireLists), stat = iTmp)
       if(iTmp /= 0)then
         call set_error('Failed FRP lists allocation.Source' + fs%src_nm, sub_name)
@@ -568,6 +561,7 @@ subroutine get_firelist_from_ncv2(ncfilename, FMD,  fl, tstart, tend)
 
       deallocate (tvarTmp)
 
+      call  msg("Read "//trim(fu_str(nFires))//" fires from "//trim(ncfilename))
 
 end subroutine get_firelist_from_ncv2
 
@@ -1984,6 +1978,9 @@ end subroutine get_firelist_from_ncv2
     do iSet = 1, fs%nFireLists
       pFList => fs%FireList(iSet)
       if ( (now + timestep > pFList%start_time) .and. ( now < pFList%end_time) ) then
+#ifdef DEBUG_FIRE
+        call msg("Firelist no, total", iSet, fs%nFireLists)
+#endif
         call inject_emission_euler_FireList(pFList, fs%pFMD, fs%id_Nbr)
       endif
    enddo
@@ -2229,7 +2226,7 @@ end subroutine get_firelist_from_ncv2
       real :: fX, fY
       real, pointer :: rPtr
       
-      integer, save :: iFireStart = 1
+      integer :: iFireStart, iFireEnd, iTmp
 
       character(len=*),  parameter :: sub_name = 'inject_emission_euler_FireList'
 
@@ -2238,21 +2235,30 @@ end subroutine get_firelist_from_ncv2
       hour_UTC = fu_hour(timeTmp) + fu_min(timeTmp) / 60.
 
       
-      if (fl%FireStart(iFireStart) > now) iFireStart = 1 !! Safeguard
+      iFireStart = 1
+      iFireEnd = fl%nFires
+      iTmp = iFireEnd 
 
-      call msg("Ingecting fires starting from", iFireStart, fl%nFires )
+      timeTmp = now - fl%max_duration !! Earliest start to consider
+      do while (.TRUE.)
+           iTmp = (iFireStart + iFireEnd)  / 2
+           if ( iTmp == iFireStart) then
+             exit
+           elseif ( fl%FireStart(iTmp) < timeTmp) then
+             iFireStart = iTmp
+           else
+             iFireEnd = iTmp
+           endif
+      enddo
+
 
       !
       ! Now, scan the fires one-by-one
       !
-      do iFire = iFireStart, fl%nFires
+      stepEnd = now + timestep
 
-        if ( fl%FireStart(iFire) + fl%max_duration < now) then
-             iFireStart = iFire
-             cycle
-        endif
+      do iFire = iFireStart, fl%nFires
         
-        stepEnd = now + timestep
         if (fl%FireStart(iFire)  > stepEnd) exit  !! No more fires 
 
         timeTmp = fl%FireStart(iFire) + fl%FireDuration(iFire) !!Fire end
@@ -2392,6 +2398,9 @@ end subroutine get_firelist_from_ncv2
           end do  ! iLev dispersion
         end do  ! plume stem, hat
       end do  ! iFire
+#ifdef DEBUG_FIRE
+      call msg("Injected firelist fires  from to", iFireStart, iFire - 1  )
+#endif
     end subroutine inject_emission_euler_FireList
 
   end subroutine inject_emission_euler_fire_src
@@ -2850,8 +2859,14 @@ end subroutine get_firelist_from_ncv2
     ! With some modifications, below numbers follow Virkkula - but with adaptations as
     ! described in Notebook 12, p.13-15.
     !
-    real, dimension(3,2), parameter :: nbr_fract_3_modes = reshape ((/0.0299, 0.97,   0.0001, & ! flames
-                                                                    & 0.1599, 0.84,   0.0001/), &  ! smolder
+!    real, dimension(3,2), parameter :: nbr_fract_3_modes = reshape ((/0.0299, 0.97,   0.0001, & ! flames
+!                                                                    & 0.1599, 0.84,   0.0001/), &  ! smolder
+!                                                                  & (/3, 2/) )
+    !   Virkkula et al:                                  no fire      250   1700   200
+    !                                                    flaming      3000  9100   3000
+    real, dimension(3,2), parameter :: nbr_fract_3_modes = reshape ((/0.21, 0.57,   0.22, & ! flames
+    !                                                   smouldering  1500   7300   600
+                                                                    & 0.17, 0.77,   0.06/), &  ! smolder
                                                                   & (/3, 2/) )
     real, dimension(3), parameter :: nbr_mean_diam_3_modes=(/3.2e-8, 8.1e-8, 1.45e-7/)
     real, dimension(3), parameter :: nbr_stdev_3_modes =    (/1.32,   1.58,    2.6/)

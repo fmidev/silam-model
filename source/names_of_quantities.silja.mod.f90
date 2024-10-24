@@ -119,11 +119,11 @@ MODULE names_of_quantities
   INTEGER, PARAMETER, PUBLIC :: absolute_vorticity_flag = 240031
   INTEGER, PARAMETER, PUBLIC :: abs_vorticity_advection_flag = 240032
   INTEGER, PARAMETER, PUBLIC :: ipv_flag = 240033
-  INTEGER, PARAMETER, PUBLIC :: tfp_flag = 240034
+!  INTEGER, PARAMETER, PUBLIC :: tfp_flag = 240034
   INTEGER, PARAMETER, PUBLIC :: bulk_richardson_nbr_flag = 240035
   INTEGER, PARAMETER, PUBLIC :: flux_richardson_nbr_flag = 240036
   INTEGER, PARAMETER, PUBLIC :: gradient_richardson_nbr_flag = 240037
-  INTEGER, PARAMETER, PUBLIC :: bulk_tfp_flag = 240038
+!!  INTEGER, PARAMETER, PUBLIC :: bulk_tfp_flag = 240038
   INTEGER, PARAMETER, PUBLIC :: turb_kinetic_energy_NWP_flag = 240039 ! [m2/s2]
   INTEGER, PARAMETER, PUBLIC :: scavenging_coefficient_flag = 240040 ! [s-1]
 
@@ -137,10 +137,10 @@ MODULE names_of_quantities
   INTEGER, PARAMETER, PUBLIC :: geopotential_flag = 240047      ! m2/s2
   INTEGER, PARAMETER, PUBLIC :: height_flag = 240048 !m
 
-  integer, parameter, public :: dtheta_dz_flag = 240049    ! K/m
-  integer, parameter, public :: dpressure_dz_flag = 240050 ! Pa /m 
+!!  integer, parameter, public :: dtheta_dz_flag = 240049    ! K/m
+!!!  integer, parameter, public :: dpressure_dz_flag = 240050 ! Pa /m  
 
-  INTEGER, PARAMETER, PUBLIC :: layer_thickness_flag = 240051 !m
+!!  INTEGER, PARAMETER, PUBLIC :: layer_thickness_flag = 240051 !m
   
   integer, parameter, public :: eta_dot_flag = 240052 ! levels/s
   INTEGER, PARAMETER, PUBLIC :: cwcabove_3d_flag = 240053 ! kg/m2 !!!Cloud water 
@@ -157,7 +157,7 @@ MODULE names_of_quantities
   INTEGER, PARAMETER, PUBLIC :: lcwcolumn_flag = 240059 ! kg/m2
 
   integer, parameter, public :: first_multi_level_q = 240000
-  integer, parameter, public :: last_multi_level_q = 240057
+  integer, parameter, public :: last_multi_level_q = 240059
 
 
   ! ***************************************************************
@@ -792,9 +792,6 @@ CONTAINS
       CASE (cloud_cond_water_flag)
       string = 'cloud condensed water [kg/kg]'
 
-      CASE (layer_thickness_flag)
-      string = 'layer thickness from bottom [m]'
-
       CASE(height_flag)
       string = 'level height from ground [m]'
 
@@ -927,9 +924,6 @@ CONTAINS
       CASE (ipv_flag)
       string = 'isentropic potential vorticity [K/Pa s]'
 
-      CASE (tfp_flag)
-      string = 'thermal front parameter [K/m2]'
-
       CASE (bulk_richardson_nbr_flag)
       string = 'bulk Richardson number'
 
@@ -965,9 +959,6 @@ CONTAINS
 
       CASE (areas_of_risk_flag)
       string = 'area of risk'
-
-      CASE (bulk_tfp_flag)
-      string = 'bulk thermal front parameter [K/m2]'
 
       CASE (dew_point_temp_2m_flag)
       string = 'dew point temperature 2m [K]'
@@ -1133,12 +1124,6 @@ CONTAINS
 
       case (r_s_flag)
       string = 'Rs resistance to dry deposition [s/m]'
-
-      case (dtheta_dz_flag)
-      string = 'd(potential_tempr) over dz [K/m]'
-
-      case (dpressure_dz_flag)
-      string = 'd(pressure) over dz [Pa/m]'
 
       case(ISBA_temperature)
       string = 'ISBA temperature'
@@ -1640,9 +1625,6 @@ CONTAINS
       CASE (cloud_cond_water_flag)
       string = 'cloud_cond_water'
 
-      CASE (layer_thickness_flag)
-      string = 'lyr_thick'
-
       CASE(height_flag)
       string = 'lev_height'
 
@@ -1772,9 +1754,6 @@ CONTAINS
       CASE (ipv_flag)
       string = 'isentr_pot_vrt'
 
-      CASE (tfp_flag)
-      string = 'therm_frnt_par'
-
       CASE (bulk_richardson_nbr_flag)
       string = 'bulk_Ri_nbr'
 
@@ -1816,9 +1795,6 @@ CONTAINS
 
       CASE (areas_of_risk_flag)
       string = 'area_of_risk'
-
-      CASE (bulk_tfp_flag)
-      string = 'bulk_tf_par'
 
       CASE (dew_point_temp_2m_flag)
       string = 'dew_p_temp2m'
@@ -1888,12 +1864,6 @@ CONTAINS
  
       CASE (SILAM_latent_heat_flux_flag)
       string = 'SILAM_lat_hfl'
- 
-      CASE (dtheta_dz_flag)
-      string = 'dtheta_dz'
- 
-      CASE (dpressure_dz_flag)
-      string = 'dpressure_dz'
  
       CASE (particle_counter_flag)
       string = 'part_count'
@@ -2426,7 +2396,7 @@ CONTAINS
       CASE (cloud_ice_flag, cloud_water_flag, cloud_cond_water_flag)
         string = 'kg/kg'
 
-      CASE (layer_thickness_flag, height_flag, cell_size_x_flag, cell_size_y_flag)
+      CASE (height_flag, cell_size_x_flag, cell_size_y_flag)
         string = 'm'
 
       CASE (evaporation_flag)
@@ -2470,9 +2440,6 @@ CONTAINS
       CASE (ipv_flag)
         string = 'K/Pa*s'
 
-      CASE (tfp_flag)
-        string = 'K/m2 '
-
       CASE (ground_pressure_flag, msl_pressure_flag)
         string = 'Pa'
 
@@ -2487,9 +2454,6 @@ CONTAINS
 
       CASE (leaf_area_index_flag)
         string = 'm2/m2 (cell)'
-
-      CASE (bulk_tfp_flag)
-        string = 'K/m2 '
 
       CASE (sub_grid_scale_snowfall_flag, &
           & grid_scale_snowfall_flag, &
@@ -2517,12 +2481,6 @@ CONTAINS
  
       CASE (humidity_scale_flag)
         string = 'kg/kg'
- 
-      CASE (dtheta_dz_flag)
-        string = 'K/m'
- 
-      CASE (dpressure_dz_flag)
-        string = 'Pa/m'
  
       CASE (particle_counter_flag)
         string = 'number'
@@ -2984,7 +2942,6 @@ CONTAINS
           & cloud_cond_water_flag,&
           & cloud_ice_flag,&
           & specific_humidity_flag,&
-          & layer_thickness_flag,&
           & height_flag,&
           & eq_pot_temperature_flag,&
           & potential_temperature_flag,&
@@ -2992,8 +2949,6 @@ CONTAINS
           & absolute_vorticity_flag,&
           & abs_vorticity_advection_flag,&
           & ipv_flag,&
-          & tfp_flag,&
-          & bulk_tfp_flag,&
           & pressure_flag,&
           & bulk_richardson_nbr_flag,&
           & flux_richardson_nbr_flag,&
@@ -3023,8 +2978,6 @@ CONTAINS
           & dxdt_flag, &
           & dydt_flag, &
           & dzdt_flag, &
-          & dtheta_dz_flag, &
-          & dpressure_dz_flag, &
           !
           !  Dispersion quantities
           !
@@ -3354,9 +3307,6 @@ CONTAINS
       CASE (integr_cloud_water_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
 
-      CASE (layer_thickness_flag)
-      fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = 2e5
-
       CASE(height_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = 2e5
 
@@ -3486,9 +3436,6 @@ CONTAINS
       CASE (ipv_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
-      CASE (tfp_flag)
-      fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
-
       CASE (bulk_richardson_nbr_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
@@ -3514,9 +3461,6 @@ CONTAINS
       fMinAlert = -1; fMinForce = -1; fMaxForce = 1; fMaxAlert = 1
 
       CASE (areas_of_risk_flag)
-      fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
-
-      CASE (bulk_tfp_flag)
       fMinAlert = real_missing; fMinForce = real_missing; fMaxForce = real_missing; fMaxAlert = real_missing
 
       CASE (dew_point_temp_2m_flag)
@@ -3587,12 +3531,6 @@ CONTAINS
  
       CASE (SILAM_latent_heat_flux_flag)
       fMinAlert = -1e5; fMinForce = -5e3; fMaxForce = 5e3; fMaxAlert = 1e5
- 
-      CASE (dtheta_dz_flag)
-      fMinAlert = -100; fMinForce = -10; fMaxForce = 10; fMaxAlert = 100
- 
-      CASE (dpressure_dz_flag)
-      fMinAlert = -1000; fMinForce = -100; fMaxForce = 100; fMaxAlert = 1000
  
       CASE (particle_counter_flag)
       fMinAlert = -10; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
@@ -4556,9 +4494,6 @@ CONTAINS
     elseif(trim(chQuantity) == "wind_vertical_shear")then
       iQ = wind_vertical_shear_flag 
 
-    elseif(trim(chQuantity) == "layer_thickness")then
-      iQ = layer_thickness_flag 
-
     elseif(trim(chQuantity) == "cloud_cover")then
       iQ = cloud_cover_flag 
 
@@ -4598,9 +4533,6 @@ CONTAINS
     elseif(trim(chQuantity) == "ipv")then
       iQ = ipv_flag 
 
-    elseif(trim(chQuantity) == "tfp")then
-      iQ = tfp_flag 
-
     elseif(trim(chQuantity) == "bulk_richardson_nbr")then
       iQ = bulk_richardson_nbr_flag 
 
@@ -4612,9 +4544,6 @@ CONTAINS
 
     elseif(trim(chQuantity) == "vertical_velocity")then
       iQ = vertical_velocity_flag
-
-    elseif(trim(chQuantity) == "bulk_tfp")then
-      iQ = bulk_tfp_flag 
 
     elseif(trim(chQuantity) == "dxdt")then
       iQ = dxdt_flag 
@@ -4704,6 +4633,9 @@ CONTAINS
       iQ = alluvial_sedim_index_flag
 
     elseif(trim(chQuantity) == "fraction_of_ice")then
+      iQ = fraction_of_ice_flag 
+
+    elseif(trim(chQuantity) == "ice_fract")then !!! FIXME DUP to make test field working
       iQ = fraction_of_ice_flag 
 
     elseif(trim(chQuantity) == "fraction_of_land")then
@@ -5124,12 +5056,6 @@ CONTAINS
 
     elseif(trim(chQuantity) == "g_stomatal")then
       iQ = stomatal_conductance_flag 
-
-    elseif(trim(chQuantity) == "dtheta_dz")then
-      iQ = dtheta_dz_flag 
-
-    elseif(trim(chQuantity) == "dpressure_dz")then
-      iQ = dpressure_dz_flag
 
     elseif(trim(chQuantity) == "heatsum")then
       iQ = heatsum_flag

@@ -1524,7 +1524,7 @@ CONTAINS
             fields_found = fields_found + 1
             if(fu_field_id_in_list(id, shopping_list, &
                                  & indexVar, &
-                                 & fu_data_time_features(input_unit), &
+                                 & fu_data_time_features_grads(input_unit), &
                                  & time_to_force))then        ! out: for monthly fields we can force valid time
               if(ifVerbose)then
                 call msg('Reading grads field, time index', it)
@@ -1550,7 +1550,7 @@ CONTAINS
                                       & ifForceMetSrcAcceptanceLocal, TweakTime, ifAdjustLocal, &
                                       & fu_if_randomise(wdr), &
                                       & shpLstPtr, indexVar, time_to_force)
-              if(ifVerbose)call msg('Accepting grads field total: ', work_array(1:10))
+              if(ifVerbose)call msg('Accepting grads field (10 values): ', work_array(1:10))
 
               if (.not. error) fields_accepted = fields_accepted + 1
               call free_work_array(work_array)  ! can be a huge array, so must be freed here
@@ -1563,9 +1563,8 @@ CONTAINS
     !
     !======================  TEST FIELD  ================================
     !
-    ! ATTENTION. Do NOT use idStore here the same way as elsewhere
-    !            The way it is below works.
-    !
+    !!! FIXME Undone 599943 here. That fix did not work for
+    !! multitime test field
      case(test_field_value_flag)        
        !
        ! For the test field, the grid must be selected to be something. 
@@ -1573,25 +1572,15 @@ CONTAINS
        work_array => fu_work_array()
        timeTmp = shopStartTime
        call make_test_field(chFName, &  ! chFName contain the field name and value
-                          & id, & !Store, &
+                          & idStore, &
                           & work_array, &
                           & shopStartTime, &
                           & zero_interval, & !
                           & storage_grid)
        if(error)return
        eof = .true. ! Exit at the next cycle
-!       id = idStore
-      if(error)return
-!       call msg('reporting coarse_geo_global_grid')
-!       gridTmp = coarse_geo_global_grid
-!       call report(gridTmp)
-!       call report(coarse_geo_global_grid)
-!       call msg('reporting geo_global_grid')
-!       gridTmp = geo_global_grid
-!       call report(gridTmp)
-!       call report(geo_global_grid)
-!       call msg('End reporting coarse_geo_global_grid')
-!       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
+       id = idStore
+       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
                                   !always coarse_geo_global_grid (see put_test_field_to_content)
                                   ! Thus we have separate id (to match the shoplist)
                                   ! and idStore (to store)
@@ -1612,14 +1601,14 @@ CONTAINS
        do iT = 1, times_found
          timeTmp = shopStartTime + intervalTmp*(iT-1)
          call set_valid_time(id,      timeTmp )
-!         call set_valid_time(idStore, timeTmp )
+         call set_valid_time(idStore, timeTmp )
          call msg('The following test field has been created (store input)')
-         call report(id)  !Store)
+         call report(idStore)
          call msg('')
          if(fu_field_id_in_list(id, shopping_list,  indexVar))then  
             call  put_field_to_sm(miniMarketPtr, &     ! Mini market to put in
                                 & nStacks, &
-                                & id, & !Store, &
+                                & idStore, &
                                 & work_array, &
                                 & iUpdateType, &       ! Overwrite or not existing fields
                                 & stack_type, &        ! stationary or time-dependent
@@ -5505,7 +5494,6 @@ call msg('')
                                  & convective_accum_rain_flag,&
                                  & large_scale_rain_int_flag,&
                                  & convective_rain_int_flag,&
-                                 & layer_thickness_flag, &
                                  & relative_humidity_flag,&
                                  & specific_humidity_flag,&
                                  & ground_pressure_flag,&

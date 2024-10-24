@@ -258,6 +258,7 @@ use tangent_linear
 
   if (smpi_is_mpi_version()) then
     if (had_error) then
+      call sleep(5) !! Let others a chance to finsh
       call smpi_abort(exit_bad)
     else
       call smpi_finalize()

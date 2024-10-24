@@ -1,0 +1,9 @@
+In order to compile multi-language, use /iface:cref, either in additional
+options for the Fortran command line tab, or
+Fortran -> External procedures -> Calling Convention -> C, REFERENCE
+
+The basic idea is that all external libraries must be in C convention,
+with lower case and no underscores. Then all goes nice and fluffy. This
+applies also to LAPACK et al, which are FORTRAN codes. They also should be
+set into C convention. A mixture is a way to trouble, although can be tried
+using BIND(C,name="....") if one is brave enough.

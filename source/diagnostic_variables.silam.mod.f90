@@ -305,10 +305,10 @@ MODULE diagnostic_variables
                return
              endif
           endif !Poisson-stuff only at rank==0
-          if (std_pr_top > 2000) then
-            call set_error("Attempt to usehardtop diagnostics for shallow (Top>2 hPa) domains","init_wind_diag")
-            return 
-          endif
+          !if (std_pr_top > 2000) then
+          !  call set_error("Attempt to usehardtop diagnostics for shallow (Top>2 hPa) domains","init_wind_diag")
+          !  return 
+          !endif
         else
            if (std_pr_top < 2000 .and. rules%wind_method /= topdown) then
              call msg("Std pr at domain top", std_pr_top)
@@ -1073,9 +1073,13 @@ MODULE diagnostic_variables
     type(silja_field_id) :: idRequest
     integer :: iVarLst, iMetSrc, iT, iFldStack, shopQ, iVar, nVars, iQ
     integer, dimension(max_quantities) :: iArr, lst, lst_st
-    logical :: iffound,  ifvalid, ifHorizInterp, ifVertInterp      ! if interpolation needed
+    logical :: ifHorizInterp, ifVertInterp      ! if interpolation needed
     type(THorizInterpStruct), pointer :: pHorizInterpStruct ! meteo 2 dispersion horizontal
     type(TVertInterpStruct), pointer :: pVertInterpStruct   ! meteo 2 dispersion vertical
+    integer, dimension(5), parameter :: fluxes_diag_q = (/ &
+                                                        & air_density_flag, disp_cell_airmass_flag, &
+                                                        & disp_flux_celltop_flag, disp_flux_celleast_flag, &
+                                                        & disp_flux_cellnorth_flag/)
     !
     ! Static market is set by physiography
     ! no realtime fields here
@@ -1146,9 +1150,12 @@ MODULE diagnostic_variables
     ! dispersion cell flux. Smart routine, has all interpolations inside, etc
     ! Diagnoses several quantities but presence of just one is enough for calling
     !
-    if(fu_quantity_in_list(disp_flux_celleast_flag, dqListDyn))then !, disp_flux_cellnorth_flag, disp_flux_celltop_flag,  &
-                                                                    !       & disp_cell_airmass_flag)
-      call check_obstimes(disp_flux_celleast_flag)
+    do iTmp = 1, size(fluxes_diag_q)
+      if(fu_quantity_in_list(fluxes_diag_q(iTmp), dqListDyn)) exit
+    end do
+
+    if(iTmp <= size(fluxes_diag_q))then !! was found
+      call check_obstimes(fluxes_diag_q(iTmp))
       call diag_cell_fluxes(met_src_missing, met_buf, obstimes, &
                           & dispMarketPtr, dispersion_grid, dispersion_vertical, diagnostic_rules)
       if(error)return
@@ -1479,30 +1486,31 @@ MODULE diagnostic_variables
     type(silja_grid), intent(in) :: gridTarget
 
     ! Local variables
-    integer :: ind_time, ilev, i1d, ind_z, ind_ps, nlevs, ind_pres, nx, ny, iCellTo, iCoef, iLevMet, iTmp, ixTo, iyTo, nx_met
+    integer :: ind_time, ilev, ind_t, ind_ps, nlevs, nx, ny, iCellTo, iCoef, iLevMet, iTmp, ixTo, iyTo, nx_met
+    integer :: iLevMetAbove 
     type(silja_time) :: now 
     type(silja_field_id) :: idtmp
-    real, dimension(:), pointer ::  surf_pres, z_met, ps_met
-    type (field_3d_data_ptr), pointer :: z_met3d
-    real, dimension(max_levels) :: a_half, b_half
+    real, dimension(:), pointer ::  surf_pres, t_met, ps_met
+    type (field_3d_data_ptr), pointer :: t_met3d
+    real, dimension(max_levels) :: a_half, b_half  !!! Our hybrid coefficients
+    real, dimension(nz_meteo+1) :: a_met, b_met  !! Half-levels
+    real, dimension(nz_meteo) :: tMetColumn
     type (TrealPtr), dimension (1:max_levels) ::  dz_3d_ptr
-    real :: pTop, prev_p_c_met, prev_z_c_met, zbot, fTmp, psTmp, ztmp, p_c_met
+    real ::  psTmp, pMetAbove, pMetBelow, tEff, p_c_disp, p_top_disp, p_bot_disp, fTmp
+    CHARACTER(len=*), PARAMETER :: sub_name='df_make_cell_size_z_dyn'
+
 
     ind_ps = fu_index(met_buf, surface_pressure_flag)
-    ind_z  = fu_index(met_buf, height_flag)
-    if (any((/ind_ps,ind_z/) < 1 )) then
-       call msg ("ind_ps,ind_z", (/ind_ps,ind_z/))
-      call set_error('Surface pressure or height not found', 'df_make_cell_size_z_dyn')
+    ind_t  = fu_index(met_buf, temperature_flag)
+    if (any((/ind_ps,ind_t/) < 1 )) then
+       call msg ("ind_ps,ind_t", (/ind_ps,ind_t/))
+      call set_error('Surface pressure or temperature not found', sub_name)
       return
     end if
 
     nlevs = fu_NbrOfLevels(vertTarget)
     call grid_dimensions(gridTarget, nx, ny)
-!    call msg("Grid size requested for dz", nx*ny)
-!    call report(gridTarget)
     call grid_dimensions( fu_grid(met_buf%p2d(ind_ps)%past%idPtr),nx_met,iTmp)
-
-
 
     if (fu_leveltype(vertTarget) == layer_btw_2_height) then
       do ind_time = 1, size(obstimes)
@@ -1526,15 +1534,16 @@ MODULE diagnostic_variables
     !For hybrid levels -- more complicated
 
     call hybrid_coefs(vertTarget, a_half=a_half, b_half=b_half)
+    call hybrid_coefs(meteo_vertical, a_half=a_met, b_half=b_met)
 
     !$OMP PARALLEL default(none),  shared(obstimes, nlevs, idTmp, &
     !$OMP    &    met_src,gridTarget, vertTarget, miniMarket, dz_3d_ptr, surf_pres, &
-    !$OMP    &    ps_met, z_met3d, ny,nx, nx_met, met_buf, ind_ps, ind_z, error, &
+    !$OMP    &    ps_met, t_met3d, ny,nx, nx_met, met_buf, ind_ps, ind_t, error, &
     !$OMP    &  if_horiz_interp, p_horiz_interp_struct, nz_meteo, a_half_disp, &
     !$OMP    &  b_half_disp, a_met, b_met ) &
-    !$OMP & private(ind_time, now,  iyTo, ixTo, iCellTo, psTmp, iCoef, iLev,&
-    !$OMP & zbot, prev_z_c_met,prev_p_c_met,iLevMet,z_met,zTmp, itmp, p_c_met, &
-    !$OMP & ptop, ftmp)
+    !$OMP & private(ind_time, now,  iyTo, ixTo, iCellTo, iCoef, iLev,&
+    !$OMP & iLevMet, iLevMetAbove, itmp,  tMetColumn, fTmp, t_met, &
+    !$OMP &  psTmp, pMetAbove, pMetBelow, tEff, p_c_disp, p_top_disp, p_bot_disp )
 
     do ind_time = 1, size(obstimes)
       now = obstimes(ind_time)
@@ -1553,10 +1562,10 @@ MODULE diagnostic_variables
       ! For hybrid we need some meteo
       if (now == met_buf%time_past) then
         ps_met  => met_buf%p2d(ind_ps)%past%ptr
-        z_met3d => met_buf%p4d(ind_z)%past  
+        t_met3d => met_buf%p4d(ind_t)%past  
       else if (now == met_buf%time_future) then
         ps_met  => met_buf%p2d(ind_ps)%future%ptr
-        z_met3d => met_buf%p4d(ind_z)%future  
+        t_met3d => met_buf%p4d(ind_t)%future  
       else
         call set_error('Strange time:' // fu_str(obstimes(ind_time)), &
                      & 'df_make_cell_size_z_dyn')
@@ -1579,66 +1588,67 @@ MODULE diagnostic_variables
           if (error) cycle
           iCellTo = ixTo + nx*(iyTo-1)
           
-          ! Surf pressure for grid centers
+          ! Surf pressure and meteo-level center-temperature for grid centers
           if (if_horiz_interp) then
                   psTmp = 0.
                   do iCoef = 1, p_horiz_interp_struct%nCoefs
                     iTmp =  p_horiz_interp_struct%indX(iCoef,ixTo,iYto) + (p_horiz_interp_struct%indY(iCoef,ixTo,iYto)-1)*nx_met
                     psTmp = psTmp + p_horiz_interp_struct%weight(iCoef,ixTo,iYto) * ps_met(iTmp)
                   enddo
+                  do iLevMet = 1, nz_meteo
+                    t_met => t_met3d%p2d(iLevMet)%ptr
+                    tMetColumn(iLevMet) = 0.
+                    do iCoef = 1, p_horiz_interp_struct%nCoefs
+                        iTmp =  p_horiz_interp_struct%indX(iCoef,ixTo,iYto) + (p_horiz_interp_struct%indY(iCoef,ixTo,iYto)-1)*nx_met
+                         tMetColumn(iLevMet) =  tMetColumn(iLevMet) + p_horiz_interp_struct%weight(iCoef,ixTo,iYto) *  t_met(iTmp)
+                    enddo
+                  enddo
           else 
                   psTmp = ps_met(iCellTo)
+                  do iLevMet = 1, nz_meteo
+                      tMetColumn(iLevMet) =  t_met3d%p2d(iLevMet)%ptr(iCellTo)
+                  enddo
           endif
           surf_pres(iCellTo) = psTmp !Save as surface pressure
 
-          ! Cellsize
-          iLev = 1
-          zbot=0
-          zTmp = 0. ! pretend-to be prevois meteo height
-          p_c_met = psTmp ! and corresponding pressure
+          !! Calculate "Effective thickness" thickness as if centre-mass density was uniform over the layer 
+          !! of given pressure drop
+          !! Not necesserily consistent with z field
 
-          do iLevMet = 1, nz_meteo + 1
-            if (iLevMet <= nz_meteo) then !Can interpolate
-               prev_z_c_met = zTmp
-               prev_p_c_met = p_c_met
-               p_c_met = a_met(iLevMet)+b_met(iLevMet)*psTmp
-               if (if_horiz_interp) then
-                    z_met => z_met3d%p2d(iLevMet)%ptr
-                    zTmp = 0.
-                    do iCoef = 1, p_horiz_interp_struct%nCoefs
-                        iTmp =  p_horiz_interp_struct%indX(iCoef,ixTo,iYto) + (p_horiz_interp_struct%indY(iCoef,ixTo,iYto)-1)*nx_met
-                        zTmp = zTmp + p_horiz_interp_struct%weight(iCoef,ixTo,iYto) *  z_met(iTmp)
-                    enddo
-               else
-                   zTmp =  z_met3d%p2d(iLevMet)%ptr(iCellTo)
-               endif
-            else!! If we are at the top of the atmosphere
-               if (prev_p_c_met  > 2.5 * p_c_met) then !! TOA: 
-                 fTmp = zTmp !Save it
-                 zTmp = 2*zTmp - prev_z_c_met ! Add full previous layer (approximately)
-                 prev_z_c_met = fTmp
-                 prev_p_c_met = p_c_met
-                 p_c_met = 0. ! Top of the atmosphere
-               else
-                 call set_error("Meteo vertical too shallow: upper met level below the dispersion top!",&
-                 & "df_make_cell_size_z_dyn")
-                 exit
-               endif   
-            endif
-            do iLev = iLev, nlevs
-                pTop = a_half_disp(iLev+1)+b_half_disp(iLev+1)*psTmp !Disp. layer top perssure
-                if (pTop <= p_c_met) exit ! Can't interpolate to this level 
-                        fTmp = (pTop-p_c_met)/(prev_p_c_met - p_c_met) !Weight-prev
-                        fTmp = zTmp*(1.-fTmp)+ prev_z_c_met*fTmp !zTop
-                        dz_3d_ptr(iLev)%ptr(iCellTo) = fTmp - zbot
-                        zbot = fTmp !Previous
-            enddo! iLevDisp
-            if (iLev ==  nlevs + 1) exit ! All disp. levels done
-           enddo!iLevMet
-          if (iLevMet > nz_meteo + 1) then
-                 call set_error("Dispersion top beyond top of the atmosphere!",&
-                 & "df_make_cell_size_z_dyn")
-          endif   
+          p_bot_disp = a_half_disp(1)+b_half_disp(1)*psTmp
+          iLevMetAbove  = 1
+             pMetAbove  = 0.5 * (  a_met(1) +  a_met(2)  + (b_met(1) + b_met(2))*psTmp ) !! Meteo-layer center
+
+
+          do iLev = 1, nlevs !! Dispersion levels
+              p_top_disp =  a_half_disp(iLev+1)+b_half_disp(iLev+1)*psTmp
+
+              p_c_disp   =  0.5 * (p_bot_disp + p_top_disp) !! Effective pressure at level
+             !              dp_disp = (p_top_disp - p_bot_disp)
+              !Find corresponding meteo layers..
+              do while (pMetAbove > p_c_disp)
+                  pMetBelow = pMetAbove
+                  iLevMetAbove  = iLevMetAbove  + 1
+                  if (iLevMetAbove > nz_meteo) then
+                       call set_error("Meteo vertical too shallow: upper met level below the dispersion top!", sub_name)
+                       exit
+                  endif
+                  pMetAbove  = 0.5 * (  a_met(iLevMetAbove + 1) + a_met(iLevMetAbove)  + &
+                                      &(b_met(iLevMetAbove + 1) + b_met(iLevMetAbove))*psTmp ) !! Meteo-layer center
+              enddo
+
+              if (iLevMetAbove == 1) then !! Bootstrap: Use first meteo-layer 
+                 tEff = tMetColumn(1)
+              else !! Can interpoalte
+                 fTmp = (pMetBelow - p_c_disp) / (pMetBelow - pMetAbove)
+                 tEff =  tMetColumn(iLevMetAbove - 1) * fTmp + tMetColumn(iLevMetAbove)* (1. - fTmp)
+              endif
+                            
+              ! fu_air_density = pressure/(gas_constant_dryair * temperature )
+              dz_3d_ptr(iLev)%ptr(iCellTo) = (p_bot_disp - p_top_disp) * gas_constant_dryair * tEff / (p_c_disp * g)
+
+              p_bot_disp = p_top_disp
+          enddo !! Loop over Dispersion levels
         enddo !ix
       enddo !iy
       !$OMP END DO
@@ -1673,8 +1683,8 @@ MODULE diagnostic_variables
     integer :: ind_time, i1d, ind_ps, ind_u, ind_v, ind_z, sendcnt, rcvcnt
     integer :: ixTo, iyTo, iLev, iLevMet, iCell, iTmp, jTmp, iBound, iCellTo, iCoef, itime, last_vert_index
     type(silja_time) :: now, analysis_time
-    real ::  da, db,  psTmp, zTmp, uTmp, vTmp, mTmp, cellsizeX, cellsizeY
-    real :: p_top_met, p_c_met, dp_met, prevtop
+    real ::  da, db,  psTmp,  uTmp, vTmp, mTmp, cellsizeX, cellsizeY
+    real(r8k) :: p_top_met, p_bot_met, dp_met, prevtop, zTmp
     real(r8k) :: fTmp, fTmp1, inflow, absinflow, domainmass, inflowfactor
     type(silja_field_id) :: idtmp
     type (field_3d_data_ptr), pointer :: u_met3d, v_met3d,  w_met3d, z_met3d
@@ -1694,7 +1704,7 @@ MODULE diagnostic_variables
 
 !    TYPE(silja_3d_field), POINTER :: u_flux_3d, v_flux_3d, w_flux_3d, cell_mass_3d
     TYPE(silja_field), POINTER :: fldPtr
-    type (TrealPtr), dimension (1:max_levels) :: uFlux_3d_ptr, vFlux_3d_ptr, wFlux_3d_ptr, cellMass_3d_ptr, airdens_3d_ptr, dz_3d_ptr
+    type (TrealPtr), dimension (1:nz_dispersion+1) :: uFlux_3d_ptr, vFlux_3d_ptr, wFlux_3d_ptr, cellMass_3d_ptr, airdens_3d_ptr, dz_3d_ptr
     logical :: ifRotate, ifZlevels
     logical :: ifLonGlobal, ifPoisson, ifBottomUp
 
@@ -1707,6 +1717,8 @@ MODULE diagnostic_variables
     logical :: ifGetWind  ! Do we need to extract wind from meteo? (not needed for test winds)
     integer :: my_y_coord, my_x_coord
 
+    real, dimension(nz_meteo) :: a_met, b_met
+    real, dimension(nz_meteo+1) :: a_half_met, b_half_met
 
     call msg ("Diagnozing cells mass fluxes from meteo for:"+fu_name(dispMarketPtr))
 
@@ -1720,7 +1732,7 @@ MODULE diagnostic_variables
         case (layer_btw_2_sigma, layer_btw_2_hybrid)
              ifZlevels = .False.
         case default
-             call set_error("Strange target  vertical","here")
+             call set_error("Strange target  vertical",sub_name)
     end select
 
     ! Met-buf indices
@@ -1742,12 +1754,9 @@ MODULE diagnostic_variables
 
     if(error)return
 
-
-
     !
     ! Grids and horizontal interpolations
     !
-    
     ! Need also dispersion_grid etc grids. If change this, change also cell size defs below.
     if (fu_fails(gridTarget == dispersion_grid, &
                & 'Not implememted for non-dispersion grid', sub_name)) return
@@ -1927,16 +1936,35 @@ MODULE diagnostic_variables
           return
          end select
       
+      iTmp = fu_leveltype(meteo_vertical)
+
+      if (iTmp == hybrid) then
+        !!! Invert  meteo to half-level coefficients
+        call hybrid_coefs(meteo_vertical, a_full=a_met, b_full=b_met) 
+        a_half_met(1) = 0.
+        b_half_met(1) = 1.
+        DO iLev = 1,nz_meteo
+            a_half_met(iLev+1) = a_half_met(iLev) + 2*(a_met(iLev)-a_half_met(iLev))
+            b_half_met(iLev+1) = b_half_met(iLev) + 2*(b_met(iLev)-b_half_met(iLev))
+        enddo
+      elseif (iTmp == layer_btw_2_hybrid) then 
+        call hybrid_coefs(meteo_vertical, a_half=a_half_met, b_half=b_half_met) 
+      else
+          call msg("Strange leveltype for meteo_vertical:", iTmp)
+          call set_error("Only hubrid_level and hybrid layers supported so far", sub_name)
+          return
+      endif
+
       !$OMP PARALLEL default(none), shared(my_x_coord,my_y_coord,&
       !$OMP & ny_disp, nx_disp,nx_met, pHorizInterpUc, pHorizInterpUu,pHorizInterpUv, pHorizInterpVc, &
       !$OMP & pHorizInterpVu, pHorizInterpVv, phorizinterpc, u_met3d,v_met3d, z_met3d, ifZlevels, uFlux_3d_ptr, vFlux_3d_ptr, &
       !$OMP & a_half_disp, b_half_disp, nz_disp, disp_layer_top_m, airdens_3d_ptr, cellMass_3d_ptr, dz_3d_ptr, &
-      !$OMP & ifGetWind, u_grid, v_grid, a_met, b_met, ifrotate, nz_meteo, nx_met_u, & 
+      !$OMP & ifGetWind, u_grid, v_grid, a_half_met, b_half_met, ifrotate, nz_meteo, nx_met_u, & 
       !$OMP & nx_dispersion, disp_grid_size_x, disp_grid_size_y, ps_met, surf_pres, error, &
       !$OMP & meteo_vertical, dispersion_vertical &
       !$OMP & ), private( &
       !$OMP & cellSizeY, cellSizeX, iCellTo, iXto, iyTo, psTmp, iCoef,&
-      !$OMP & u_met, v_met, z_met, p_top_met, prevtop, last_vert_index,p_c_met, dp_met, uTmp, vTmp,&
+      !$OMP & u_met, v_met, z_met, p_top_met, prevtop, last_vert_index,p_bot_met, dp_met, uTmp, vTmp,&
       !$OMP & iLevMet, iLev, iTmp,  ztmp,  mTmp &
       !$OMP & &
       !$OMP &)
@@ -1961,9 +1989,9 @@ MODULE diagnostic_variables
              prevtop = 0.
              last_vert_index = 1
              do iLevMet = 1, nz_meteo
-               p_c_met = a_met(iLevMet)+b_met(iLevMet)*psTmp
-               dp_met =  2*(p_top_met - p_c_met)
-               p_top_met = p_top_met - dp_met
+               p_bot_met = p_top_met
+               p_top_met = a_half_met(iLevMet+1)+b_half_met(iLevMet+1)*psTmp
+               dp_met =  p_bot_met - p_top_met
                
                u_met => u_met3d%p2d(iLevMet)%ptr
                uTmp = 0.
@@ -2023,9 +2051,9 @@ MODULE diagnostic_variables
              prevtop = 0.
              last_vert_index = 1
              do iLevMet = 1, nz_meteo
-               p_c_met = a_met(iLevMet)+b_met(iLevMet)*psTmp
-               dp_met =  2*(p_top_met - p_c_met)
-               p_top_met = p_top_met - dp_met
+               p_bot_met = p_top_met
+               p_top_met = a_half_met(iLevMet+1)+b_half_met(iLevMet+1)*psTmp
+               dp_met =  p_bot_met - p_top_met
                
                v_met => v_met3d%p2d(iLevMet)%ptr
                vTmp = 0.
@@ -2092,9 +2120,9 @@ ix:      do ixTo = 1, nx_disp
           prevtop = 0.
           last_vert_index = 1
           do iLevMet = 1, nz_meteo
-            p_c_met = a_met(iLevMet)+b_met(iLevMet)*psTmp
-            dp_met =  2*(p_top_met - p_c_met)
-            p_top_met = p_top_met - dp_met
+            p_bot_met = p_top_met
+            p_top_met = a_half_met(iLevMet+1)+b_half_met(iLevMet+1)*psTmp
+            dp_met =  p_bot_met - p_top_met
             
             ! Actual mass in kg in meteo layer
             mTmp =  dp_met * CellSizeX * CellSizeY / g
@@ -2113,7 +2141,7 @@ ix:      do ixTo = 1, nx_disp
                    call msg("")
                    call msg("")
                    call msg("Dispersion vertical sticks out of meteo")
-                   call msg("Zmet_top, zdisp_top",  zTmp,  disp_layer_top_m(nz_disp))
+                   call msg("Zmet_top, zdisp_top",  real(zTmp, kind=4),  disp_layer_top_m(nz_disp))
                    call msg("Dispersion ix, iy", ixTo, iyTo)
                    call msg('Meteo vertical')
                    call report(meteo_vertical, .true.)
@@ -2430,11 +2458,12 @@ ix:      do ixTo = 1, nx_disp
     subroutine distributePieceZ(Piece, targetPtr, iCellTo, lastiZ, metltop, metZ, z_top_d, nz_disp)
             ! Distribute piece between Z dispersion layers
             implicit none
-            real, intent(in) :: Piece, metZ   
+            real, intent(in) :: Piece  
+            real(r8k), intent(in) ::  metZ   
             type (Trealptr), dimension(1:), intent(inout) :: targetPtr
             real, dimension(-1:), intent(in) :: z_top_d
             integer, intent(inout) :: lastiZ
-            real,    intent(inout) :: metltop  ! Top of previous met level
+            real(r8k),    intent(inout) :: metltop  ! Top of previous met level
             integer, intent(in) :: nz_disp, iCellTo
 
             real :: bl_tmp, SS, br_abs, zTmp, fTmp, frachere
@@ -2461,13 +2490,14 @@ ix:      do ixTo = 1, nx_disp
 
     subroutine distributePieceHyb(Piece, targetPtr, iCellTo, lastiZ, dp, p_top, a_top_d, b_top_d, nz_disp, ps)
             implicit none
-            real, intent(in) :: Piece, dp, p_top, ps 
+            real, intent(in) :: Piece,  ps 
+            real(r8k), intent(in) :: dp, p_top 
             type (Trealptr), dimension(1:), intent(inout) :: targetPtr
             real, dimension(-1:), intent(in) :: a_top_d, b_top_d
             integer, intent(inout) :: lastiZ
             integer, intent(in) :: nz_disp, iCellTo
 
-            real(8) :: bl_tmp, fTmp, frachere, pTmp
+            real(r8k) :: bl_tmp, fTmp, frachere, pTmp
 
             bl_tmp = p_top + dp
             ! call msg("Inslab  top_p, bottp", real(p_top), real(bl_tmp))

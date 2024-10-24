@@ -82,10 +82,13 @@ contains
 
   !************************************************************************************
 
-  subroutine run_xdvar(model)
+  subroutine run_xdvar(model, ifOk)
     implicit none
     type(model_container), intent(inout) :: model
+    logical, intent(out) :: ifOk !! assimilator has to signal issues without crashing run
+                      !! No unset_error in MPI configuration
     
+    ifOk  = .FALSE.
     call set_emis_proc_by_ctrl(model%cloud, model%rules, model%rules%darules%controlVariable)
     if (error) return
 
@@ -94,28 +97,32 @@ contains
     select case(model%rules%darules%method)
       case (flag_3dvar)  !, flag_4dvar_seq)
         call msg('Starting 3DVAR')
-        call run_xdvar_seq(model)
+        call run_xdvar_seq(model, ifOk)
       case (flag_4dvar)
         call msg('Starting 4DVAR')
         call run_4dvar(model)
+        ifOk = .not. error
       case (flag_4dvar_seq)
         call msg('Starting 4DVAR_SEQ')
-        call run_xdvar_seq(model)   ! it will control the sequence
+        call run_xdvar_seq(model, ifOk)   ! it will control the sequence
       case (flag_h_matrix)
         call msg('Starting h-matrix')
         call run_h_matrix(model)
+        ifOk = .not. error
       case default
         call set_error('Strange DA method', 'run_xdvar')
     end select
+   
 
   end subroutine run_xdvar
 
   
   !*******************************************************************************
   
-  subroutine run_xdvar_seq(model)
+  subroutine run_xdvar_seq(model, ifxdvarOk)
     implicit none
     type(model_container), intent(inout) :: model
+    logical, intent(out) :: ifxdvarOk
 
     type(da_control) :: analysis, background
     real :: cost
@@ -143,6 +150,8 @@ contains
     logical :: ifProgressFile, ifOk
     integer :: assimilations_total,  assimilations_failed
     character(len=20) :: counter_name
+
+    ifxdvarOk = .False.
     
     cloud => model%cloud
     darules = model%rules%darules
@@ -322,13 +331,14 @@ contains
     end do  ! main cycle over times
 
     if (assimilations_failed == assimilations_total) then
-      call set_error("All assimilations failed!", 'run_xdvar_seq')
+      call msg_warning("All assimilations failed!", 'run_xdvar_seq')
       return
     endif
     !
     ! All done, close the progress file
     !
     if(ifProgressFile) call write_progress_file(model_integr%rules%chProgressFNmTemplate, 100)
+    ifxdvarOk = .True. 
 
   contains
     

@@ -322,7 +322,7 @@ contains
           do while (time_in_filename <= obs_start + obs_period)
             call expand_template(obs_templ, time_in_filename, file_name)
             if (file_name /= file_name_old) then
-              if (.not. error) then
+              if (len_trim(file_name) > 0) then
                 call timeseries_from_file(file_name, obs_type, obs_unit, observations_tmp(sum(n_in_situ)+1:), &
                                         & nread, force_instant, obs_start, obs_period, &
                                         & station_list, nstations, &
@@ -331,8 +331,6 @@ contains
                 if (error) return
               end if
               file_name_old = file_name
-            else
-              if(error) call unset_error(sub_name)
             end if
             time_in_filename = time_in_filename + template_step
           end do
@@ -342,7 +340,7 @@ contains
           call decode_template_string(file_name, obs_templ)
           if (error) return
           call expand_template(obs_templ, obs_start, file_name)
-          if (.not. error) then
+          if (len_trim(file_name) > 0) then
             open(uFile, file=file_name, status='old', action='read', iostat=status)
             if (fu_fails(status == 0, 'Failed to open: ' // trim(file_name), sub_name)) return
             call msg('Reading dose rate no-ground observations from ' // file_name)
@@ -353,8 +351,6 @@ contains
                                               & transport_species, n_transp_species)
             close(uFile)
             n_dose_rate(iObsPurpose) = n_dose_rate(iObsPurpose) + nread
-          else
-            call unset_error(sub_name)
           end if
          
         elseif (obs_type == 'dose_rate_with_ground') then
@@ -362,7 +358,7 @@ contains
           call decode_template_string(file_name, obs_templ)
           if (error) return
           call expand_template(obs_templ, obs_start, file_name)
-          if (.not. error) then
+          if (len_trim(file_name) > 0) then
             open(uFile, file=file_name, status='old', action='read', iostat=status)
             if (fu_fails(status == 0, 'Failed to open: ' // trim(file_name), sub_name)) return
             call msg('Reading dose rate with-ground observations from ' // file_name)
@@ -373,8 +369,6 @@ contains
                                               & transport_species, n_transp_species)
             close(uFile)
             n_dose_rate(iObsPurpose) = n_dose_rate(iObsPurpose) + nread
-          else
-            call unset_error(sub_name)
           end if
 
         elseif (obs_type == var_name_aod) then
@@ -384,7 +378,7 @@ contains
 
           do while (time_in_filename <= obs_start + obs_period)
             call expand_template(obs_templ, time_in_filename, file_name)
-            if (.not. error) then
+            if (len_trim(file_name) > 0) then
               call msg('Reading AOT from '  // trim(file_name))
               ! obs_species = null() - not used                                                                                          
               nullify(p_obs_species)
@@ -400,8 +394,6 @@ contains
               !end if                                                                                                                    
               if (error) return
               n_vert_obs(iObsPurpose) = n_vert_obs(iObsPurpose) + nread
-            else
-              call unset_error(sub_name)
             end if
             time_in_filename = time_in_filename + fu_set_interval_h(1)
           end do
@@ -413,7 +405,7 @@ contains
           call decode_template_string(file_name, obs_templ)
           if (error) return
           call expand_template(obs_templ, obs_start, file_name)
-          if (.not. error) then
+          if (len_trim(file_name) > 0) then
             open(uFile, file=file_name, status='old', action='read', iostat=status)
             if (fu_fails(status == 0, 'Failed to open: ' // trim(file_name), sub_name)) return
             call msg('Reading eruption observations from ' // file_name)
@@ -422,8 +414,6 @@ contains
             close(uFile)
             n_eruption(iObsPurpose) = n_eruption(iObsPurpose) + nread
             if (error) return
-          else
-            call unset_error(sub_name)
           end if
 
         else if (obs_type == 'vertical') then
@@ -436,7 +426,7 @@ contains
           if (error) return
           do while (time_in_filename <= obs_start + obs_period)
             call expand_template(obs_templ, time_in_filename, file_name)
-            if (.not. error) then
+            if (len_trim(file_name) > 0) then
               ! var_name is also the observation cocktail:                                                         
               call msg('Reading vertical observation from '  // trim(file_name))
               call get_observed_species(var_name, p_obs_species)
@@ -448,8 +438,6 @@ contains
               if (error) return
               deallocate(p_obs_species)
               n_vert_obs(iObsPurpose) = n_vert_obs(iObsPurpose) + nread
-            else
-              call unset_error(sub_name)
             end if
             time_in_filename = time_in_filename + fu_set_interval_h(1)
           end do
@@ -468,8 +456,10 @@ contains
 
     end do ! purpose of observations: assimilation or evaluation
 
-    if (fu_fails(sum(n_in_situ + n_vert_obs + n_dose_rate + n_eruption) > 0, &
-               & 'No observations read succesfully', sub_name)) return
+    if ( sum(n_in_situ + n_vert_obs + n_dose_rate + n_eruption) < 1) then
+       call msg_warning( 'No observations read succesfully', sub_name) 
+       return
+    endif
     !
     ! Allocate memory
     !
@@ -1383,11 +1373,12 @@ contains
     implicit none
     type(grads_template), intent(in) :: templ
     type(silja_time), intent(in) :: now
-    character(len=*), intent(out) :: filename
+    character(len=*), intent(out) :: filename  !!Empty string for missing file
 
     type(silam_sp), dimension(:), pointer :: filenames
     integer :: i
 
+    filename = ""
     nullify(filenames)
 
     if(fu_fails(defined(templ),'Undefined template','expand_template'))return
@@ -1395,8 +1386,9 @@ contains
                                 & ifStrict = .true., &
                                 & ifadd = .false., &
                                 & ifWait = .false., &
+                                & max_hole_length = one_hour, & !!Actually whatever to suppress set_error on missing file 
                                 & ifAllowZeroFcLen = .true.)
-    if (error) then
+    if (.not. associated(filenames)) then
       !call set_error('No files found for time:' // fu_str(now), &
       !             & 'expand_template')
       call msg('No files found for time:' // fu_str(now)) 
@@ -2178,7 +2170,7 @@ contains
     if (sum(pointers%nVerticalObsID) > 0) deallocate(pointers%observationsVertical)
     pointers%nVerticalObsID = 0
 
-    if (sum(pointers%obs_size) > 0) deallocate(pointers%obs_values, pointers%obs_variance, pointers%mdl_values,)
+    if (sum(pointers%obs_size) > 0) deallocate(pointers%obs_values, pointers%obs_variance, pointers%mdl_values)
     
     pointers%obs_size = 0
     pointers%hasObservations = .false.

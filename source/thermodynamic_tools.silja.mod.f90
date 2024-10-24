@@ -41,7 +41,7 @@ MODULE thermodynamic_tools
   PUBLIC fu_specificheat_of_watervapour
   PUBLIC fu_specificheat_of_air
   PUBLIC fu_saturat_watervapourpressure
-  PUBLIC fu_air_density_profile
+  PUBLIC fu_air_density
   PUBLIC fu_watervapour_densityprofile
   PUBLIC fu_dynamic_viscosity
   PUBLIC fu_kinematic_viscosity
@@ -871,57 +871,17 @@ CONTAINS
 
   ! ****************************************************************
 
-  REAL FUNCTION fu_air_density_profile(temperature, pressure)
+  REAL FUNCTION fu_air_density(temperature, pressure)
 
-    ! Description:
-    !  Computes the "real" value of air density from  air temperature
-    !  and pressure
-    !
     ! Method:
-    !   The general formula (see e.q. Andreas et al.1996) is used 
-    !      density = 1.2923(273.156/T)(p/1013.23)
-    !   where T is in K and p is in hPa
-    !   To speed up the constants have been multiplied into one
-    !   single  constant
-    !
-    !  Should either T or p is missing a constant value is returned
-    !
-    ! All units: SI, air density = kg/m**3
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Ilkka Valkama, FMI
+    ! Ideal-gas law for dry air
 
     IMPLICIT NONE
+    REAL, INTENT(in) :: temperature, pressure  !! Kelvin, Pa
 
-    ! Imported parameters with intent(in):
-    REAL, INTENT(in), OPTIONAL :: temperature, pressure
-    REAL :: local_pressure
-    !----------------------------------------
-    !
-    ! 1. Check the method
-    !    ------------------------------------
-    
+    fu_air_density = pressure/(gas_constant_dryair * temperature )
 
-    IF (.NOT.PRESENT(temperature)) THEN
-      fu_air_density_profile = density_air_288K
-      RETURN
-    END IF
-    IF (.NOT.PRESENT(pressure)) THEN
-      fu_air_density_profile = density_air_288K
-      RETURN
-    END IF
-
-    !----------------------------------------
-    !
-    ! 2. Calculate the air density
-    !    ------------------------------------
-
-    local_pressure = pressure/100. ! Pascal to hectoPascal
-    fu_air_density_profile = 0.34838*(local_pressure/temperature)
-
-
-  END FUNCTION fu_air_density_profile
+  END FUNCTION fu_air_density
 
   ! ****************************************************************
 

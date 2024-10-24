@@ -26,7 +26,7 @@
 				<Tool Name="VFManifestTool" SuppressStartupBanner="true"/></Configuration>
 		<Configuration Name="Debug|x64">
 				<Tool Name="VFFortranCompilerTool" AdditionalOptions="/iface:cref" SuppressStartupBanner="true" DebugInformationFormat="debugEnabled" MultiProcessorCompilation="true" Optimization="optimizeDisabled" Preprocess="preprocessYes" PreprocessorDefinitions="VS2012, WITH_BZIP2, DEBUG" DisableSpecificDiagnostics="remark" WarnInterfaces="true" Traceback="true" BoundsCheck="true" UninitializedVariablesCheck="true" RuntimeLibrary="rtMultiThreadedDebug" Interfaces="true"/>
-				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMTD" GenerateDebugInformation="true" SubSystem="subSystemConsole" StackReserveSize="300000000" StackCommitSize="100000000" AdditionalDependencies="D:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\x64\Debug\lib_AEC.lib  d:\tools\NetCDF\netcdf-fortran-4.5.3\win_nc_f_4_5_3\win_nc_f_4_5_3\x64\Debug\win_nc_f_4_5_3.lib  d:\tools\NetCDF\netCDF_4.8.1\lib\netcdf.lib  d:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\grib_api_lib\x64\Release\grib_api_lib.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\LAPACK_MSVS\x64\Release\LAPACK_MSVS.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\BLAS_MSVC\x64\Release\BLAS_MSVC.lib  d:\tools\bzip2\bzip2-1.0.8\bzip2_1_0_8\x64\Release\bzip2_1_0_8.lib"/>
+				<Tool Name="VFLinkerTool" LinkIncremental="linkIncrementalNo" SuppressStartupBanner="true" IgnoreDefaultLibraryNames="LIBCMTD; LIBMMTD" GenerateDebugInformation="true" SubSystem="subSystemConsole" StackReserveSize="300000000" StackCommitSize="100000000" AdditionalDependencies="D:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\x64\Debug\lib_AEC.lib  d:\tools\NetCDF\netcdf-fortran-4.5.3\win_nc_f_4_5_3\win_nc_f_4_5_3\x64\Debug\win_nc_f_4_5_3.lib  d:\tools\NetCDF\netCDF_4.8.1\lib\netcdf.lib  d:\tools\ECCODES\eccodes-2020.04.0\windows\msvc\grib_api_lib\x64\Release\grib_api_lib.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\LAPACK_MSVS\x64\Release\LAPACK_MSVS.lib  d:\tools\LAPACK\lapack-3.10.0\BLAS_MSVC\BLAS_MSVC\x64\Release\BLAS_MSVC.lib  d:\tools\bzip2\bzip2-1.0.8\bzip2_1_0_8\x64\Release\bzip2_1_0_8.lib"/>
 				<Tool Name="VFResourceCompilerTool"/>
 				<Tool Name="VFMidlTool" SuppressStartupBanner="true" TargetEnvironment="midlTargetAMD64"/>
 				<Tool Name="VFCustomBuildTool"/>
@@ -119,54 +119,6 @@
 		<File RelativePath="..\source\bzip.f90">
 			<FileConfiguration Name="Debug|x64">
 				<Tool Name="VFFortranCompilerTool" PreprocessorDefinitions="WITH_BZIP2"/></FileConfiguration></File>
-		<File RelativePath="..\source\cbm42_strato_adj_Integrator.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Function.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Global.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Hessian.f90"/>
-		<File RelativePath="..\source\cbm42_strato_HessianSP.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Integrator.f90"/>
-		<File RelativePath="..\source\cbm42_strato_interface.mod.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Jacobian.f90"/>
-		<File RelativePath="..\source\cbm42_strato_JacobianSP.f90"/>
-		<File RelativePath="..\source\cbm42_strato_LinearAlgebra.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Parameters.f90"/>
-		<File RelativePath="..\source\cbm42_strato_Precision.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_adj_Integrator.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Function.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Global.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Hessian.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_HessianSP.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Integrator.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_interface.mod.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Jacobian.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_JacobianSP.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_LinearAlgebra.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Parameters.f90"/>
-		<File RelativePath="..\source\cbm42_strato_SOA_Precision.f90"/>
-		<File RelativePath="..\source\cbm4_adj_Integrator.f90"/>
-		<File RelativePath="..\source\cbm4_Function.f90"/>
-		<File RelativePath="..\source\cbm4_Global.f90"/>
-		<File RelativePath="..\source\cbm4_Hessian.f90"/>
-		<File RelativePath="..\source\cbm4_HessianSP.f90"/>
-		<File RelativePath="..\source\cbm4_Integrator.f90"/>
-		<File RelativePath="..\source\cbm4_interface.mod.f90"/>
-		<File RelativePath="..\source\cbm4_Jacobian.f90"/>
-		<File RelativePath="..\source\cbm4_JacobianSP.f90"/>
-		<File RelativePath="..\source\cbm4_LinearAlgebra.f90"/>
-		<File RelativePath="..\source\cbm4_Parameters.f90"/>
-		<File RelativePath="..\source\cbm4_Precision.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_adj_Integrator.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Function.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Global.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Hessian.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_HessianSP.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Integrator.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_interface.mod.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Jacobian.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_JacobianSP.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_LinearAlgebra.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Parameters.f90"/>
-		<File RelativePath="..\source\cbm4_SOA_Precision.f90"/>
 		<File RelativePath="..\source\cbm5_SOA_adj_Integrator.f90"/>
 		<File RelativePath="..\source\cbm5_SOA_Function.f90"/>
 		<File RelativePath="..\source\cbm5_SOA_Global.f90"/>
@@ -192,14 +144,9 @@
 		<File RelativePath="..\source\cbm5_strato_SOA_Parameters.f90"/>
 		<File RelativePath="..\source\cbm5_strato_SOA_Precision.f90"/>
 		<File RelativePath="..\source\chem_dep_acid_basic.silam.mod.f90"/>
-		<File RelativePath="..\source\chem_dep_cbm4.mod.f90"/>
-		<File RelativePath="..\source\chem_dep_cbm42_strato.mod.f90"/>
-		<File RelativePath="..\source\chem_dep_cbm42_strato_SOA.mod.f90"/>
-		<File RelativePath="..\source\chem_dep_cbm4_SOA.mod.f90"/>
 		<File RelativePath="..\source\chem_dep_cbm5_SOA.mod.f90"/>
 		<File RelativePath="..\source\chem_dep_cbm5_strato_SOA.mod.f90"/>
 		<File RelativePath="..\source\chem_dep_passive.silam.mod.f90"/>
-		<File RelativePath="..\source\chem_dep_pm_general.silam.mod.f90"/>
 		<File RelativePath="..\source\chem_dep_pollen.silam.mod.f90"/>
 		<File RelativePath="..\source\chem_dep_radioactive.silja.mod.f90"/>
 		<File RelativePath="..\source\chem_dep_sulphur_dmat.silam.mod.f90"/>
@@ -255,9 +202,9 @@
 			<FileConfiguration Name="debug_try|x64">
 				<Tool Name="VFFortranCompilerTool" SourceFileFormat="fileFormatFixed"/></FileConfiguration>
 			<FileConfiguration Name="Release|x64">
-				<Tool Name="VFFortranCompilerTool" SourceFileFormat="fileFormatFixed"/></FileConfiguration>
+				<Tool Name="VFFortranCompilerTool" SourceFileFormat="fileFormatDefault"/></FileConfiguration>
 			<FileConfiguration Name="Debug|x64">
-				<Tool Name="VFFortranCompilerTool" SourceFileFormat="fileFormatFixed"/></FileConfiguration>
+				<Tool Name="VFFortranCompilerTool" SourceFileFormat="fileFormatDefault"/></FileConfiguration>
 			<FileConfiguration Name="Release|Win32">
 				<Tool Name="VFFortranCompilerTool" SourceFileFormat="fileFormatFixed"/></FileConfiguration>
 			<FileConfiguration Name="Release_2|x64">
@@ -339,10 +286,7 @@
 		<File RelativePath="..\source\toolbox.silja.mod.f90"/>
 		<File RelativePath="..\source\trajectory_io.silam.mod.f90"/>
 		<File RelativePath="..\..\..\tools\NetCDF\netcdf_v4_win___\f90\typeSizes.f90"/>
-		<File RelativePath="..\source\vectors_v2.silja.mod.f90"/>
 		<File RelativePath="..\source\vertical_motion.silam.mod.f90"/>
 		<File RelativePath="..\source\water_content_in_soil.mod.f90"/>
-		<File RelativePath="..\source\windfields.silja.mod.f90"/>
-		<File RelativePath="..\source\windfields_3d.silja.mod.f90"/>
 		<File RelativePath="..\source\work_arrays.silja.mod.f90"/></Filter></Files>
 	<Globals/></VisualStudioProject>

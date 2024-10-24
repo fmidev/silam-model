@@ -603,7 +603,7 @@ contains
 obs_start =  obs%endTimes(iTobs) - obs%durations(iTobs)
 call msg("")
 call msg(trim(fu_str(iTobs))//' obs_start: ' // fu_str(obs_start) // ', obs_end: ' // fu_str(obs%endTimes(iTobs) ) // ', now: '// fu_str(now))
-call msg('Station ' // trim(obs%station(iSt)%id)//': obs , model',  obs%obsData( obs%modeldata(iTobs,iTobs)))
+call msg('Station ' // trim(obs%station(iSt)%id)//': obs , model',  obs%obsData(iSt,iTobs), obs%modeldata(iTobs,iTobs))
 call msg('Fraction to inject:', fWeight )
 
 #endif 
@@ -758,7 +758,7 @@ call msg('Fraction to inject:', fWeight )
 time_end = obs%endTimes(iTobs)
 time_start = time_end - obs%durations(iTobs)
 call msg('obs_start: ' // fu_str(time_start) // ', obs_end: ' // fu_str(time_end) // ', now: '// fu_str(now))
-call msg('obs: ' // trim(obs%station%id))
+call msg('obs(1): ' // trim(obs%station(1)%id))
 call msg('step, obs data tStep='//fu_str(iTobs), obs%obsData(iTobs,:))
 call msg('modeldata', obs%modelData(iTobs,:))
 call msg('val',  val)

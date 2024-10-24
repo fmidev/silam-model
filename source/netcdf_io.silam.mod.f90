@@ -1405,7 +1405,7 @@ CONTAINS
     TYPE(netcdf_file),POINTER :: nf
     integer :: iStat, iFile, formatNum, nAtts, uLimDimId, iTmp, attLen, xType, iVar, iVal, iNl, &
              & nVals, idim, it, days_year, ilev, nDims, nMon, nDay, nHr, nMin, nxStag, nyStag, &
-             & nxRef, nyRef, jTmp, nx, ny
+             & nxRef, nyRef, jTmp, nx, ny, nCoef
     integer, dimension(:), pointer ::  iAtt
 !    integer, dimension(4) :: dimIds
     character (len=nf90_max_name) :: aVar, bVar, aHalfVar, bHalfVar,  P0Var, PsVar, ChTmp2
@@ -2467,6 +2467,10 @@ CONTAINS
                    nf%nDims(iDim)%chType = 'HEIGHT_LYR_FROM_SURF'
                  case('height above surface') !OLD Silam output...
                    nf%nDims(iDim)%chType = 'HEIGHT_LYR_FROM_SURF'
+                 case('surface level') ! No-vertical ascii_2_nc output
+                   nf%nDims(iDim)%chType = 'HEIGHT_FROM_SURF'
+                 case('constant height from surface') ! No-vertical ascii_2_nc output
+                   nf%nDims(iDim)%chType = 'HEIGHT_FROM_SURF'
                  case('standard height of hybrid layer midpoint')
                    nf%nDims(iDim)%chType = 'HYBRID_LYR'
                    nf%nDims(iDim)%a_half_Var =  aHalfVar
@@ -2757,6 +2761,7 @@ CONTAINS
                 endif
                 if(iStat /= 0)then
                   if(ifMsgs)then
+                    call msg("NC_error: "// nf90_strerror(iStat))
                     call msg_warning(fu_connect_strings('Failed to read the dimension variable:', &
                                                     & pDim%varName), &
                                                     & sub_name)
@@ -2787,6 +2792,77 @@ CONTAINS
             do iLev = 1, pDim%dimLen
               lstLevs(ilev) = fu_set_hybrid_level(iLev, pDim%a(iLev)*pDim%P0(1), &
                                                 & pDim%b(iLev))
+            enddo  
+            lstLevs(pDim%dimlen+1) = level_missing
+            call set_vertical(lstLevs, pDim%sVert)
+
+          elseif( chTmp == 'HYBRID_LAYER_WRF' .or.  chTmp == 'HYBRID_LEVEL_WRF' )then
+            if (.not. associated(pDim%a_half)) then
+              ! Get hybrid coefficients
+              ncoef = pDim%dimlen
+              if (chTmp == 'HYBRID_LAYER_WRF') ncoef = ncoef + 1  !!! Layers need one more coefficient than vertical dimension
+              allocate(pDim%a_half(ncoef), pDim%b_half(ncoef))
+              pDim%a_half(:) = real_missing
+              pDim%b_half(:) = real_missing         
+              if(ifMsgs) call msg("Searching for wrf c4f c3f p_top to make a_half and b_half ")
+              do iVar = 1, nf%n_Vars
+                if(ifMsgs)  call msg("Trying:"+fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)))
+                if(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == 'c4f')then
+                  if(ifMsgs) call msg("Found c4f")
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId,   pDim%a_half, count=(/ncoef,1/)) !! Pa, not yet A coeff
+                  
+                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == 'c3f')then 
+                  if(ifMsgs)  call msg("Found c3f")
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%b_half, count=(/ncoef,1/)) !! Just B coefficientt
+                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == 'p_top')then
+                  if(ifMsgs)  call msg("Found p_top")
+                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%P0) !!! pTOP
+                endif
+                if(iStat /= 0)then
+                  if(ifMsgs)then
+                    call msg("NC_error: "// nf90_strerror(iStat))
+                    call msg_warning(fu_connect_strings('Failed to read the dimension variable:', &
+                                                    & pDim%varName), &
+                                                    & sub_name)
+                    call ooops("ncerr")
+                  endif
+                  pDim%defined = .false.       ! undefine the dimension
+                  cycle
+                endif
+              enddo
+            end if
+            if ( any ((/pDim%a_half(1), pDim%b_half(1), pDim%P0 /)==real_missing)) then
+                call set_error('Hybrid half coefficients missing', sub_name)
+                return
+            endif
+
+            !! Convert WRF c4f to A hybrid
+            pDim%a_half = pDim%a_half + pDim%P0(1)*(1. - pDim%b_half) 
+
+
+            ! Check only first layer pressure drop, so layers are always bottom-top
+            fTmp = (pDim%a_half(2) - pDim%a_half(1) )  &
+                  &  + (pDim%b_half(2) - pDim%b_half(1))*std_pressure_sl
+!            call msg("a_half", pDim%a_half(1:pDim%dimLen+1))
+!            call msg("b_half", pDim%b_half(1:pDim%dimLen+1))
+!            call ooops("ooops")
+            
+            do iLev = 1, pDim%dimLen
+
+              if(pDim%dimLen == ncoef) then  !! layer interfaces vertical
+                lstLevs(ilev) = fu_set_hybrid_level(ilev, pDim%a_half(iLev), pDim%b_half(iLev))
+              elseif (fTmp < 0) then 
+                ! pressure decreases with lev number: bottopm-up
+                lstLevs(ilev) = fu_set_layer_between_two(layer_btw_2_hybrid, ilev, ilev-1, &
+                        & pDim%a_half(iLev+1), pDim%b_half(iLev+1), &  !top
+                        & pDim%a_half(iLev), pDim%b_half(iLev))        !bottom
+              else
+                ! top-down
+                lstLevs(ilev) = fu_set_layer_between_two(layer_btw_2_hybrid, ilev-1, ilev, &
+                        & pDim%a_half(iLev), pDim%b_half(iLev), &    !top
+                        & pDim%a_half(iLev+1), pDim%b_half(iLev+1))  !bottom
+
+              endif
             enddo  
             lstLevs(pDim%dimlen+1) = level_missing
             call set_vertical(lstLevs, pDim%sVert)

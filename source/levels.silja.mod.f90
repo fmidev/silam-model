@@ -377,7 +377,7 @@ MODULE silam_levels
   type(silam_vertical),public,target,save :: meteo_vertical = vertical_missing
   type(silam_vertical),public,pointer,save :: meteo_verticalPtr => null()
   integer, public, save :: nz_meteo  ! Vertical dimension of the meteo_vertical
-  real, dimension(:), public, pointer, save :: a_met, b_met !(0:nz_meteo+1)
+  real, dimension(:), public, pointer, save :: a_met, b_met !(0:nz_meteo+1) ! Actually, layer-boundaries (aka half)
   ! to be set by vertical_parameters_ab
 
   type(silam_vertical),public,target,save :: dispersion_vertical = vertical_missing

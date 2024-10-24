@@ -28,7 +28,6 @@ module ascii_io
   public read_next_field_from_ascii_file
   public open_ascii_file_i
   public close_ascii_file_i
-  public open_ascii_file_o
 
   CONTAINS
 
@@ -62,34 +61,6 @@ module ascii_io
 
   !**********************************************************************
 
-  subroutine open_ascii_file_o(chFNm, iUnit)
-    !
-    ! Just opens the file. Even md module is not needed
-    !
-    implicit none
-
-    ! Imported parametere
-    character(len=*), intent(in) :: chFNm
-    integer, intent(out) :: iUnit
-
-    ! Local variables
-    integer :: iStatus
-
-    iUnit = fu_next_free_unit()
-
-    open(unit=iUnit, file=chFNm, iostat=iStatus)
-
-    if(iStatus /= 0)then
-      call set_error('Failed to open file:' + chFNm,'open_ascii_file_o')
-      iUnit = int_missing
-    endif
-
-  end subroutine open_ascii_file_o
-
-
-
-  !**********************************************************************
-
   recursive subroutine read_next_field_from_ascii_file(uFile, eof, id, fieldData, fFillValue)
     !
     ! The file is supposed to be similar to GRIB but ASCII rather than binary
@@ -106,12 +77,12 @@ module ascii_io
     integer, intent(in) :: uFile
     logical, intent(out) :: eof
     type(silja_field_id), intent(out) :: id
-    real, dimension(:), pointer, optional :: fieldData
+    real, dimension(:), intent(out), optional :: fieldData
     real, intent(in), optional :: fFillValue
 
     ! Local variables
     type(Tsilam_namelist), pointer :: nlField
-    type(silam_sp) :: spContent
+    character(len=fnlen) :: spContent
     integer :: iLocal, iTmp, nVals, nx, ny, iStatus, ix, iy
     real :: fLon, fLat, fx, fy, fVal, fScaling, fMissingValue
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
@@ -119,16 +90,13 @@ module ascii_io
 !    type(silam_grid_position) :: posTmp
     type(silja_grid) :: grid
 
-    spContent%sp => fu_work_string()
-    if(error)return
-
-    !
+        !
     ! Find the starting line in the ASCII file
     !
     eof = .false.
     do while (.not.eof)
-      call next_line_from_input_file(uFile, spContent%sp, eof)
-      if(error .or. index(spContent%sp,'ASCII_FIELD_1') /= 0) exit
+      call next_line_from_input_file(uFile, spContent, eof)
+      if(error .or. index(spContent,'ASCII_FIELD_1') /= 0) exit
     end do
     if(eof.or.error)return
 
@@ -136,10 +104,6 @@ module ascii_io
     ! Read the next field to the namelist. If data are not needed, skip them
     !
     if(present(fieldData))then
-      if(.not. associated(fieldData))then
-        call set_error('fieldData pointer is not asssociated','read_next_field_from_ascii_file')
-        return
-      endif
       nlField => fu_read_namelist(uFile, .false.,'END_ASCII_FIELD_1')
     else 
       nlField => fu_read_namelist(uFile, .false., 'END_ASCII_FIELD_1', chIgnoreItem='val')
@@ -158,19 +122,18 @@ module ascii_io
 	! A trick: it may happen that the field is, in fact, a separate file
 	! Read it then
 	!
-    spContent%sp = fu_content(nlField,'source_file_name')
-	if(spContent%sp /= '')then
+    spContent = fu_content(nlField,'source_file_name')
+	if(spContent /= '')then
         iLocal = fu_next_free_unit()
-        open(unit=iLocal, file=spContent%sp, status='old', iostat=iTmp)
+        open(unit=iLocal, file=spContent, status='old', iostat=iTmp)
         if(iTmp == 0)then
           call read_next_field_from_ascii_file(iLocal, eof, id, fieldData) !, fMissingValue)
         else
-          call set_error('Field file does not exist:' + spContent%sp, &
+          call set_error('Field file does not exist:' + spContent, &
                        & 'read_next_field_from_ascii_file')
           call set_missing(id)
         endif
         call destroy_namelist(nlField)
-        call free_work_array(spContent%sp)
         return
 	endif
 
@@ -231,16 +194,10 @@ module ascii_io
       !
       grid = fu_grid(id)
 
-      if(associated(fieldData)) then
-        if(present(fFillValue))then
-          fieldData(:) = fFillValue
-        else
-          fieldData(:) = fMissingValue
-        endif
+      if(present(fFillValue))then
+        fieldData(:) = fFillValue
       else
-        call set_error('Data pointer is not associated','read_next_field_from_ascii_file')
-        call destroy_namelist(nlField)
-        return
+        fieldData(:) = fMissingValue
       endif
 
       nullify(ptrItems)
@@ -258,15 +215,15 @@ module ascii_io
       ifGeoCoords = fu_content(nlField,'coordinate_of_values') == 'GEOGRAPHICAL'
 
       do iTmp = 1, nVals
-        spContent%sp = fu_content(ptrItems(iTmp))
+        spContent = fu_content(ptrItems(iTmp))
 
         if(ifGeoCoords)then
           !
           ! Have to reproject the val line to the source grid
           !
-          read(unit=spContent%sp, iostat=iStatus,fmt=*) fLon, fLat, fVal
+          read(unit=spContent, iostat=iStatus,fmt=*) fLon, fLat, fVal
           if(iStatus /= 0)then
-            call set_error(fu_connect_strings('Cannot read val string:',spContent%sp), &
+            call set_error(fu_connect_strings('Cannot read val string:',spContent), &
                          & 'read_next_field_from_ascii_file')
             cycle
           endif
@@ -282,7 +239,7 @@ module ascii_io
           ! Check that the reprojected point is indeed inside the source grid
           !
           if(fx < 0.5 .or. fy < 0.5 .or. fx > nx+0.5 .or. fy > ny+0.5)then
-            call msg(fu_connect_strings('Geo-coord cell:',spContent%sp, &
+            call msg(fu_connect_strings('Geo-coord cell:',spContent, &
                                       & ', grid co-ordinates:'), int(fx+0.5), fy)
             call msg_warning(fu_connect_strings('The above cell of area field:', &
                                               & fu_quantity_short_string(fu_quantity(id)), &
@@ -295,9 +252,9 @@ module ascii_io
           !
           ! No reprojection, the value are given in grid coordinates
           !
-          read(unit=spContent%sp, iostat=iLocal,fmt=*) fx, fy, fVal
+          read(unit=spContent, iostat=iLocal,fmt=*) fx, fy, fVal
           if(iLocal /= 0)then
-            call set_error(fu_connect_strings('Cannot read val string:',spContent%sp), &
+            call set_error(fu_connect_strings('Cannot read val string:',spContent), &
                         & 'read_next_field_from_ascii_file')
             cycle
           endif
@@ -306,7 +263,7 @@ module ascii_io
           ! Check that the point is inside the source grid
           !
           if(fx < 0.5 .or. fy < 0.5 .or. fx > nx+0.5 .or. fy > ny+0.5)then
-            call msg(fu_connect_strings('Geo-coord cell:',spContent%sp, &
+            call msg(fu_connect_strings('Geo-coord cell:',spContent, &
                                       & ', grid co-ordinates:'), int(fx+0.5), fy)
             call msg_warning(fu_connect_strings('The above cell of area field:', &
                                               & fu_quantity_short_string(fu_quantity(id)), &
@@ -327,7 +284,6 @@ module ascii_io
     !
     ! Destroy the temporary string and the namelist 
     !
-    call free_work_array(spContent%sp)
     call destroy_namelist(nlField)
 
   end subroutine read_next_field_from_ascii_file
@@ -336,8 +292,6 @@ module ascii_io
   !**********************************************************************
 
   subroutine close_ascii_file_i(iUnit)
-    !
-    ! Just opens the file. Even md module is not needed
     !
     implicit none
 

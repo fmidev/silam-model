@@ -35,7 +35,6 @@ MODULE derived_field_quantities
   ! The private functions and subroutines not to be used elsewhere:
   private dq_surface_roughness
   private dq_surface_pressure
-  PRIVATE dq_layer_thickness
   PRIVATE dq_average_between_obstimes
   PRIVATE dq_height_from_z
   PRIVATE dq_height_from_t
@@ -331,9 +330,6 @@ MODULE derived_field_quantities
       CASE (windspeed_10m_flag)
         list(1:2)=(/u_10m_flag, v_10m_flag/)
 
-      CASE (layer_thickness_flag)
-        list(1)=(geopotential_flag)
-
       case(specific_humidity_2m_flag)
         list(1:2) = (/dew_point_temp_2m_flag, ground_pressure_flag/)
 
@@ -348,7 +344,7 @@ MODULE derived_field_quantities
       CASE (eq_pot_temperature_flag)
         list(1:2)=(/specific_humidity_flag, temperature_flag/)
 
-      CASE (potential_temperature_flag, tfp_flag) !tfp - thermal front parameter
+      CASE (potential_temperature_flag) 
         list(1:2)=(/temperature_flag, temperature_2m_flag/)  ! 2m is not needed for 3d one, but
                         ! dq_potential_temperature will use both in any case
 
@@ -405,9 +401,6 @@ MODULE derived_field_quantities
       CASE(wind_vertical_shear_flag)  ! div(wind_vector)
         list(1:2)=(/u_flag, &
                   & v_flag/)
-
-      CASE (bulk_tfp_flag)
-        list(1:2)=(/layer_thickness_flag, temperature_flag/)
 
       CASE (friction_velocity_flag, & !They will be created by dq_ABL_params
           & temperature_scale_flag, &
@@ -1321,34 +1314,6 @@ MODULE derived_field_quantities
         END IF
       END IF
 
-
-      !
-      ! 5. Metric layer thickness between pressure levels and
-      !    surface level. Z required.
-      !
-      IF (fu_quantity_in_list(layer_thickness_flag, shlist)) THEN
-
-        IF (fu_quantity_in_quantities(geopotential_flag, sm_quantities_3d)) THEN
-
-          IF (supermarket_info) call msg_test('Making metric layer thickness between pr-levels...')
-
-          CALL dq_layer_thickness(meteoMarketPtr, met_src, valid_times, idxTimes)
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
-            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == layer_thickness_flag)) THEN
-              NbrOf3dQ = NbrOf3dQ + 1
-              sm_quantities_3d (NbrOf3dQ) = layer_thickness_flag
-              sm_quantities_3d (NbrOf3dQ+1) = int_missing
-            END IF
-          END IF
-
-        ELSE
-          CALL msg_warning('layer thickness required, but no Z','make_derived_meteo_fields')
-        END IF
-      END IF
-
       !
       ! 6. Metric height from ground surface.
       !
@@ -1665,27 +1630,6 @@ MODULE derived_field_quantities
       END IF
 
       !
-      ! 15. Thermal front parameter (Pilvi's stuff).
-      !
-      IF (fu_quantity_in_list(tfp_flag, shlist)) THEN
-      
-        IF (supermarket_info) call msg_test('Making TFP...')
-
-        CALL dq_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
-        IF (error) THEN
-          CALL unset_error('make_derived_meteo_fields')
-        ELSE
-          CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
-          IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == tfp_flag)) THEN
-            NbrOf3dQ = NbrOf3dQ + 1
-            sm_quantities_3d (NbrOf3dQ) = tfp_flag
-            sm_quantities_3d (NbrOf3dQ+1) = int_missing
-          END IF
-        END IF
-
-      END IF
-
-      !
       !  vertical velocity omega (Pa/s)
       !
       IF (fu_quantity_in_list(omega_flag, shlist)) THEN
@@ -1816,30 +1760,6 @@ MODULE derived_field_quantities
         END IF
       END IF
 
-      !
-      !  Bulk thermal front parameter (Pilvi's stuff).
-      !
-      IF (fu_quantity_in_list(bulk_tfp_flag, shlist)) THEN
-   
-        IF (.NOT.fu_quantity_in_quantities(layer_thickness_flag, sm_quantities_3d)) THEN
-          CALL set_error('bulkTFP wanted but no layer_thickness', 'make_derived_meteo_fields')
-        ELSE
-          IF (supermarket_info) call msg_test('Making bulkTFP...')
-        
-          CALL dq_bulk_thermal_front_parameter(meteoMarketPtr, met_src, valid_times, idxTimes)
-          IF (error) THEN
-            CALL unset_error('make_derived_meteo_fields')
-          ELSE
-            CALL arrange_supermarket(meteoMarketPtr, .true., .false., idxTimes, ifArrange_times=.false.)
-            IF(.not.ANY(sm_quantities_3d(1:NbrOf3dQ) == bulk_tfp_flag)) THEN
-              NbrOf3dQ = NbrOf3dQ + 1
-              sm_quantities_3d (NbrOf3dQ) = bulk_tfp_flag
-              sm_quantities_3d (NbrOf3dQ+1) = int_missing
-            END IF
-          END IF
-
-        END IF
-      END IF
 
       !
       !  Similarity parameters: Monin-obukhov length, friction velocity...
@@ -2930,103 +2850,6 @@ MODULE derived_field_quantities
     CALL free_work_array(v_t_grid)
 
   END SUBROUTINE dq_windspeed_10m
-
-
-
-  ! ****************************************************************
-
-
-  SUBROUTINE dq_layer_thickness(meteoMarketPtr, met_src, valid_times, idxTimes)
-
-    ! Description:
-    ! Creates scalar layer_thickness 2D-fields for given one met_src and
-    ! valid times, and stores them into the supermarket.
-    ! Layer thickness is calculated from the lowest level available,
-    ! typically 1000HPa.
-    !
-    ! All units: SI
-    !
-    ! Language: ANSI Fortran 90
-    !
-    ! Author: Mika Salonoja, FMI
-    ! 
-    IMPLICIT NONE
-
-    ! Imported parameters with intent IN:
-    type(meteo_data_source), INTENT(in) :: met_src
-    TYPE(silja_time), DIMENSION(:), INTENT(in) :: valid_times
-    integer, dimension(:,:), intent(in) :: idxTimes
-    type(mini_market_of_stacks), pointer :: meteoMarketPtr
-
-    ! Local declarations:
-    INTEGER :: i, iS
-    TYPE(silja_3d_field), POINTER :: z3d
-    TYPE(silja_field_id) :: id
-    REAL, DIMENSION(:), POINTER :: z, z_lowest, thickness
-    TYPE(silja_level), DIMENSION(max_levels) :: levels
-    INTEGER :: number_of_levels, t
-    TYPE(silja_time) :: time
-
-!    thickness => fu_work_array()
-    IF (error) RETURN
-    iS = fu_met_src_storage_index(meteoMarketPtr, multi_time_stack_flag, met_src)
-
-    loop_over_times: DO t = 1, SIZE(valid_times)
-      IF (.NOT.defined(valid_times(t))) EXIT loop_over_times
-      time = valid_times(t)
-
-      IF (fu_field_in_sm(meteoMarketPtr, & ! Already done before?
-                       & met_src,&
-                       & layer_thickness_flag,&
-                       & time,&
-                       & level_missing,&
-                       & .true.,&
-                       & .false., &
-                       & idxTimeStack_=idxTimes(iS,t))) CYCLE loop_over_times
-
-      z3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src,&
-                                  & geopotential_flag, &
-                                  & time,&
-                                  & single_time)
-      IF (error) RETURN
-
-      CALL vertical_levels(z3d, levels, number_of_levels)
-      IF (error) RETURN
-
-      IF (.NOT.fu_cmp_levs_eq(levels(1), pr_level_1000hpa)) THEN
-        CALL msg_warning('lowest z level not 1000HPa','dq_layer_thickness')
-        CALL report(z3d)
-      END IF
-
-      z_lowest => fu_grid_data(fu_lowest_field(z3d))
-      IF (error) RETURN
-
-      loop_over_levels: DO i = 1, number_of_levels
-
-        z => fu_grid_data_from_3d(z3d, i)
-
-        id = fu_set_field_id(fu_met_src(z3d),&
-                           & layer_thickness_flag,&
-                           & fu_analysis_time(z3d),&
-                           & fu_forecast_length(z3d), &
-                           & fu_grid(z3d),&
-                           & levels(i))
-        IF (error) RETURN
-        call find_field_data_storage_2d(meteoMarketPtr, id, multi_time_stack_flag, thickness)
-        if(fu_fails(.not.error,'Failed layer thickness field data pointer','dq_layer_thickness'))return
-
-        thickness(1:SIZE(z)) = (z - z_lowest)/g
-
-!        CALL dq_store_2d(meteoMarketPtr, id, thickness, multi_time_stack_flag )
-
-      END DO loop_over_levels
-    END DO loop_over_times
-
-!    CALL free_work_array(thickness)
-
-  END SUBROUTINE dq_layer_thickness
-
-
 
 
   ! ***************************************************************

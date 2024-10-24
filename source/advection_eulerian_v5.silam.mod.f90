@@ -970,12 +970,17 @@ call msg('Done checking')
                              & wind_future(iy:iy+nx_dispersion-1)*(1.- weight_past) + &
                              & wind_adj(iy:iy+nx_dispersion-1))
 
-                fTmp = - iTimesign * sum(fPtr,  fPtr*iTimesign < 0.) * seconds + 1.e-5  ! to avoid zero
+                fTmp = - sum(fPtr,  fPtr*iTimesign < 0.) * seconds + 1.e-5  ! to avoid zero
                 !Total air flow from pole for the timestep (to pole for backward time) in kg
 
 !                fTmp = max(1.001*fTmp, fMass) 
                  !timesteps / polar_capa
                 pBBuf%outflowFactor(ix,iLev) =  fMass / fTmp
+                if (pBBuf%outflowFactor(ix,iLev) <=0 ) then
+                  call msg(boundary_name(ix)//" pole, level "//trim(fu_str(iLev))//", outflowFactor", &
+                      & pBBuf%outflowFactor(ix,iLev))
+                  call set_error("Negative outflowFactor (timesteps / polar_cap) ", "adv_euler_Galp_xy_v5")
+                endif
              endif
 
             enddo!Poles

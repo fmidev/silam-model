@@ -1119,14 +1119,20 @@ CONTAINS
         call run_enks(model_pack)
       else
         call msg('Starting xDVAR')
-        call run_xdvar(model_pack)
+        call run_xdvar(model_pack, ifOk)
       end if
       !call run_4dvar(model_pack)
-      had_error = error
+
       if (error) then
+        had_error = .TRUE.
         call unset_error('silam_v5 after assimilation run')
-      else
+        !!! Only unsets in non-MPI version
+      elseif (ifOk) then
+        had_error = .FALSE.
         call msg('Finalising files after data assimilation run')
+      else
+        had_error = .TRUE.
+        call msg_warning('assimilation run failed', 'silam_v5')
       end if
     else
       !
@@ -1184,7 +1190,7 @@ CONTAINS
     
     ! We must not exit clean if there were errors, so others would know that
     ! we are in trouble
-    if (had_error) call set_error("had_error at the end", "silam_v5")
+    if (had_error) call msg_warning("had_error at the end", "silam_v5")
 
     had_error = had_error .or. error
 

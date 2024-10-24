@@ -150,6 +150,9 @@ distr:
 grads2grib:
 	cd ../build/ && $(MAKE) grads2grib -j 8  SETUP=$(SE)
 
+ascii2nc:
+	cd ../build/ && $(MAKE) ascii2nc -j 8  SETUP=$(SE)
+
 is4fires :
 	cd ../build/ && $(MAKE) is4fires SETUP=$(SE)
 

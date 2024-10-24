@@ -527,7 +527,8 @@ CONTAINS
     ! done once
     !
     cloud%interpCoefMeteo2DispHoriz => fu_horiz_interp_struct(meteo_grid, dispersion_grid, &
-                                                              & fu_horizontal_interp_method(wdr), &
+                                                              & nearest_point, &
+                                                             ! & fu_horizontal_interp_method(wdr), &
                                                               & fu_if_randomise(wdr))
     cloud%ifMeteo2DispHorizInterp = .true. ! Now structure has this field
     !

@@ -2339,6 +2339,12 @@ MODULE ini_boundary_conditions
                boundStructArray(iBoundary)%ptr%times(iSlot) = time_missing !! We'll be resetting this slot
                stackPtr => fu_stack(miniMarketBC, fu_mds(boundStructArray(iBoundary)%ptr%bc_wdr,1), &
                                                    & needed_bstimes(iSlot))
+               
+              if (.not. associated(stackPtr)) then
+                call set_error("stackPtr not associated for " &
+                   & // trim(fu_str(needed_bstimes(iSlot))), sub_name)
+              endif
+                                                 
               if(error)then
                 call set_error('Failed to set the dynamic 3D boundary',sub_name)
                 return

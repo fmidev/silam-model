@@ -24,21 +24,28 @@ MODULE chem_dep_passive
   public registerSpeciesPassive
   public passive_proc_input_needs
   public transform_passive
+  public defined
 
   ! public routines for passive chemistry rules
   !
   public set_chem_rules_passive
-
   public fu_tla_size_passive
+
+  private fu_if_passive_rules_defined
+  
+  interface defined
+    module procedure fu_if_passive_rules_defined
+  end interface
 
   !--------------------------------------------------------------------
   !
-  !  Tchem_rules_passive type definition
-  !  Determines the rules of operating with passive species with defined lifetime
+  ! Tchem_rules_passive type definition
+  ! Determines the rules of operating with passive species with defined degradation rate
+  ! Arrhenius dependence is approximated by a linear relation
   !
   type Tchem_rules_passive
     private
-    real :: basicTempr, basicLifeTime, DLifeTime_DT
+    real :: basicTempr, basicRate, DRate_DT
     logical :: ifTimeTracer = .false., ifInitialisedTimeTag =.false.
     logical :: ifOnesTracer = .false., ifInitialisedOnes =.false.
     logical :: ifSF6destroy = .false.
@@ -132,8 +139,6 @@ MODULE chem_dep_passive
     !
     ! Taking care of the time tracer
     !
-
-
     if(rules%ifTimeTracer)then
       call set_species(speciesTmp, fu_get_material_ptr('timetag'), in_gas_phase)
       if (fu_fails( fu_index(speciesTmp, speciesTransp, nSpeciesTransp) <0 ,&
@@ -255,12 +260,12 @@ MODULE chem_dep_passive
     if(.not.(rulesPassive%defined == silja_true))return
 
     iTmp = 0 !Free index in meteo input
-    if (rulesPassive%dLifeTime_DT /= 0.0) then 
+    if (rulesPassive%Drate_DT /= real_missing) then 
       iTmp = iTmp + 1
       meteo_input_local%quantity(iTmp) = temperature_flag    ! For self-degradation
       meteo_input_local%q_type(iTmp) = meteo_dynamic_flag
       ind_tempr => meteo_input_local%idx(iTmp)
-      call msg("rulesPassive%dLifeTime_DT", rulesPassive%dLifeTime_DT)
+      call msg("rulesPassive%Drate_DT", rulesPassive%DRate_DT)
     endif
     if(rulesPassive%ifSF6destroy) then
       iTmp = iTmp + 1
@@ -296,47 +301,43 @@ MODULE chem_dep_passive
 
     ! Local parameters
     integer :: iSpecies
-    real :: fLifeTime, fTmp
+    real :: fTmp
     integer, save :: iCount=0
 
     print_it = .false.  ! set to true and chemistry manager will give complete dump for this cell
 
-    if(rulesPassive%defined == silja_true)then
+    if(defined(rulesPassive))then
       !
       ! Just do the transformation
       !
       if(nPass_transp > 0)then
-        if ( rulesPassive%DLifeTime_DT == 0) then 
-            fLifeTime = rulesPassive%basicLifeTime
-        else
-           fLifeTime = rulesPassive%basicLifeTime + &
-                    & (metdat(ind_tempr) - rulesPassive%basicTempr) * rulesPassive%DLifeTime_DT
-           if(fLifeTime < 0.01)then
-             call msg('Warning. Very short lifetime. temperature and lifetime:', metdat(ind_tempr), fLifeTime)
-             if(iCount < 100)then
-               call msg('basic tempr and dtau/dT:',rulesPassive%basicTempr, rulesPassive%DLifeTime_DT)
-               iCount = iCount + 1
-             endif
-             fLifeTime = 0.01
-           endif
+        if(rulesPassive%basicRate /= real_missing)then
+          if(rulesPassive%DRate_DT == real_missing) then 
+            fTmp = rulesPassive%basicRate
+          else
+            !
+            ! The linear approximation for rate can be negative too. Allowed.
+            ! just set rate to zero indicating non-decaying tracer
+            !
+            fTmp = max(0., rulesPassive%basicRate + &
+                         & (metdat(ind_tempr) - rulesPassive%basicTempr) * rulesPassive%DRate_DT)
+          endif
+          !
+          ! We cycle over the passive species only picking them by means of the indPass_transp mapping
+          !
+          do iSpecies = 1, nPass_transp
+            vMass(indPass_transp(iSpecies)) = vMass(indPass_transp(iSpecies)) * exp(-timestep_sec * fTmp)
+          end do
         endif
-        !
-        ! We cycle over the passive spesies only picking them by means of the indPass_transp mapping
-        !
-        if (fLifeTime > 0) then
-           do iSpecies = 1, nPass_transp
-             vMass(indPass_transp(iSpecies)) = vMass(indPass_transp(iSpecies))  / (1. + timestep_sec / fLifeTime) 
-           end do
-        endif
-      endif  ! self-decaying species exist
+      endif  ! passive species exist in transport mass map
       !
       ! Time tag treatment
       !
       if(rulesPassive%ifTimeTracer)then
         if(iz == 1) then
-          vMass(indPassTime_transp) = vMass(indPassOnes_transp)*timestep_sec
+          vMass(indPassTime_transp) = vMass(indPassOnes_transp) * timestep_sec
         else
-          vMass(indPassTime_transp) = vMass(indPassTime_transp) + vMass(indPassOnes_transp)*timestep_sec
+          vMass(indPassTime_transp) = vMass(indPassTime_transp) + vMass(indPassOnes_transp) * timestep_sec
         endif
       endif
 
@@ -390,51 +391,56 @@ MODULE chem_dep_passive
     type(Tsilam_namelist), intent(in) :: nlSetup 
     type(Tchem_rules_passive), intent(out) :: rulesPassive
 
+    character(len=*), parameter :: sub_name = 'set_chem_rules_passive'
+
     rulesPassive%defined = silja_false
 
     if(.not.defined(nlSetup))then
-      call set_error('Undefined namelist given','set_chem_rules_passive')
+      call set_error('Undefined namelist given',sub_name)
       return
     endif
     !
     ! If basic temperature and corresponding life time are not defined - set the whole story 
     ! to non-existent.
     !
-    if(fu_content(nlSetup,'passive_subst_ref_lifetime') == '' .or. &
-     & fu_content(nlSetup,'passive_subst_ref_tempr') == '')then
-      rulesPassive%basicLifeTime = real_missing
-      rulesPassive%basicTempr = 273.15
-      rulesPassive%DLifeTime_DT = 0.0
+
+    !! Lockpin
+      if(fu_content(nlSetup,'passive_subst_ref_lifetime') /= '') then 
+        call set_error("passive_subst_ref_lifetime deprecated, " // &
+          & "please use passive_subst_ref_decay_rate_invSeconds instead", sub_name )
+        return
     endif
-    !
-    ! Set the reference interval and temperature
-    !
-    rulesPassive%basicLifeTime = &
-             & fu_sec(fu_set_named_interval(fu_content(nlSetup,'passive_subst_ref_lifetime')))
-    if(error .or. rulesPassive%basicLifeTime < 0.001)return
 
-    rulesPassive%basicTempr = fu_content_real(nlSetup,'passive_subst_ref_tempr')
-    if(error .or. rulesPassive%basicTempr < 0.001 .or. (rulesPassive%basicTempr .eps. real_missing))return
 
-    !
-    ! Derivative of lifetime over temperature
-    ! Note that we know that this derivative is time/temperature intervals. The fu_set_named_value
-    ! will return the value in the SI units, i.e., sec/degree_K.
-    !
-    if(fu_content(nlSetup,'passive_subst_dLifeTime_dT') /= '')then
-      rulesPassive%DLifeTime_DT = &
-           & fu_sec(fu_set_interval_sec(fu_set_named_value(fu_content(nlSetup,'passive_subst_dLifeTime_dT'))))
-      if(error .or. rulesPassive%DLifeTime_DT < 0.001) rulesPassive%DLifeTime_DT = 0.0
+    if(fu_content(nlSetup,'passive_subst_ref_decay_rate_invSeconds') == '' .or. &
+     & fu_content(nlSetup,'passive_subst_ref_tempr_K') == '')then
+      rulesPassive%basicRate = real_missing
+      rulesPassive%basicTempr = real_missing
+      rulesPassive%DRate_DT = real_missing
     else
-      rulesPassive%DLifeTime_DT = 0.0
-    endif
-
+      !
+      ! Set the reference interval and temperature
+      !
+      rulesPassive%basicRate = fu_content_real(nlSetup,'passive_subst_ref_decay_rate_invSeconds')
+      if(error)return
+      rulesPassive%basicTempr = fu_content_real(nlSetup,'passive_subst_ref_tempr_K')
+      if(error)return
+      !
+      ! Derivative of decay rate over temperature
+      ! Negative rtes will be cut!
+      !
+      if(fu_content(nlSetup,'passive_subst_dRate_dT_invSecondsPerK') /= '')then
+        rulesPassive%DRate_DT = fu_content_real(nlSetup,'passive_subst_dRate_dT_invSecondsPerK')
+        if(error)return
+      else
+        rulesPassive%DRate_DT = 0.0
+      endif
+    endif  ! decay rate is defined
+    !
+    ! Ones tracer?
+    !
     rulesPassive%ifInitialisedOnes = .false.
-    if(fu_str_u_case(fu_content(nlSetup,'passive_ones_tracer')) == 'YES')then
-      rulesPassive%ifOnesTracer = .true.
-    else
-      rulesPassive%ifOnesTracer = .false.
-    endif
+    rulesPassive%ifOnesTracer = (fu_str_u_case(fu_content(nlSetup,'passive_ones_tracer')) == 'YES')
     !
     ! A special type of the passive tracer: time tracer
     !
@@ -490,6 +496,14 @@ MODULE chem_dep_passive
 
   end function fu_tla_size_passive
 
+  !==================================================================================
+
+  logical function fu_if_passive_rules_defined(rules)
+    implicit none
+    type(Tchem_rules_passive), intent(in) :: rules
+    fu_if_passive_rules_defined = (rules%defined == silja_true)
+  end function fu_if_passive_rules_defined
+  
   
 END MODULE chem_dep_passive
 

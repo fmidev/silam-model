@@ -672,6 +672,7 @@ CONTAINS
       iTmp = fu_merge_integer_to_array(SILAM_sensible_heat_flux_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
 !      iTmp = fu_merge_integer_to_array(Vd_correction_DMAT_flag, q_disp_dyn) ! Needed for Rs
+      iTmp = fu_merge_integer_to_array(fraction_of_ice_flag, q_met_dyn)
 
     endif
 
@@ -709,8 +710,6 @@ CONTAINS
       end select ! rulesDeposition%DryDepType
 
 !    endif
-
-
     !
     ! Rs
     !
@@ -776,6 +775,9 @@ CONTAINS
   end if
 
   end subroutine add_deposition_input_needs
+
+
+  !*******************************************************************************************
 
   subroutine wet_deposition_input_needs(rulesDeposition, meteo_input_local)
     implicit none
@@ -1308,8 +1310,12 @@ CONTAINS
       ! No deposition rules here....
       !if(rulesDeposition%ifHumidityDependent)then
       ! FIXME: Surface-layer humidity should be here!
-      fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-           & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
+      if (fRoughfr > 0.5) then 
+        fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
+             & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
+      else
+        fHumidity = 0.99  !! Humidity 100% over water
+      endif
       fTemperature = fldTempr%past%p2d(1)%ptr(indexMeteo) * weight_past + &
            & fldTempr%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
       !else
@@ -1317,9 +1323,9 @@ CONTAINS
       !endif
       wetParticle = fu_wet_particle_features( speciesTransport%material, fHumidity)
       fWetDiam = wetParticle%fGrowthFactor * fu_massmean_D( speciesTransport%mode )
-      if(fWetDiam > 25e-6 .and. wetParticle%fGrowthFactor > 5)then
-        fWetDiam = 25e-6
-      endif
+      !      if(fWetDiam > 25e-6 .and. wetParticle%fGrowthFactor > 5)then
+      !  fWetDiam = 25e-6
+      !endif
       fLambda = 2.37e-5 * pMetTempr2m(indexMeteo) / pMetSrfPressure(indexMeteo)
       fKn = 2*fLambda / fWetDiam
       fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
@@ -1577,7 +1583,8 @@ CONTAINS
         u_star =   pMetFricVel(indexMeteo)
 
         invL =     pMetMO_Len_inv(indexMeteo)
-        fRoughfr = pMetLandFr(indexMeteo)
+        fRoughfr = max(pMetLandFr(indexMeteo) + pMetIceFr(indexMeteo), 1.) !! Land + sea ice
+
         !fZ0      =  pMetSrfRoughDisp(indexMeteo)
         fZ0      =  pMetSrfRoughMeteo(indexMeteo)
 
