@@ -401,6 +401,7 @@ LIST = WRF_OUTPUT_HYB
      var     =     SNOW       weq_snow_depth             SURFACE_LEVEL       -1      XXX     -1     -1     1e-3     0
      var     =     SMOIS      soil_moisture_content      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     AFWA_CAPE  cape                       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     SEAICE     ice_fract                  SURFACE_LEVEL       -1      XXX     -1     -1     1     0
        
 END_LIST = WRF_OUTPUT_HYB
 
@@ -481,6 +482,7 @@ LIST = WRF_OUTPUT
      var     =     SNOW       weq_snow_depth             SURFACE_LEVEL       -1      XXX     -1     -1     1e-3     0
      var     =     SMOIS      soil_moisture_content      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     AFWA_CAPE  cape                       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     SEAICE     ice_fract                  SURFACE_LEVEL       -1      XXX     -1     -1     1     0
        
 END_LIST = WRF_OUTPUT
 

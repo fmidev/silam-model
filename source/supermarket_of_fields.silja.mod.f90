@@ -1365,6 +1365,11 @@ CONTAINS
       ! NetCDF has a list of headers available
                                                         !      ifFirstTime, ifFirstLev
       call id_list_from_netcdf_file(input_unit, idList, fields_found)
+      if(ifVerbose)then
+        do it = 1, fields_found
+          call report(idList(it))
+        end do
+      endif
       call timelst_from_netcdf_file(input_unit, timeLst, times_found)
       
       if(fu_list_time_indicator(shpLstPtr) == accept_same_month) then !! Not needed otherwise
@@ -1580,7 +1585,7 @@ CONTAINS
        if(error)return
        eof = .true. ! Exit at the next cycle
        id = idStore
-       call set_grid(id,coarse_geo_global_grid)  ! Dirty hack: shoplist for test field has 
+       call set_grid(id,fu_coarse_geo_global_grid())  ! Dirty hack: shoplist for test field has 
                                   !always coarse_geo_global_grid (see put_test_field_to_content)
                                   ! Thus we have separate id (to match the shoplist)
                                   ! and idStore (to store)

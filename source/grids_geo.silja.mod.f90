@@ -85,6 +85,7 @@ MODULE grids_geo
   public fu_boundary_grid
   public fu_ifPolarCapPossible
   public fu_ifPoleIncluded
+  public fu_coarse_geo_global_grid
 
 
   ! Grid transformations, re-projections and other 
@@ -444,13 +445,13 @@ MODULE grids_geo
 !                        & ps_grid_missing, &
                         & ag_missing)
       
-  TYPE(silja_grid), PARAMETER, PUBLIC :: coarse_geo_global_grid = silja_grid(&
-                                               & 'coarse global geographical grid',&
-                                               & lonlat,&
-                          & silja_lonlat_grid(-180.,-90., 36,18,pole_geographical,10.,10.), &
-!                                               & gk_grid_missing, &
-!                                               & ps_grid_missing, &
-                                               & ag_missing)
+!  TYPE(silja_grid), PARAMETER, PUBLIC :: coarse_geo_global_grid = silja_grid(&
+!                                               & 'coarse global geographical grid',&
+!                                               & lonlat,&
+!                          & silja_lonlat_grid(-180.,-90., 36,18,pole_geographical,10.,10.), &
+!!                                               & gk_grid_missing, &
+!!                                               & ps_grid_missing, &
+!                                               & ag_missing)
 ! Replaced by grib_scan_mode type in grib_io
 !  INTEGER, PARAMETER, PUBLIC :: hirlam_grib_scanning_mode = 64 
 !  INTEGER, PARAMETER, PUBLIC :: ecmwf_grib_scanning_mode = ??  
@@ -1895,7 +1896,22 @@ CONTAINS
   end function fu_area_from_grid
 
 
+  !****************************************************************************************************
+  
+  function fu_coarse_geo_global_grid() result(cgg_grid)
+    !
+    ! Replacement of the parameter, which does not work, for whatever reasons
+    !
+    implicit none
+    
+    type(silja_grid) :: cgg_grid
+    
+    cgg_grid = fu_set_grid_from_params('coarse global geographical grid', lonlat, pole_geographical, &
+                                     & -180., -90., 36, 18, 10., 10.)
 
+  end function fu_coarse_geo_global_grid 
+
+  
   ! **************************************************************
   ! **************************************************************
   !

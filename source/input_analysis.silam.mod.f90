@@ -619,7 +619,7 @@ call msg('Quantity and ID from file:' + fu_quantity_string(fu_quantity(IDlist(iI
                                                              & quantity, &
                                                              & fu_start_time(q_list), &
                                                              & zero_interval, &
-                                                             & coarse_geo_global_grid, &
+                                                             & fu_coarse_geo_global_grid(), &
                                                              & level)
     call free_work_array(spTmp%sp)
 
