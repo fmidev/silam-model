@@ -326,8 +326,21 @@ CONTAINS
             endif
           endif
        enddo
-       ! Last resort: just invent a mode 
-       if (.not. defined(modeOut)) call set_aerosol_mode(modeOut, 0.5e-6)
+       ! Next but last resort: find some suitable mode of _any_ radioactive species
+       if (.not. defined(modeOut)) then
+          do iSp = iNucStart, nSpTrn
+      !!!              if (.not. fu_if_radioactive(fu_material(speciesTransp(iSp)))) cycle !! All supposed to be radioactive
+              d = fu_nominal_d(speciesTransp(iSp))
+              if (d < 5.e-8 .or. d > 2.e-6) cycle !! Wrong-sized mode
+              if (defined(modeOut)) then
+                if (fu_nominal_d(modeOut) < d) modeOut = fu_mode(speciesTransp(iSp))
+              else
+                modeOut = fu_mode(speciesTransp(iSp))
+              endif
+         enddo
+         !! Very last resort: invent the mode!
+         if (.not. defined(modeOut)) call set_aerosol_mode(modeOut, 0.5e-6)
+       endif
       endif
 
       call set_species(spDaughter(1), pDaughterSubst, modeOut)
@@ -338,6 +351,7 @@ CONTAINS
           if ( fu_index(spDaughter(1), speciesTransp, nSpTrn ) < 1) cycle
         endif
       endif
+
 
       call addSpecies(speciesTransp, nSpTrn, spDaughter, 1)
       nNucsAdded = nSpTrn - iNucStart + 1

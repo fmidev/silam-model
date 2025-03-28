@@ -88,14 +88,14 @@ MODULE advection_eulerian_v5
 
   real, private, parameter :: maxmix = 0.005
  ! real, private, parameter :: maxmix = 0.0
-  real, private :: CMrelax = 1.0
+  real, private :: CMrelax = 1.0  !! No relaxation of CM
+  real, private  :: FWfac = 1. !!! Mode for advect_cellboundaries 0: symmetric , 1 - fwd only (old), -1: inverse only
   integer, private :: distributor_type = int_missing
   logical, private :: diffuse_cm_vert = .false.
 
   character(10), private :: distributor_name = "Unknown"
  
  
-  logical, private, save :: ifXFirst = .true.
 
   ! Stuff common for v4 vertical and horizontal
 
@@ -213,7 +213,8 @@ CONTAINS
   !********************************************************************************
 
   subroutine InitEulerAdvectionFields_v5( nsources, nspecies,  npassengers, &
-      & nxy, nz, nthreads, adv_variant, smoother_factor, ifMolecDiffusion, ifSubgridDiffusion )
+      & nxy, nz, nthreads, adv_variant, smoother_factor, forward_factor, &
+      & ifMolecDiffusion, ifSubgridDiffusion )
     !
     ! Initialises the internal advection fields.
     ! It handles only internal fields, which are private for the module.
@@ -222,13 +223,15 @@ CONTAINS
 
     ! Imported parameter
     integer, intent(in) :: nsources, nspecies, npassengers, nxy, nz, nthreads, adv_variant
-    real, intent(in) :: smoother_factor
+    real, intent(in) :: smoother_factor, forward_factor
     logical, intent(in) :: ifMolecDiffusion, ifSubgridDiffusion
 
     ! Local variables
     integer :: iLev,iStatus, ithread, nPoles, nxyz
     type (silja_level), dimension(max_levels) :: leveltops
     type (silam_vertical) :: vertdispTop
+
+    character (len=*), parameter :: sub_name="InitEulerAdvectionFields_v5"
     
     nxyz = max(nxy, nz)
 
@@ -238,13 +241,13 @@ CONTAINS
     !
     if(nx_dispersion < 2 .or. ny_dispersion < 2 .or. nx_dispersion > 2000 .or. ny_dispersion > 2000)then
       call msg('nx and ny of dispersion grid:',nx_dispersion, ny_dispersion)
-      call msg_warning('Strange dispersion grid parameters','InitEulerAdvectionFields_v5')
+      call msg_warning('Strange dispersion grid parameters',sub_name)
     endif
     
 
     call msg("Allocating EulerStuff%Galp5 for numthreads:", nthreads)
         allocate(EulerStuff%Galp5(0:nthreads-1), stat=iStatus)
-        if(fu_fails(iStatus==0,'Failed EulerStuff%Galp5 allocation','InitEulerAdvectionFields_v5'))return
+        if(fu_fails(iStatus==0,'Failed EulerStuff%Galp5 allocation',sub_name))return
 
         do ithread = 0, nthreads-1
 !          call msg("Allocating for thread:", ithread)
@@ -272,7 +275,7 @@ CONTAINS
                 & EulerStuff%Galp5(ithread)%Ccount(1:nz_dispersion), &
                 & stat=iStatus)
           if(fu_fails(iStatus==0,'Failed EulerStuff%Galp5('+fu_str(ithread)+') allocation 1',&
-                    & 'InitEulerAdvectionFields_v5'))return
+                    & sub_name))return
           
           EulerStuff%Galp5(ithread)%cm_line(:,:,:) = CONST_NAN
           EulerStuff%Galp5(ithread)%passengers(:,:,:,:) = CONST_NAN
@@ -298,7 +301,7 @@ CONTAINS
                    & EulerStuff%Galp5(ithread)%top_mass   (1:nsources, 1:nspecies, 1:2), &
                    & stat=iStatus)
              if(fu_fails(iStatus==0,'Failed EulerStuff%Galp5('+fu_str(ithread)+') allocation 2',&
-                    & 'InitEulerAdvectionFields_v5'))return
+                    & sub_name))return
           EulerStuff%Galp5(ithread)%defined = silja_true
         enddo
     !
@@ -316,16 +319,16 @@ CONTAINS
              & stat=iStatus)
              maxWingUsed(:,:) = 0
              
-      if(fu_fails(iStatus==0,'MPI stuff allocation failed','InitEulerAdvectionFields_v5'))return
+      if(fu_fails(iStatus==0,'MPI stuff allocation failed',sub_name))return
     endif
     !
     ! Init vertical stuff
     !
    if (fu_fails(fu_if_layer(fu_level(dispersion_vertical,1)), &
-              & 'Dispersion vertical must be made from layers','InitEulerAdvectionFields_v5'))return
+              & 'Dispersion vertical must be made from layers',sub_name))return
    
    allocate(EulerStuff%Galp5zShared%ifSettles(nSpecies), stat=iStatus)
-   if(fu_fails(iStatus==0,'EulerStuff%Galp5zShared%ifSettles allocation failed','InitEulerAdvectionFields_v5'))return
+   if(fu_fails(iStatus==0,'EulerStuff%Galp5zShared%ifSettles allocation failed',sub_name))return
 
 
     !Vertical-related arrays
@@ -352,6 +355,11 @@ CONTAINS
     endif
    
     CMrelax = smoother_factor
+    FWfac = forward_factor
+    if (.NOT. abs(fwfac) <= 1)  then 
+      call set_error("Starnge forward factor "//trim(fu_str(fwfac)), sub_name)
+      return 
+    endif
     distributor_type = adv_variant
     select case (distributor_type)
       case (advect_tri)
@@ -361,7 +369,7 @@ CONTAINS
       case (advect_step)
          distributor_name="Step"
       case default
-         call set_error("Strange mass distributor type", "InitEulerAdvectionFields_v5")
+         call set_error("Strange mass distributor type", sub_name)
     end select
 
     diffuse_cm_vert = ifSubgridDiffusion
@@ -374,13 +382,13 @@ CONTAINS
         call msg("Can't init molecular diffusion for vertical:")
         call report(dispersion_vertical,.true.)
         call set_error("Molecular diffusion is only iplemented for hybrid layers", &
-                  & 'InitEulerAdvectionFields_v5')
+                  & sub_name)
          return
       endif
       if(.not. allocated(EulerStuff%Galp5zShared%xplus_moldiff))then
         allocate(EulerStuff%Galp5zShared%xplus_moldiff(1:nz, 1:nspecies), &
             & EulerStuff%Galp5zShared%xminus_moldiff(1:nz, 1:nspecies), stat=iStatus)
-        if(fu_fails(iStatus==0,'Stuff for molecular diff allocation failed','InitEulerAdvectionFields_v5'))return
+        if(fu_fails(iStatus==0,'Stuff for molecular diff allocation failed',sub_name))return
         EulerStuff%Galp5zShared%ifMoldiffInitialised = .false. !Yet to be filled with values
       endif
     endif
@@ -695,8 +703,7 @@ CONTAINS
                      &     mystuff%lineParams(0:nx_dispersion_mpi),  & !Staggered
                      & mystuff%lineParamsAdvected(0:nx_dispersion_mpi),       &!Staggered
                      &     mystuff%ifSkipCell(0:nx_dispersion_mpi+1), & !non-staggered
-                     &     mystuff%scratch,   & !staggered
-                     &     abs(seconds), ifLoopX, iCellStartAdv, iCellEndAdv, nx_dispersion_mpi)
+                     &     abs(seconds), ifLoopX, 1, nx_dispersion_mpi, nx_dispersion_mpi)
 
 
           if(error) then
@@ -1097,13 +1104,12 @@ call msg('Done checking')
          if (wing_depth_s > 0) mystuff%ifSkipCell(wing_depth_s+1) = .false. 
          if (wing_depth_n > 0) mystuff%ifSkipCell(wing_depth_s + ny_dispersion) = .false. 
 
-          call advect_cellboundaries(mystuff%wind_right(0:ny_dispersion_mpi), &!Staggered
+         call advect_cellboundaries(mystuff%wind_right(0:ny_dispersion_mpi), &!Staggered
                      & mystuff%cellmass(1:ny_dispersion_mpi),  & ! non-staggered
                      &     mystuff%lineParams(0:ny_dispersion_mpi),  & !Staggered
                      & mystuff%lineParamsAdvected(0:ny_dispersion_mpi),       &!Staggered
                      &     mystuff%ifSkipCell(0:ny_dispersion_mpi+1), & !non-staggered
-                     &     mystuff%scratch,   & !staggered
-                     &     abs(seconds), ifLoopY, iCellStartAdv, iCellEndAdv, ny_dispersion_mpi)
+                     &     abs(seconds), ifLoopY, 1, ny_dispersion_mpi, ny_dispersion_mpi)
 
          
           if(error) then
@@ -1293,7 +1299,7 @@ call msg('Done')
           !$OMP barrier
           !Sync before sending
           !$OMP MASTER
-!          print *, 'YTASK', smpi_global_rank, 'to', iNeighbour, "recvOffset", recvOffset, "recvsize", recvCount
+!          print *, 'YTASK', my_y_coord_local, 'to', iNeighbour, "recvOffset", recvOffset, "recvsize", recvCount
           jTmp = recvOffset !Just length to send
           call smpi_exchange_boundaries(iNeighbour, exchange_buffer, jTmp, recvCount, recvOffset)
           !$OMP END MASTER
@@ -2026,8 +2032,8 @@ nPass = 0
          integer, intent(out) :: NinL, NinR !Counters to increment
          integer :: iwing
 
-         iwing = wing_depth_l + wing_depth_r + n_dispersion !! full line length
-         tolerance = 1e-12 * rb(iwing)  !! Double precision at max line
+         !! Double precision at max line excl. wings
+         tolerance = 1e-12 * (rb(wing_depth_l + n_dispersion) - rb(wing_depth_l))   
 
          
          nInL = 0 
@@ -2566,7 +2572,6 @@ endif
                        &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
                        & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
                        &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
-                       &     mystuff%scratch,   & !staggered
                        &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
 
 
@@ -2585,7 +2590,6 @@ endif
                        &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
                        & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
                        &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
-                       &     mystuff%scratch,   & !staggered
                        &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
                  cycle
               endif
@@ -3102,7 +3106,6 @@ if(ifTalk)call msg('Mass returned:',(/ix,iy,iLev,iSpecies, nPass/))
                      &     mystuff%lineParams(0:nz_dispersion),  & !Staggered
                      & mystuff%lineParamsAdvected(0:nz_dispersion),       &!Staggered
                      &     mystuff%ifSkipCell(0:nz_dispersion+1), & !non-staggered
-                     &     mystuff%scratch,   & !staggered
                      &     abs(seconds), .false., levMinadvection, levMaxadvection, nz_dispersion)
           if(error) then
                call msg("Trouble with Z pole")
@@ -3507,23 +3510,69 @@ call msg('Done')
 
   end subroutine make_diffusion_passengers
 
-      
   !******************************************************************************
-
-  subroutine advect_cellboundaries(u_right, dx_cell, xr, xr_advected,& 
-       & ifSkipCell, passtime, abs_seconds, ifLoop, iCellStart, iCellEnd, nCells)
+  subroutine advect_cellboundaries(u_right, dx_cell, xr_from, xr_to,& 
+       & ifSkipCell, abs_seconds, ifLoop, iCellStart, iCellEnd, nCells)
 
     ! Warning!! If ifLoop==.true. and u_right(0) /= u_right(nCells)  catastrophy happens
 
     real, dimension(0:), intent(in) :: u_right ! kg/s rightwards flux at right cellside (0:nCells) 
     real, dimension(1:), intent(in) :: dx_cell ! mass of air in cell (1:nCells)
-    real, dimension(0:), intent(out) :: passtime ! Actually, scratch area (0:nCells)
-    ! passtime(ix) -- how long will it take to right side if ix cell to pass one cell in 
-    ! a direction  of u_right(ix)
     logical, dimension(0:), intent(in) :: ifSkipCell  ! zero-mass flag incl. off-domain cell (0:nCells+1)
-    real(r8k), dimension(0:), intent(out) :: xr ! pos. of  right border in kg before (0:nCells)
-    real(r8k), dimension(0:), intent(out) :: xr_advected  ! pos. of right border in kg after  (0:nCells)
+    real(r8k), dimension(0:), intent(out) :: xr_from ! pos. of  right border in kg before (0:nCells)
+    real(r8k), dimension(0:), intent(out) :: xr_to  ! pos. of right border in kg after  (0:nCells)
     integer, intent(in) :: iCellStart, iCellEnd, nCells   ! Last index of dx_cell array
+    logical, intent(in) :: ifLoop
+    real, intent(in) :: abs_seconds
+    
+    !! Local paramters
+    real, dimension(0:nCells) ::  u_right_tmp
+    real(r8k), dimension(0:nCells)  :: xr
+    integer :: ix
+    character(len = *), parameter :: sub_name = 'advect_cellboundaries'
+
+    if (.NOT. abs(fwfac) <= 1)  then 
+      call set_error("Starnge forward factor "//trim(fu_str(fwfac)), sub_name)
+
+    endif
+    
+    xr(0)=0.0_r8k
+    do ix = 1, nCells  !!Reference metrics
+        xr(ix) = xr(ix-1) + dx_cell(ix)
+    enddo
+
+    if (fwfac > -1) then  !!! Downwind transport
+      u_right_tmp(0:nCells) =  u_right(0:nCells) * (fwfac + 1.) * 0.5
+      call advect_cellboundaries_fwd(u_right_tmp, xr(0:nCells), xr_to(0:nCells),& 
+       & ifSkipCell, abs_seconds, ifLoop, iCellStart, iCellEnd, nCells)
+    else
+      xr_to(0:nCells) = xr(0:nCells)
+    endif
+
+    
+    if (fwfac < 1) then !!! Upwind transport
+      u_right_tmp(0:nCells) =   u_right(0:nCells) * (fwfac - 1.) * 0.5 
+      call advect_cellboundaries_fwd(u_right_tmp, xr(0:nCells), xr_from(0:nCells),& 
+       & ifSkipCell, abs_seconds, ifLoop, iCellStart, iCellEnd, nCells)
+    else 
+      xr_from(0:nCells) = xr(0:nCells)
+    endif
+
+  end subroutine advect_cellboundaries
+
+      
+  !******************************************************************************
+
+  subroutine advect_cellboundaries_fwd(u_right, xr, xr_advected,& 
+       & ifSkipCell, abs_seconds, ifLoop, iCellStart, iCellEnd, nCells)
+
+    ! Warning!! If ifLoop==.true. and u_right(0) /= u_right(nCells)  catastrophy happens
+
+    real, dimension(0:), intent(in) :: u_right ! kg/s rightwards flux at right cellside (0:nCells) 
+    logical, dimension(0:), intent(in) :: ifSkipCell  ! zero-mass flag incl. off-domain cell (0:nCells+1)
+    real(r8k), dimension(0:), intent(in) :: xr ! pos. of  right border in kg before (0:nCells)
+    real(r8k), dimension(0:), intent(out) :: xr_advected  ! pos. of right border in kg after  (0:nCells)
+    integer, intent(in) :: iCellStart, iCellEnd, nCells   ! Last index of cell array
     logical, intent(in) :: ifLoop
     real, intent(in) :: abs_seconds
 
@@ -3531,6 +3580,10 @@ call msg('Done')
     real(r8k) ::  curpos, nextpos, incr, dx, alpha, t, alphat
     integer ::  ix, curix, nextix, dir, iFirstCell, iLastCell
     logical :: useExp, ifSkipPrev
+    real, dimension(0:nCells) :: passtime ! Actually, scratch area (0:nCells)
+    ! passtime(ix) -- how long will it take to right side if ix cell to pass one cell in 
+    ! a direction  of u_right(ix)
+    character(len = *), parameter :: sub_name = 'advect_cellboundaries_fwd'
 
    !
    ! Gets displacement of cell boundaries after advection
@@ -3539,7 +3592,7 @@ call msg('Done')
    passtime(0:nCells) = 2*abs_seconds !Larger than timestep
       
    if (abs_seconds < 0.1) then
-      call set_error("abs_seconds should be positive!","advect_cellboundaries")
+      call set_error("abs_seconds should be positive!",sub_name)
    endif
 
    if (ifLoop) then !Advect all cell boundaries
@@ -3548,7 +3601,7 @@ call msg('Done')
         iLastCell = nCells-1
       if (u_right(0) /= u_right(nCells)) then
             call msg("u_right(0) /= u_right(nCells) in global domain", u_right(0),u_right(nCells))
-        call set_error("Must be the same!", "advect_cellboundaries")
+            call set_error("Must be the same!", sub_name)
             return
         endif
    else
@@ -3556,12 +3609,6 @@ call msg('Done')
         iFirstCell = max(iCellStart-1,0)  
         iLastCell  = min(iCellEnd, nCells)
    endif
-
-   !Get coordinates for right bound whole line is needed
-   xr(0)=0.0_r8k
-   do ix = 1, nCells
-      xr(ix) = xr(ix-1) + dx_cell(ix)
-   enddo
 
 
     mainloop: do ix = iFirstCell, iLastCell ! Cells, which right side needs advection
@@ -3656,14 +3703,15 @@ call msg('Done')
 
     if(ifLoop) xr_advected(nCells) = xr(nCells) + xr_advected(0)
 
-    if (.not. all(abs(xr_advected(iFirstCell:iLastCell))>=0.)) then
+#ifdef DEBUG_V5    
+    if (.not. all(abs(xr_advected(iFirstCell:iLastCell))>=0.)) then !! Check fo NaN
             call msg("")
             call msg("iFirstCell:iLastCell)", iFirstCell, iLastCell)
             call msg("xr(0:nCells)         :",xr(0:nCells))
             call msg("xr_advected(0:nCells):",xr_advected(0:nCells))
             call msg("u_right(0:nCells)*sec:",u_right(0:nCells)*abs_seconds)
-            call msg("cellmass(1:nCells)        :",dx_cell(1:nCells))
-       call set_error("Gotcha: non-finite xr_advected","here")
+            call msg("cellmass(1:nCells)        :", real(xr(1:nCells) - xr(0:nCells-1)))
+           call set_error("Gotcha: non-finite xr_advected",sub_name)
     endif
 
     do ix=iFirstCell+1, iLastCell 
@@ -3675,21 +3723,22 @@ call msg('Done')
             call msg("xr         :",xr(0:nCells))
             call msg("xr_advected:",xr_advected(0:nCells))
             call msg("u_right*sec:",u_right(0:nCells)*abs_seconds)
-            call msg("cellmass        :",dx_cell(1:nCells))
-            if (abs (incr) < dx_cell(ix)*1d-7) then
+            call msg("cellmass        :", real(xr(1:nCells) - xr(0:nCells-1)))
+            if (abs (incr) < (xr(ix)- xr(ix-1) )*1d-7) then
               call msg("Just numerics.. Recovering by flipping")
               curpos = xr_advected(ix)
               xr_advected(ix) = xr_advected(ix-1)
               xr_advected(ix-1) = curpos
             else
-              call set_error("Non_monotonous advected cells","advect_cellboundaries")
+              call set_error("Non_monotonous advected cells", sub_name)
               exit
             endif
          endif
     enddo
+#endif
 
 !    call msg("")
-  end subroutine advect_cellboundaries
+  end subroutine advect_cellboundaries_fwd
 
 
 !*********************************************************************************************
@@ -4397,7 +4446,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
 
   subroutine advect_mass_trislab(   cmRelIn,  momOut, &
                           & PassengersIn,  PassengersOut, nPass, &
-                          & xr, xr_advected, dx,& 
+                          & xr, xr_advected,& 
                           & ifLoop, iCellStart, iCellEnd, nCells,&
                           & fMinAdvectedMass, have_negatives, ifCMout, cmrelax)
     ! 
@@ -4409,15 +4458,15 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
 
     real, dimension(1:),    intent(in)  :: cmRelIn ! 1:nCells -- domain only
     real, dimension(1:),    intent(out) :: momOut  ! 1:nCells -- domain only
-    real, dimension(1:),    intent(in)  :: dx !(1:nCells) !Cell size (e.g. in kg)
     real(r8k), dimension(0:),    intent(in)  :: xr, xr_advected !(0:nCells)  !same units as above!!!
     real, dimension(0:,0:), intent(in)  :: PassengersIn  !(0:npass, 0:nCells+1) 
     real, dimension(0:,0:), intent(out) :: PassengersOut !(0:npass, 0:nCells+1)
     real, intent(in) :: cmrelax ! Facttor to introduce diffusion bu CM relaxation
 
 #ifdef DEBUG_V5
-#define CHECK(what, bark) if (what) call set_error(bark,"advect_mass_trislab"); if (error) return 
+#define CHECK(what, bark) if (what) call set_error(bark,sub_name); if (error) return 
 ! Print full redistribution info: iFrom, iTo , fraction    
+!!#define REPORT(II,frac) if (ifReport) print *, "II: ix=", ix, ixto, frac
 !!!#define REPORT(II,frac) if (ifReport) call msg("II: ix="+fu_str(ix), ixto, frac)
 #define REPORT(II,frac)
 #else
@@ -4430,14 +4479,15 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
     real, intent(in) ::  fMinAdvectedMass ! Used only for conversion to centers of mass
     logical, intent(in) :: have_negatives, ifLoop, ifCMout
 
-    real(r8k) ::  fZC, SS, BR_abs, BL_abs, BL_tmp, BR_tmp, ftmp,  loopx,  SS1, alpha, MMRL
+    real(r8k) ::  fZC, SS, BR_abs, BL_abs, BL_tmp, BR_tmp, ftmp,  loopx,  SS1, alpha, MMRL, dxixto
     real(r8k), parameter :: fZcTrimax = 1.0_r8k/6  ! Maximum CM for trapezoid slab
     real (r8k), parameter :: dropFraction = 1D-5 !! Fraction of a slab to ignore
     real, parameter :: dropMass = MIN_FLOAT / dropFraction !! Mass to ignore 
     real :: fmass, fMass1
     integer ::  ix, ixto
-
-
+    logical :: ifReport 
+      character (len=*), parameter :: sub_name = 'advect_mass_trislab'
+    ifReport = .FALSE.
 
     ! !No advection hack
     if (.False.) then
@@ -4465,22 +4515,25 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
     loopx = 0.
     ixto = 0
     if (ix == 0) then !Some left boundary stuff to distribute
-       SS  = xr_advected(0) ! Should be positive!!!
+       SS  = xr_advected(0) - xr(0) ! Should be positive!!!
        CHECK(.not. (SS > 0), "Can't inject left boundary")
        ixto = 1
-       do while (SS > xr(ixto)) 
-        PassengersOut(:,ixto) = dx(ixto)/SS * PassengersIn(:,0)
-       REPORT (1,dx(ixto)/SS)
-        ixto = ixto + 1 ! Moments are zero anyhow
+       do while (SS > xr(ixto) - xr(0))
+        dxixto = xr(ixto) - xr(ixto-1) 
+        PassengersOut(:,ixto) = dxixto/SS * PassengersIn(:,0)
+       REPORT (1,dxixto/SS)
+       ixto = ixto + 1 ! Moments are zero anyhow
       enddo
       fTmp = xr_advected(0)-xr(ixto-1)  !size of leftover
+      CHECK(.not. (fTmp >= 0), "Can't inject left boundary1")
       PassengersOut(:,ixto) =  fTmp / SS * PassengersIn(:,0) !Remaining part
       REPORT (2, fTmp / SS)
-      momOut(ixto) =  - 0.5* (1. - fTmp/dx(ixto)) * PassengersOut(0,ixto)  !left-justified slab
+       dxixto = xr(ixto) - xr(ixto-1) 
+      momOut(ixto) =  - 0.5* (1. - fTmp/dxixto) * PassengersOut(0,ixto)  !left-justified slab
       ix = 1
-   elseif (xr_advected(ix-1) < 0) then !First mass below the domain
-      if (ifLoop) then 
-         loopx =  xr(nCells) !Add this part to advected quantities
+   elseif (ifLoop) then
+      if (xr_advected(ix-1) < xr(0)) then !First mass below the domain
+         loopx =  xr(nCells) - xr(0) !Add this part to advected quantities
          do ixto = nCells,1,-1   !Find ixTo for cell ix 
            if (xr_advected(ix-1) + loopx > xr(ixto-1)) exit
          enddo
@@ -4503,7 +4556,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
          if (abs(fZC) < 0.5001)then ! Still ok
                  fZC  = 0.999*fZC
          else
-           call set_error('Strange mass centre, ix=' + fu_str(ix),'advect_mass_trislab')
+           call set_error('Strange mass centre, ix=' + fu_str(ix),sub_name)
            return
          endif 
        endif
@@ -4525,7 +4578,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
      !Still within the domain?
      if (BL_abs + loopx >= xr(nCells))  then   !! Completely out of domain
         if (ifLoop) then
-          loopx = loopx - xr(nCells)
+          loopx = loopx - (xr(nCells) - xr(0))
           ixto = 1
         else
            !Whole slab and following slabs go above the domain
@@ -4547,7 +4600,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
      !
      ! If slab is too thin, put it to ixTo and cycle, beware negative one
      !
-     if(.not. SS > dropFraction * dx(ix))then
+     if(.not. SS > dropFraction * (xr(ix) - xr(ix-1)))then
 
        if(.not. SS >= 0.0)then
           !$OMP CRITICAL(v4bark)
@@ -4555,13 +4608,14 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
           call msg('xr(ix-2:ix+2)', (/xr(max(0,ix-2):min(ix+2,size(xr)))/))
           call msg('xradvected(ix-2:ix+2)', (/xr_advected(max(0,ix-2):min(ix+2,size(xr_advected)))/))
           call msg('ftmp,bl_abs, br_abs,ss,alpha,MMRL', (/fZC,ftmp,bl_abs, br_abs,ss,alpha,MMRL/))
-          call set_error("non-positive slab",'advect_mass_trislab')
+          call set_error("non-positive slab",sub_name)
           !$OMP END CRITICAL(v4bark)
        endif
        passengersOut(0:nPass,ixTo) = passengersOut(0:nPass,ixTo) + &
                                    &  passengersIn(0:nPass, ix)
+       dxixto = xr(ixto) - xr(ixto-1) 
        momOut(iXto) = momOut(iXto) + passengersIn(0, ix) * &
-                    & 0.5 * (BR_abs+BL_abs - xr(ixTo-1)-xr(ixTo)) / dx(ixto)
+                    & 0.5 * (BR_abs+BL_abs - xr(ixTo-1)-xr(ixTo)) / dxixto
        CHECK(abs(momOut(iXto)) > 0.5*(passengersOut(0,ixTo)+dropMass), "Gotcha thin-slab")
        cycle
      endif
@@ -4582,15 +4636,16 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
                !       0.5* (1. - (BR_tmp - BL_tmp)/dx(ixto)) !right-justified slab
 !               0.5_r8k* ( BR_tmp + BL_tmp - xr(ixto) - xr(ixto-1))
                fTmp = (BL_tmp - 0.5_r8k*(xr(ixto) + xr(ixto-1)))/SS ! BL Offset from the center
+               dxixto = xr(ixto) - xr(ixto-1) 
                momOut(iXto) =   momOut(iXto) + passengersIn(0, ix) * &
-                  & SS1*(SS1*(SS1*alpha/3.0_r8k + 0.5*MMRL + 0.5*alpha*fTmp) + MMRL*fTmp)*SS/dx(ixto)
+                  & (BR_tmp - BL_tmp)*(SS1*(SS1*alpha/3.0_r8k + 0.5*MMRL + 0.5*alpha*fTmp) + MMRL*fTmp)/dxixto
 
                CHECK(abs(momOut(iXto)) > 0.5*(passengersOut(0,ixTo)+dropMass), "Gotcha1")
 !               if(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo))then
 !                 !$OMP CRITICAL(g1)
-!                 call msg_warning("Gotcha1 at:" + fu_str(iXto), 'advect_mass_trislab')
+!                 call msg_warning("Gotcha1 at:" + fu_str(iXto), sub_name)
 !                 call msg('momOut, passengersOut:', momOut(iXto), passengersOut(0,ixTo))
-!                 call set_error("Gotcha1", 'advect_mass_trislab')
+!                 call set_error("Gotcha1", sub_name)
 !                 !$OMP END CRITICAL(g1)
 !                 return
 !               endif
@@ -4601,8 +4656,8 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
            ixto = ixto + 1
            if (ixto > nCells) then 
               if(.not. ifLoop)  exit
-              loopx = loopx - xr(nCells)   !handle loopover
-              BL_tmp = 0.0_r8k !  xr(0)  
+              loopx = loopx - ( xr(nCells) - xr(0))   !handle loopover
+              BL_tmp =  xr(0)  
               ixto = 1
            endif
       enddo
@@ -4618,18 +4673,19 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
       REPORT (4, fTmp )
       if (ixto <= nCells .and.  ixto> 0) then  !non-justified slab
 !          fTmp =  fTmp * 0.5_r8k* ( BR_tmp + BL_tmp - xr(ixto) - xr(ixto-1))
-!          fTmp = fTmp / dx(ixto) !!CM * massfraction
+!          fTmp = fTmp / dxixto !!CM * massfraction
 !          momOut(iXto) = momOut(iXto) + passengersIn(0, ix) * ftmp 
 
            fTmp = (BL_tmp - 0.5_r8k*(xr(ixto) + xr(ixto-1)))/SS ! BL Offset from the center
+           dxixto = xr(ixto) - xr(ixto-1) 
            momOut(iXto) =   momOut(iXto) + passengersIn(0, ix) * &
-               & SS1*(SS1*(SS1*alpha/3.0_r8k + 0.5_r8k*(MMRL + alpha*fTmp)) + MMRL*fTmp)*SS/dx(ixto)
+               & SS1*(SS1*(SS1*alpha/3.0_r8k + 0.5_r8k*(MMRL + alpha*fTmp)) + MMRL*fTmp)*SS/dxixto
           CHECK(abs(momOut(iXto)) > 0.5*(passengersOut(0,ixTo)+dropMass), "Gotcha2")
 !          if(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo))then
 !            !$OMP CRITICAL(g1)
-!            call msg_warning("Gotcha2 at:" + fu_str(iXto), 'advect_mass_trislab')
+!            call msg_warning("Gotcha2 at:" + fu_str(iXto), sub_name)
 !            call msg('momOut, passengersOut:', momOut(iXto), passengersOut(0,ixTo))
-!            call set_error("Gotcha2", 'advect_mass_trislab')
+!            call set_error("Gotcha2", sub_name)
 !            !$OMP END CRITICAL(g1)
 !            return
 !          endif
@@ -4654,21 +4710,23 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
               & fTmp / SS * PassengersIn(:,nCells+1)
 !        call msg("5:ix, frac", ix, fTmp / SS )
        REPORT (5, fTmp/SS )
-       momOut(ixto) = momOut(ixto) + 0.5* (1. - fTmp/dx(ixto)) * & !right-justified slab
+       dxixto = xr(ixto) - xr(ixto-1) 
+       momOut(ixto) = momOut(ixto) + 0.5* (1. - fTmp/dxixto) * & !right-justified slab
             &  fTmp / SS * PassengersIn(0,nCells+1)
 
        CHECK(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo), "Gotcha3")
 !       if(abs(momOut(iXto)) > 0.5*passengersOut(0,ixTo))then
 !         !$OMP CRITICAL(g1)
-!         call msg_warning("Gotcha3 at:" + fu_str(iXto), 'advect_mass_trislab')
+!         call msg_warning("Gotcha3 at:" + fu_str(iXto), sub_name)
 !         call msg('momOut, passengersOut:', momOut(iXto), passengersOut(0,ixTo))
-!         call set_error("Gotcha3", 'advect_mass_trislab')
+!         call set_error("Gotcha3", sub_name)
 !         !$OMP END CRITICAL(g1)
 !         return
 !       endif
        do ixto = ixto+1,nCells 
-         PassengersOut(:,ixto) = dx(ixto)/SS * PassengersIn(:,nCells+1)
-!         call msg("6:ix, frac", ix, SS/dx(ixto))
+         dxixto = xr(ixto) - xr(ixto-1) 
+         PassengersOut(:,ixto) = dxixto/SS * PassengersIn(:,nCells+1)
+!         call msg("6:ix, frac", ix, SS/dxixto)
          REPORT (6, 1.0 )
        enddo
     endif
@@ -4686,7 +4744,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
             elseif (abs(momOut(ix)) < 0.5001)then 
                momOut(ix) = sign(0.499,momOut(ix))
             else  !Too bad
-               call set_error("Wrong CM at advection output, ix="+fu_str(ix), "advect_mass_trislab")
+               call set_error("Wrong CM at advection output, ix="+fu_str(ix), sub_name)
             endif
           endif
         else
@@ -4702,7 +4760,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
           fTmp = abs(momOut(ix) /  fmass)  ! CM: +-0.5 , positive -- Up
           if(.not. (fTmp <= 0.5) )then
                call msg("fmass, momOut(ix)",fmass, momOut(ix))
-            call set_error("Wrong Moment at advection output, ix="+fu_str(ix), "advect_mass_trislab")
+            call set_error("Wrong Moment at advection output, ix="+fu_str(ix), sub_name)
           endif
          endif
        enddo
@@ -4730,7 +4788,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
        else
           call msg("mom, out (1:nCells)", momOut(1:nCells))
        endif
-       call set_error("Trouble after mass advection!","advect_mass_trislab")
+       call set_error("Trouble after mass advection!",sub_name)
       !$OMP END CRITICAL(v4bark)
     endif
 #endif
@@ -4764,7 +4822,7 @@ IXLOOP:   do ix = ix, min(iCellEnd,nCells)
       case (advect_tri)
          call advect_mass_trislab(   cmRelIn,  momOut, &
                           & PassengersIn,  PassengersOut, nPass, &
-                          & xr, xr_advected, dx,&
+                          & xr, xr_advected,&
                           & ifLoop, iCellStart, iCellEnd, nCells,&
                           & fMinAdvectedMass, have_negatives, ifCMout, cmrelax)
 
@@ -5366,7 +5424,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
            where (passengersInOut(:,:,iflip)< 1e-20) passengersInOut(:,:,iflip) = 0.
            call advect_mass_trislab(cmInOut(:,iflip), cmInOut(:,3-iflip), &
                                   & passengersInOut(:,:,iflip),  passengersInOut(:,:,3-iflip), 0, &
-                                  & xr, xr_advected, dx,&
+                                  & xr, xr_advected,&
                                   & .true., 1, nLine, nLine, &! ifLoop, iCellStart, iCellEnd, nCells,
                                   & 1e-10, .false., .True., 1.0) !& fMinAdvectedMass, have_negatives, ifCMout)
            iflip = 3 -  iflip
@@ -5591,7 +5649,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
  !          enddo
           call advect_mass_trislab(cmInOut(:,iflip), cmInOut(:,3-iflip), &
                                  & passengersInOut(:,:,iflip),  passengersInOut(:,:,3-iflip), 0, &
-                                 & xr, xr_advected, dx,&
+                                 & xr, xr_advected,&
                                  & .true., 1, nLine, nLine, &! ifLoop, iCellStart, iCellEnd, nCells,
                                  & 1e-10, .false., .True., 1.0) !& fMinAdvectedMass, have_negatives, ifCMout)
           iflip = 3 -  iflip
@@ -5655,7 +5713,6 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
      real, dimension(1:nLine) :: dx
      integer :: ix,istep, nsteps, iflip, itest, iUnit
      character(len=20) :: testname
-     real, dimension(0:nLine) :: passtime
      real :: seconds
      integer :: i
 
@@ -5667,7 +5724,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
     ifSkipCell = .false.
 
     call advect_cellboundaries(u_right, dx, xr, xr_advected,& 
-       & ifSkipCell, passtime, seconds, .false., 1, nLine, nLine)
+       & ifSkipCell, seconds, .false., 1, nLine, nLine)
 
     print *, xr
     print *, xr_advected  ! Prints advected boundaries
@@ -5675,7 +5732,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
     ! flip wind
     u_right1(0:nLine) = -u_right(nLine:0:-1)
     call advect_cellboundaries(u_right1, dx, xr, xr_advected1,& 
-       & ifSkipCell, passtime, seconds, .false., 1, nLine, nLine)
+       & ifSkipCell, seconds, .false., 1, nLine, nLine)
     print *, xr(nLine)-xr_advected1(nLine:0:-1) !must print the same
 
  print *, ""
@@ -5685,7 +5742,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
      iFlip=1
      call advect_mass_trislab(cmInOut(:,iflip), cmInOut(:,3-iflip), &
                & passengersInOut(:,:,iflip),  passengersInOut(:,:,3-iflip), 0, &
-                & xr, xr_advected, dx,&
+                & xr, xr_advected,&
                & .false., 0, nLine+1, nLine, &! ifLoop, iCellStart, iCellEnd, nCells,
                & 1e-10, .false., .True., 1.0) !& fMinAdvectedMass, have_negatives, ifCMout)
             print *, passengersInOut(0,0:nLine+1,2)
@@ -5694,7 +5751,7 @@ subroutine make_molec_diffusion_passengers(xplus, xminus,  passengers, nz, Q)
   cmInOut(:,1) = -0.2
      call advect_mass_trislab(cmInOut(:,iflip), cmInOut(:,3-iflip), &
                & passengersInOut1(:,:,iflip),  passengersInOut1(:,:,3-iflip), 0, &
-                & xr, xr_advected1, dx,&
+                & xr, xr_advected1, &
                & .false., 0, nLine+1, nLine, &! ifLoop, iCellStart, iCellEnd, nCells,
                & 1e-10, .false., .True., 1.0) !& fMinAdvectedMass, have_negatives, ifCMout)
 

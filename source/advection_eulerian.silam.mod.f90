@@ -83,7 +83,7 @@ CONTAINS
 
   !********************************************************************************
 
-  subroutine InitEulerAdvectionFields(adv_method, adv_variant, smoother_factor, &
+  subroutine InitEulerAdvectionFields(adv_method, adv_variant, smoother_factor, forward_factor, &
       & nsources, nspecies,  npassengers, ifMolecDiffusion, ifSubgridDiffusion)
     !
     ! Calls  InitEulerAdvectionFields_vX.
@@ -93,7 +93,7 @@ CONTAINS
     ! Imported parameter
     integer, intent(in) :: adv_method, adv_variant
     integer, intent(in) :: nsources, nspecies, npassengers
-    real, intent(in) :: smoother_factor
+    real, intent(in) :: smoother_factor, forward_factor
     logical, intent(in) :: ifMolecDiffusion, ifSubgridDiffusion
 
     ! Local variables
@@ -131,7 +131,7 @@ CONTAINS
         call set_error('bulk advection is broken','InitEulerAdvectionFields')
       case(adv_euler_Galperin_v5)
          call InitEulerAdvectionFields_v5(nsources, nspecies,  npassengers, nxy, nz_dispersion, & 
-           & nthreads, adv_variant, smoother_factor, ifMolecDiffusion, ifSubgridDiffusion)
+           & nthreads, adv_variant, smoother_factor, forward_factor, ifMolecDiffusion, ifSubgridDiffusion)
       CASE DEFAULT
         CALL set_error('Unknown advection method:' + fu_str(adv_method),'InitEulerAdvectionFields')
     END SELECT

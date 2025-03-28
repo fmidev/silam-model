@@ -49,6 +49,7 @@ module depositions
   public verify_deposition
   public allocate_scav_amount
   public fu_tla_size_scav
+  public PrintCamaera
 
   private scavenge_lagr
   private scavenge_puff_2011
@@ -59,7 +60,6 @@ module depositions
   private make_rain_in_cell_col
   private report_rain
   private fu_vdplus_slinnSP98
-  private get_vd_species
   private get_settling_velocity_species
   private iVrk4
   private DERIV
@@ -672,7 +672,6 @@ CONTAINS
       iTmp = fu_merge_integer_to_array(SILAM_sensible_heat_flux_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(fraction_of_ice_flag, q_met_dyn)
-      iTmp = fu_merge_integer_to_array(soil_moisture_vol_frac_nwp_flag, q_met_dyn)
     endif
 
 
@@ -726,6 +725,7 @@ CONTAINS
         iTmp = fu_merge_integer_to_array(stomatal_conductance_flag, q_met_dyn)
         iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
         iTmp = fu_merge_integer_to_array(canopy_height_flag, q_met_st)
+        iTmp = fu_merge_integer_to_array(soil_moisture_vol_frac_nwp_flag, q_met_dyn)
 !        iTmp = fu_merge_integer_to_array(fraction_of_ice_flag, q_met_dyn)
         if ( wdr == wdr_missing) then  ! Can be undefined
            iTmp = fu_merge_integer_to_array(leaf_area_index_flag, q_met_dyn)
@@ -1242,7 +1242,7 @@ CONTAINS
     ! Local variables
     real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
           & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0, fTemperature, &
-          & fVTFplus, fSensHeatVelplus, vsplusCorrTF, Cp_ro, fTmp, R2m, V, fIvd
+          & fVTFplus, fSensHeatVelplus, vsplusCorrTF, Cp_ro, fTmp, R2m, V, fIvd, t2, airden, ps
     real, parameter :: ascale = 2e-3  ! Collection scale is prescribed for
                                           ! land. Should be taken from landuse
     real, parameter :: fPrm = 0.7  ! Molecular prandtl number
@@ -1260,9 +1260,9 @@ CONTAINS
     vdsmooth = 0.
     vdrough = 0.
     ! Meteo
-    fDyn_visc = fu_dynamic_viscosity(pMetTempr2m(indexMeteo))
-    fKin_visc = fDyn_visc * pMetSrfPressure(indexMeteo) / &
-              & (gas_constant_dryair * pMetTempr2m(indexMeteo))
+
+    t2 = pMetTempr2m(indexMeteo)
+    ps =  pMetSrfPressure(indexMeteo)
     u_star =   pMetFricVel(indexMeteo)
 
     invL =     pMetMO_Len_inv(indexMeteo)
@@ -1270,9 +1270,12 @@ CONTAINS
     !fZ0      =  pMetSrfRoughDisp(indexMeteo)
     fZ0      =  pMetSrfRoughMeteo(indexMeteo)
 
-    Cp_ro = specific_heat_dryair*pMetSrfPressure(indexMeteo) / &
-          & (gas_constant_dryair*pMetTempr2m(indexMeteo))
-    fSensHeatVelplus = pMetSensHF(indexMeteo)/(Cp_ro * pMetTempr2m(indexMeteo) * u_star )
+    airden = ps / (gas_constant_dryair * t2)
+    fDyn_visc = fu_dynamic_viscosity(t2)
+    fKin_visc = fDyn_visc / airden
+
+    Cp_ro = specific_heat_dryair * airden
+    fSensHeatVelplus = pMetSensHF(indexMeteo)/(Cp_ro * t2 * u_star )
     !        - u_star*u_star*invL/(0.4*g)
     ! <w'T'>/T/ u_*
 
@@ -1316,8 +1319,6 @@ CONTAINS
       else
         fHumidity = 0.99  !! Humidity 100% over water
       endif
-      fTemperature = fldTempr%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-           & fldTempr%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
       !else
       !  fHumidity = rulesDeposition%fDefaultRelHumidity
       !endif
@@ -1326,11 +1327,11 @@ CONTAINS
       !      if(fWetDiam > 25e-6 .and. wetParticle%fGrowthFactor > 5)then
       !  fWetDiam = 25e-6
       !endif
-      fLambda = 2.37e-5 * pMetTempr2m(indexMeteo) / pMetSrfPressure(indexMeteo)
+      fLambda = 2.37e-5 * t2 / ps
       fKn = 2*fLambda / fWetDiam
       fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
 
-      fDiffusivity = boltzmann_const * pMetTempr2m(indexMeteo) * fCun / &
+      fDiffusivity = boltzmann_const * t2 * fCun / &
                    & (3. * Pi * fDyn_visc * fWetDiam)
       fTau =  fWetDiam * fWetDiam * wetParticle%fWetParticleDensity * &
                        & fCun / (18. * fDyn_visc)
@@ -1448,16 +1449,6 @@ CONTAINS
       if (zref>Z2m) then
         R2m = max(0., R2m)   ! Could become negative in unstable
         fTmp = V*R2m
-! Problems like this cause arithmetic exception, better stay clean
-! 1449: invVd2m, fTmp, V   53.8973999       1.08506525      -1.87622122E-02
-! 1449: invVd2m, fTmp, V   47.9674492       1.10740995      -1.85509678E-02
-! 1449: invVd2m, fTmp, V   182.322647       1.10023880      -1.87041257E-02
-! 1449: invVd2m, fTmp, V   51.3347435       1.10711932      -1.85464676E-02
-! 1449: invVd2m, fTmp, V   68.8748627       1.10041344      -1.86553001E-02
-! 1449: invVd2m, fTmp, V   1.04545293E+09   95888.5234      -1.84673797E-02
-! 1449: invVd2m, fTmp, V   24.0280857       1.09530103      -1.90008879E-02
-! 1449: invVd2m, fTmp, V   23.0923443       1.10184014      -1.91738810E-02
-! 1449: invVd2m, fTmp, V   188.234879       1.13369203      -1.86895579E-02
 
         if (-fTmp < 0.1 * LOG_MAX_REAL ) then  !exp defined, plus hack as below
           if (abs(fTmp) .gt. 0.001) then
@@ -1499,22 +1490,6 @@ CONTAINS
         call msg("vdsmooth, vdrough", vdsmooth, vdrough)
         invVd2m = fu_get_vd !Safe choice
 
-!                  !FIXME This should not happen, but happened in apta run....
-!   Negative Vd2m     -22.5560760
-!   fRoughfr, u_star:       0.8557873       1.4377022
-!   St, fSc   0.0000000E+00   0.2825128E+01
-!   vsplus, vsplusCorrTF   0.0000000E+00   0.0000000E+00
-!   dpa, Rsplus   0.0000000E+00   0.3594255E+02
-!   Re, invL     127.2245331       0.2871192
-!   fZ0 , zref       0.0015802      71.2181854
-!   Strange Cnc2m:  pCnc2m%arM(iSpecies,iSrc,1,ix,iy):      -0.0442355
-!   Resulting concentration (/m3)  -0.5795835E-11
-!   weightUp  -0.9999990E+15
-!   dh1, dh2      79.4501953     210.7581329
-!   zCM(1),zCM(2)       0.3963878      -0.0166495
-!   M(1), M(2)      34.2621117    3755.0971680
-!   vd, vd2m       0.0045477      -0.0443340
-!   Rs       25.0000000
       endif
     else
        !Inside roughness
@@ -1523,435 +1498,7 @@ CONTAINS
 
   end function  fu_get_vd
 
-  !****************************************************************************************
-
-  subroutine  get_vd_species(zref,  speciesTransport, &  ! Reference height, what to deposit
-                         & indexMeteo, weight_past, &  ! position in space and time
-                         & Rs, deptype, timeSign, fVd, invVd2m)     ! surface resistance
-    !
-    ! Returns the deposition velocity for given species and given height
-    ! with new KS2011 deposition scheme plus thermpohoresis.
-    ! For gases the return value is an inverse resistance
-    !
-    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
-    !            very transport species, which were used for the precomputation step. This is
-    !            checked upon the first call
-    ! Units: SI
-    ! Author: Roux
-    !
-    implicit none
-
-    ! Imported parameters
-    real, dimension(:,:),  intent(in) :: zref    ! (nSp, nSrc)  at what height?
-    type(silam_species), dimension(:), intent(in) :: speciesTransport ! (nSp) what depositing
-    integer, intent(in) :: indexMeteo            ! where
-    real, intent(in) :: weight_past              ! when
-    real, dimension(:), intent(in) :: Rs         ! (nSp) surface resistance
-    integer, intent(in) :: deptype               ! deposition type
-    integer, intent(in) :: timeSign              ! 1 for forward, -1 for backward
-    real, dimension(:,:), intent(out) :: fVd, invVd2m ! resistance from zref to 2m
-
-
-    ! Local variables
-    real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
-          & fSetlVelocity, fTau, fHumidity, invL, u_star, mol_diff, fZ0, fTemperature, &
-          & fVTFplus, fSensHeatVelplus, vsplusCorrTF, Cp_ro, fTmp, R2m, V, fIvd
-        real, parameter :: ascale = 2e-3  ! Collection scale is prescribed for
-                                          ! land. Should be taken from landuse
-        real, parameter :: fPrm = 0.7  ! Molecular prandtl number
-        real, parameter :: fkgkp = 0.02  ! Ratio of heat conductivities
-                                         ! for gas and particle
-     real, parameter :: Z2m = 2.  ! Height fo 2m
-
-    real :: tauplus, vsplus, rplus, Rsplus, invLplus, zplus,  Re, Sc, St, dpa, fKn !  dimensionless
-    logical :: fwdOnly ! Can calculate vd only for forward time
-                                                       !  parameters
-    real :: vdsmooth, vdrough       ! vd for two landuse types. Should be more
-    type(TwetParticle) :: wetParticle
-    integer :: iSp, iSrc
-    integer, save :: iCount=0
-
-    call set_error("Not done yet!!","get_vd_species")
-    return
-
-        vdsmooth = 0.
-        vdrough = 0.
-        ! Meteo
-        fDyn_visc = fu_dynamic_viscosity(pMetTempr2m(indexMeteo))
-        fKin_visc = fDyn_visc * pMetSrfPressure(indexMeteo) / &
-                  & (gas_constant_dryair * pMetTempr2m(indexMeteo))
-        u_star =   pMetFricVel(indexMeteo)
-
-        invL =     pMetMO_Len_inv(indexMeteo)
-        fRoughfr = max(pMetLandFr(indexMeteo) + pMetIceFr(indexMeteo), 1.) !! Land + sea ice
-
-        !fZ0      =  pMetSrfRoughDisp(indexMeteo)
-        fZ0      =  pMetSrfRoughMeteo(indexMeteo)
-
-        Cp_ro = specific_heat_dryair*pMetSrfPressure(indexMeteo) / &
-              & (gas_constant_dryair*pMetTempr2m(indexMeteo))
-        fSensHeatVelplus = pMetSensHF(indexMeteo)/(Cp_ro * pMetTempr2m(indexMeteo) * u_star )
-        !        - u_star*u_star*invL/(0.4*g)
-        ! <w'T'>/T/ u_*
-
-
-            if(fZ0 < 1e-10)then
-              if(iCount < 1000)then
-                call msg('Strange z0:', fZ0)
-                iCount = iCount + 1
-              endif
-              fz0=1.e-6
-            endif
-
-        if (fZ0 < 3. * fKin_visc/u_star) then !FIXME: May be some other coefficient
-                                              !needed here
-                fRoughfr = 0.
-        endif
-
-        if(pMetPrecTot(indexMeteo) > 0.0) then ! Dimensionless meteo
-                                                !switch for impaction
-                 fStickRatio = 1.0
-        else
-                 fStickRatio = 0.0
-        endif
-
-       !
-       ! Dimensionless species properties
-        if(fu_mode(speciesTransport(iSp)) == in_gas_phase)then    !gas
-        ! Sc = nu / D (kinematic viscosity over molecular diffusivity)
-            fSc = fKin_visc/fu_gas_molecular_diffusivity_air(speciesTransport(iSp)%material)
-            fWetDiam = real_missing
-            tauplus = 0.
-            vsplus = 0.
-            rplus = 0.
-            Rsplus = Rs(iSp)*u_star
-            fTau = 0.
-            fVTFplus = 0.
-        else    ! particles
-          ! No deposition rules here....
-          !if(rulesDeposition%ifHumidityDependent)then
-          ! FIXME: Surface-layer humidity should be here!
-            fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-                 & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
-            fTemperature = fldTempr%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-                 & fldTempr%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
-          !else
-          !  fHumidity = rulesDeposition%fDefaultRelHumidity
-          !endif
-            wetParticle = fu_wet_particle_features( speciesTransport(iSp)%material, fHumidity)
-            fWetDiam = wetParticle%fGrowthFactor * fu_massmean_D( speciesTransport(iSp)%mode )
-            if(fWetDiam > 25e-6 .and. wetParticle%fGrowthFactor > 5)then
-              fWetDiam = 25e-6
-            endif
-            fLambda = 2.37e-5 * pMetTempr2m(indexMeteo) / pMetSrfPressure(indexMeteo)
-            fKn = 2*fLambda / fWetDiam
-            fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
-
-            fDiffusivity = boltzmann_const * pMetTempr2m(indexMeteo) * fCun / &
-                         & (3. * Pi * fDyn_visc * fWetDiam)
-            fTau =  fWetDiam * fWetDiam * wetParticle%fWetParticleDensity * &
-                          & fCun / (18. * fDyn_visc)
-
-
-            fVTFplus = - fSensHeatVelplus * fPrm  & !Thermophoretic velocity
-                &        * 2*fCun *1.17 *(fkgkp+2.18*fKn) & ! (Friedlander 2000)
-                &        / (1+3*1.14*fKn)/(1.+2.*fkgkp +2.*2.18*fKn) * timeSign
-            fSc = fKin_visc / fDiffusivity
-            tauplus = fTau * u_star * u_star / ( fKin_visc)
-            vsplus = fTau * g / u_star * timeSign
-            rplus  = 0.5 * fWetDiam * u_star / fKin_visc
-            Rsplus = 0. ! No surface resistance for particles
-          endif
-
-
-
-
-
-!! Temporary hack
-!fu_get_vd = & !1e-8 +  fTau * g
-!  & u_star * fu_vdplus_DS(tauplus,fSc,vsplus, Rsplus, invL*fZ0, zref/fZ0)
-!return
-
-    SELECT CASE(deptype)
-      CASE(DryD_KS2011, DryD_KS2011_TF) ! Original KS scheme
-        vsplusCorrTF=0. ! vorrection of VsPlus for thermophoresis
-        if (deptype == DryD_KS2011_TF)  vsplusCorrTF = fvtfplus
-                                !  thermophoresis
-        if  (fRoughfr < 1.) then ! smooth fraction exist
-           fTmp = fKin_visc/u_star ! z0smooth
-           vdsmooth = (1. - fRoughfr) * u_star * &
-                fu_vdplus_smooth(tauplus, fSc, vsplus + vsplusCorrTF, rplus, Rsplus, invL*fTmp , zref(iSp, iSrc)/fTmp)
-              if (.not. (vdsmooth .ge. 0.)) then
-                 if (zref(iSp, iSrc) < fTmp) then
-                         ! Could be just too-low center of masses
-                         vdsmooth =  (1. - fRoughfr) * u_star ! whatever
-                 else
-                  call msg ("**DEPO** --get_vd_species------------------------")
-                  call msg ("**DEPO** Negative vdsmooth!, WetDp=",fWetDiam)
-                  call msg ("**DEPO** Negative vdsmooth!, tauplus=",tauplus)
-                  call msg ("**DEPO** Negative vdsmooth!, fsc=",fsc)
-                  call msg ("**DEPO** Negative vdsmooth!, vsplus=",vsplus)
-                  call msg ("**DEPO** Negative vdsmooth!, rplus=",rplus)
-                  call msg ("**DEPO** Negative vdsmooth!, Rsplus=",Rsplus)
-                  call msg ("**DEPO** Negative vdsmooth!, Rs=",Rs)
-                  call msg ("**DEPO** Negative vdsmooth!, vdsmooth=",vdsmooth)
-                  call msg ("**DEPO** Negative vdsmooth!, zref=",zref(iSp, iSrc))
-                  call msg ("**DEPO** Negative vdsmooth!, z0smooth=",fTmp)
-                  vdsmooth = 0. ! Should not happen, but happens.
-                                ! sometimes returns NAN due to over-/under- flow
-                endif
-              endif
-       endif
-        vsplusCorrTF = 0.5*(vsplusCorrTF+abs(vsplusCorrTF)) ! Can not be
-                       ! negative for rough surfaces.
-                       ! Could be treated in some better way
-
-        if (fRoughfr > 0.) then ! rough fraction exist
-           Re =  ascale * u_star / fKin_visc
-           St = 2*tauplus/Re * fStickRatio ! No impaction for non-sticky
-                                          ! surfaces
-           dpa = 2.*rplus/Re
-           vdrough = fRoughfr * u_star * &
-                fu_vdplus_rough(St, fSc, vsplus + vsplusCorrTF, dpa, Rsplus, Re, invL*fZ0 , max(zref(iSp, iSrc)/fZ0, 1.))
-            if (.not. (vdrough .ge. 0.)) then
-                  call msg("**DEPO** Bad vdrough in get_vd_species! vdrough,fz0:", vdrough, fZ0)
-                  call msg('fRoughfr, u_star:',fRoughfr, u_star)
-                  call msg('St, fSc',St, fSc)
-                  call msg('vsplus, vsplusCorrTF',vsplus, vsplusCorrTF)
-                  call msg('dpa, Rsplus',dpa, Rsplus)
-                  call msg('Re, invL',Re, invL)
-                  call msg('fZ0 , zref',fZ0 , zref(iSp, iSrc))
-                  vdrough = 0. ! FIXME Should never happen
-            endif
-        endif
-        fVd = vdsmooth + vdrough
-        fwdOnly = .false.
-
-
-
-      CASE (DryD_Vd_difsed) ! Vd ==  diffusion + settling
-         fVd = u_star * &
-               & fu_vdplus_DS(tauplus,fSc,abs(vsplus), Rsplus, invL*fZ0, zref(iSp, iSrc)/fZ0)
-        fwdOnly = .true.
-
-      CASE (DryD_Vd_SP98) ! Vd Slinn (Accoding to Seinfeld Pandis 2006)
-         fVd = u_star * &
-               & fu_vdplus_slinnSP98(tauplus,fSc,abs(vsplus), Rsplus, invL*fZ0, zref(iSp, iSrc)/fZ0)
-        fwdOnly = .true.
-
-      CASE (DryD_VD_Zhang)! Generic Zhang... Grass for all
-        fVd = fu_vd_Zhang(fTau,fSc,fWetDiam,u_star, Zref(iSp, iSrc), Rs(iSp), invL, ZhangGrass)
-        fwdOnly = .true.
-
-      CASE (DryD_VD_Zero)!
-        fVd = 0
-        fwdOnly = .false.
-
-      CASE DEFAULT ! Old scheme
-            call msg("Unknown dry depo  rules! rules:", deptype)
-            call set_error("Unknown dry depo  rules", "fVd")
-    END SELECT
-
-    ! correct Vd for inverse time
-    if (fwdOnly .and. (timeSign < 0)) then
-            fVd = fVd - u_star*abs(vsplus)
-            fVd = 0.5 * (fVd + abs(fVd)) + 1e-10 ! 1/Vd is still
-                                                                 ! meaningful
-    endif
-
-    !! Remaining stuff -- Vd2m
-
-    invVd2m = 1./ fVd
-    if (Z2m > fZ0) then  ! reasonable profile to 2m is possible
-            R2m  = 2.5 * (log(Zref(iSp, iSrc)/Z2m) + fu_Psi(Zref(iSp, iSrc)*invL) - fu_Psi(Z2m*invL))
-            ! R2m is positive for zref > Z2m and negative for  zref < Z2m
-            V = g * fTau * timeSign
-            invVd2m = 1./ fVd
-            if (zref(iSp, iSrc)>Z2m) then
-                   R2m  = 0.5*(R2m+abs(R2m))   ! Could become negative in
-                                             ! unstable
-                   fTmp = V*R2m
-                   if (abs(fTmp) .gt. 0.001) then
-                        fTmp = exp(-fTmp)
-                        invVd2m = invVd2m*fTmp +  (1.-fTmp)/V
-                   else
-                        invVd2m = invVd2m - R2m
-                   endif
-            else
-                   R2m  = -0.5*(R2m-abs(R2m))   ! Could become wrong sign
-                               ! Should be    positive here
-
-                   fTmp = V*R2m
-                   if (abs(fTmp) .gt. 0.001) then
-                        fTmp = exp(fTmp)
-                        invVd2m = invVd2m*fTmp +  (fTmp - 1.)/V
-                   else
-                        invVd2m = invVd2m + R2m
-                   endif
-            endif
-    endif
-    if (invVd2m(iSp, iSrc) < 0) then
-            call msg("Negative Vd2m", invVd2m(iSp, iSrc))
-    endif
-    return
-  end subroutine get_vd_species
-
-
 !**********************************************************************************
-! New deposition DryD_Vd_SP98 does the same at revision 57750  FIXME
-! To be removed?
-!
-!  subroutine get_Rb(speciesTransport, nSpecies, &                ! resistance for them
-!                  & indexMeteo, weight_past, &  ! position in space and time
-!                  & rulesDeposition, &           ! rules for standard deposition
-!                  & arRb)                        ! output array for Rb
-!    !
-!    ! Returns an array of Rs for the subset of the given species - those, which are handled
-!    ! by the standard deposition procedure and thus referred to via the module private
-!    ! index arrays indGasesDepositing and indAerosolDepositing.
-!    !
-!    ! ATTENTION. Uses the precomputed arrays and parameters, so the species must be the
-!    !            very transport species, which were used for the precomputation step. This is
-!    !            checked upon the first call
-!    !
-!    implicit none
-!
-!    ! Imported parameters
-!    type(silam_species), dimension(:), intent(in) :: speciesTransport
-!    integer, intent(in) :: nSpecies, indexMeteo
-!    type(Tdeposition_rules), intent(in) :: rulesDeposition
-!    real, intent(in) :: weight_past
-!    real, dimension(:), intent(out) :: arRb
-!
-!    ! Local variables
-!    integer :: iTmp, index
-!    ! Local variables
-!    real :: fLambda, fCun, fWetDiam, fSc, fSt, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
-!          & fSetlVelocity, fHumidity, u_star, prandtl, mol_diff
-!    type(TwetParticle) :: wetParticle
-!
-!    !
-!    ! Actual work starts
-!    !
-!    select case(rulesDeposition%DryDepType)
-!
-!      case(DryD_grav_only)
-!        do iTmp = 1, rulesDeposition%nGasesDepositing
-!          arRb(rulesDeposition%indGasesDepositing(iTmp)) = -1     ! no deposition for gases
-!        end do
-!        do iTmp = 1, rulesDeposition%nAerosolsDepositing
-!          arRb(rulesDeposition%indAerosolDepositing(iTmp)) = 1.e10  ! only settling is considered for aerosols
-!        end do
-!
-!      case(DryD_Rb_only, DryD_resist_only, DryD_Rb_grav_combine, DryD_resist_grav_combine)
-!
-!        fLambda = 2.37e-5 * pMetTempr2m(indexMeteo) / pMetSrfPressure(indexMeteo)
-!
-!        fDyn_visc = fu_dynamic_viscosity(pMetTempr2m(indexMeteo))
-!
-!        fKin_visc = fDyn_visc * pMetSrfPressure(indexMeteo) / &
-!                  & (gas_constant_dryair * pMetTempr2m(indexMeteo))
-!
-!        !
-!        ! For gases:
-!        ! Hicks et al. (1987): Rb = 2 / (u_star * karmann) * (Sc/Pr)**2/3
-!        ! Alternatively in Seinfeld & Pandis: Rb = 5*Sc**2/3 / u_star
-!        ! (attributed to Wesely (1989) but mentioned there).
-!        ! Sc = nu / D (kinematic viscosity over molecular diffusivity)
-!        !
-!        do iTmp = 1, rulesDeposition%nGasesDepositing
-!!          call msg('iTmp, indGasesDepositing(iTMp)',iTmp,rulesDeposition%indGasesDepositing(iTmp))
-!!          call msg('Reporting species:')
-!!          call report(speciesTransport(rulesDeposition%indGasesDepositing(iTmp)))
-!
-!          if(fu_if_gas_depositing(speciesTransport(rulesDeposition%indGasesDepositing(iTmp))%material))then
-!            u_star = pMetFricVel(indexMeteo)
-!            prandtl = pMetPrandtl(indexMeteo)
-!            index = rulesDeposition%indGasesDepositing(iTmp)
-!            mol_diff = fu_gas_molecular_diffusivity_air(speciesTransport(index)%material)
-!            arRb(index) = 2.0 / (u_star*karmann_c) * (fKin_visc / (mol_diff*prandtl))**0.666667
-!          else
-!            arRb(rulesDeposition%indGasesDepositing(iTmp)) = -1.
-!          endif
-!        end do
-!        !
-!        ! For aerosols:
-!        ! 1/Rb = u* (Sc**(-2/3) + 10**(-3/St))
-!        ! Sc=nu/D, nu=1.46e-5 m2/s, D = kT Cun/(3pi d mu), d is
-!        ! particle diameter, mu is dynamic viscosity=1.8e-5, k=1.38e-23 J/K -
-!        ! Boltzman's constant, Cun is no-slip correction
-!        ! St is Stokes number (inertial passing through layer), St=v_sedim * u* * u* /(g*nu)
-!        !
-!        ! Alternative from Seinfield & Pandis:
-!        ! 1/Rb = 3 * u* (Sc**-gamma + (St/alfa+St)**2 + 0.5(Dp/A)**2)
-!        ! In principle, gamma, alfa and A are land-use dependent but some mean values are:
-!        ! gamma = 0.55, alpha=1, A=5mm
-!        !
-!        if(rulesDeposition%nAerosolsDepositing > 0)then
-!          if(rulesDeposition%ifHumidityDependent)then
-!            fHumidity = fldRelHumidity%past%p2d(1)%ptr(indexMeteo) * weight_past + &
-!                      & fldRelHumidity%future%p2d(1)%ptr(indexMeteo) * (1.-weight_past)
-!          else
-!            fHumidity = rulesDeposition%fDefaultRelHumidity
-!          endif
-!
-!          do iTmp = 1, rulesDeposition%nAerosolsDepositing
-!
-!            wetParticle = fu_wet_particle_features( &
-!                           & speciesTransport(rulesDeposition%indAerosolDepositing(iTmp))%material, &
-!                           & fHumidity)
-!
-!            fWetDiam = wetParticle%fGrowthFactor * &
-!                     & fu_massmean_D(speciesTransport(rulesDeposition%indAerosolDepositing(iTmp))%mode)
-!            if(fWetDiam > 25e-6 .and. wetParticle%fGrowthFactor > 5)then
-!              fWetDiam = 25e-6
-!            endif
-!            fCun = 1. + 2*fLambda / fWetDiam * (1.257 + 0.4 * exp(-0.55 * fWetDiam / fLambda))
-!            fDiffusivity = boltzmann_const * pMetTempr2m(indexMeteo) * fCun / &
-!                         & (3. * Pi * fDyn_visc * fWetDiam)
-!            fSc = fKin_visc / fDiffusivity
-!            fSetlVelocity = g * fWetDiam * fWetDiam * wetParticle%fWetParticleDensity * &
-!                          & fCun / (18. * fDyn_visc)
-!
-!            fSt = fSetlVelocity * pMetFricVel(indexMeteo) * pMetFricVel(indexMeteo) / (g * fKin_visc)
-!
-!            !
-!            ! Stick-ratio decides whether the particle stays in air after hitting the surface
-!            ! exp(-sqrt(fSt)) for dry 1 for wet surfaces
-!            !
-!!            call msg('Large scale and convective precipitation:',ptrLrgScalePrec(indMeteo), ptrConvPrec(indMeteo))
-!            if(pMetPrecTot(indexMeteo) > 0.0)then
-!              fStickRatio = 1.0
-!            else
-!              fStickRatio = 1.0 * (1.0-pMetLandFr(indexMeteo)) + exp(-sqrt(fSt)) * pMetLandFr(indexMeteo)
-!            endif
-!            !
-!            ! Now - two options. This is from Slinn.
-!            !
-!            arRb(rulesDeposition%indAerosolDepositing(iTmp)) = 1. / &
-!                              & (pMetFricVel(indexMeteo) * (fSc**(-0.66666667) + 10**(-3.0/fSt)))
-!            !
-!            ! Option 2 seems to be better but the interception and stokes number require detailed land use,
-!            ! which is still in the future. So far, let's just distinguish between the land and sea
-!            !
-!! 14.1.2011.
-!! This option is from Zhang(2001) and, in fact, is rubbish. The deposition velocity is much too high.
-!!
-!!            arRb(rulesDeposition%indAerosolDepositing(iTmp)) = &
-!!                          &   1. / (3. * pMetFricVel(indexMeteo) * fStickRatio * &
-!!                                  & (fSc**(-0.55) + &                                ! Brownian diffusion
-!!                                   & fSt*fSt/((1+fSt)*(1+fSt)) + &                 ! Impaction
-!!                                   & pMetLandFr(indexMeteo)*fWetDiam*fWetDiam/5e-5))  ! Interception
-!
-!          end do  ! depositing aerosols
-!        endif  ! if any aerosol
-!      case default
-!        call set_error('Unknown dry deposition type','fu_R_b_aerosol')
-!    end select
-!
-!  end subroutine get_Rb
-
-  !**********************************************************************************
 
   subroutine get_Rs_2013(speciesTransport, mmr_lowest_lev, &
                   & aer_att_surf, cld_att_surf, aer_att_0, cld_att_0, cosza, nSpecies, &        ! resistance for them
@@ -2923,8 +2470,6 @@ end function fu_settling_vel
 
     integer :: istat,  num_levs
     character(len=*), parameter :: sub_name = 'scavenge_column'
-    real, dimension(:), pointer ::  pMetPrecTot, pCAPE, pMetTotCloud
-    integer, dimension(:), pointer :: mdl_in_q
     real, dimension(mapConc%n3D) :: cwc_col
     type (Train_in_cell), dimension(mapConc%n3D) :: r1d
 
@@ -5613,6 +5158,204 @@ end function fu_settling_vel
 
 
   end subroutine test_TL_ADJ
+
+  !**********************************************************************************
+
+  subroutine vd_CAMAERA(u_star, fz0, lai, ascale, invL)
+    !  CAMAERRA 2024 protocol
+    !
+    implicit none
+
+    ! Imported parameters
+    real, intent(in) :: u_star, fz0, lai, ascale, invL
+
+    ! Local variables
+    real :: fLambda, fCun, fWetDiam, fSc, fRoughfr, fStickRatio, fKin_visc, fDyn_visc, fDiffusivity, &
+          & fSetlVelocity, fTau, fHumidity,  mol_diff,  fTemperature, &
+          & fVTFplus, fSensHeatVelplus, vsplusCorrTF, Cp_ro, fTmp, R2m, V, fIvd,  t2, airden, ps,  rho_p, Vd, Rs, Zref
+    real, parameter :: fPrm = 0.7  ! Molecular prandtl number
+    real, parameter :: fkgkp = 0.02  ! Ratio of heat conductivities
+                                         ! for gas and particle
+    integer :: isize
+
+    real :: tauplus, vsplus, rplus, Rsplus, invLplus, zplus,  Re,  St, dpa, fKn  !  dimensionless
+    real :: vdsmooth, vdrough       ! vd for two landuse types. Should be more
+    
+    ! Parameters from fu_vdplus_rough
+    real :: Re12, Vdif, Vint, Vimp, Impar, Ra
+    real, parameter :: Stcr=0.15 ! critical stokes number
+    real, parameter :: Utus=3.0 ! U_{top}/u_*
+
+
+    vdsmooth = 0.
+    vdrough = 0.
+    ! Meteo
+
+    t2 = 288.
+    ps = 101325.
+    rho_p = 2000.
+    Rs = 0.
+    Zref = 20.
+
+    fStickRatio = 1.
+
+    if (ascale > 0) then
+      fRoughfr = 1.
+    else
+      fRoughfr = 0.
+    endif
+
+    airden = ps / (gas_constant_dryair * t2)
+    fDyn_visc = fu_dynamic_viscosity(t2)
+    fKin_visc = fDyn_visc / airden
+
+    Cp_ro = specific_heat_dryair * airden
+    fSensHeatVelplus = 0.
+
+    if (fZ0 < 3. * fKin_visc/u_star) then !FIXME: May be some other coefficient needed here
+      fRoughfr = 0.
+    endif
+
+
+    do isize = 0,999
+      fWetDiam = 1e-8 * 10**(3.*isize/999.)
+
+      fLambda = 2.37e-5 * t2 / ps
+      fKn = 2*fLambda / fWetDiam
+      fCun = 1. + fKn * (1.257 + 0.4 * exp(-1.1*fKn))
+
+      fDiffusivity = boltzmann_const * t2 * fCun / &
+                   & (3. * Pi * fDyn_visc * fWetDiam)
+      fTau =  fWetDiam * fWetDiam * rho_p * &
+                       & fCun / (18. * fDyn_visc)
+      fVTFplus = - fSensHeatVelplus * fPrm  & !Thermophoretic velocity
+          &        * 2*fCun *1.17 *(fkgkp+2.18*fKn) & ! (Friedlander 2000)
+          &        / (1+3*1.14*fKn)/(1.+2.*fkgkp +2.*2.18*fKn)
+      fSc = fKin_visc / fDiffusivity
+      tauplus = fTau * u_star * u_star / fKin_visc
+      vsplus = fTau * g / u_star
+      rplus  = 0.5 * fWetDiam * u_star / fKin_visc
+      Rsplus = 0. ! No surface resistance for particles
+
+        vsplusCorrTF=0. ! correction of VsPlus for thermophoresis
+        if (fRoughfr < 1.) then ! smooth fraction exist
+          fTmp = fKin_visc/u_star ! z0smooth
+          vdsmooth = (1. - fRoughfr) * u_star * fu_vdplus_smooth(tauplus, fSc, vsplus + vsplusCorrTF, &
+                                                               & rplus, Rsplus, invL*fTmp , zref/fTmp)
+          if (.not. (vdsmooth .ge. 0.)) then
+            if (zref < fTmp) then
+              ! Could be just too-low center of masses
+              vdsmooth =  (1. - fRoughfr) * u_star ! whatever
+            else
+              call msg ("**DEPO** -fu_get_vd-------------------------")
+              call msg ("**DEPO** Negative vdsmooth!, WetDp=",fWetDiam)
+              call msg ("**DEPO** Negative vdsmooth!, tauplus=",tauplus)
+              call msg ("**DEPO** Negative vdsmooth!, fsc=",fsc)
+              call msg ("**DEPO** Negative vdsmooth!, vsplus=",vsplus+vsplusCorrTF)
+              call msg ("**DEPO** Negative vdsmooth!, rplus=",rplus)
+              call msg ("**DEPO** Negative vdsmooth!, Rsplus=",Rsplus)
+              call msg ("**DEPO** Negative vdsmooth!, Rs=",Rs)
+              call msg ("**DEPO** Negative vdsmooth!, vdsmooth=",vdsmooth)
+              call msg ("**DEPO** Negative vdsmooth!, zref=",zref)
+              call msg ("**DEPO** Negative vdsmooth!, z0smooth=",fTmp)
+              call msg ("**DEPO** Negative vdsmooth!, invL=",invL)
+              vdsmooth = 0. ! Should not happen, but happens.
+                            ! sometimes returns NAN due to over-/under- flow
+            endif
+          endif
+       endif
+        vsplusCorrTF = 0.5*(vsplusCorrTF+abs(vsplusCorrTF)) ! Can not be negative for rough surfaces.
+                                                            ! Could be treated in some better way
+        if (fRoughfr > 0.) then ! rough fraction exist
+           Re =  ascale * u_star / fKin_visc
+           St = 2*tauplus/Re * fStickRatio ! No impaction for non-sticky
+                                          ! surfaces
+           dpa = 2.*rplus/Re
+           vdrough = fRoughfr * u_star * &
+                fu_vdplus_rough(St, fSc, vsplus + vsplusCorrTF, dpa, Rsplus, Re, invL*fZ0 , max(zref/fZ0, 1.))
+            if (.not. (vdrough .ge. 0.)) then
+                  call msg("**DEPO** Bad vdrough in fu_get_vd! vdrough,fz0:", vdrough, fZ0)
+                  call msg('fRoughfr, u_star:',fRoughfr, u_star)
+                  call msg('St, fSc',St, fSc)
+                  call msg('vsplus, vsplusCorrTF',vsplus, vsplusCorrTF)
+                  call msg('dpa, Rsplus',dpa, Rsplus)
+                  call msg('Re, invL',Re, invL)
+                  call msg('fZ0 , zref',fZ0 , zref)
+                  vdrough = 0. ! FIXME Should never happen
+            endif
+            
+            Re12 = sqrt(Re)
+
+            Vdif = 1. / (Rsplus + 0.5*Re12 * fSc**.6666667)
+            Vint = 80. * dpa * dpa *Re12
+            Vimp = 0;
+            Impar = St - 1./(Utus * Re12) - Stcr ! Impaction parameter
+            if (Impar .gt. 0) then
+                    Vimp = 2./Utus * exp(-0.1/Impar- 1./sqrt(Impar))
+            endif
+
+
+
+            Ra  = 2.5 * (log(zref/fZ0) + fu_Psi(fZ0*invL)) ! no stability correction
+                                                          ! for lower limit
+            Ra = 0.5*(Ra+abs(Ra))                   ! Could become negative in
+                                                !unstable
+        else 
+            Vdif = real_missing
+            Vint = real_missing
+            Vimp = real_missing
+            St = real_missing
+            Ra = real_missing
+
+
+        endif
+        Vd = vdsmooth + vdrough
+
+        if (isize == 0) then
+          print *,"# u* = ", u_star, "m/s, fz0 =",   fz0 , "m, LAI =", lai, ", coll scale   = ",  ascale, 'm'
+          print *,"#KinVis = ", fKin_visc, " m2/s,  DynVis = ", fDyn_visc, " Pa/m, mfpa = ", fLambda," m, Ra =", Ra, "1/L =", invL, "1/m"
+          
+          print *, "Dp,DepVel,SedVel,Rs,BrownE,ImpE,IntE,BrownD,St,Sc,Kn"
+        endif
+
+        print *, fWetDiam,',',Vd,',', fTau * g,',',Rs,',', Vdif,',', Vimp,',', Vint,',', fDiffusivity ,',', St,',', fSc,',', fKn
+
+      enddo !! isize
+
+  end subroutine vd_CAMAERA
+
+
+   !*******************************************************
+  
+  subroutine PrintCamaera()
+      implicit none
+      character(len = *), parameter :: sub_name = 'PrintCamaera'
+    ! code
+      integer :: iStab, iLu
+
+      real, dimension(4) ::  invMo
+
+      invMo = (/0., 0.01, 0.03,  0.1/)
+
+      do iLu = 1,4
+        do iStab = 1,size(invMo)
+          select case(iLu)
+            case (1)
+                print *, "#CAMAERA evergreen needleleaf forest "
+                call vd_CAMAERA(0.4, 0.8, 5., 4e-3, invMo(iStab))
+            case (2)
+                print *, "#CAMAERA deciduous broadleaf forest "
+                call vd_CAMAERA(0.4, 1.05, 5., 10e-3, invMo(iStab))
+            case (3)
+                print *, "#CAMAERA grass "
+                call vd_CAMAERA(0.3, 0.1, 2., 4e-3, invMo(iStab))
+            case (4)
+                print *, "#CAMAERA water "
+                call vd_CAMAERA(0.2, 0.001, 0., -1., invMo(iStab))
+          end select
+        enddo
+      enddo
+  end subroutine PrintCamaera
 
 end module depositions
 

@@ -1011,6 +1011,7 @@ CONTAINS
         call InitEulerAdvectionFields(simRules%dynamicsRules%advMethod_Eulerian, &
                                     & simRules%dynamicsRules%advection_variant, &
                                     & simRules%dynamicsRules%smoother_factor,& 
+                                    & simRules%dynamicsRules%forward_factor,& 
                                     & fu_nbr_of_sources(cloud), &
                                     & fu_nbr_of_species_transport(cloud), &
                                     & fu_nbr_of_species_aerosol(cloud), &  ! nPassengers
@@ -1394,6 +1395,13 @@ CONTAINS
     rulesDynamics%ifMolecDiff = (fu_content(nlSetup,'grav_separation') == 'YES')
     rulesDynamics%ifSubgridDiff = (fu_content(nlSetup,'diffuse_vert_cm') == 'YES')
 
+    rulesDynamics%forward_factor=fu_content_real(nlSetup,'forward_factor')
+    if (.not. abs(rulesDynamics%forward_factor) <= 1.) then
+      call msg("No or strange forward_factor:"+fu_content(nlSetup,'forward_factor'))
+      call msg("Setting forward_factor = 1. (old  behavour of advection)")
+      rulesDynamics%forward_factor = 1.
+    endif
+    
     rulesDynamics%smoother_factor=fu_content_real(nlSetup,'smoother_factor')
     if (rulesDynamics%smoother_factor < 0.) then
       call msg("No or strange smoother_factor:"+fu_content(nlSetup,'smoother_factor'))

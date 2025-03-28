@@ -32,6 +32,8 @@ PROGRAM silam_main
   use field_identifications
   use ascii_io
 
+!!  use depositions, only: printcamaera
+
   use, intrinsic :: iso_fortran_env, only: compiler_version, compiler_options
 !  use source_terms_wind_blown_dust
   
@@ -88,6 +90,7 @@ use tangent_linear
 !  if(iStatus /= 0)then  ! The problem is serious, randomised file name does not help
 !    call set_error('Failed to open: "'//trim(run_log_name)//'"','grads_2_grib2_main')
 !  endif
+!   call PrintCamaera()
 !   call test_sort()
 !   stop
 

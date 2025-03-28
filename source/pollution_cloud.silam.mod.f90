@@ -265,6 +265,7 @@ MODULE pollution_cloud
     integer :: advMethod_Eulerian ! Eulerian advection is split to vert and horiz
     integer :: advection_variant ! advect_rect, advect_tri, advect_step
     real    :: smoother_factor  ! 1 for no smooth, 0 for "upwind"
+    real    :: forward_factor  ! 1 for default, 0 for neutral, -1 for inverse
     integer :: advMethod_Lagrangian ! methods Lagrangian dynamic
     integer :: diffusionMethod         ! diffusion method
     integer :: advectionType_default   ! If not stated, use this dynamics type
