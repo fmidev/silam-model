@@ -1050,7 +1050,7 @@ species:  do iSpecies = 1, nspeciesLst
     integer :: nSpeciesOpt
     type(field_4d_data_ptr), pointer :: ptrRelHumid, ptrTemp
     type(Toptical_density_rules), intent(in) :: rulesOptDns
-    real, dimension(max_species) :: arrOptDens
+    real, dimension(:), allocatable :: arrOptDens
     real :: relHumid, tmpr
     character (len=*), parameter :: sub_name="make_optical_column_dens_map"
 
@@ -1086,6 +1086,7 @@ species:  do iSpecies = 1, nspeciesLst
                  & 1:pOptDns%n3D, &
                  & 1:pOptDns%nx, &
                  & 1:pOptDns%ny) = 0.0
+     allocate(arrOptDens(nSpeciesOpt))
      !
      ! Now fill it from the transport cocktail
      !
@@ -1128,6 +1129,7 @@ species:  do iSpecies = 1, nspeciesLst
        end do ! iLev
       end do ! ix
      end do ! iy
+     deallocate(arrOptDens)
 
   end subroutine make_optical_dens_map
 

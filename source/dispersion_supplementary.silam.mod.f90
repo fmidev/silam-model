@@ -95,10 +95,11 @@ contains
     !
     real ::  fTmp
     type(silja_time) :: now
-    real, dimension(max_species) ::  fInjectedMassTotal 
-    real(r8k), dimension(max_species) :: fInjectedMass 
+    real, dimension(:), allocatable ::  fInjectedMassTotal 
+    real(r8k), dimension(:), allocatable :: fInjectedMass 
     CHARACTER (LEN=fnlen) :: command_string = ' '
     integer :: nParticlesToReset, iTmp, jTmp, num_steps, ind_step, step_count, number_of_times, ind_pert
+    integer :: nSpTr, nSpEms
     logical :: first_step,  ifNeedNewData,  have_perturbs, ifCalculate,&
          & first_output_step
     type(silja_shopping_list), pointer :: pShpLst, pOutput_dyn_shopping_list, pOutput_stat_shopping_list
@@ -134,6 +135,10 @@ contains
     pTranspXm   => fu_advection_moment_X_MM_ptr(cloud)
     pTranspYm   => fu_advection_moment_Y_MM_ptr(cloud)
     pTranspZm   => fu_advection_moment_Z_MM_ptr(cloud)
+    nSpTr = fu_nbr_of_species_transport(cloud)
+    nSpEms = fu_nbr_of_species_emission(cloud)
+
+    allocate(fInjectedMassTotal(nSpEms), fInjectedMass(nSpEms))
 
   !  call msg("Run_dispersion got dyn shopping list")
   !  call report(disp_dyn_shopping_list)
@@ -339,8 +344,7 @@ contains
               call msg('===> Making the low-mass threshold for adjoint simulations. Initial RMSE:')
               call report_total_masses(cloud, step_count)
 
-              iTmp= fu_nbr_of_species_transport(cloud)
-              fInjectedMassTotal(1:iTmp) = abs(fInjectedMassTotal(1:iTmp))
+              fInjectedMassTotal(1:nSpEms) = abs(fInjectedMassTotal(1:nSpEms))
 
               !
 
@@ -864,21 +868,19 @@ contains
     
     subroutine report_emission_mass()
       implicit none
-      integer :: iTmp, jTmp
       real, dimension(:), pointer :: work, mass_src, mass_cloud, mass_cum
       type(silam_species), dimension(:), pointer :: pSpecies
       character(len=fnlen) :: timestr, timestr_cum
       logical :: ifOk
 
-      iTmp = fu_nbr_of_species_emission(cloud)
-      work => fu_work_array(iTmp*6)
-      mass_src => work(1:iTmp) 
-      mass_cloud     =>  work(  iTmp+1:2*iTmp)
-      mass_cum       =>  work(2*iTmp+1:3*iTmp)
+      work => fu_work_array(nSpEms*6)
+      mass_src => work(1:nSpEms) 
+      mass_cloud     =>  work(  nSpEms+1:2*nSpEms)
+      mass_cum       =>  work(2*nSpEms+1:3*nSpEms)
 
-      fInjectedMassTotal(1:iTmp) = fInjectedMassTotal(1:iTmp) + fInjectedMass(1:iTmp)
-      mass_src(1:iTmp) = fInjectedMass(1:iTmp) !Type conversion
-      mass_cum(1:iTmp) = fInjectedMassTotal(1:iTmp) !Type conversion
+      fInjectedMassTotal(1:nSpEms) = fInjectedMassTotal(1:nSpEms) + fInjectedMass(1:nSpEms)
+      mass_src(1:nSpEms) = fInjectedMass(1:nSpEms) !Type conversion
+      mass_cum(1:nSpEms) = fInjectedMassTotal(1:nSpEms) !Type conversion
 
       timestr = fu_str(now + simRules%timestep * 0.5) !! mid-step to be the same for back and forth
       timestr_cum = fu_str(now + simRules%timestep)   !! Cumulative emission by this time
@@ -888,8 +890,8 @@ contains
                     & fu_species_emission(cloud), mass_src, '__src_my '//trim(timestr))
 
         if (debug_level > 0) then
-          call get_cloud_inventory(cloud, .true., species_emission, pSpecies, iTmp, fInjectedMass)
-          mass_cloud(1:iTmp) = fInjectedMass(1:iTmp)
+          call get_cloud_inventory(cloud, .true., species_emission, pSpecies, nSpEms, fInjectedMass)
+          mass_cloud(1:nSpEms) = fInjectedMass(1:nSpEms)
           call emis_mass_report('Total subdomain injected emission mass as counted from map', &
                    &  pSpecies, mass_cloud, '__mp_my '//trim(timestr) )
 
@@ -898,11 +900,11 @@ contains
         end if
 
         !Exchange and reset pointers to WHOLE_MPI
-        call  smpi_reduce_add(work(1:3*iTmp), work(3*iTmp+1:6*iTmp), 0, smpi_adv_comm, ifOk)
+        call  smpi_reduce_add(work(1:3*nSpEms), work(3*nSpEms+1:6*nSpEms), 0, smpi_adv_comm, ifOk)
         if (fu_fails(ifOk, "smpi_reduce_add failed", "report_emission_mass")) return
-        mass_src   =>  work(3*iTmp+1:4*iTmp)
-        mass_cloud =>  work(4*iTmp+1:5*iTmp)
-        mass_cum   =>  work(5*iTmp+1:6*iTmp)
+        mass_src   =>  work(3*nSpEms+1:4*nSpEms)
+        mass_cloud =>  work(4*nSpEms+1:5*nSpEms)
+        mass_cum   =>  work(5*nSpEms+1:6*nSpEms)
 
       endif
 
@@ -913,8 +915,8 @@ contains
                       & fu_species_emission(cloud), mass_src, '__src '//trim(timestr))
 
         if (debug_level > 0) then
-          call get_cloud_inventory(cloud, .true., species_emission, pSpecies, iTmp, fInjectedMass)
-          mass_cloud(1:iTmp) = fInjectedMass(1:iTmp)
+          call get_cloud_inventory(cloud, .true., species_emission, pSpecies, nSpEms, fInjectedMass)
+          mass_cloud(1:nSpEms) = fInjectedMass(1:nSpEms)
           call emis_mass_report('Total emission mass as counted from map', &
                      &  pSpecies, mass_cloud, '__mp '//trim(timestr) )
 

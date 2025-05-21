@@ -2692,6 +2692,9 @@ CONTAINS
       CASE(day_mean_relat_humid_2m_flag)
       string = 'frac.'
 
+      CASE(bulk_richardson_nbr_flag)
+        string = '1'
+
     CASE default
         string = ''
 

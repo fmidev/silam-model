@@ -1009,7 +1009,7 @@ CONTAINS
 
     ! Imported parameters
     TYPE(silam_pollution_cloud), target, INTENT(inout) :: cloud
-    type(silam_species), dimension(max_species) :: miss_species
+    type(silam_species), dimension(cloud%nReactions) :: miss_species
 
     miss_species(1:cloud%nReactions) = species_missing
     call msg("Creating reaction rates map for "//trim(fu_str(cloud%nReactions))//" reactions")

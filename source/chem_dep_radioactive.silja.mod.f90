@@ -121,9 +121,10 @@ CONTAINS
     type(silja_interval), intent(in) :: timestep, timestep_output
 
     ! Local variables
-    integer :: iEmis, nNucsEmis, nNucsAdded,  iSp
-!    real, dimension(:), pointer :: fWork
-    real, dimension(:,:), pointer :: reactTmp 
+    integer :: iEmis, nNucsEmis, nNucsAdded,  iSp, ii, nModes
+    real :: fTmp
+    real, dimension(maxSizeModes) :: modesUsed
+    real, dimension(:,:), allocatable :: reactTmp 
     character (len=15) :: strTmp
     character (len=worksize_string) :: strTmpLong
     character (len=*), parameter :: subname = "init_radioactive"
@@ -133,9 +134,12 @@ CONTAINS
     !
     ! Each emission species has to be checked for valid radioactive features of the material.
     ! If yes, ownership is claimed, and species is added to speciesTransp
+    ! max_species is a bad size. Try to estimate it if many modes used
     !
 
+    nModes=1
     nNucsEmis = 0
+    nModes = 0
     do iEmis = 1, nSpeciesEmis
       if(fu_if_radioactive(fu_material(speciesEmis(iEmis))))then
         if(iClaimedSpecies(iEmis) < 0)then
@@ -143,6 +147,19 @@ CONTAINS
           iClaimedSpecies(iEmis) = transformation_radioactive
           nNucsEmis = nNucsEmis + 1
           call addSpecies(speciesTransp, nSpTrn, speciesEmis(iEmis:iEmis), 1)
+          fTmp = fu_nominal_d(speciesEmis(iEmis))
+          do ii = 1,nModes
+              if (modesUsed(ii) == fTmp) exit
+          enddo
+          if (ii > maxSizeModes) then
+            call msg("Modes used", modesUsed)
+            call msg("No room for mode", fTmp)
+            call set_error("Run out of mode cache", subname)
+            return
+          elseif (ii>nModes) then !! Loop was not broken
+             modesUsed(ii) = fTmp
+             nModes = ii
+          endif
         else
           call msg('Cannot claim ownership for:' + fu_str(speciesEmis(iEmis)) + &
                  & ', because he claimed it already:',iClaimedSpecies(iEmis))
@@ -159,8 +176,10 @@ CONTAINS
     !
     ! Now we can proceed with the transformations species.
     !
-!    fWork => fu_work_array(max_species*max_species)
-    reactTmp => fu_work_array_2d()      !(1:max_species,1:max_species) => fWork(1:max_species*max_species)
+    call msg("Modes counted", nModes )
+    call msg("Mode diameters:", modesUsed(1:nModes) )
+    call msg("Allocating reactTmp for max_species*nModes = ", max_species*nModes)
+    allocate( reactTmp(max_species*nModes,max_species*nModes) )
     ! dv/dt = reactTmp * v
     reactTmp(:,:)=0.0
 
@@ -231,7 +250,7 @@ CONTAINS
 !!!!     call msg('')
 !!!!     deallocate(pMatrixTmp)
 
-    call free_work_array(reactTmp)  !fWork)
+    deallocate(reactTmp)  
 
   end subroutine init_radioactive
 

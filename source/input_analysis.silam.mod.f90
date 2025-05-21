@@ -995,12 +995,13 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
   type(silja_grid) :: gridTmp
   type(silja_level) :: levelTmp
   type(silam_vertical) :: vertTmp
+  character (len=*), parameter :: sub_name="analyse_input_content"
 
   !
   ! 1. If GRIB content is defined - let's hope that all priors are OK
   !
   if(.not.IC%defined == silja_true)then
-    call set_error('Undefined content given','analyse_input_content')
+    call set_error('Undefined content given',sub_name)
     return
   end if
 
@@ -1056,7 +1057,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
     call msg('')
     call msg('Requested output area:')
     call report(out_grid)
-    call set_error('No grid covers the requested area','analyse_input_content')
+    call set_error('No grid covers the requested area',sub_name)
     return
   endif
 
@@ -1127,7 +1128,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
         if(.not.found)then
           i=i+1       ! Take the next grid
           if(i>IC%NbrGrids)then ! If the list of grids is expired
-            call set_error('Not all quantities found in data files','analyse_input_content')
+            call set_error('Not all quantities found in data files',sub_name)
             call msg(' *** FAILED *** ' + fu_quantity_string(q_input(j)))
             return
           end if
@@ -1295,7 +1296,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
     call check_input_quantity(q_input(i), fu_realtime_quantity(q_input(i)), &
                             & q_avail, q_avail_st, q_shop, q_shop_static, &
                             & found, wdr)
-    if(fu_fails(found,'Strange, missing model input quantity','analyse_input_content'))return
+    if(fu_fails(found,'Strange, missing model input quantity',sub_name))return
     !
     ! Run through the q_shop, searching for each element the best available from the
     ! list of variables
@@ -1315,12 +1316,28 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
         end if
       end do ! cycle through vars
       if(varPtr == 0)then
-        call set_error('Strange, zero varPtr','analyse_input_content')
+        call set_error('Strange, zero varPtr',sub_name)
         return
       end if
 
       vertTmp = IC%verts(IC%vars(varPtr)%vertPtr)%vert
-      if(fu_nbrOfLevels(vertTmp) > 1) call arrange_levels_in_vertical(vertTmp)
+      if(fu_nbrOfLevels(vertTmp) > 1) then 
+        call arrange_levels_in_vertical(vertTmp)
+        !! Hack: feed single-level quantity with multilevel input
+        if  ((IC%vars(varPtr)%quantity == soil_moisture_vol_frac_nwp_flag)  ) then
+          !!!if  (.not. fu_multi_level_quantity(IC%vars(varPtr)%quantity) ) then  !!This does not work since for others not the
+          !smallest level is needed
+            call msg_warning("Using only smallest level for "// &
+                      & trim(fu_quantity_short_string(IC%vars(varPtr)%quantity)), sub_name)
+            call report(vertTmp,.TRUE.) !!! print_vertical_report
+            levelTmp = fu_level(vertTmp, 1) !!fu_level_from_vertical    Smallest level vertTmpa 
+            call set_vertical(levelTmp, vertTmp) !! set_vertical_single_level
+            call msg("Shopping vertical:")
+            call report(vertTmp, .TRUE.)
+            call msg("Handling vertical done!")
+        endif
+      endif
+
       call add_shopping_variable(IC%shopping_list, &
                                & IC%vars(varPtr)%quantity, species_missing, & ! quaintity, species
                                & IC%grids(IC%vars(varPtr)%gridPtr)%grid, &
@@ -1368,7 +1385,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
   !----------------------------------------------------------------------------
   !
   if(IC%NbrGrids < 1) then ! Error somewhere above. Data do not cover the target area 
-    call set_error('Strange, no grids for system_grid selection','analyse_input_content')
+    call set_error('Strange, no grids for system_grid selection',sub_name)
     return
   end if
 
@@ -1447,7 +1464,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
           if(found)exit
         end do  ! cycle through flag_to_search
         if(.not.found)then
-          call set_error('No basic quantities found for selected grids','analyse_input_content')
+          call set_error('No basic quantities found for selected grids',sub_name)
           return
         end if
         !
@@ -1540,7 +1557,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
 
   if(.not.fu_stdSilamGrid(IC%grids(IC%SystemGridPtr)%grid))then
     call set_error('The meteo grid is not SILAM-standard and cannot be made to comply', &
-                 & 'analyse_input_content')
+                 & sub_name)
     call report(IC%grids(IC%SystemGridPtr)%grid)
     return
   endif
@@ -1587,7 +1604,7 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
     ! Meteo vertical then will be the one with max number of levels
     !
     if(.not. found)then
-      call msg_warning('No wind fields are found in the input content','analyse_input_content')
+      call msg_warning('No wind fields are found in the input content',sub_name)
       IC%SystemLevPtr = 1
       do j=1,IC%NbrVerts
         if(fu_NbrOfLevels(IC%verts(j)%vert) > fu_NbrOfLevels(IC%verts(IC%SystemLevPtr)%vert)) &

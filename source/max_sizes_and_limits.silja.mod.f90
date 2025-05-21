@@ -18,7 +18,10 @@ MODULE max_sizes_and_limits
   ! Limits species array sizes
   !
   integer, public, parameter :: maxSizeModes = 128   ! Maximum number of modes allowed
-  integer, public, parameter :: max_species = 500 ! max number of species allowed
+  integer, public, parameter :: max_species = 200 ! max number of species for temporatries (cocktails, lists etc.)
+                                          !! Should not be used for anything that depends on number of species in 
+                                          !! the run. Use explicit size instead
+                                          
 
   integer, public, parameter :: max_descriptors_in_source = 100 ! max descriptors in area source
   !----------------------------------------------------------------------

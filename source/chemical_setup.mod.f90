@@ -910,7 +910,7 @@ CONTAINS
         write(line%sp,fmt='("Material: ", A, ", mode ", A, " gas phase, ", A)') trim(fu_name(species%material)), trim(species%mode%name)
       elseif (species%mode%distr_type == fixed_diameter_flag .or. &
              & species%mode%distr_type == moving_diameter_flag) then
-        write(line%sp,fmt='("Material: ", A, ", mode ", A, " fixed/moving diam mode (um): ",3F6.2, " Nominal diam (um): ",F6.2,", solubility:", I7)') &
+        write(line%sp,fmt='("Material: ", A, ", mode ", A, " fixed/moving diam mode (um): ",3F7.2, " Nominal diam (um): ",F6.2,", solubility:", I7)') &
              & trim(fu_name(species%material)), &
              & trim(species%mode%name), &
              & species%mode%fp1*1e6, species%mode%fp2*1e6, species%mode%mass_mean_d*1e6, &

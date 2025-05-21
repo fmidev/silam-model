@@ -996,7 +996,7 @@ CONTAINS
       height3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, height_flag, time, single_time)
       IF (error) RETURN
 
-      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, potential_temperature_flag, &
+      t3d => fu_sm_obstime_3d_field(meteoMarketPtr, met_src, temperature_flag, &
                                       & time, single_time)
       IF (error) RETURN
       

@@ -179,10 +179,10 @@ MODULE grads_io
     type(silja_grid) :: silamGrid = grid_missing
     TYPE(grads_levels) :: glevs = grads_levels_missing
     type(silam_vertical) :: silamVertical = vertical_missing
-    TYPE(grads_variable), DIMENSION(max_variables) :: gvars = grads_variable_missing
+    TYPE(grads_variable), DIMENSION(:), allocatable :: gvars
     TYPE(grads_time) :: gtime = grads_time_missing
     type(grads_buffer) :: gradsbuf = grads_buffer_missing
-    integer, DIMENSION(max_variables) :: first_field_offset_in_tstep = int_missing  !!  Only for input, offsets in fields
+    integer, DIMENSION(:), allocatable :: first_field_offset_in_tstep  !!  Only for input, offsets in fields
     INTEGER :: n_times=1, n_vars=1, n_levs=1, n_times_bin=1 ! Numbers of aliases
     INTEGER :: time_nbr=1, var_nbr=1, lev_nbr=1, rec=1 ! Expected field indices
     INTEGER :: levType = int_missing       ! Type of 3D levels in the file
@@ -194,11 +194,6 @@ MODULE grads_io
     TYPE(silja_logical) :: defined = silja_false
  END TYPE grads_file
 
-  type grads_file_ptr
-    private
-    type(grads_file), pointer :: ptr
-  end type grads_file_ptr
-
   !--------------------------------------------------------------------
   !  Further structure will be filled and used during writing a particular
   !  GrADS file
@@ -206,8 +201,7 @@ MODULE grads_io
   INTEGER, public, PARAMETER :: max_nbr_of_grads_files = 92 ! Start from unit=20, should not exceed 99
   INTEGER, private :: nbr_grads_files = 92 ! Start from unit=20, should not exceed 99^M 
 
-  TYPE(grads_file_ptr), DIMENSION(:), PRIVATE, allocatable, SAVE :: gfile   
-  TYPE(grads_file), parameter  ::  grads_file_missing = grads_file( ) !! Defailt initializers used here
+  TYPE(grads_file), DIMENSION(:), PRIVATE, allocatable, target, SAVE :: gfile   
   
 
 CONTAINS
@@ -250,14 +244,6 @@ CONTAINS
       return
     endif
 
-    do iTmp = 1, size(gfile)
-      allocate(gfile(iTmp)%ptr, stat=iStat)
-      if(iStat /= 0)then
-        call set_error('Failed to allocate GrADS file pointer','init_grads_io')
-        return
-      endif
-    end do
-
   end subroutine init_grads_io
 
 
@@ -273,8 +259,8 @@ CONTAINS
     integer :: i
 
     do i=1, nbr_grads_files
-      if(gfile(i)%ptr%defined == silja_false)then
-        if(gfile(i)%ptr%unit_bin == -1)then
+      if(gfile(i)%defined == silja_false)then
+        if(gfile(i)%unit_bin == -1)then
           index = i
           return
         endif
@@ -303,9 +289,9 @@ CONTAINS
     if(.not. allocated(gfile))return
 !call msg('Looking for the file:' + chCtlFNm)
     do i=1, nbr_grads_files
-      if(gfile(i)%ptr%defined == silja_true)then
-!call msg('Occupied GrADS structure:' + gfile(i)%ptr%fname, i)
-        if(trim(gfile(i)%ptr%fname) == trim(chCtlFNm))then
+      if(gfile(i)%defined == silja_true)then
+!call msg('Occupied GrADS structure:' + gfile(i)%fname, i)
+        if(trim(gfile(i)%fname) == trim(chCtlFNm))then
           fu_find_grads_structure_i = i
           return
         endif
@@ -419,7 +405,7 @@ CONTAINS
     iFile = fu_next_free_grads_structure()
     if(error)return
 
-    gf => gfile(iFile)%ptr
+    gf => gfile(iFile)
     !
     ! Some default stuff
     !
@@ -672,6 +658,9 @@ CONTAINS
       elseif(index(sp_u_case%sp,'VARS') == 1)then
 
         read(unit=sp%sp,fmt=*,iostat=iStatus) spTmp%sp, gf%n_vars
+        allocate(gf%gvars(gf%n_vars), gf%first_field_offset_in_tstep(gf%n_vars+1)) !! One more for total
+        gf%gvars(:) = grads_variable_missing
+        gf%first_field_offset_in_tstep = int_missing
 
         do iVar = 1, gf%n_vars
           call next_line_from_input_file(iUnit, sp%sp, eof)
@@ -857,7 +846,7 @@ CONTAINS
     if(error)return
 
     fu_open_gradsfile_i = iFile
-    gfile(iFile)%ptr%defined = silja_true
+    gfile(iFile)%defined = silja_true
 
     gf%ifBuffered = .false.
 #ifdef SILAM_MPI
@@ -910,9 +899,9 @@ CONTAINS
 !
 !   DEBUG MISSION ONLY
 !
-!gfile(iFile)%ptr%fname = fu_connect_strings(gfile(iFile)%ptr%fname,'_debug')
-!call write_ctl_file(gfile(iFile)%ptr)  ! It will write the ctl file
-!gfile(iFile)%ptr%fname = gfile(iFile)%ptr%fname(1:len_trim(gfile(iFile)%ptr%fname)-6)
+!gfile(iFile)%fname = fu_connect_strings(gfile(iFile)%fname,'_debug')
+!call write_ctl_file(gfile(iFile))  ! It will write the ctl file
+!gfile(iFile)%fname = gfile(iFile)%fname(1:len_trim(gfile(iFile)%fname)-6)
   end function fu_open_gradsfile_i
 
   !*********************************************************************************
@@ -1178,57 +1167,57 @@ CONTAINS
     end if
     
     if (present(ifBuffered)) then
-      gfile(iFile)%ptr%ifBuffered = ifBuffered .and. fu_get_default_mpi_buf_size() > 0
+      gfile(iFile)%ifBuffered = ifBuffered .and. fu_get_default_mpi_buf_size() > 0
     else
-      gfile(iFile)%ptr%ifBuffered = .false.
+      gfile(iFile)%ifBuffered = .false.
     end if
 
     if(present(fMissingVal)) then
-      gfile(iFile)%ptr%missing_value = fMissingVal
+      gfile(iFile)%missing_value = fMissingVal
     else
-      gfile(iFile)%ptr%missing_value = real_missing
+      gfile(iFile)%missing_value = real_missing
     endif
 
     if(present(time_label_position))then
-      gfile(iFile)%ptr%time_label_position = time_label_position
+      gfile(iFile)%time_label_position = time_label_position
     else
-      gfile(iFile)%ptr%time_label_position = end_of_period
+      gfile(iFile)%time_label_position = end_of_period
     endif
     
-    gfile(iFile)%ptr%defined = silja_undefined
+    gfile(iFile)%defined = silja_undefined
 
     !---------------------------------------------------------
     !
     ! Define the grid for GrADS from the silja_grid
     !
-    gfile(iFile)%ptr%silamGrid = grid
+    gfile(iFile)%silamGrid = grid
 
     SELECT CASE(fu_gridtype(grid))
     CASE(lonlat)
       CALL lonlat_grid_parameters(grid, &
-            & gfile(iFile)%ptr%ggrid%x_start, gfile(iFile)%ptr%ggrid%y_start, &
+            & gfile(iFile)%ggrid%x_start, gfile(iFile)%ggrid%y_start, &
             & if_corner_in_geo_coord,&
-            & gfile(iFile)%ptr%ggrid%nx, gfile(iFile)%ptr%ggrid%ny, &
+            & gfile(iFile)%ggrid%nx, gfile(iFile)%ggrid%ny, &
             & pole_x, pole_y, & 
-            & gfile(iFile)%ptr%ggrid%x_step, gfile(iFile)%ptr%ggrid%y_step)
+            & gfile(iFile)%ggrid%x_step, gfile(iFile)%ggrid%y_step)
 
       call msg('open_gradsfile_o reports lonlat grid:')
-      call msg('GrADS grid xStart:', gfile(iFile)%ptr%ggrid%x_start)
-      call msg('GrADS grid yStart:', gfile(iFile)%ptr%ggrid%y_start)
-      call msg('GrADS grid nx:', gfile(iFile)%ptr%ggrid%nx)
-      call msg('GrADS grid ny:', gfile(iFile)%ptr%ggrid%ny)
-      call msg('GrADS grid xStep:', gfile(iFile)%ptr%ggrid%x_step)
-      call msg('GrADS grid yStep:', gfile(iFile)%ptr%ggrid%y_step)
+      call msg('GrADS grid xStart:', gfile(iFile)%ggrid%x_start)
+      call msg('GrADS grid yStart:', gfile(iFile)%ggrid%y_start)
+      call msg('GrADS grid nx:', gfile(iFile)%ggrid%nx)
+      call msg('GrADS grid ny:', gfile(iFile)%ggrid%ny)
+      call msg('GrADS grid xStep:', gfile(iFile)%ggrid%x_step)
+      call msg('GrADS grid yStep:', gfile(iFile)%ggrid%y_step)
 
     case (anygrid)
-      call grid_dimensions(grid, gfile(iFile)%ptr%ggrid%nx, gfile(iFile)%ptr%ggrid%ny)
-      gfile(iFile)%ptr%ggrid%y_start = fu_lat_geographical_from_grid(1., 1., grid)
-      gfile(iFile)%ptr%ggrid%x_start = fu_lon_geographical_from_grid(1., 1., grid)
-      gfile(iFile)%ptr%ggrid%x_step = fu_dx_cell_deg(grid, 1, 1)
-      gfile(iFile)%ptr%ggrid%y_step = fu_dy_cell_deg(grid, 1, 1)
+      call grid_dimensions(grid, gfile(iFile)%ggrid%nx, gfile(iFile)%ggrid%ny)
+      gfile(iFile)%ggrid%y_start = fu_lat_geographical_from_grid(1., 1., grid)
+      gfile(iFile)%ggrid%x_start = fu_lon_geographical_from_grid(1., 1., grid)
+      gfile(iFile)%ggrid%x_step = fu_dx_cell_deg(grid, 1, 1)
+      gfile(iFile)%ggrid%y_step = fu_dy_cell_deg(grid, 1, 1)
       call msg('open_gradsfile_o reports anygrid:')
-      call msg('GrADS grid nx:', gfile(iFile)%ptr%ggrid%nx)
-      call msg('GrADS grid ny:', gfile(iFile)%ptr%ggrid%ny)
+      call msg('GrADS grid nx:', gfile(iFile)%ggrid%nx)
+      call msg('GrADS grid ny:', gfile(iFile)%ggrid%ny)
 
     CASE DEFAULT
       CALL set_error('Strange grid type','open_grads_file_o')
@@ -1237,52 +1226,56 @@ CONTAINS
     IF(error)RETURN
 
 
-    NbrOfPoints = gfile(iFile)%ptr%ggrid%nx * gfile(iFile)%ptr%ggrid%ny
+    NbrOfPoints = gfile(iFile)%ggrid%nx * gfile(iFile)%ggrid%ny
     IF(NbrOfPoints < 1)THEN
       CALL set_error('Problem with grid dimensions','open_grads_file_o')
       RETURN
     END IF
 
-    gfile(iFile)%ptr%ggrid%defined = fu_set_true()
+    gfile(iFile)%ggrid%defined = fu_set_true()
 
     !---------------------------------------------------------
     !
     ! Open files. Attention: NbrOfPoints has to be translated to the 
     ! number of bytes for the binary file, which is machine-dependent
     !
-    if(.not.if_parallel) gfile(iFile)%ptr%unit_bin = fu_next_free_unit() !------------ binary file
+    if(.not.if_parallel) gfile(iFile)%unit_bin = fu_next_free_unit() !------------ binary file
     if(len_trim(dir) > 0)then
-      gfile(iFile)%ptr%fname = fu_connect_strings(dir,dir_slash,fname) !fname
+      gfile(iFile)%fname = fu_connect_strings(dir,dir_slash,fname) !fname
     else
-      gfile(iFile)%ptr%fname = fname
+      gfile(iFile)%fname = fname
     endif
     !
     ! Store the fname - that will be the ctl with full length of the forecast
     !
-    gfile(iFile)%ptr%fname_initial = gfile(iFile)%ptr%fname
+    gfile(iFile)%fname_initial = gfile(iFile)%fname
 
     if(present(chTemplate))then
-      gfile(iFile)%ptr%chTemplate = chTemplate
+      gfile(iFile)%chTemplate = chTemplate
     else
-      gfile(iFile)%ptr%chTemplate = gfile(iFile)%ptr%fname
+      gfile(iFile)%chTemplate = gfile(iFile)%fname
     endif
 
     ! Note that currently the mpi version will exit if the file creation fails (low-level
     ! mpi parts are not able to set correct error flags)
-    call check_create_dir(gfile(iFile)%ptr%fname)
+    call check_create_dir(gfile(iFile)%fname)
     if (error) return
 
     if(if_parallel)then
-      call smpi_open_gradsfile_mpiio_w(gfile(iFile)%ptr%fname, gfile(iFile)%ptr%unit_bin)
-      gfile(iFile)%ptr%ifMPIIO = .true.
-    else if (gfile(ifile)%ptr%ifBuffered) then
+      call smpi_open_gradsfile_mpiio_w(gfile(iFile)%fname, gfile(iFile)%unit_bin)
+      gfile(iFile)%ifMPIIO = .true.
+    else if (gfile(iFile)%ifBuffered) then
       ! direct access not used
-      call open_binary(gfile(iFile)%ptr%unit_bin, gfile(iFile)%ptr%fname, recl=int_missing, &
+      call open_binary(gfile(iFile)%unit_bin, gfile(iFile)%fname, recl=int_missing, &
                      & action='write', access='stream', status='replace')
     else
-      CALL open_grads_binary_o(gfile(iFile)%ptr%fname, gfile(iFile)%ptr%unit_bin, NbrOfPoints)
-      gfile(iFile)%ptr%ifMPIIO = .false.
+      CALL open_grads_binary_o(gfile(iFile)%fname, gfile(iFile)%unit_bin, NbrOfPoints)
+      gfile(iFile)%ifMPIIO = .false.
     end if
+
+    !!! max_variables to  be replaced with something more meaningful
+    allocate(gfile(iFile)%gvars(max_variables))
+    gfile(iFile)%gvars(:) = grads_variable_missing
 
     open_gradsfile_o = iFile
       
@@ -1327,23 +1320,23 @@ CONTAINS
 
     if (error) return
     
-    if (gfile(Findex)%ptr%ifBuffered) call flush_buffer(findex)
+    if (gfile(Findex)%ifBuffered) call flush_buffer(findex)
 
-    if (gfile(Findex)%ptr%ifMPIIO) then
-      call smpi_close_gradsfile_mpiio(gfile(Findex)%ptr%unit_bin)
+    if (gfile(Findex)%ifMPIIO) then
+      call smpi_close_gradsfile_mpiio(gfile(Findex)%unit_bin)
     else
-      close(gfile(Findex)%ptr%unit_bin) 
+      close(gfile(Findex)%unit_bin) 
     end if
     !
     ! Seize this moment to write the ctl and super_ctl for the current file. Note the number of time steps!
     !
-    if (.not. gfile(Findex)%ptr%ifMPIIO .or. smpi_adv_rank==0)then
-      call write_ctl_file(gfile(Findex)%ptr, '', .true.)
+    if (.not. gfile(Findex)%ifMPIIO .or. smpi_adv_rank==0)then
+      call write_ctl_file(gfile(Findex), '', .true.)
     endif
-    gfile(Findex)%ptr%n_times_bin = 0
-    gfile(Findex)%ptr%gtime%start_bin = now
+    gfile(Findex)%n_times_bin = 0
+    gfile(Findex)%gtime%start_bin = now
 
-    NbrOfPoints = gfile(Findex)%ptr%ggrid%nx * gfile(Findex)%ptr%ggrid%ny
+    NbrOfPoints = gfile(Findex)%ggrid%nx * gfile(Findex)%ggrid%ny
     
     IF(NbrOfPoints < 1)THEN
       CALL set_error('Problem with grid dimensions', sub_name)
@@ -1355,24 +1348,24 @@ CONTAINS
     ! Open files. Attention: NbrOfPoints has to be translated to the 
     ! number of bytes for the binary file, which is machine-dependent
     !
-    gfile(Findex)%ptr%unit_bin = fu_next_free_unit() !------------ binary file
+    gfile(Findex)%unit_bin = fu_next_free_unit() !------------ binary file
     if(len_trim(dir) > 0)then
-      gfile(Findex)%ptr%fname = fu_connect_strings(dir,dir_slash,fname) !fname
+      gfile(Findex)%fname = fu_connect_strings(dir,dir_slash,fname) !fname
     else
-      gfile(Findex)%ptr%fname = fname
+      gfile(Findex)%fname = fname
     endif
     
-    call check_create_dir(gfile(Findex)%ptr%fname) 
+    call check_create_dir(gfile(Findex)%fname) 
     if (error) return
 
-    if (gfile(Findex)%ptr%ifMPIIO) then
-      call smpi_open_gradsfile_mpiio_w(gfile(Findex)%ptr%fname, gfile(Findex)%ptr%unit_bin)
+    if (gfile(Findex)%ifMPIIO) then
+      call smpi_open_gradsfile_mpiio_w(gfile(Findex)%fname, gfile(Findex)%unit_bin)
     else
-      CALL open_grads_binary_o(gfile(Findex)%ptr%fname, gfile(Findex)%ptr%unit_bin, NbrOfPoints)
+      CALL open_grads_binary_o(gfile(Findex)%fname, gfile(Findex)%unit_bin, NbrOfPoints)
     end if
     if (error) return
     
-    gfile(FIndex)%ptr%rec = 1
+    gfile(Findex)%rec = 1
 
   END subroutine switch_grads_binary_o
 
@@ -1429,26 +1422,26 @@ CONTAINS
     !
     ! Find the field index in the GrADS file
     !
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
 
     iVarRequested = 1
     ifFound = .false.
-    do while(iVarRequested <= gfile(igf)%ptr%n_vars)
-      if(fu_quantity(field_id) == gfile(igf)%ptr%gvars(iVarRequested)%quantity)then
-        if(fu_species(field_id) == gfile(igf)%ptr%gvars(iVarRequested)%species)then
+    do while(iVarRequested <= gfile(igf)%n_vars)
+      if(fu_quantity(field_id) == gfile(igf)%gvars(iVarRequested)%quantity)then
+        if(fu_species(field_id) == gfile(igf)%gvars(iVarRequested)%species)then
 !        if(fu_str_u_case(fu_substance_name(field_id)) == &
-!                               & fu_str_u_case(gfile(igf)%ptr%gvars(iVarRequested)%chSubstNm))then
-!          if(fu_mode(field_id) == gfile(igf)%ptr%gvars(iVarRequested)%aerosolMode)then
+!                               & fu_str_u_case(gfile(igf)%gvars(iVarRequested)%chSubstNm))then
+!          if(fu_mode(field_id) == gfile(igf)%gvars(iVarRequested)%aerosolMode)then
 !            if(fu_optical_wave_length(field_id) .eps. &
-!                                    & gfile(igf)%ptr%gvars(iVarRequested)%fOpticalWaveLength)then
+!                                    & gfile(igf)%gvars(iVarRequested)%fOpticalWaveLength)then
               iLevRequested = 1
 
-              if(gfile(igf)%ptr%gvars(iVarRequested)%n_levs > 1)then
+              if(gfile(igf)%gvars(iVarRequested)%n_levs > 1)then
 
-                do while(iLevRequested <= gfile(igf)%ptr%n_levs)
+                do while(iLevRequested <= gfile(igf)%n_levs)
                   iTmp = fu_glevel_type(fu_leveltype(fu_level(field_id)))
                   if(fu_get_glevel(fu_level(field_id),iTmp) .eps. &
-                                               & gfile(igf)%ptr%glevs%levels(iLevRequested))then
+                                               & gfile(igf)%glevs%levels(iLevRequested))then
                     ifFound = .true.
                     exit
                   endif
@@ -1488,7 +1481,7 @@ CONTAINS
     ! elsewhere. It may not follow the rules of validity periods - but we must stay in agreement 
     ! with the metadata generator.
     !
-    select case (gfile(igf)%ptr%data_time_features)
+    select case (gfile(igf)%data_time_features)
 !!!      case(dynamic_map)
 !!!        if(defined(fu_validity_length(field_id)))then
 !!!          if(fu_validity_length(field_id) > one_second)then
@@ -1525,7 +1518,7 @@ CONTAINS
 !!!                  !
 !!!                call msg_warning('Period-valid field requested allowing more than one grads time', &
 !!!                             & 'read_field_from_grads_id')
-!!!                  select case(gfile(igf)%ptr%time_label_position)
+!!!                  select case(gfile(igf)%time_label_position)
 !!!                    case (start_of_period)     ! take the latest
 !!!                      time_in_file = fu_time_of_grads(igf, ix)
 !!!                      call msg('Resolve start_of_period. Took:' + fu_str(time_in_file), ix)
@@ -1558,7 +1551,7 @@ CONTAINS
          iTmp = 1
 
       case default
-        call set_error('Unknown grads time featires:' + fu_str(gfile(igf)%ptr%data_time_features), &
+        call set_error('Unknown grads time featires:' + fu_str(gfile(igf)%data_time_features), &
                      & 'read_field_from_grads_id')
         return
     end select
@@ -1583,7 +1576,7 @@ CONTAINS
     !
     ! Get the right binary file name. Note that static-field file may not have time step
     !
-    call FNm_from_single_template(gfile(igf)%ptr%grTemplate, &
+    call FNm_from_single_template(gfile(igf)%grTemplate, &
                                 & time_in_file, &
                                 & fnames, &
                                 & anal_time = fu_analysis_time(field_id), &
@@ -1609,25 +1602,25 @@ CONTAINS
       endif
     endif
 
-    !!!nPoints = INT(REAL(gfile(igf)%ptr%ggrid%nx) * REAL(gfile(igf)%ptr%ggrid%ny) + 0.0001)
+    !!!nPoints = INT(REAL(gfile(igf)%ggrid%nx) * REAL(gfile(igf)%ggrid%ny) + 0.0001)
     !!!
     !!!!
     !!!! Open it if needed
     !!!!
-    !!!if(fnames(1)%sp /= gfile(igf)%ptr%fname)then
+    !!!if(fnames(1)%sp /= gfile(igf)%fname)then
     !!!
-    !!!  if(gfile(igf)%ptr%unit_bin < 0)then
-    !!!    gfile(igf)%ptr%unit_bin = fu_next_free_unit()
+    !!!  if(gfile(igf)%unit_bin < 0)then
+    !!!    gfile(igf)%unit_bin = fu_next_free_unit()
     !!!  else
-    !!!    close(gfile(igf)%ptr%unit_bin, stat = iTmp)  ! attempt tp close but if fails so be it
+    !!!    close(gfile(igf)%unit_bin, stat = iTmp)  ! attempt tp close but if fails so be it
     !!!  endif
-    !!!  call open_grads_binary_i(fnames(1)%sp, gfile(igf)%ptr%unit_bin, nPoints, &
-    !!!                         & gfile(igf)%ptr%ifBigEndian)
+    !!!  call open_grads_binary_i(fnames(1)%sp, gfile(igf)%unit_bin, nPoints, &
+    !!!                         & gfile(igf)%ifBigEndian)
     !!!  if(error)return
-    !!!  gfile(igf)%ptr%fname = fnames(1)%sp
+    !!!  gfile(igf)%fname = fnames(1)%sp
     !!!endif
 
-    nTimeSteps = nint((time_in_file - gfile(igf)%ptr%gtime%start) / gfile(igf)%ptr%gtime%step)
+    nTimeSteps = nint((time_in_file - gfile(igf)%gtime%start) / gfile(igf)%gtime%step)
     !
     ! Having the indices defined, get the field
     !
@@ -1667,7 +1660,7 @@ CONTAINS
 
 
 
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
     nPoints = gf%ggrid%nx * gf%ggrid%ny
 
     
@@ -1824,25 +1817,25 @@ CONTAINS
       ! Get the start time for the specific binary that contains the given global time index
       !
       time_in_file = fu_time_of_grads(igf, indTimeGlob)
-      timeFileBeg = fu_same_template_start_time(gfile(igf)%ptr%grTemplate, &
+      timeFileBeg = fu_same_template_start_time(gfile(igf)%grTemplate, &
                                               & time_in_file, &
-                                              & gfile(igf)%ptr%gtime%start)
+                                              & gfile(igf)%gtime%start)
 !call msg("timeFileBeg:"+ fu_str(timeFileBeg))
 !call msg("time_in_file:"+ fu_str(time_in_file))
-!call msg("gfile(igf)%ptr%gtime%start:"+ fu_str(gfile(igf)%ptr%gtime%start))
-!call msg("gfile(igf)%ptr%gtime%step:"+ fu_str(gfile(igf)%ptr%gtime%step))
+!call msg("gfile(igf)%gtime%start:"+ fu_str(gfile(igf)%gtime%start))
+!call msg("gfile(igf)%gtime%step:"+ fu_str(gfile(igf)%gtime%step))
       ! 
       ! if this is the first binary file, and if the run did not start at midnight, the first time
       ! could be later than the first possible by template:
       !
-      if (timeFileBeg < gfile(igf)%ptr%gtime%start) timeFileBeg = gfile(igf)%ptr%gtime%start
+      if (timeFileBeg < gfile(igf)%gtime%start) timeFileBeg = gfile(igf)%gtime%start
 
       if(error .or. .not.defined(timeFileBeg))return
 
-      if(gfile(igf)%ptr%gtime%ifVaryingStep)then
+      if(gfile(igf)%gtime%ifVaryingStep)then
         nTimeSteps = -1
-        do iTmp = 1, gfile(igf)%ptr%n_times
-          if(time_in_file == gfile(igf)%ptr%gtime%arTimes(iTmp))then
+        do iTmp = 1, gfile(igf)%n_times
+          if(time_in_file == gfile(igf)%gtime%arTimes(iTmp))then
             nTimeSteps = iTmp-1
             exit
           endif
@@ -1851,8 +1844,8 @@ CONTAINS
           call msg_warning('Failed to find the following time in GrADS file records:' + &
                          & fu_time_to_io_string(time_in_file), 'fu_time_index_in_grads_binary')
           call msg('Times available from GrADS file:')
-          do iTmp = 1, gfile(igf)%ptr%n_times
-            call report(gfile(igf)%ptr%gtime%arTimes(iTmp))
+          do iTmp = 1, gfile(igf)%n_times
+            call report(gfile(igf)%gtime%arTimes(iTmp))
           enddo
           call set_error('Failed to find the following index/time in GrADS fiel records:' + &
                        & fu_str(indTimeGlob) + ',' + &
@@ -1860,7 +1853,7 @@ CONTAINS
           return
         endif
       else
-        nTimeSteps = nint((time_in_file - timeFileBeg) / gfile(igf)%ptr%gtime%step)
+        nTimeSteps = nint((time_in_file - timeFileBeg) / gfile(igf)%gtime%step)
       endif
       
       fu_time_index_in_grads_binary = nTimeSteps + 1
@@ -1919,7 +1912,7 @@ CONTAINS
       return
     endif
 
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
 
 !    call msg('')
 !    call msg('Field for the GrADS file:' + &
@@ -2589,7 +2582,7 @@ CONTAINS
     type(silam_vertical), pointer :: vert
     integer, intent(in) :: igf
 
-    vert => gfile(igf)%ptr%silamVertical
+    vert => gfile(igf)%silamVertical
 
   end function fu_silamVert_of_grads
 
@@ -2600,7 +2593,7 @@ CONTAINS
     type(silja_grid) :: grid
     integer, intent(in) :: igf
 
-    grid = gfile(igf)%ptr%silamGrid
+    grid = gfile(igf)%silamGrid
 
   end function fu_silamGrid_of_grads
 
@@ -2610,10 +2603,10 @@ CONTAINS
     type(silja_time) :: time
     integer, intent(in) :: igf, iTime
 
-    if(gfile(igf)%ptr%gtime%ifVaryingStep)then
-      time = gfile(igf)%ptr%gtime%arTimes(iTime)
+    if(gfile(igf)%gtime%ifVaryingStep)then
+      time = gfile(igf)%gtime%arTimes(iTime)
     else
-      time = gfile(igf)%ptr%gtime%start + gfile(igf)%ptr%gtime%step * (iTime-1)
+      time = gfile(igf)%gtime%start + gfile(igf)%gtime%step * (iTime-1)
     endif
 
   end function fu_time_of_grads
@@ -2640,19 +2633,19 @@ CONTAINS
     real :: fShift
 
     if(ifEnvelope)then
-      allocate(times(gfile(igf)%ptr%n_times+1),stat=iTmp)
+      allocate(times(gfile(igf)%n_times+1),stat=iTmp)
     else
-      allocate(times(gfile(igf)%ptr%n_times),stat=iTmp)
+      allocate(times(gfile(igf)%n_times),stat=iTmp)
     endif
-    if(fu_fails(iTmp==0, 'Failed times array allocation,size=' + fu_str(gfile(igf)%ptr%n_times), &
+    if(fu_fails(iTmp==0, 'Failed times array allocation,size=' + fu_str(gfile(igf)%n_times), &
                        & 'get_grads_times'))return
 
-    if(gfile(igf)%ptr%gtime%ifVaryingStep)then
+    if(gfile(igf)%gtime%ifVaryingStep)then
       !
       ! Varying time step. Note that the arTimes is from 0 to n_times+1. Use it!
       !
       if(ifEnvelope)then
-        select case (gfile(igf)%ptr%time_label_position)
+        select case (gfile(igf)%time_label_position)
           case(start_of_period)
             iShift = 0
           case(mid_of_period)
@@ -2661,25 +2654,25 @@ CONTAINS
           case(end_of_period)
             iShift = 1
           case default
-            call set_error('Unknown time_label_position:'+fu_str(gfile(igf)%ptr%time_label_position), &
+            call set_error('Unknown time_label_position:'+fu_str(gfile(igf)%time_label_position), &
                          & 'get_grads_times')
         end select
-        do iTmp = 1, gfile(igf)%ptr%n_times+1
-          times(iTmp) = gfile(igf)%ptr%gtime%arTimes(iTmp-iShift)  ! get times with possile one-value shift
+        do iTmp = 1, gfile(igf)%n_times+1
+          times(iTmp) = gfile(igf)%gtime%arTimes(iTmp-iShift)  ! get times with possile one-value shift
         end do
-        nTimes = gfile(igf)%ptr%n_times + 1
+        nTimes = gfile(igf)%n_times + 1
       else
-        do iTmp = 1, gfile(igf)%ptr%n_times
-          times(iTmp) = gfile(igf)%ptr%gtime%arTimes(iTmp)  ! get times with one-value shift
+        do iTmp = 1, gfile(igf)%n_times
+          times(iTmp) = gfile(igf)%gtime%arTimes(iTmp)  ! get times with one-value shift
         end do
-        nTimes = gfile(igf)%ptr%n_times
+        nTimes = gfile(igf)%n_times
       endif
     else
       !
       ! Fixed time step.
       !
       if(ifEnvelope)then
-        select case (gfile(igf)%ptr%time_label_position)
+        select case (gfile(igf)%time_label_position)
           case(start_of_period)
             fShift = 1.0
           case(mid_of_period)
@@ -2687,19 +2680,19 @@ CONTAINS
           case(end_of_period)
             fShift = 2.0
           case default
-            call set_error('Unknown time_label_position:'+fu_str(gfile(igf)%ptr%time_label_position), &
+            call set_error('Unknown time_label_position:'+fu_str(gfile(igf)%time_label_position), &
                          & 'get_grads_times')
             return
         end select
-        do iTmp = 1, gfile(igf)%ptr%n_times+1
-          times(iTmp) = gfile(igf)%ptr%gtime%start + gfile(igf)%ptr%gtime%step * (real(iTmp)-fShift)
+        do iTmp = 1, gfile(igf)%n_times+1
+          times(iTmp) = gfile(igf)%gtime%start + gfile(igf)%gtime%step * (real(iTmp)-fShift)
         end do
-        nTimes = gfile(igf)%ptr%n_times+1
+        nTimes = gfile(igf)%n_times+1
       else
-        do iTmp = 1, gfile(igf)%ptr%n_times
-          times(iTmp) = gfile(igf)%ptr%gtime%start + gfile(igf)%ptr%gtime%step * (real(iTmp)-1)
+        do iTmp = 1, gfile(igf)%n_times
+          times(iTmp) = gfile(igf)%gtime%start + gfile(igf)%gtime%step * (real(iTmp)-1)
         end do
-        nTimes = gfile(igf)%ptr%n_times
+        nTimes = gfile(igf)%n_times
       endif  ! ifEnvelope
 
     endif  ! if varying time step
@@ -2712,7 +2705,7 @@ CONTAINS
 !    type(silja_interval) :: step
 !    integer, intent(in) :: igf
 !
-!    step = gfile(igf)%ptr%gtime%step
+!    step = gfile(igf)%gtime%step
 !
 !  end function fu_time_step_of_grads
 
@@ -2723,7 +2716,7 @@ CONTAINS
     type(silja_interval) :: duration
     integer, intent(in) :: igf
 
-    duration = gfile(igf)%ptr%gtime%validity_length
+    duration = gfile(igf)%gtime%validity_length
 
   end function fu_validity_length_from_grads
 
@@ -2732,7 +2725,7 @@ CONTAINS
   integer function fu_data_time_features_grads(igf)
     integer, intent(in) :: igf
 
-    fu_data_time_features_grads = gfile(igf)%ptr%data_time_features
+    fu_data_time_features_grads = gfile(igf)%data_time_features
 
   end function fu_data_time_features_grads
 
@@ -2759,7 +2752,7 @@ CONTAINS
     !
     ! First of all, if we are dealing with static fields, nothing depends on the input time
     !
-    if(gfile(igFile)%ptr%data_time_features == static_climatology)then
+    if(gfile(igFile)%data_time_features == static_climatology)then
       ind = 1
       return
     endif
@@ -2767,14 +2760,14 @@ CONTAINS
     ! In case of monthly climatology, reduced dependence on time too:
     !
     ifAcceptSameMonth = ifAcceptSameMonth_ .or. &
-                      & (gfile(igFile)%ptr%data_time_features == monthly_climatology)
+                      & (gfile(igFile)%data_time_features == monthly_climatology)
 
     if(fu_fails(defined(timeMoment),'Undefined time given','fu_grads_time_index'))return
     !
     ! The shift depends on position of the grads time stamp: the first time is actually in grads
     ! only if the stamp is at the start of validity period - or the file contains instsnt fields
     !
-    select case (gfile(igfILE)%ptr%time_label_position)
+    select case (gfile(igFile)%time_label_position)
       case(start_of_period)
         iShift = 0
         iEnvelope = 1
@@ -2788,7 +2781,7 @@ CONTAINS
         iShift = 0
         iEnvelope = 0
       case default
-        call set_error('Unknown time_label_position:'+fu_str(gfile(igfILE)%ptr%time_label_position), &
+        call set_error('Unknown time_label_position:'+fu_str(gfile(igFile)%time_label_position), &
                      & 'fu_grads_time_index')
     end select
       
@@ -2797,21 +2790,21 @@ CONTAINS
     !
     ! Now, the procedure depends on whether the file has fixed time step
     !
-    if(gfile(igFile)%ptr%gtime%ifVaryingStep)then
+    if(gfile(igFile)%gtime%ifVaryingStep)then
       !
       ! Find the first time smaller than the given one. 
       ! Return the previous index, whihc will be either exact hit or within the validity interval 
       ! from that index
       !
-      do iTmp = 1, gfile(igfILE)%ptr%n_times + iEnvelope
+      do iTmp = 1, gfile(igFile)%n_times + iEnvelope
         
         if(ifAcceptSameMonth)then
-          if(fu_mon(gfile(igfile)%ptr%gtime%arTimes(iTmp) - gfile(igfile)%ptr%gtime%step*iShift) == iMonthNeeded)then
+          if(fu_mon(gfile(igFile)%gtime%arTimes(iTmp) - gfile(igFile)%gtime%step*iShift) == iMonthNeeded)then
             ind = iTmp
             exit
           endif
         else
-          if (gfile(igfile)%ptr%gtime%arTimes(iTmp) - gfile(igfile)%ptr%gtime%step*iShift + one_second > timeMoment) then
+          if (gfile(igFile)%gtime%arTimes(iTmp) - gfile(igFile)%gtime%step*iShift + one_second > timeMoment) then
             ind = iTmp
             exit
           endif
@@ -2823,8 +2816,8 @@ CONTAINS
         !
         ! Have to scan until hit the right month
         !
-        do iTmp = 1, gfile(igfILE)%ptr%n_times + iEnvelope
-          if(fu_mon(gfile(igFile)%ptr%gtime%start + (gfile(igFile)%ptr%gtime%step * real(iTmp-1))) == iMonthNeeded)then
+        do iTmp = 1, gfile(igFile)%n_times + iEnvelope
+          if(fu_mon(gfile(igFile)%gtime%start + (gfile(igFile)%gtime%step * real(iTmp-1))) == iMonthNeeded)then
             ind = iTmp
             exit
           endif
@@ -2834,7 +2827,7 @@ CONTAINS
         !
         ! For regular files, first, dumb search of the index taking care of not hitting the edge
         !
-        fIndex = (timeMoment - gfile(igFile)%ptr%gtime%start) / gfile(igFile)%ptr%gtime%step
+        fIndex = (timeMoment - gfile(igFile)%gtime%start) / gfile(igFile)%gtime%step
 
 
         if(abs(fIndex - real(nint(fIndex))) < 0.1)then
@@ -2846,7 +2839,7 @@ CONTAINS
 
           ! Dirty hack to still enable reading the first time step on exact hit and end_of_period tag
           !
-          if(ind == iShift .and. gfile(igFile)%ptr%time_label_position == end_of_period)then
+          if(ind == iShift .and. gfile(igFile)%time_label_position == end_of_period)then
             ind = 1 
             call set_error('grads index hack triggered','fu_grads_time_index')
             call unset_error('fu_grads_time_index')
@@ -2855,7 +2848,7 @@ CONTAINS
           !
           ! No hit into grads time stamp, need to consider validity period
           !
-          select case(gfile(igFile)%ptr%time_label_position)
+          select case(gfile(igFile)%time_label_position)
             case (start_of_period)
               ind = int(fIndex - 0.01) + 1
             case (mid_of_period)
@@ -2872,16 +2865,16 @@ CONTAINS
       !!! - if only one of the intervals is present, give it
       !!! - if both intervals present, give the one that does not overlap with the next model time step
       !!!
-      !!select case(gfile(igFile)%ptr%time_label_position)
+      !!select case(gfile(igFile)%time_label_position)
       !!  case (start_of_period)
-      !!    ifHit = (timeMoment == (gfile(igFile)%ptr%gtime%start + &
-      !!                                & gfile(igFile)%ptr%gtime%step * real(ind)))
+      !!    ifHit = (timeMoment == (gfile(igFile)%gtime%start + &
+      !!                                & gfile(igFile)%gtime%step * real(ind)))
       !!  case (mid_of_period)
-      !!    ifHit = (timeMoment == (gfile(igFile)%ptr%gtime%start + &
-      !!                                & gfile(igFile)%ptr%gtime%step * (real(ind) - 0.5)))
+      !!    ifHit = (timeMoment == (gfile(igFile)%gtime%start + &
+      !!                                & gfile(igFile)%gtime%step * (real(ind) - 0.5)))
       !!  case (end_of_period)
-      !!    ifHit = (timeMoment == (gfile(igFile)%ptr%gtime%start + &
-      !!                   a            & gfile(igFile)%ptr%gtime%step * (real(ind) - 1.)))
+      !!    ifHit = (timeMoment == (gfile(igFile)%gtime%start + &
+      !!                   a            & gfile(igFile)%gtime%step * (real(ind) - 1.)))
       !!  case default
       !!    call set_error('Strange time_label_position','fu_grads_time_index')
       !!end select
@@ -2892,7 +2885,7 @@ CONTAINS
       !!!
       !!if(ifAmbiguity)then
       !!    if(direction == backwards)then
-      !!      if(ind + 1 <= gfile(igFile)%ptr%n_times) ind = ind + 1  ! usable
+      !!      if(ind + 1 <= gfile(igFile)%n_times) ind = ind + 1  ! usable
       !!    elseif(direction == forwards)then
       !!      if(ind < 1) ind = ind + 1 ! no coverage with default index => +1
       !!    else
@@ -2901,21 +2894,21 @@ CONTAINS
       !!endif  ! if ambiguity in time coverage
     
   !    call msg('time moment:' + fu_str(timeMoment) + &
-  !           & ', grads start:' + fu_str(gfile(igFile)%ptr%gtime%start) + &
-  !           & ', time step [hr] real index:', fu_hour(gfile(igFile)%ptr%gtime%step), &
-  !           & ((timeMoment - gfile(igFile)%ptr%gtime%start) / &
-  !                                 & gfile(igFile)%ptr%gtime%step) + 1.499)
+  !           & ', grads start:' + fu_str(gfile(igFile)%gtime%start) + &
+  !           & ', time step [hr] real index:', fu_hour(gfile(igFile)%gtime%step), &
+  !           & ((timeMoment - gfile(igFile)%gtime%start) / &
+  !                                 & gfile(igFile)%gtime%step) + 1.499)
   !    call msg('Resulting time & index:' + &
-  !            & fu_str(gfile(igFile)%ptr%gtime%start + &
-  !                              & (gfile(igFile)%ptr%gtime%step * real(fu_grads_time_index-1))), &
+  !            & fu_str(gfile(igFile)%gtime%start + &
+  !                              & (gfile(igFile)%gtime%step * real(fu_grads_time_index-1))), &
   !            & fu_grads_time_index)
   !    call msg('Residual resulting_time - target[hr]:', &
-  !           & fu_hour(gfile(igFile)%ptr%gtime%start + &
-  !                   & (gfile(igFile)%ptr%gtime%step * real(fu_grads_time_index-1)) - timeMoment))
+  !           & fu_hour(gfile(igFile)%gtime%start + &
+  !                   & (gfile(igFile)%gtime%step * real(fu_grads_time_index-1)) - timeMoment))
 
     endif   ! if ifVaryingStep
     
-    if(error .or. ind < 1 .or. ind > gfile(igFile)%ptr%n_times) ind = int_missing
+    if(error .or. ind < 1 .or. ind > gfile(igFile)%n_times) ind = int_missing
 
   end function fu_grads_time_index
 
@@ -2925,8 +2918,8 @@ CONTAINS
   integer function fu_n_gvars(igFile)
     implicit none
     integer, intent(in) :: igFile
-    if(gfile(igFile)%ptr%defined == silja_true)then
-      fu_n_gvars = gfile(igFile)%ptr%n_vars
+    if(gfile(igFile)%defined == silja_true)then
+      fu_n_gvars = gfile(igFile)%n_vars
     else
       fu_n_gvars = int_missing
     endif
@@ -2938,8 +2931,8 @@ CONTAINS
   integer function fu_n_glevs(igFile)
     implicit none
     integer, intent(in) :: igFile
-    if(gfile(igFile)%ptr%defined == silja_true)then
-      fu_n_glevs = gfile(igFile)%ptr%n_levs
+    if(gfile(igFile)%defined == silja_true)then
+      fu_n_glevs = gfile(igFile)%n_levs
     else
       fu_n_glevs = int_missing
     endif
@@ -2949,15 +2942,15 @@ CONTAINS
   integer function fu_n_gVar_levs(igFile, iVar)
     implicit none
     integer, intent(in) :: igFile, iVar
-    if (iVar < 1 .or. iVar > gfile(igFile)%ptr%n_vars)then
+    if (iVar < 1 .or. iVar > gfile(igFile)%n_vars)then
       call set_error('Strange var index','fu_n_gVar_levs')
       return
     endif
-    if(gfile(igFile)%ptr%defined == silja_true)then
-      if (gfile(igFile)%ptr%gvars(iVar)%n_levs == 0) then
+    if(gfile(igFile)%defined == silja_true)then
+      if (gfile(igFile)%gvars(iVar)%n_levs == 0) then
         fu_n_gVar_levs = 1
       else
-        fu_n_gVar_levs = gfile(igFile)%ptr%gvars(iVar)%n_levs
+        fu_n_gVar_levs = gfile(igFile)%gvars(iVar)%n_levs
       endif
     else
       fu_n_gVar_levs = int_missing
@@ -2969,8 +2962,8 @@ CONTAINS
   integer function fu_n_gtimes(igFile)
     implicit none
     integer, intent(in) :: igFile
-    if(gfile(igFile)%ptr%defined == silja_true)then
-      fu_n_gtimes = gfile(igFile)%ptr%n_times
+    if(gfile(igFile)%defined == silja_true)then
+      fu_n_gtimes = gfile(igFile)%n_times
     else
       fu_n_gtimes = int_missing
     endif
@@ -2995,86 +2988,86 @@ CONTAINS
 
     call set_missing(id)
 
-    if(.not. (gfile(igFile)%ptr%defined == silja_true)) return
+    if(.not. (gfile(igFile)%defined == silja_true)) return
 
-    if(gfile(igFile)%ptr%gtime%ifVaryingStep)then
-      select case(gfile(igFile)%ptr%time_label_position)
+    if(gfile(igFile)%gtime%ifVaryingStep)then
+      select case(gfile(igFile)%time_label_position)
         case(start_of_period)
-          fcast_len = gfile(igFile)%ptr%gtime%arTimes(indTime) - gfile(igFile)%ptr%gtime%start
+          fcast_len = gfile(igFile)%gtime%arTimes(indTime) - gfile(igFile)%gtime%start
         case(mid_of_period)
-          fcast_len = ((gfile(igFile)%ptr%gtime%arTimes(indTime-1) - &
-                                                          & gfile(igFile)%ptr%gtime%start) + &
-                    &  (gfile(igFile)%ptr%gtime%arTimes(indTime) - &
-                                                          & gfile(igFile)%ptr%gtime%start)) / 2.0
+          fcast_len = ((gfile(igFile)%gtime%arTimes(indTime-1) - &
+                                                          & gfile(igFile)%gtime%start) + &
+                    &  (gfile(igFile)%gtime%arTimes(indTime) - &
+                                                          & gfile(igFile)%gtime%start)) / 2.0
         case(end_of_period)
-          fcast_len = (gfile(igFile)%ptr%gtime%arTimes(indTime-1) - gfile(igFile)%ptr%gtime%start)
+          fcast_len = (gfile(igFile)%gtime%arTimes(indTime-1) - gfile(igFile)%gtime%start)
         case default
           call set_error('strange time_label_position','get_grads_var_metadata')
           return
       end select
     else
-      select case(gfile(igFile)%ptr%time_label_position)
+      select case(gfile(igFile)%time_label_position)
         case(start_of_period, instant_fields)
-          fcast_len = gfile(igFile)%ptr%gtime%step * (indTime - 1)
+          fcast_len = gfile(igFile)%gtime%step * (indTime - 1)
         case(mid_of_period)
-          fcast_len = gfile(igFile)%ptr%gtime%step * (real(indTime) - 1.5)
+          fcast_len = gfile(igFile)%gtime%step * (real(indTime) - 1.5)
         case(end_of_period)
-          fcast_len = gfile(igFile)%ptr%gtime%step * (indTime - 2) !+ one_minute
+          fcast_len = gfile(igFile)%gtime%step * (indTime - 2) !+ one_minute
         case default
           call set_error('strange time_label_position','get_grads_var_metadata')
           return
       end select
     endif
 
-    select case(gfile(igFile)%ptr%data_time_features)
+    select case(gfile(igFile)%data_time_features)
       case(dynamic_map)
-        validity_len = gfile(igFile)%ptr%gtime%step
+        validity_len = gfile(igFile)%gtime%step
       case(monthly_climatology)
         validity_len = interval_missing
       case(static_climatology)
         validity_len = very_long_interval
       case default
         call set_error('Unknown data_time_features:' + &
-                     & fu_str(gfile(igFile)%ptr%data_time_features),'get_grads_var_metadata')
+                     & fu_str(gfile(igFile)%data_time_features),'get_grads_var_metadata')
         return
     end select
     !
     ! SilamLevel, if defined, has priority over iVerticalFeature
     !
-    select case(gfile(igFile)%ptr%gvars(iVar)%iVerticalFeature)
+    select case(gfile(igFile)%gvars(iVar)%iVerticalFeature)
       case(level_2d_type_flag)
-        if(defined(gfile(igFile)%ptr%gvars(iVar)%SilamLevel))then
-          level = gfile(igFile)%ptr%gvars(iVar)%SilamLevel
+        if(defined(gfile(igFile)%gvars(iVar)%SilamLevel))then
+          level = gfile(igFile)%gvars(iVar)%SilamLevel
         else
           level = surface_level
         endif
       case(integrate_column_flag)
-        if(defined(gfile(igFile)%ptr%gvars(iVar)%SilamLevel))then
-          level = gfile(igFile)%ptr%gvars(iVar)%SilamLevel
+        if(defined(gfile(igFile)%gvars(iVar)%SilamLevel))then
+          level = gfile(igFile)%gvars(iVar)%SilamLevel
         else
           level = entire_atmosphere_integr_level
         endif
       case(lowest_level_flag)
-        ! level = fu_level(gfile(igFile)%ptr%silamVertical, 1)
-        if(defined(gfile(igFile)%ptr%gvars(iVar)%SilamLevel))then
-          level = gfile(igFile)%ptr%gvars(iVar)%SilamLevel
+        ! level = fu_level(gfile(igFile)%silamVertical, 1)
+        if(defined(gfile(igFile)%gvars(iVar)%SilamLevel))then
+          level = gfile(igFile)%gvars(iVar)%SilamLevel
         else
           level = lowest_atmosphere_level
         endif
       case default
-        level = fu_level(gfile(igFile)%ptr%silamVertical, iLev)  ! 3d variable
+        level = fu_level(gfile(igFile)%silamVertical, iLev)  ! 3d variable
     end select
     id = fu_set_field_id(met_src_missing,&
-                       & gfile(igFile)%ptr%gvars(iVar)%quantity , &
-                       & gfile(igFile)%ptr%gtime%start, &             ! analysis_time,&
+                       & gfile(igFile)%gvars(iVar)%quantity , &
+                       & gfile(igFile)%gtime%start, &             ! analysis_time,&
                        & fcast_len, &                                 ! forecast_length, &
-                       & gfile(igFile)%ptr%silamGrid,&                ! grid
+                       & gfile(igFile)%silamGrid,&                ! grid
                        & level, &                             ! level
                        & interval_missing, &                    ! length_of_accumulation, &
                        & validity_len, &                        ! length_of_validity, &
                        & forecast_flag, &                       ! field_kind, &
-                       & species = gfile(igFile)%ptr%gvars(iVar)%species, &   ! species
-                       & chCocktail = gfile(igFile)%ptr%gvars(iVar)%chCocktailNm) ! of cocktail
+                       & species = gfile(igFile)%gvars(iVar)%species, &   ! species
+                       & chCocktail = gfile(igFile)%gvars(iVar)%chCocktailNm) ! of cocktail
     if(error)call set_missing(id)
 
   end subroutine get_grads_var_metadata
@@ -3102,9 +3095,9 @@ CONTAINS
     ! First, count the number of independent IDs
     !
     nIDs = 0
-    do iVar = 1, gfile(igf)%ptr%n_vars
-      if(gfile(igf)%ptr%gvars(iVar)%iVerticalFeature == level_3d_type_flag)then
-        nIDs = nIDs + gfile(igf)%ptr%n_levs
+    do iVar = 1, gfile(igf)%n_vars
+      if(gfile(igf)%gvars(iVar)%iVerticalFeature == level_3d_type_flag)then
+        nIDs = nIDs + gfile(igf)%n_levs
       else
         nIDs = nIDs + 1
       endif
@@ -3113,9 +3106,9 @@ CONTAINS
     if(fu_fails(iVar==0,'Failed allocation of ID list, size='+fu_str(nIDs),'get_gards_IDs'))return
 
     iID = 1
-    do iVar = 1, gfile(igf)%ptr%n_vars
-      if(gfile(igf)%ptr%gvars(iVar)%iVerticalFeature == level_3d_type_flag)then
-        do iLev = 1, gfile(igf)%ptr%n_levs
+    do iVar = 1, gfile(igf)%n_vars
+      if(gfile(igf)%gvars(iVar)%iVerticalFeature == level_3d_type_flag)then
+        do iLev = 1, gfile(igf)%n_levs
           call get_grads_var_metadata(igf, iVar, iLev, 1, idList(iID))
           iID = iID + 1
         end do
@@ -3163,7 +3156,7 @@ CONTAINS
       call set_error('gf not associated','get_grads_total')
       return
     endif
-    gf => gfile(ugf)%ptr
+    gf => gfile(ugf)
     do iVar = 1, size(flds_3d_Requested)
       pOutput(iVar)%pp(1 : fu_number_of_gridpoints(fu_grid( & 
                               & fu_id(fu_field_from_3d_field(flds_3D_Requested(iVar)%fp,1))))) = 0.0
@@ -3331,7 +3324,7 @@ CONTAINS
       return
     endif
 
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
 
     !!! Free reads buffer
     if (gf%gradsbuf%defined) call free_grads_buffer(gf%gradsbuf)
@@ -3343,6 +3336,8 @@ CONTAINS
         close(gf%unit_bin) ! Close the binary (if any)
       endif
     endif
+
+    deallocate(gf%gvars, gf%first_field_offset_in_tstep)
 
     CALL release_index(igf) ! Free-up the structure.
 
@@ -3370,30 +3365,30 @@ CONTAINS
       call set_error('Undefined grads file index','close_grads_file_o')
       return
     endif
-!    gfileptr => gfile(igf)%ptr
 
-    if (gfile(igf)%ptr%ifBuffered) call flush_buffer(igf)
-    if(gfile(igf)%ptr%ifMPIIO)then
-      call smpi_close_gradsfile_mpiio(gfile(igf)%ptr%unit_bin)
+    if (gfile(igf)%ifBuffered) call flush_buffer(igf)
+    if(gfile(igf)%ifMPIIO)then
+      call smpi_close_gradsfile_mpiio(gfile(igf)%unit_bin)
     else
-      close(gfile(igf)%ptr%unit_bin) ! Close the binary
+      close(gfile(igf)%unit_bin) ! Close the binary
     end if
 
     ! Only single process should write the control file for MPIIO
-    if(.not.gfile(igf)%ptr%ifMPIIO.or.smpi_adv_rank==0)then
+    if(.not.gfile(igf)%ifMPIIO.or.smpi_adv_rank==0)then
       !
       ! Write two ctl/super_ctl file sets: one for the just-closed binary, one for the whole series
       ! Note that the binary-specific ctl will cover only this binary time range
       ! The fname_initial ctl file (actually, the first file name used to open this igf) will have 
       ! the whole length
       !
-      CALL write_ctl_file(gfile(igf)%ptr, chFixedNameTemplate, .true.)
+      CALL write_ctl_file(gfile(igf), chFixedNameTemplate, .true.)
       
-      gfile(igf)%ptr%fname = gfile(igf)%ptr%fname_initial
+      gfile(igf)%fname = gfile(igf)%fname_initial
       
-      CALL write_ctl_file(gfile(igf)%ptr, chFixedNameTemplate)
+      CALL write_ctl_file(gfile(igf), chFixedNameTemplate)
     end if
 
+    deallocate(gfile(igf)%gvars)
     CALL release_index(igf) ! Free-up the structure.
 
   END SUBROUTINE close_gradsfile_o
@@ -3420,7 +3415,7 @@ CONTAINS
     integer :: iSize, iRecRead, iRecWrite, i, iVar, iLev, indTime, uFTmp, nRecsPerTime
     character(len=clen) :: chTmp
       
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
     !
     ! Stupidity check
     !
@@ -3815,7 +3810,7 @@ CONTAINS
     ! Find a spare file counter. The last structure is always kept free!!
     !
     DO iFile=1, nbr_grads_files
-      IF(gfile(iFile)%ptr%defined == silja_false)EXIT
+      IF(gfile(iFile)%defined == silja_false)EXIT
     END DO
     IF(iFile >= nbr_grads_files)THEN
       CALL set_error('Too many grads files','init_ctl_for_grib')
@@ -3825,23 +3820,23 @@ CONTAINS
     ! So far it is just occupied but not yet defined structure.
     ! It will become silja_true when at least one variable is stored there
     !
-    gfile(iFile)%ptr%defined = silja_undefined
+    gfile(iFile)%defined = silja_undefined
 
     !---------------------------------------------------------
     !
     ! Set up the file names and open the ctl file
     !
-    gfile(iFile)%ptr%unit_bin = grib_unit !------------ binary file
+    gfile(iFile)%unit_bin = grib_unit !------------ binary file
     if(len_trim(dir) > 0)then
-      gfile(iFile)%ptr%fname = dir + dir_slash + grib_fname
+      gfile(iFile)%fname = dir + dir_slash + grib_fname
     else
-      gfile(iFile)%ptr%fname = grib_fname !grib_fname
+      gfile(iFile)%fname = grib_fname !grib_fname
     endif
 
     if(present(chTemplate))then
-      gfile(iFile)%ptr%chTemplate = chTemplate
+      gfile(iFile)%chTemplate = chTemplate
     else
-      gfile(iFile)%ptr%chTemplate = gfile(iFile)%ptr%fname
+      gfile(iFile)%chTemplate = gfile(iFile)%fname
     endif
 
 !    gfile(iFile)%unit_ctl = fu_next_free_unit() !------------ text ctl file
@@ -3862,7 +3857,7 @@ CONTAINS
 
     integer, intent(in) :: gIndex, UnitBin
 
-    gfile(gIndex)%ptr%unit_bin = UnitBin
+    gfile(gIndex)%unit_bin = UnitBin
 
   end subroutine set_grib_binary_unit
 
@@ -3910,7 +3905,7 @@ CONTAINS
              & if_corner_in_geo_coord,if_south_pole
     REAL :: fTmp, pole_x, pole_y
 
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
 
     !
     ! If totally new GRIB file - start all lists and fill-in grid (different
@@ -4116,7 +4111,7 @@ CONTAINS
     CHARACTER(LEN = fnlen) :: chTmp
     TYPE(grads_file), POINTER :: gf
 
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
 
     call set_error('Ctl for grib is outdated','write_ctl_for_grib')
     return
@@ -4217,30 +4212,46 @@ CONTAINS
     implicit none
 
     ! Imported parameter
-    TYPE(grads_file), POINTER :: gf
+    TYPE(grads_file), intent(in) :: gf
 
     ! Local variable
     integer :: iVar
 
-    call msg('============ report for GrADS file:' + gf%fname + ', vars:', gf%n_Vars)
-    do iVar = 1, gf%n_Vars
-      call msg('Species and quantity:' + fu_str(gf%gvars(iVar)%species), &
-             & gf%gvars(iVar)%quantity)
-    end do
-    call msg('Variable current index:',gf%var_nbr)
-    call msg('Grid nx, x_start:',gf%ggrid%nx,gf%ggrid%x_start)
-    call msg('Grid ny, y_start:',gf%ggrid%ny,gf%ggrid%y_start)
-    call msg('Grid x-step:', gf%ggrid%x_step)
-    call msg('Grid y-step:', gf%ggrid%y_step)
-    do iVar = 1, gf%n_Levs
-      call msg('Level:',iVar,gf%glevs%levels(iVar))
-    end do
-    call msg('Current level index:',gf%lev_nbr)
-    call msg('Start time & current index:' + fu_time_to_io_string(gf%gtime%start),gf%time_nbr)
-    call msg('============ End of report')
+    if (fu_true(gf%defined)) then
+      call msg('============ report for GrADS file:' + gf%fname + ', vars:', gf%n_Vars)
+      do iVar = 1, gf%n_Vars
+        call msg('Species and quantity:' + fu_str(gf%gvars(iVar)%species), &
+               & gf%gvars(iVar)%quantity)
+      end do
+      call msg('Variable current index:',gf%var_nbr)
+      call msg('Grid nx, x_start:',gf%ggrid%nx,gf%ggrid%x_start)
+      call msg('Grid ny, y_start:',gf%ggrid%ny,gf%ggrid%y_start)
+      call msg('Grid x-step:', gf%ggrid%x_step)
+      call msg('Grid y-step:', gf%ggrid%y_step)
+      do iVar = 1, gf%n_Levs
+        call msg('Level:',iVar,gf%glevs%levels(iVar))
+      end do
+      call msg('Current level index:',gf%lev_nbr)
+      call msg('Start time & current index:' + fu_time_to_io_string(gf%gtime%start),gf%time_nbr)
+      call msg('============ End of report')
+    else
+      call msg('Undefined GrADS file')
+    endif
 
   end subroutine report_grads_file
 
+
+  subroutine set_gradsfile_missing(gf)
+
+    TYPE(grads_file), intent(inout) :: gf
+
+    if (allocated(gf%gvars))  deallocate (gf%gvars)
+    if (allocated(gf%first_field_offset_in_tstep))  deallocate (gf%first_field_offset_in_tstep)
+
+    gf%defined = silja_false
+
+    
+  end subroutine set_gradsfile_missing
 
 !********************************************************************************
 !********************************************************************************
@@ -4253,8 +4264,10 @@ CONTAINS
   INTEGER FUNCTION fu_unit_bin(ifg)
     IMPLICIT NONE
     INTEGER, INTENT(in) :: ifg
-    fu_unit_bin = gfile(ifg)%ptr%unit_bin
+    fu_unit_bin = gfile(ifg)%unit_bin
   END FUNCTION fu_unit_bin
+
+
 
 
   SUBROUTINE release_index(gIndex)
@@ -4264,8 +4277,8 @@ CONTAINS
     IMPLICIT NONE
 
     INTEGER, INTENT(in) :: gIndex
-
-    gfile(gIndex)%ptr = grads_file_missing
+   
+    call set_gradsfile_missing(gfile(gIndex))
 
   END SUBROUTINE release_index
 
@@ -4277,7 +4290,7 @@ CONTAINS
     integer, intent(in) :: iFile
     CHARACTER (LEN=fnlen) :: fu_grads_filename
     
-    fu_grads_filename = gfile(iFile)%ptr%fname
+    fu_grads_filename = gfile(iFile)%fname
 
   end function fu_grads_filename
  
@@ -4289,14 +4302,14 @@ CONTAINS
     integer, intent(in) :: iFile
     CHARACTER (LEN=fnlen) :: fu_grads_sctl_filename
 
-    fu_grads_sctl_filename = gfile(iFile)%ptr%super_ctl_fname
+    fu_grads_sctl_filename = gfile(iFile)%super_ctl_fname
 
   end function fu_grads_sctl_filename
  
   real function fu_grads_missing_value(iFile)
     implicit none
     integer, intent(in) :: iFile
-    fu_grads_missing_value = gfile(iFile)%ptr%missing_value
+    fu_grads_missing_value = gfile(iFile)%missing_value
   end function fu_grads_missing_value
 
 !!! integer function fu_get_default_mpi_buf_size() Moved to toolbox
@@ -4379,7 +4392,7 @@ CONTAINS
     call start_count('flush_buffer')
 
     if (fu_fails(igf > 0 .and. igf <= size(gfile), 'Invalid igf', sub_name)) return
-    gf => gfile(igf)%ptr
+    gf => gfile(igf)
     if (fu_fails(associated(gf), 'gf not associated', sub_name)) return
     
     if (.not. gf%gradsbuf%defined) return

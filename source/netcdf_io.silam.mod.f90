@@ -1392,7 +1392,7 @@ CONTAINS
     TYPE(netcdf_file),POINTER :: nf
     integer :: iStat, iFile, formatNum, nAtts, uLimDimId, iTmp, attLen, xType, iVar, iVal, iNl, &
              & nVals, idim, it, days_year, ilev, nDims, nMon, nDay, nHr, nMin, nxStag, nyStag, &
-             & nxRef, nyRef, jTmp, nx, ny, nCoef
+             & nxRef, nyRef, jTmp, nx, ny, nCoef, iVarId
     integer, dimension(:), pointer ::  iAtt
 !    integer, dimension(4) :: dimIds
     character (len=nf90_max_name) :: aVar, bVar, aHalfVar, bHalfVar,  P0Var, PsVar, ChTmp2
@@ -2779,25 +2779,29 @@ CONTAINS
               pDim%b_half(:) = real_missing         
               if(ifMsgs) call msg("Searching for wrf c4f c3f p_top to make a_half and b_half ")
               do iVar = 1, nf%n_Vars
-                if(ifMsgs)  call msg("Trying:"+fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)))
-                if(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == 'c4f')then
+                ChTmp2 = fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) !!! Varname
+                iVarId = nf%nVars(iVar)%varId
+                if(ifMsgs)  call msg("Trying:"+ChTmp2)
+                if(ChTmp2 == 'znw')then
+                  if(ifMsgs) call msg("Found znw")
+                  iStat = NF90_get_var(nf%unit_bin, iVarId, pDim%b_half, count=(/ncoef,1/)) !! Just B coefficient
+                  pDim%a_half(1:ncoef) = 0. !! Pretend we have red zero c4f
+                elseif(ChTmp2 == 'c4f')then
                   if(ifMsgs) call msg("Found c4f")
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId,   pDim%a_half, count=(/ncoef,1/)) !! Pa, not yet A coeff
-                  
-                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == 'c3f')then 
+                  iStat = NF90_get_var(nf%unit_bin, iVarId, pDim%a_half, count=(/ncoef,1/)) !! Pa, not yet A coeff
+                elseif(ChTmp2 == 'c3f')then 
                   if(ifMsgs)  call msg("Found c3f")
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%b_half, count=(/ncoef,1/)) !! Just B coefficientt
-                elseif(fu_str_l_case(adjustl(nf%nVars(iVar)%chVarNm)) == 'p_top')then
+                  iStat = NF90_get_var(nf%unit_bin, iVarId, pDim%b_half, count=(/ncoef,1/)) !! Just B coefficientt
+                elseif(ChTmp2 == 'p_top')then
                   if(ifMsgs)  call msg("Found p_top")
-                  iStat = NF90_get_var(nf%unit_bin, nf%nVars(iVar)%varId, pDim%P0) !!! pTOP
+                  iStat = NF90_get_var(nf%unit_bin, iVarId, pDim%P0) !!! pTOP
                 endif
                 if(iStat /= 0)then
                   if(ifMsgs)then
                     call msg("NC_error: "// nf90_strerror(iStat))
-                    call msg_warning(fu_connect_strings('Failed to read the dimension variable:', &
+                    call set_errror(fu_connect_strings('Failed to read the dimension variable:', &
                                                     & pDim%varName), &
                                                     & sub_name)
-                    call ooops("ncerr")
                   endif
                   pDim%defined = .false.       ! undefine the dimension
                   cycle
@@ -2810,7 +2814,9 @@ CONTAINS
             endif
 
             !! Convert WRF c4f to A hybrid
-            pDim%a_half = pDim%a_half + pDim%P0(1)*(1. - pDim%b_half) 
+            !! ARW version 3 has eta coordinates, so pDim%a_half should be zeroed by now (while reading znw) 
+            !! ARW version 4 has hybrid coordinates, so pDim%a_half has c4f now 
+            pDim%a_half = pDim%a_half + pDim%P0(1)*(1. - pDim%b_half)
 
 
             ! Check only first layer pressure drop, so layers are always bottom-top

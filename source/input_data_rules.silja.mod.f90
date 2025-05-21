@@ -475,7 +475,12 @@ CONTAINS
 
     ! interval btw meteotimes
     !
+    
     wdr%obstime_interval = fu_set_named_interval(fu_content(nlSetup,'meteo_time_step'))
+    if (error) then
+      call set_error("Failed to parse meteo_time_step", sub_name)
+      return
+    endif
     ! Number of precipitation fields
     !
     i = fu_content_int(nlSetup, 'number_of_precipitation_fields')

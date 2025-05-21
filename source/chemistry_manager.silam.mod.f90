@@ -287,7 +287,7 @@ CONTAINS
                                                  & speciesAerosol ! output
     integer, intent(in) :: nspeciesEmission
     integer, intent(out) :: nspeciesTransport, nspeciesShortlived, nSpeciesAerosol, nReactRates
-    integer, dimension(max_species) :: iClaimedSpecies
+    integer, dimension(:), allocatable :: iClaimedSpecies
 
     integer :: nspeciesEmisAux
     type(silam_species), dimension(:),  pointer :: speciesEmisAux      
@@ -348,7 +348,7 @@ CONTAINS
 
     !! Now feed speciesEmisAux instead of speciesEmission to all the claiming magic
 
-
+    allocate(iClaimedSpecies(nspeciesEmisAux))
     iClaimedSpecies(1:nspeciesEmisAux) = -1
 
 
@@ -646,6 +646,8 @@ end do
     call init_deposition(speciesTransport, nSpeciesTransport, chemRules%rulesDeposition)
     if(error)return
 
+    deallocate(iClaimedSpecies)
+
   end subroutine global_chemical_init
 
 
@@ -939,7 +941,7 @@ end do
     real, dimension(:,:), intent(out) :: aer_att_surf, cld_att_surf, aer_att_0, cld_att_0
 
     integer :: ix, iy, i3d, iSrc, iTransf, iSpecies, status, ind_dz, i1d, cbm_type, itransf_cbm, &
-             & nReact
+             & nReact, nSpTr
     real, dimension(:,:), pointer :: cncTrn
     real, dimension(:,:), pointer :: garb_array, photorates, reactRates, metdat_col
     real, dimension(:), pointer :: soot_col, pwc_col, tau_above_bott, o3column
@@ -955,22 +957,21 @@ end do
     character(len=*), parameter :: sub_name = 'transform_maps'
     integer, save :: indO3, n_soot
     real :: mass_air, mass_ones !!Masses of ir and of ones for the cell
-    integer, dimension(max_species), save :: ind_soot
+    integer, dimension(:), allocatable, save :: ind_soot
     integer, save :: ind_air_mass, iSpOnes
-    real, dimension(max_species), save :: frac_soot
-    real, dimension(max_species), save :: diam, density
+    real, dimension(:), allocatable, save :: frac_soot, diam, density
 
-#ifdef DEBUG_MORE
-     !Temporary arrays to save the state before chemistry
-    real, dimension (max_species) :: cnctrn_tmp,  cnctrn_tmp1,  cnctrn_tmp2,  cnctrn_tmp3 !FIXME
-    real :: fTmp
-#endif
     character(len=180) :: chTmp
 
+
+     nSpTr = mapTransport%nSpecies
     if (if_first) then
-      call allocate_scav_amount(mapTransport)
-      call data_for_photolysis_and_cld_model(mapTransport, chemRules, indO3, ind_soot, &
-           & frac_soot, n_soot, density, diam)
+      call allocate_scav_amount(mapTransport)  !! allocate_scav_amount -- module varable in depositions
+      if (chemRules%cloud_model_for_photolysis == detailed_cloud) then
+        allocate(frac_soot(nSpTr), diam(nSpTr),  density(nSpTr), ind_soot(nSpTr))
+        call data_for_photolysis_and_cld_model(mapTransport, chemRules, indO3, ind_soot, &
+             & frac_soot, n_soot, density, diam)
+      endif
       if (chemRules%ifOnesAdjust) then
         call msg("Chemistry will use ones tracer as cell size")
         iSpOnes = select_single_species(mapTransport%species, mapTransport%nSpecies, &
@@ -1829,9 +1830,9 @@ end do
     !$OMP & cell_volume, zenith_cos, lat, lon, garb_array, print_it, cncTrn, cncAer, cncSL)
     metdat => fu_work_array(meteo_input%nQuantities)
     garb_array => fu_work_array_2D(lpSet%nSrcs,lpSet%nSpeciesTrn)
-    cncTrn => fu_work_array(max_species)
-    cncAer => fu_work_array(max_species)
-    cncSL => fu_work_array(max_species)
+    cncTrn => fu_work_array(lpSet%nSpeciesTrn)
+    cncAer => fu_work_array(lpSet%nSpeciesAer)
+    cncSL => fu_work_array(lpSet%nSpeciesSL)
     garb_array(1:lpSet%nSrcs, 1:lpSet%nSpeciesTrn) = 0.0
 
     !$OMP DO
@@ -2815,6 +2816,15 @@ end do
         !    note that it can be forbidden if we want default values
         !
         amounts_r8 = 0.0
+
+        if ( nspecies_transport > max_species) then
+          !! No point to calculate anything from emission, so just crash if too many
+          call msg_warning("nspecies_transport > max_species and emission is used as reference", &
+                    & 'set_low_mass_threshold')
+          call msg("Consider using 'reference_4_low_mass_threshold = CONST'")
+          call set_error("nspecies_transport > max_species", 'set_low_mass_threshold')
+          return
+        endif
         
         if(chemrules%LowMassThresh == LowMassThreshUseEmission)then
           call msg ("calling amounts_from_src_species_unit" )
@@ -3161,15 +3171,16 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     type(Tmass_map), intent(in) :: mapTransport
     type(Tchem_rules), intent(in) :: chemRules
     integer, intent(out) :: indO3
-    integer, dimension(max_species), intent(out) :: ind_soot
-    real, dimension(max_species), intent(out) :: frac_soot, density, diam
+    integer, dimension(:), intent(out) :: ind_soot
+    real, dimension(:), intent(out) :: frac_soot, density, diam
     integer, intent(out) :: n_soot
 
     ! Local parameter
+    integer, parameter :: max_opt_subst = 5 !!! So far 3 is max number_of_reference_subst_in_mixture in silam_chemicals_95_OC.dat
     logical, parameter :: if_soot_affects_photolysis = .true.
     ! Local variables
     real, dimension(:), pointer :: fractions_opt_subst
-    character(len=substNmLen), dimension(max_species) :: names_opt_subst
+    character(len=substNmLen), dimension(max_opt_subst) :: names_opt_subst
     integer :: iSpecies, iSubst, is, n_opt_subst
     character(len=*), parameter :: sub_name='data_for_photolysis_and_cld_model'
     
@@ -3202,11 +3213,15 @@ call msg('accuracy, nop',iComputationAccuracy, iStat )
     frac_soot(:) = 0.0
     n_soot = 0
     if (if_soot_affects_photolysis) then
-      fractions_opt_subst => fu_work_array()
+      fractions_opt_subst => fu_work_array(mapTransport%nSpecies)
       is = 1
       do iSpecies = 1, mapTransport%nSpecies
         n_opt_subst = fu_n_opt_subst(fu_material(mapTransport%species(iSpecies)))
         if (n_opt_subst > 0) then
+          if (n_opt_subst > max_opt_subst) then
+              call set_error("n_opt_subst > max_opt_subst in chemicals", sub_name)
+              return
+          endif
           names_opt_subst(1:n_opt_subst) = fu_names_opt_subst(fu_material(mapTransport%species(iSpecies)))
           fractions_opt_subst(1:n_opt_subst) = fu_fractions_opt_subst(fu_material(mapTransport%species(iSpecies)))
           do iSubst = 1, n_opt_subst

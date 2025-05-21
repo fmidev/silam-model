@@ -2044,18 +2044,20 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     type(silam_bomb_source), intent(inout) :: b_src
     
     ! Local variables
-    integer :: n, i, m
+    integer :: n, i, m, n_blast_nuclides
     type(silam_species) :: species_tmp
-    real, dimension(max_species, n_modes) :: act_fractTmp
     type(silam_material), pointer :: tmp_material
     real, dimension(n_modes) :: act_frac_bomb_modes, totalFraction
     integer :: iBombMode
+    real, dimension(:, :), allocatable :: act_fractTmp 
+    !!! real, dimension(max_species, n_modes) :: act_fractTmp
     type(Tblast_nuclide), dimension(:), allocatable :: blast_nuclides
     type(Taerosol_mode), dimension(n_modes) :: aerModesBomb
     real :: fTmp, integr
     real(r8k) :: erf_input_min, erf_input_max
     !
     if(fu_fails(fu_true(b_src%defined),'Source not defined','set_cocktail_bomb_source'))return
+
     !
     ! Get nuclides and activities
     !
@@ -2072,6 +2074,11 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
       call set_error('Invalid bomb type given','set_cocktail_bomb_source')
     end if
     if (error) return
+
+    !!! Temporary for mapping
+    n_blast_nuclides = size(blast_nuclides)
+    allocate( act_fractTmp(b_src%aerosolSrc%n_modes*n_blast_nuclides, n_modes))
+
     !
     ! Get the lognormal distributions for the given elevation of the blast
     !
@@ -2083,7 +2090,7 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !
     nullify(b_src%species)
     b_src%nSpecies = 0
-    do n = 1, size(blast_nuclides)
+    do n = 1, n_blast_nuclides
       !
       ! Nuclides can come from the boms or from the contaminated soil lifted in the air
       ! Activation species depend on the amount of activation of the ground
@@ -2161,7 +2168,8 @@ call msg('Enlarging the number of particles, 2:',  lpset%nop + max(lpset%nop*5/4
     !
     allocate(b_src%activities(b_src%nSpecies, n_modes))
     b_src%activities(1:b_src%nSpecies, 1:n_modes) = act_fractTmp(1:b_src%nSpecies, 1:n_modes)
-    deallocate(blast_nuclides)
+
+    deallocate(blast_nuclides, act_fractTmp)
 
   end subroutine set_cocktail_bomb_source
 

@@ -289,21 +289,6 @@ CONTAINS
     MassMap%gridTemplate = grid_missing
     call set_missing(MassMap%vertTemplate, .true.)
     !
-    ! Take care of the fastest-varying dimension: species. 
-    ! Once again: numerous allocations lead to trouble due to overhead of each allocation.
-    ! Solution: align ALL species (i.e. substance + its phase or size mode) along a single 
-    ! dimension. 
-    ! Its total size and decoding array are allocated and set here.
-    ! At this stage, we have to keep in mind that in many places it is explicitly assumed
-    ! that absolute maximum number of species is max_species. Not the most-elegant solution
-    ! but have to accept it at least for now.
-    !
-    if(nSpecies > max_species)then
-      call set_error('Too many species:' + fu_str(nSpecies) + &
-                   & ', while it cannot exceed max_species=' + fu_str(max_species), &
-                   & 'fu_set_mass_map_from_basic_par')
-      return
-    endif
     allocate(MassMap%species(nspecies), MassMap%passengers(nSpecies), stat=iTmp)
     if(fu_fails(iTmp == 0,'allocate failed for: ' + fu_str(nspecies) + '-species', &
                         & 'fu_set_mass_map_from_basic_par'))return
@@ -415,7 +400,7 @@ CONTAINS
                                                    & nBorderCells, nBorderCells, nBorderCells, 0, &
                                                    & val=val)
       else
-        nPassengers => fu_work_int_array(max_species)
+        nPassengers => fu_work_int_array(nSpecies)
         if(error)return
         nPassengers(1:nSpecies) = 0
         call set_mass_map_from_basic_par(MassMap, quantity, nx,ny,n3D,nSrc,nspecies, nPassengers, &

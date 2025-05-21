@@ -115,6 +115,7 @@ var     =   176        ssr                     *                                
 var     =   251253011  t                       *                                            temperature                  undefined   XXX                 -1     1
 var     =   251253160   cape                   *                                            cape                       undefined   SURFACE_LEVEL       -1     1
 var     =   173        sr                      *                                           land_roughness_met  undefined   SURFACE_LEVEL       -1     1
+var     =   3091       icec                    *                                            fraction_of_ice            undefined   SURFACE_LEVEL       -1     1       ## sea Ice fraction
 #
 #  Copy of C_IFS netcdf_ametable
 #

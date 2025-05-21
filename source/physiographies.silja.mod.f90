@@ -21,7 +21,6 @@ MODULE physiographies ! topography, land-sea-data, albedo & stuff.
 
   ! Init physiography mini-market for monthly and static fields
   !
-  public init_physiography
   PUBLIC set_physiography
   public update_physiography
   public set_basic_physiography
@@ -79,55 +78,6 @@ MODULE physiographies ! topography, land-sea-data, albedo & stuff.
   LOGICAL, PRIVATE, SAVE :: physiography_set = .false.
 
 CONTAINS
-
-
-  !******************************************************************
-  
-  subroutine init_physiography(meteoMarketPtr, wdr, static_shopping_list, &
-                             & physiographyMarketPtr, pdr, monthly_shopping_list)
-    !
-    ! Initialises the physiography market for monthly fields - if any.
-    ! Also sets physiographyDataRules as analogy for wdr, etc.
-    ! Makes it ready 
-    !
-    implicit none
-
-    ! Imported parameters    
-    type(mini_market_of_stacks), pointer ::  meteoMarketPtr, physiographyMarketPtr
-    type(silja_wdr), pointer :: wdr, pdr
-    TYPE(silja_shopping_list), intent(in) :: static_shopping_list, monthly_shopping_list
-
-    ! Local variables
-    type(wdr_ptr), dimension(:), pointer :: wdrAr
-
-
-    allocate(wdrar(1))
-    wdrar(1)%ptr => pdr
-    CALL initialize_mini_market(physiographyMarketPtr, &
-                              & 'physiography_market', &
-                              & fu_NbrOfMetSrcs(pdr), &  ! nbr of MDS
-                              & 12, &   ! 12 timenodes = 12 months
-                              & 100,& ! for each timenode - fields
-                              & 5, &  ! for each timenode - 3d fields
-                              & .true., & ! if replace oldest (true) or latest (false) when full
-                              & wdrAr, &
-                              & .false.)   ! if single src
-    CALL initialize_mini_market(physiographyMarketPtr, &
-                              & 'physiography_market', &
-                              & 1, &  ! nbr of MDS
-                              & 0,&   ! timenodes in memory (assume: max 1 timenode per file)
-                              & 10,& ! for each timenode - fields
-                              & 0, &  ! for each timenode - 3d fields
-                              & .true.,& ! if replace oldest (true) or latest (false) when full
-                              & wdrar, &
-                              & .false.)
-    call msg('physiography market is initialized')
-    IF (error) RETURN
-
-    deallocate(wdrar)
-    
-  end subroutine init_physiography
-
 
   ! ***************************************************************
 
@@ -810,7 +760,7 @@ call msg('Physiography reads:' + fnames(i)%sp)
   !*****************************************************************
 
   subroutine write_physiography_output(meteoMarketPtr, chFNm_basic, iGrib, ifGrads, iNetCDF, now, &
-                                     & filesWritten, output_grid, ifRandomise)
+                                     &  output_grid, ifRandomise)
     !
     ! Writes the permanent stack to the output GRIB/GrADS files. Forces
     ! the field parameters and interpolates the grids if needed. Levels
@@ -824,7 +774,6 @@ call msg('Physiography reads:' + fnames(i)%sp)
     logical, intent(in) :: ifGrads
     integer, intent(in) :: iGrib, iNetCDF
     type(silja_time), intent(in) :: now
-    character(len=*), dimension(:), pointer :: filesWritten
     type(silja_grid), intent(in) :: output_grid
     type(mini_market_of_stacks), pointer :: meteoMarketPtr
     logical, intent(in) :: ifRandomise
@@ -973,45 +922,20 @@ call msg('Physiography reads:' + fnames(i)%sp)
     END DO  ! 2d fields
 
     !
-    ! Close the file and add the written file to the list
     !
-    do i=1,size(filesWritten)
-      if(filesWritten(i) == '')then
-        nFlds = i
-        exit
-      endif
-    end do
-    i = 0
-    if(ifGrads) i = i + 2
-    if(iGrib /= int_missing) i = i + 2
-    if(iNetCDF > 0) i = i + 1
-    if(nFlds > size(filesWritten) - i)then
-      call msg_warning('List of written files is full','write_physiography_output')
-      nFlds = size(filesWritten) - i
-    endif
     !
     ! Close files and store the names to the list of written files 
     !
     if(iGrib /= int_missing) then
       call close_gribfile_o(grib_funit)
-      filesWritten(nFlds) = chFNm_basic + '_physiography.grib'
-      nFlds = nFlds + 1
-      filesWritten(nFlds+1) = chFNm_basic + '_physiography.grib.ctl'
-      nFlds = nFlds + 1
     endif  ! ifGrib
 
     if(ifGrads)then
       call close_gradsfile_o(grads_funit,"")
-      filesWritten(nFlds) = chFNm_basic + '_physiography.grads'
-      nFlds = nFlds + 1
-      filesWritten(nFlds+1) = chFNm_basic + '_physiography.grads.ctl'
-      nFlds = nFlds + 1
     endif  ! ifGrads
 
     if(iNetCDF > 0 )then
       call close_netcdf_file(iNC)
-      filesWritten(nFlds) = chFNm_basic + '_physiography.nc'
-      nFlds = nFlds + 1
     endif   ! netcdf 
 
   end subroutine write_physiography_output

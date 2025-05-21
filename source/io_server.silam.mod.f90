@@ -187,14 +187,14 @@ module io_server
     character(len=clen), dimension(:), pointer :: chSrcNm
     integer, dimension(:), pointer :: grib_funit, grads_funit, netcdf_funit
     character(len=fnlen), dimension(:), pointer :: grib_fNm, grads_fNm, &
-                                                 & netcdf_fNm, filesWritten
+                                                 & netcdf_fNm
     type(silam_trajectory_set), pointer :: tr_set
     type(grads_file), dimension(:), pointer :: grib_struct, grads_struct, netcdf_struct
   end type TOutputParams
   type(TOutputParams), public, parameter :: OutputParams_missing = &
         &TOutputParams("",null(),null(),null(),null(), &
        & null(),null(),null(),null(),null(),null(),&
-       & null(),null())
+       & null())
 
   !
   ! For output we need several temporary variables, as well as several 
@@ -1836,27 +1836,6 @@ CONTAINS
     endif
     if(OutDef%Rules%ifTrajectory) nDatTypes=nDatTypes+1  ! just trajectory file
 
-    !
-    ! Computation of the number of files to be written:
-    ! nSrcId source Ids, nDatTypes data types, nCtlTypes ctl types, 
-    ! nBins binaries
-    ! So: n= nSrc * (nDatTypes*nBinaries + nCtlTypes)
-    !
-    select case(OutDef%Rules%OutFilesArrangement)
-      case(all_in_one)
-        nBins = 1  ! One binary only for one output
-      case(hourly_new_file)
-        nBins = max(1,int(0.5+fu_period_to_compute(wdr)/one_hour))
-      case(daily_new_file)
-        nBins = max(1,int(0.5+fu_period_to_compute(wdr)/one_day))
-      case(monthly_new_file)
-        nBins = max(1,int(0.5+fu_period_to_compute(wdr)/one_day/30.))
-      case(yearly_new_file)
-        nBins = max(1,int(0.5+fu_period_to_compute(wdr)/one_day/365.))
-    end select
-    allocate(OutDef%Params%filesWritten(nSrcId*(nDatTypes*nBins+nCtlTypes)+nDatTypes*2+1),stat=al_status)
-    if(fu_fails(al_status == 0, 'Failed to allocate list of written files', 'global_io_init'))return
-    OutDef%Params%filesWritten = ''
 
     !-----------------------------------------------------------------------------
     !
@@ -2320,7 +2299,6 @@ CONTAINS
                                        & OutDef%Rules%ifGrADS, &
                                        & OutDef%Rules%iNetCDF, &
                                        & fu_start_time(wdr), &
-                                       & OutDef%Params%filesWritten, &
                                        & output_grid, &
                                        & fu_if_randomise(wdr))
           if(error) call unset_error('global_io_init')
@@ -3051,12 +3029,15 @@ CONTAINS
         if( OutDef%Rules%MeteoOutLst%ptrItem(i)%iVerticalTreatment == lowest_level_flag .or. &
          & OutDef%Rules%MeteoOutLst%ptrItem(i)%iVerticalTreatment == integrate_column_flag)then
           OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = .false.
-        elseif(fu_mlev_quantity_in_list(meteoVarLst, &
-                                 & OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity) == silja_true)then
-          OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = .true.
-        elseif(fu_mlev_quantity_in_list(meteoVarLst, &
-                                 & OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity) == silja_false)then
-          OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = .false.
+
+!! Why on Earth someone would need this?  
+!! The code caused failure on extracting a single level from WRF soil moisture
+!!        elseif(fu_mlev_quantity_in_list(meteoVarLst, &
+!!                                 & OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity) == silja_true)then
+!!          OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = .true.
+!!        elseif(fu_mlev_quantity_in_list(meteoVarLst, &
+!!                                 & OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity) == silja_false)then
+!!          OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = .false.
         else
           OutDef%Rules%MeteoOutLst%ptrItem(i)%if3D = &
                             & fu_multi_level_quantity(OutDef%Rules%MeteoOutLst%ptrItem(i)%quantity)
@@ -3768,25 +3749,6 @@ CONTAINS
           if(OutDef%Rules%iGrib /= int_missing) call close_gribfile_o(iUnitGrib)
           if(OutDef%Rules%ifGrads) call close_gradsfile_o(iUnitGrads,"")
 !          if(OutDef%Rules%ifNETCDF) call close_netcdf_file(iUnitNetcdf)
-          !
-          ! Add new file names to the list of written files
-          !
-          do i=1,size(OutDef%Params%filesWritten)
-            if(OutDef%Params%filesWritten(i) == '')exit
-          end do
-          if(i >= size(OutDef%Params%filesWritten)-2)then
-            call msg_warning('List of written files is full','set_emission_output')
-          else
-            if(OutDef%Rules%iGrib /= int_missing) then 
-              OutDef%Params%filesWritten(i) = sp_grib%sp
-              i=i+1
-              call free_work_array(sp_grib%sp)
-            endif
-            if(OutDef%Rules%ifGrads) then
-              OutDef%Params%filesWritten(i) = sp_grads%sp
-              call free_work_array(sp_grads%sp)
-            endif
-          endif
 
         end do ! through sources
         !
@@ -5070,17 +5032,6 @@ CONTAINS
                                                     & OutDef%Params%chSrcNm(iSource)) + '.grib')
         endif
         if(error)return
-        !
-        ! Add a new file name to the list of files
-        !
-        do i=1,size(OutDef%Params%filesWritten)
-          if(OutDef%Params%filesWritten(i) == '')exit
-        end do
-        if(i > size(OutDef%Params%filesWritten))then
-          call msg_warning('List of written files is full','do_file_manip_grib')
-        else
-          OutDef%Params%filesWritten(i) = OutDef%Params%grib_fNm(iSource)
-        endif
 
       case(SwitchBinary) ! Keep ctl but change binary
         !
@@ -5102,15 +5053,6 @@ CONTAINS
                                 & OutDef%Params%grib_fNm(iSource), &
                                 & OutDef%Params%grib_funit(iSource))
         if(error)return
-        !
-        ! Add a new file name to the list of files
-        !
-        i = count(len_trim(OutDef%Params%filesWritten(:)) == 0) + 1
-        if(i > size(OutDef%Params%filesWritten))then
-          call msg_warning('List of written files is full','do_file_manip_grib')
-        else
-          OutDef%Params%filesWritten(i) = OutDef%Params%grib_fNm(iSource)
-        endif
         
       case default
         call set_error('Unknown file manipulation ','do_file_manip_grib')
@@ -5194,17 +5136,6 @@ CONTAINS
                                         & ifMPIIO=smpi_use_mpiio_grads, ifBuffered=smpi_use_mpiio_grads)
         endif
         if(error)return
-        !
-        ! Add a new file name to the list of files
-        !
-        do i=1,size(OutDef%Params%filesWritten)
-          if(OutDef%Params%filesWritten(i) == '')exit
-        end do
-        if(i > size(OutDef%Params%filesWritten))then
-          call msg_warning('List of written files is full','do_file_manip_grads')
-        else
-          OutDef%Params%filesWritten(i) = OutDef%Params%grads_fNm(iSource)
-        endif
 
       case(SwitchBinary)
         !
@@ -5228,15 +5159,6 @@ CONTAINS
                                  & '', &                   ! directory - not used 
                                  & OutDef%Params%grads_fNm(iSource), iInvert, timeValid)
         if(error)return
-        !
-        ! Add a new file name to the list of files
-        !
-        i = count(len_trim(OutDef%Params%filesWritten(:)) == 0) + 1
-        if(i > size(OutDef%Params%filesWritten))then
-          call msg_warning('List of written files is full','do_file_manip_grads')
-        else
-          OutDef%Params%filesWritten(i) = OutDef%Params%grads_fNm(iSource)
-        endif
         
       case default
         call msg('Unknown file manipulation:', iFileManipulation)
@@ -5321,18 +5243,6 @@ CONTAINS
                                 & ncversion, smpi_use_mpiio_netcdf, &
                                 & real_missing)  ! fMissingVal
         if(error)return
-
-        !
-        ! Add a new file name to the list of files
-        !
-        do i=1,size(OutDef%Params%filesWritten)
-          if(OutDef%Params%filesWritten(i) == '')exit
-        end do
-        if(i > size(OutDef%Params%filesWritten))then
-          call msg_warning('List of written files is full','do_file_manip_netcdf')
-        else
-          OutDef%Params%filesWritten(i) = OutDef%Params%netcdf_fNm(iSource)
-        endif
 
       case default
         call set_error('Unknown file manipulation ','do_file_manip_netcdf')

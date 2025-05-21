@@ -2915,7 +2915,7 @@ MODULE ini_boundary_conditions
         
         ! Local variables
         integer :: ix, iy, iz, iCell, izb, iSpecies, iSpeciesTrn !, i1b
-        real, dimension(max_species) :: weight_past_boundary
+        real, dimension(nSpecies) :: weight_past_boundary !! Boundary species as index!!!
         real, dimension(:), pointer :: val_past, val_future !, &
         character(len=*), parameter :: sub_name="get_dirichlet_boundary" 
 
@@ -2927,15 +2927,15 @@ MODULE ini_boundary_conditions
           iSpeciesTrn = species_mapping_trn(iSpecies)
           if(fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp) == &!!!Satic field
            & fu_valid_time(bnd%Fld3dPtr(2, iSpeciesTrn)%fp))then
-            weight_past_boundary(iSpeciesTrn) = 1.0
+            weight_past_boundary(iSpecies) = 1.0
           else
-            weight_past_boundary(iSpeciesTrn) = &
+            weight_past_boundary(iSpecies) = &
                    & (fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp) - now) / &
                    & (fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp) - &
                     & fu_valid_time(bnd%Fld3dPtr(2, iSpeciesTrn)%fp))
           endif
-          if(weight_past_boundary(iSpeciesTrn) < 0. .or. weight_past_boundary(iSpeciesTrn) > 1.)then
-            call msg('Strange weight_past_boundary:', weight_past_boundary(iSpeciesTrn))
+          if(weight_past_boundary(iSpecies) < 0. .or. weight_past_boundary(iSpecies) > 1.)then
+            call msg('Strange weight_past_boundary:', weight_past_boundary(iSpecies))
             call msg('Now and valid times:')
             call report(now)
             call report(fu_valid_time(bnd%Fld3dPtr(1, iSpeciesTrn)%fp))
@@ -2962,8 +2962,8 @@ MODULE ini_boundary_conditions
             do iy = y1,y2
               do ix = x1,x2
                 buf_data(iSpecies,1,ix,iy) = &
-                                   & weight_past_boundary(iSpeciesTrn) * val_past(iCell) + &
-                                   & (1. - weight_past_boundary(iSpeciesTrn)) * val_future(iCell)
+                                   & weight_past_boundary(iSpecies) * val_past(iCell) + &
+                                   & (1. - weight_past_boundary(iSpecies)) * val_future(iCell)
 #ifdef DEBUG
                   if (.not.  buf_data(iSpecies,1,ix,iy) >= 0) then
                           call msg ("")
@@ -2999,8 +2999,8 @@ MODULE ini_boundary_conditions
                   !
 !                  i1d = ix + (iy - 1) * nx_dispersion
                   buf_data(iSpecies,1,iCell,iz) = &
-                                 & (weight_past_boundary(iSpeciesTrn) * val_past(iCell) + &
-                                  & (1. - weight_past_boundary(iSpeciesTrn)) * val_future(iCell)) 
+                                 & (weight_past_boundary(iSpecies) * val_past(iCell) + &
+                                  & (1. - weight_past_boundary(iSpecies)) * val_future(iCell)) 
 #ifdef DEBUG
                   if (.not.  buf_data(iSpecies,1,iCell,iz) >= 0) then
                           call msg ("")
