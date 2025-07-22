@@ -2147,10 +2147,6 @@ CONTAINS
         if(monin_obukhov_inv(i) > 100)then
           call msg('Large 1/L:',monin_obukhov_inv(i))
         endif
-
-        alpha_Pr(i) = min(1./ alpha_Pr(i), 5.0) ! for the below storage to have real Prandtl nbr, not inverse
-                                                ! Also, the upper limit is forced for the very strong stability
-                                                ! where the whole methodology is anyway inapplicable
         !
         ! Humidity scale and latent heat flux are computed only in case of full-ABL
         !
@@ -2175,6 +2171,10 @@ CONTAINS
           humid_scale(i) = latent_heat_flux(i) / &
                          & (karmann_c * vap_heat * (friction_velocity(i) + 1.0e-5))
         end if ! if dry or wet ABL
+
+        alpha_Pr(i) = min(1./ alpha_Pr(i), 5.0) ! for the below storage to have real Prandtl nbr, not inverse
+                                                ! Also, the upper limit is forced for the very strong stability
+                                                ! where the whole methodology is anyway inapplicable
 
       END DO  ! i=1:fs_meteo
 
