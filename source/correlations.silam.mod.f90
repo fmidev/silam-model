@@ -79,6 +79,24 @@ type t_spatial_correlation
    logical :: defined = .false.
 end type t_spatial_correlation
 
+
+type t_eigen_cache
+     !!!Cache key
+      integer :: last_used = int_missing !! Just sequential number of cache use, when item was used last time
+      real :: dxd !! Grid step in correlation-distance units
+      integer :: gnx, offx, nx  !! gnx size of full grid, nx -- our subgrid
+                                !! Only subset of eigenvectors to store frfinde by offx, nx
+      !!! cache values
+      real, dimension(:,:), allocatable :: eigvec
+      real, dimension(:), allocatable :: sqrt_eigval
+      integer :: nev = int_missing
+end type t_eigen_cache
+
+
+integer, parameter, private :: eigen_cache_lenth = 20
+type (t_eigen_cache), dimension(eigen_cache_lenth), private ::  eigen_cache
+
+
 ! When the decomposition method is used, the correlation matrix may eigenvalues near
 ! zero. These correspond to the high wavenumbers "forbidden" by the correlation radius, so
 ! the spectrum is truncated starting from some threshold. If the threshold is too low, the
@@ -298,7 +316,6 @@ contains
     real :: distance, dx, dy, unit_conv
     character(len=*), parameter :: sub_name = 'set_corr_from_nl_decomp'
     integer :: status, i, nx, ny, gnx, gny, offx, offy
-    real, dimension(:), pointer :: gridval
     character(len=fnlen) :: content
     character(len=clen) :: unit
 
@@ -319,8 +336,6 @@ contains
       return
     endif
 
-    gridval => fu_work_array(max(gnx, gny))
-
     content = fu_expand_environment(fu_content(nl, 'correlation_distance_x'))
     if (fu_fails(content /= '', 'Missing correlation_distance_x', sub_name)) return
     read(unit=content, fmt=*, iostat=status) distance, unit
@@ -340,8 +355,7 @@ contains
       dx = fu_dx_cell_deg(covariance_grid, gnx/2, gny/2)
       call msg('Correlation distance x: (gridcells, deg) ', distance, int(distance/dx))
     end if
-    gridval(1:gnx) = (/(i*dx, i=1, gnx)/)
-    call get_corr_from_dist(distance, gnx, offx, nx, gridval, &
+    call get_corr_from_dist_cache(distance / dx, gnx, offx, nx, &
                           & correlation%eigvec_x, correlation%sqrt_eigval_x, correlation%nev_x)
     if (error) return
     call msg('x-dim condition number: ', &
@@ -367,8 +381,7 @@ contains
       dy = fu_dy_cell_deg(covariance_grid, gnx/2, gny/2)
       call msg('Correlation distance y: (gridcells, deg) ', distance, int(distance/dy))
     end if
-    gridval(1:gny) = (/(i*dy, i=1, gny)/)
-    call get_corr_from_dist(distance, gny, offy, ny, gridval, &
+    call get_corr_from_dist_cache(distance / dy, gny, offy, ny,  &
                           & correlation%eigvec_y, correlation%sqrt_eigval_y, correlation%nev_y)
     if (error) return
     call msg('y-dim condition number: ', &
@@ -377,22 +390,93 @@ contains
 
     call get_vertical_correlation(nl, correlation%vertical, &
                                 & correlation%eigvec_z , correlation%sqrt_eigval_z, correlation%nev_z)
-    call free_work_array(gridval)
 
     correlation%defined = .true.
     correlation%method = corr_decomp
 
-  contains
+  end subroutine set_corr_from_nl_decomp
 
-    !==========================================================
+
+    subroutine get_corr_from_dist_cache(dxd, gnx, offx, nx, eigvec, sqrt_eigval, nev)
+      ! Caching wrapper for get_corr_from_dist
+      implicit none
+      real, intent(in) :: dxd !! Step of grid in units of correlation distance
+      integer, intent(in) :: gnx, offx, nx  !! gnx size of full grid
+                                !! Only subset of eigenvectors to store frfinde by offx, nx
+      real, dimension(:,:), intent(out), allocatable :: eigvec
+      real, dimension(:), intent(out), allocatable :: sqrt_eigval
+      integer, intent(out) :: nev
+
+      character(len=*), parameter :: sub_name = 'get_corr_from_dist_cache'
+      ! precision. It seems preferable to do the eigenvalue computation in double
+      ! precision, even if the rest goes in single.
+      integer :: iCache, iOldest, oldestCnt, iStat
+      logical :: ifFound
+
+      integer, save :: cache_cnt = 0
+      
+      cache_cnt = cache_cnt + 1 !!Call for cache count
+
+      iOldest = 0
+      oldestCnt = cache_cnt
+      ifFound = .FALSE. 
+      do iCache = 1,eigen_cache_lenth
+        if (eigen_cache(iCache)%last_used == int_missing) exit !! Not found, empty place
+        if (eigen_cache(iCache)%last_used < oldestCnt) then
+            oldestCnt = eigen_cache(iCache)%last_used
+            iOldest = iCache
+        endif
+        if ( &
+            & (eigen_cache(iCache)%dxd == dxd) .AND. &
+            & (eigen_cache(iCache)%gnx ==  gnx) .AND. &
+            & (eigen_cache(iCache)%nx == nx ) .AND. &
+            & (eigen_cache(iCache)%offx == offx ) &
+            ) then   !!! Cache hit
+               ifFound = .TRUE. 
+               exit
+        endif
+      end do
+
+      if ( ifFound) then 
+          call msg("Corr cache reuse item", iCache)
+      else
+        if (iCache > eigen_cache_lenth) iCache = iOldest !! Cache full, not found, overwrite the oldest item
+        !! Add new cache item as iCache
+          if (eigen_cache(iCache)%last_used > 0) then
+            call msg("Corr cache reuse item", iCache)
+            deallocate (eigen_cache(iCache)%eigvec, eigen_cache(iCache)%sqrt_eigval)
+          else
+            call msg("Corr cache new item", iCache)
+          endif
+          call get_corr_from_dist(dxd, gnx, offx, nx, &
+             & eigen_cache(iCache)%eigvec, eigen_cache(iCache)%sqrt_eigval, eigen_cache(iCache)%nev)
+          eigen_cache(iCache)%dxd = dxd
+          eigen_cache(iCache)%gnx =  gnx
+          eigen_cache(iCache)%nx = nx 
+          eigen_cache(iCache)%offx = offx 
+      endif
+
+      eigen_cache(iCache)%last_used = cache_cnt 
+
+      !! Get stuff from cache
+      nev = eigen_cache(iCache)%nev
+      allocate(sqrt_eigval(nev), eigvec(nev, nx), stat=iStat)
+      if (fu_fails(iStat == 0, 'Allocate failed', sub_name)) return
+      sqrt_eigval(1:nev) = eigen_cache(iCache)%sqrt_eigval(1:nev)
+      eigvec(1:nev, 1:nx) = eigen_cache(iCache)%eigvec(1:nev, 1:nx) 
+
+    end subroutine get_corr_from_dist_cache
+
+
+
+  !*****************************************************************************
   
-    subroutine get_corr_from_dist(distance, gnx, offx, nx, dimval, eigvec, sqrt_eigval, nev)
+    subroutine get_corr_from_dist(dxd, gnx, offx, nx, eigvec, sqrt_eigval, nev)
       ! Compute the gaussian correlation function and diagonalize.
       implicit none
-      real, intent(in) :: distance
-      integer, intent(in) :: gnx, offx, nx  !! gnx size of dimval
+      real, intent(in) :: dxd !! Step of grid in units of correlation distance
+      integer, intent(in) :: gnx, offx, nx  !! gnx size of full grid
                                 !! Only subset of eigenvectors to store frfinde by offx, nx
-      real, dimension(:), intent(in) :: dimval
       real, dimension(:,:), intent(out), allocatable :: eigvec
       real, dimension(:), intent(out), allocatable :: sqrt_eigval
       integer, intent(out) :: nev
@@ -401,23 +485,20 @@ contains
       ! precision, even if the rest goes in single.
       integer, parameter :: eigval_kind = r8k
       integer :: i, j, iStat, info, myworksize, nb
-      real :: dist_native
       real(eigval_kind), dimension(:,:), allocatable :: corr
       real(eigval_kind), dimension(:), allocatable :: eigval_tmp
       real(eigval_kind), dimension(:), allocatable :: work
-
-    !!  iStat = ILAENV(1, 'get_corr_from_dist', '', 0,0,0,0)  ! Optimal size of work?
-
-
+      character(len=*), parameter :: sub_name = 'get_corr_from_dist'
 
       allocate(corr(gnx, gnx), eigval_tmp(gnx), work(worksize), stat=iStat)
-      if (fu_fails(iStat == 0, 'Allocate failed', 'get_corr_from_dist')) return
+      if (fu_fails(iStat == 0, 'Allocate failed', sub_name)) return
       call msg('no 2*distance used')
       do i = 1, gnx
-        corr(i,i) = 1.
-        do j = i+1, gnx
-          corr(i,j) = exp(-(dimval(i)-dimval(j))**2 / (distance**2))
-          corr(j,i) = corr(i,j)
+         corr(i,1) = exp(-((i-1)/dxd)**2)
+      enddo
+      do j = 2, gnx
+        do i = 1, gnx
+          corr(i, j) = corr(1 + abs(i-j), 1)
         end do
       end do
       
@@ -460,7 +541,6 @@ contains
       deallocate(corr, eigval_tmp, work)
     end subroutine get_corr_from_dist
     
-  end subroutine set_corr_from_nl_decomp
 
   
   !*****************************************************************************
