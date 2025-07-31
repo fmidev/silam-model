@@ -320,6 +320,9 @@ MODULE silam_levels
   INTEGER, PARAMETER, PUBLIC :: no_level = 0
   integer, parameter, public :: any_level = 333
 
+  integer, dimension(4), parameter, public :: leveltypes_for_3d_meteo = &
+           & (/sigma_level, layer_btw_2_sigma, hybrid, layer_btw_2_hybrid/)
+
   !==========================================================================
   !==========================================================================
   !

@@ -551,7 +551,7 @@ MODULE grib_api_io
           return
         endif
 
-      case("lambert") !lambert Conformal conic indeed
+      case("lambert", "lambert_lam") !lambert Conformal conic indeed
         grGrid%defined=.FALSE.
 
         call grib_get(indGrib,'LoVInDegrees',lon0, io_status)

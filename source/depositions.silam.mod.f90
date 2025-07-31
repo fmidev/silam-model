@@ -1439,6 +1439,9 @@ CONTAINS
 
     if (fu_get_vd == 0.) then
       invVd2m = real_missing
+    elseif (deptype == DryD_Vd_difsed) then 
+            invVd2m = 1./ fu_get_vd !! Don't correct for aerodynamic resistance
+
     elseif (Z2m > fZ0) then  ! reasonable profile to 2m is possible
       !
       ! R2m > 0 for zref > Z2m and < 0  zref < Z2m. Can be wrong sign in strong stratifications

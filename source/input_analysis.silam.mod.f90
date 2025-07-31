@@ -2702,11 +2702,29 @@ integer function fu_compare_vars_quality(IC, ind1, ind2)
         & number_of_similar_fields_weight = 1.1, &
         & quality1, quality2, factor1, factor2
   type(Tvar_lst), pointer :: var1, var2
-  integer :: i
+  integer :: i, iQuantity, iVert 
+
+  character (len=*), parameter :: sub_name="fu_compare_vars_quality"
 
   var1 => IC%vars(ind1);  var2 => IC%vars(ind2)
-  quality1=0.;  quality2 = 0.
+  fu_compare_vars_quality = int_missing
 
+  !! Remove impossible combinations. Should have ben  done before
+  iQuantity = var1%quantity
+  if ( fu_multi_level_quantity(iQuantity) ) then
+     !!! Certain level types never accepted for 3D
+     if (all(fu_leveltype(IC%verts(var1%vertPtr)%vert) /= leveltypes_for_3d_meteo)) fu_compare_vars_quality = ind2
+     if (all(fu_leveltype(IC%verts(var2%vertPtr)%vert) /= leveltypes_for_3d_meteo)) fu_compare_vars_quality = ind1
+  endif
+
+  if (fu_compare_vars_quality > 0) return
+
+  !! Do black magic. Sometimes might work, do not brake a run here....
+  call msg("Had to make a choice for "//fu_quantity_short_string(iQuantity))
+  call msg_warning("Result might surprize you!",  sub_name)
+
+
+  quality1=0.;  quality2 = 0.
   !
   ! Horizontal resolution - the most important parameter.
   ! The smaller cell size the better grid is

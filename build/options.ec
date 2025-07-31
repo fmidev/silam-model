@@ -2,10 +2,10 @@ ARCH = linux_gnu
 
 F90C = gfortran
 # Flags for optimization, etc.
-OPTIMIZATION = -O3 -fopenmp -ffast-math
+OPTIMIZATION = -O3 -fopenmp #-ffast-math
 DEBUG = -g  -fbacktrace  #-fcheck=all -fbacktrace   -finit-real=snan  #-DDEBUG
 FIXED = -ffixed-form
-PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -DUSE_PROJ6
+PREPROCESS = -x f95-cpp-input  -D WITH_BZIP2 -DUSE_PROJ6 -DVOIMA_ECCODES_BUG
 FFLAGS = $(OPTIMIZATION) $(DEBUG) $(TESTOPTIONS) $(INCLUDE) -ffree-line-length-none -mno-avx
 INCLUDE = -I$(OBJDIR) -I/usr/include $(NETCDF4_INCLUDE) $(ECCODES_INCLUDE)
 
