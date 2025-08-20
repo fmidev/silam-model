@@ -2461,7 +2461,7 @@ CONTAINS
                    !nf%nDims(iDim)%chType = 'DEPTH_LYR_FROM_SURF'
                  case default
                    call msg_warning('Strange long name for vertical axes: '//trim(nf%nVars(iVar)%long_name),sub_name)
-                   call msg("Faild to recognize dimension from long_name"// trim(nf%nDims(iDim)%dimName) // ':', iDim )
+                   call msg("Faild to recognize dimension from long_name: "// trim(nf%nDims(iDim)%dimName) // ':', iDim )
 
                    call set_error("Failed with vertical", sub_name)
                    return
@@ -3238,7 +3238,8 @@ CONTAINS
    
               endif
             enddo
-            call completeAnygrid3DParam(nf%nGrids(iTmp)%sGrid)
+            call completeAnygrid3DParam(nf%nGrids(iTmp)%sGrid) !! Make 3d cartesian coordinates
+            call completeAnygridRotParam(nf%nGrids(iTmp)%sGrid) !! Make map rotation if not yet
           endif !!!Need for true anygrid
         endif !!1d gridvar
         call report(nf%nGrids(iTmp)%sGrid) 

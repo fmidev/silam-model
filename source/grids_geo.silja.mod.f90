@@ -378,7 +378,7 @@ MODULE grids_geo
     !
     ! Type for storing the grid parameters in a global variable
     !
-    real, dimension(:), allocatable :: xC,yC
+    real, dimension(:), allocatable :: xC,yC  !!! Actually longitude and latitude in degrees
     real, dimension(:), allocatable :: x3dC, y3dC, z3dC !!3d cartesian geocentric coordinates in units of earth_radius
     real, dimension(:), allocatable :: dx, dy, sin_map_rot, cos_map_rot ! sizes, rotation angle
     type(silja_logical) :: defined 
@@ -1474,10 +1474,11 @@ CONTAINS
     real, dimension(:), pointer  :: lon, lat
     logical, intent(out) :: ifNew
     integer :: nc
+    character (len=*), parameter :: sub_name="setAgLonlatFlds"
 
 
     if(grid%gridtype /= anygrid)then
-      call set_error('Only for grids of anygrid type','setAnygridParam')
+      call set_error('Only for grids of anygrid type', sub_name)
       return
     endif
 
@@ -1563,11 +1564,114 @@ CONTAINS
   end subroutine setAnygridParam
 
 
+  !***************************************************************
+
+  subroutine completeAnygridRotParam(grid)
+
+    !
+    !  Fills sin_map_rot and cos_map_rot from x3dc, y3dc and z3dc
+    !  To be used for grids without maprot.  Somewhat duplicate for anygrid_from_grib 
+    !
+    IMPLICIT NONE
+
+    TYPE(silja_grid), intent(in) :: grid
+    integer :: nc, iGrid, nx, ny, ix, iy
+
+    real, dimension(:,:), pointer :: x3d, y3d, z3d, c2d, s2d !! 2d pointers to anygrid params
+    real (kind=8) :: x,y, z, exg, eyg, ezg, exgrd, eygrd, ezgrd, rnorm
+
+    character (len=*), parameter :: sub_name = "completeAnygridRotParam"
+
+    if(grid%gridtype /= anygrid)then
+      call set_error('Only for grids of anygrid type',sub_name)
+      return
+    endif
+
+    iGrid = grid%ag%indParam
+    if (allocated( pAnyGrdParam(iGrid)%sin_map_rot)) then
+      call msg(" pAnyGrdParam("//trim(fu_str(iGrid))//")%sin_map_rot already made, skipping generation")
+      return
+    endif
+    if ( .not. allocated( pAnyGrdParam(iGrid)%dx)) then
+      call set_error(" pAnyGrdParam(iGrid)%dx not ready", sub_name)
+      return
+    endif
+
+    
+    nx = grid%ag%nx
+    ny = grid%ag%ny
+    nc = nx*ny
+
+
+    !!! get 2d arrays
+    x3d(1:nx,1:ny) => pAnyGrdParam(iGrid)%x3dc(1:nc)
+    y3d(1:nx,1:ny) => pAnyGrdParam(iGrid)%y3dc(1:nc)
+    z3d(1:nx,1:ny) => pAnyGrdParam(iGrid)%z3dc(1:nc)
+    allocate(pAnyGrdParam(iGrid)%sin_map_rot(nc), pAnyGrdParam(iGrid)%cos_map_rot(nc)) 
+
+    !! sin_map_rot
+    s2d(1:nx,1:ny) => pAnyGrdParam(iGrid)%sin_map_rot(1:nc)
+    c2d(1:nx,1:ny) => pAnyGrdParam(iGrid)%cos_map_rot(1:nc)
+
+    do iy = 2,ny - 1
+        do ix = 2, nx - 1
+            x = x3d(ix, iy)
+            y = y3d(ix, iy)
+            z = z3d(ix, iy)
+            !!! Components of eastward unity vector
+            rnorm = 1d0 / sqrt(x*x + y*y)
+            exg = -y * rnorm
+            eyg =  x * rnorm
+            !!! ezg = 0.
+
+            !! Components of x-wise unity vector in grid
+            exgrd = (x3d(ix+1,iy) - x3d(ix-1,iy))  
+            eygrd = (y3d(ix+1,iy) - y3d(ix-1,iy)) 
+            ezgrd = (z3d(ix+1,iy) - z3d(ix-1,iy))
+            rnorm = 1d0/ sqrt(exgrd*exgrd + eygrd*eygrd + ezgrd*ezgrd)  !! norm
+            exgrd = exgrd * rnorm
+            eygrd = eygrd * rnorm
+            ezgrd = ezgrd * rnorm
+              
+
+            c2d(ix, iy) = (exg*exgrd) + (eyg*eygrd) !! Just dot product of two vectors
+            ! cross product multiplied with unity vector from coordinate origin: poor precision
+!            s2d(ix, iy) = eyg * ezgrd * x  - exg * eygrd * y  + (exg * eygrd - eyg * exgrd ) * z 
+
+!            !! Components of y-wise unity vector in grid, rely on orthogonality of anygrid
+            exgrd = (x3d(ix,iy+1) - x3d(ix,iy-1))  
+            eygrd = (y3d(ix,iy+1) - y3d(ix,iy-1)) 
+            ezgrd = (z3d(ix,iy+1) - z3d(ix,iy-1))
+            rnorm = 1./ sqrt(exgrd*exgrd + eygrd*eygrd + ezgrd*ezgrd)  !! norm
+            exgrd = exgrd * rnorm
+            eygrd = eygrd * rnorm
+            ezgrd = ezgrd * rnorm
+              
+
+            s2d(ix, iy) = - ((exg*exgrd) + (eyg*eygrd)) !! Just dot product of two vectors
+        enddo
+    enddo
+    ! Fill edges
+    c2d(1,2:ny-1) = c2d(2,2:ny-1)
+    c2d(nx,2:ny-1) = c2d(nx-1,2:ny-1)
+    c2d(1:nx,1) = c2d(1:nx,2)
+    c2d(1:nx,ny) = c2d(1:nx,ny-1)
+
+    s2d(1,2:ny-1) = s2d(2,2:ny-1)
+    s2d(nx,2:ny-1) = s2d(nx-1,2:ny-1)
+    s2d(1:nx,1) = s2d(1:nx,2)
+    s2d(1:nx,ny) = s2d(1:nx,ny-1)
+
+
+  end subroutine completeAnygridRotParam
+
+  !*****************************************************************
+
   subroutine completeAnygrid3DParam(grid)
 
     !
     !  Fills 3D cartesian coordinates from xc and yc assuming that 
-    !  thay are already set, but x3dc, xy3dc and zx3dc are not
+    !  thay are already set, but x3dc, y3dc and z3dc are not
     !
     IMPLICIT NONE
 
@@ -1581,7 +1685,7 @@ CONTAINS
     character (len=*), parameter :: sub_name = "completeAnygrid3DParam"
 
     if(grid%gridtype /= anygrid)then
-      call set_error('Only for grids of anygrid type','setAnygridParam')
+      call set_error('Only for grids of anygrid type', sub_name)
       return
     endif
 

@@ -1454,6 +1454,106 @@ LIST = IS4FIRES_v3_0km
 END_LIST = IS4FIRES_v3_0km
 
 
+title = MEPS_METNO
+
+
+! ! dim = dimname   axis   dimvar   type
+     dim     =     time  t    time     *      
+     dim     =     x   x    longitude     *
+     dim     =     y   y    latitude    * 
+     dim     =     hybrid   z     hybrid    hybrid_lyr
+
+## Whatever to make silam pass on unknown dimensions: vertical will be reset for single-level vars anyway
+     dim     =    height_above_msl z height_above_msl ALTITUDE_FROM_SEA_LEVEL
+     dim     =   height0    z  height0 HEIGHT_FROM_SURF
+     dim     =   height1    z  height1 HEIGHT_FROM_SURF
+     dim     =   height2    z  height2 HEIGHT_FROM_SURF
+     dim     =   height3    z  height3 HEIGHT_FROM_SURF
+     dim     =   height4    z  height4 HEIGHT_FROM_SURF
+     dim     =   height5    z  height5 HEIGHT_FROM_SURF
+     dim     =   height6    z  height6 HEIGHT_FROM_SURF
+     dim     =   height7    z  height7 HEIGHT_FROM_SURF
+     dim     =   height8    z  height8 HEIGHT_FROM_SURF
+     dim     =   maximum_wind_level z maximum_wind_level HEIGHT_FROM_SURF
+     
+## Missing from thredds, to be inserted separately
+     aHalfVar    =     hybrid   a_half
+     bHalfVar    =     hybrid   b_half
+
+     gridvar =     longitude         lon             XXX
+     gridvar =     latitude          lat             XXX
+
+ ### Grid rotation to be determined from coordinates
+ #
+#analysis_time to be inserted  as SIMULATION_START_DATE global attribute (ISO sting)
+##     analysis_time = TIME_DIMENSION_START 
+     time_label_position = instant_fields
+
+
+
+
+#    var  =   varname   silam_quantity   silam_level_type   silam_level_value   subst_name   mode_value   wavelength   factor   offset 
+  
+     var     =     x_wind_ml         u                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     y_wind_ml         v                          XXX                 -1      XXX     -1     -1     1     0
+     var     =     air_temperature_ml         temperature                XXX                 -1      XXX     -1     -1     1     0
+     var     =     specific_humidity_ml         specific_humidity          XXX                 -1      XXX     -1     -1     1     0
+     var     =     mass_fraction_of_cloud_ice_in_air_ml    cloud_ice                  XXX                 -1      XXX     -1     -1     1     0
+     var     =     mass_fraction_of_cloud_condensed_water_in_air_ml    cloud_water                XXX                 -1      XXX     -1     -1     1     0
+     var     =     cloud_area_fraction_ml     cloud_cover                XXX                 -1      XXX     -1     -1     1     0
+    
+     
+     var     =     air_temperature_2m     temperature_2m             HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     specific_humidity_2m     specific_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1     1     0
+     var     =     air_temperature_0m         water_surface_temp         SURFACE_LEVEL        -1 XXX -1 -1 1 0  ### Missing from megasense
+
+     var     =     x_wind_10m        u_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+     var     =     y_wind_10m        v_10m                      HEIGHT_FROM_SURF     10     XXX     -1     -1     1     0
+##
+
+     var     =     surface_air_pressure   ground_pressure            SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     atmosphere_boundary_layer_thickness        nwp_abl_height_m          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     cloud_area_fraction        total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     liquid_water_content_of_surface_snow      weq_snow_depth    SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     integral_of_surface_downward_sensible_heat_flux_wrt_time        nwp_sensible_heatflux     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     integral_of_surface_downward_latent_heat_flux_wrt_time        nwp_latent_heatflux       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+                         
+#     var     =     PRECC         convective_accum_rain      SURFACE_LEVEL       -1      XXX     -1     -1     1     0  #
+     var     =     precipitation_amount_acc         total_precipitation     SURFACE_LEVEL       -1      XXX     -1     -1     1     0  #
+
+     var     =     integral_of_surface_downwelling_longwave_flux_in_air_wrt_time          surf_lw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08e7     0 #
+     var     =     integral_of_surface_downwelling_shortwave_flux_in_air_wrt_time          surf_sw_down_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0
+
+     var     =     integral_of_surface_net_downward_longwave_flux_wrt_time          surf_lw_net_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08e7     0
+     var     =     integral_of_surface_net_downward_shortwave_flux_wrt_time          surf_sw_net_radiation_ac  SURFACE_LEVEL       -1      XXX     -1     -1     1.08E7     0
+
+     var     =      specific_convective_available_potential_energy cape                       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =     relative_humidity_2m       relative_humidity_2m       HEIGHT_FROM_SURF     2      XXX     -1     -1    0.01     0
+
+# H2OSOI has to be extracted from soil vertical
+#     var     =     H2OSOI        soil_moisture_content      SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =               lai                        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+## Per-patch soil parameters to be implemeted
+#
+## For now probably  something like SFX_X001TG1 and SFX_X002TG2  weighted with area fraction should be an option...
+#
+     var     =    SFX_SIC              fraction_of_ice        SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =    SFX_X001LAI           lai_lv         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =    SFX_X002LAI           lai_hv         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =    SFX_X001VEG           frac_lv         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#     var     =    SFX_X002VEG           frac_hv         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =    SFX_Z0           land_roughness_met         SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+     var     =     land_area_fraction      fraction_of_land          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     surface_geopotential    geopotential_surface          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+#Albedo has to be smehow invented...
+#     var     =     ASDIF         albedo                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+
+
+     
+     
+END_LIST = MEPS_METNO
 END_NETCDF_NAME_TABLE
 
 

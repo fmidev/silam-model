@@ -1521,24 +1521,22 @@ MODULE diagnostic_variables
     fs_disp=nx_disp*ny_disp
     ifLonGlobal = fu_ifLonGlobal(gridTarget)
 
-    pHorizInterpUu => fu_horiz_interp_struct(u_grid_met, u_grid, linear, .true.)
-    pHorizInterpUc => fu_horiz_interp_struct(grid_met, u_grid, linear, .true.)
-    pHorizInterpVv => fu_horiz_interp_struct(v_grid_met, v_grid, linear, .true.)
-    pHorizInterpVc => fu_horiz_interp_struct(grid_met, v_grid, linear, .true.)
-    pHorizInterpC => fu_horiz_interp_struct(grid_met, dispersion_grid, linear, .true.)
-
-    if (fu_pole(grid_met) == fu_pole(gridTarget)) then
-       ifRotate = .False.
+    ifRotate = .not. (fu_pole(grid_met) == fu_pole(gridTarget))
+    if (ifRotate) then
+       call msg("Using rotation for massfluxes")
+       pHorizInterpUv => fu_horiz_interp_struct(v_grid_met, u_grid, linear, .true., ifMakeRotation = .TRUE.)
+       pHorizInterpVu => fu_horiz_interp_struct(u_grid_met, v_grid, linear, .true., ifMakeRotation = .TRUE.)
+    else
        call msg("NO rotation for massfluxes")
        pHorizInterpUv => null()
        pHorizInterpVu => null()
-    else
-       call msg("Using rotation for massfluxes")
-       ifRotate = .true.
-       pHorizInterpUv => fu_horiz_interp_struct(v_grid_met, u_grid, linear, .true.)
-       pHorizInterpVu => fu_horiz_interp_struct(u_grid_met, v_grid, linear, .true.)
     endif
 
+    pHorizInterpUu => fu_horiz_interp_struct(u_grid_met, u_grid, linear, .true., ifMakeRotation = ifRotate)
+    pHorizInterpUc => fu_horiz_interp_struct(grid_met, u_grid, linear, .true.)
+    pHorizInterpVv => fu_horiz_interp_struct(v_grid_met, v_grid, linear, .true., ifMakeRotation = ifRotate)
+    pHorizInterpVc => fu_horiz_interp_struct(grid_met, v_grid, linear, .true.)
+    pHorizInterpC => fu_horiz_interp_struct(grid_met, dispersion_grid, linear, .true.)
 
     do itime = 1, size(obstimes)
       now = obstimes(itime)
