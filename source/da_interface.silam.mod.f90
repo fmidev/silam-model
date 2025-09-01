@@ -1262,14 +1262,6 @@ contains
         call msg('Will use 1.0 as background emission correction')
       end if
     end if
-    !
-    ! Get the actual background from files
-    !
-    call background_from_files(background, cloud, &
-                             & rules%initialStateBgrFile, rules%have_init_background, init_bgr_def, &
-                             & rules%emissionCorrectionBgrFile, rules%have_emis_background, & 
-                             & emis_bgr_def, rules%da_begin, rules%ifRandomise)
-    if (error) return
 
   end subroutine set_background
 

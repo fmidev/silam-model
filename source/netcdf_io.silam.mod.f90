@@ -587,14 +587,14 @@ CONTAINS
                                         ! netcdf structures
     type(silam_vertical), INTENT(in) :: vertical
     type(silja_time), INTENT(in) :: timeValid
-    type(TOutputList), dimension(3), INTENT(in) :: lstsOutVars
+    type(TOutputList), dimension(:), INTENT(in) :: lstsOutVars
     CHARACTER (LEN=*), INTENT(in) :: chTemplate
     logical, intent(in) :: ifAllInOne, ifMPIIO
     integer, intent(in) :: ncver
     real, intent(in) :: fMissingVal
 
     ! Local declarations
-    INTEGER :: iFile, iStat,iVal, iTmp, outvar_quantity, iLst, jTmp
+    INTEGER :: iFile, iStat,iVal, iTmp, outvar_quantity, iLst, jTmp, iOutVar, nLists
     character (len=nf90_max_name) ::  chAttName
     TYPE(silja_grid) :: grid !Full output grid
     character (len=fnlen) :: chAtt
@@ -616,7 +616,7 @@ CONTAINS
     type(Tsilam_nl_item_ptr),pointer :: nlitem
     TYPE(netcdf_file),POINTER :: nf 
     integer, dimension(0) :: zeroints 
-    character (len=*), parameter :: sub_name='open_netcdf_file_o'
+    character (len=*), parameter :: sub_name="open_netcdf_file_o"
 
     nf => null()
     dimidsXd => null()
@@ -628,7 +628,7 @@ CONTAINS
     if (ifMPIIO) then 
       if (.not.smpi_is_mpi_version()) then
         call set_error('Trying to open file in parallel mode - this is &
-                     & a serial version', 'open_netcdf_file_o')
+                     & a serial version', sub_name)
         return
       endif
       grid = wholeMPIdispersion_grid
@@ -663,7 +663,7 @@ CONTAINS
     nf%ifMPIIO = ifMPIIO
     call create_nc(nf%tmpfname, nf%unit_bin, nf%ncver, nf%ifMPIIO)
     if (error) then
-      call set_error('Failed to create netcdf file','open_netcdf_file_o')
+      call set_error('Failed to create netcdf file',sub_name)
       return
     endif
     open_netcdf_file_o = iFile
@@ -833,7 +833,7 @@ CONTAINS
     CASE DEFAULT
       call msg("Leveltype", fu_leveltype(vertical)) 
       call report(vertical)
-      CALL set_error('Cant handle vertical','open_netcdf_file_o')
+      CALL set_error('Cant handle vertical',sub_name)
       RETURN
     END SELECT
 
@@ -851,7 +851,7 @@ CONTAINS
     nf%ntime%first_valid_time = timeValid
     nf%ntime%last_valid_time = time_missing
     if (nf%ntime%first_valid_time == time_missing ) then
-      call set_error('Failed to get start time','open_netcdf_file_o')
+      call set_error('Failed to get start time',sub_name)
       return
     endif
 
@@ -1044,22 +1044,27 @@ CONTAINS
     !
     ! No separate vars for dimensions
 
-    allocate(nf%nvars(size(lstsOutVars(1)%ptrItem) &
-                    & + size(lstsOutVars(2)%ptrItem)&
-                    & + size(lstsOutVars(3)%ptrItem)), stat=istat)
+    nLists = size(lstsOutVars)
+    iOutVar = 0  !! Count list sizes. nf%n_vars will be less than that
+    do iLst = 1, nLists   ! meteo, dispersion, mass map
+       iOutVar = iOutVar +  size(lstsOutVars(iLst)%ptrItem)
+    enddo
+    if (iOutVar  == 0) then
+      call set_error('Zero-sized output list',sub_name)
+      return
+    endif
+
+    allocate(nf%nvars(iOutVar), stat=istat)
     if (istat /= 0)then 
       call msg('Failed to allocate NetCDF file structure No:', iFile)
-      call msg ("size(lstsOutVars(1)%ptrItem)+ size(lstsOutVars(2)%ptrItem)+size(lstsOutVars(3)%ptrItem)", &
-              & (/size(lstsOutVars(1)%ptrItem), size(lstsOutVars(2)%ptrItem), size(lstsOutVars(3)%ptrItem)/))
-      !msg puts stars if there is something strange
-      print *, size(lstsOutVars(1)%ptrItem), size(lstsOutVars(2)%ptrItem), size(lstsOutVars(3)%ptrItem)    
-      call set_error('failed to allocate nf%ndims(nf%n_Dims), nf%nvars(nf%n_Vars)',sub_name)
+      do iLst = 1, nLists   ! meteo, dispersion, mass map
+         call msg("size(lstsOutVars("//trim(fu_str(iLst))//")%ptrItem)" ,size(lstsOutVars(iLst)%ptrItem))
+      enddo
+      call set_error('failed to allocate nf%nvars('//trim(fu_str(nf%n_Vars))//')',sub_name)
       return
     endif  
 
-    do iLst = 1, 3   ! meteo, dispersion, mass map
-      if(.not. allocated(lstsOutVars(iLst)%ptrItem))cycle
-      if  (size(lstsOutVars(iLst)%ptrItem) < 1) cycle
+    do iLst = 1, nLists   ! meteo, dispersion, mass map
       do iTmp=1, size(lstsOutVars(iLst)%ptrItem)
         if(lstsOutVars(iLst)%ptrItem(iTmp)%quantity == int_missing .or. &
          & lstsOutVars(iLst)%ptrItem(iTmp)%quantity < 1)exit
@@ -1155,7 +1160,7 @@ CONTAINS
     end do  ! iLst
 
     if (nf%n_vars == 0) then
-      call set_error('No variables in output list','open_netcdf_file_o')
+      call set_error('No variables in output list', sub_name)
       return
     endif
 
@@ -1214,7 +1219,7 @@ CONTAINS
           end do
           call put_var_nc(nf, nf%ngrids(1)%lonVarId, varData, (/1/), (/nf%ngrids(1)%nx/))
           if (error) then
-            call set_error('Failed to write lon values','open_netcdf_file_o')
+            call set_error('Failed to write lon values',sub_name)
             return
           endif
           do iVal = 1, nf%ngrids(1)%ny
@@ -1222,7 +1227,7 @@ CONTAINS
           end do
           call put_var_nc(nf, nf%ngrids(1)%latVarId, varData,  (/1/),  (/nf%ngrids(1)%ny/))
           if (error) then 
-            call set_error('Failed to write lat values','open_netcdf_file_o')
+            call set_error('Failed to write lat values',sub_name)
             return
           endif
         case(anygrid)
@@ -1230,14 +1235,14 @@ CONTAINS
           call put_var_nc(nf, nf%ngrids(1)%latVarId, fPtr, &
               & (/1,1/), (/nf%ngrids(1)%nx, nf%ngrids(1)%ny/))
           if (error)then 
-            call set_error('Failed to write 2d lat values','open_netcdf_file_o')
+            call set_error('Failed to write 2d lat values',sub_name)
             return
           endif
           fPtr => fu_geolons_fld(grid)
           call put_var_nc(nf, nf%ngrids(1)%lonVarId, fPtr, &
                          &  (/1,1/), (/nf%ngrids(1)%nx, nf%ngrids(1)%ny/))
           if (error) then
-            call set_error('Failed to write 2d lon values','open_netcdf_file_o')
+            call set_error('Failed to write 2d lon values',sub_name)
             return
           endif
    
@@ -1245,32 +1250,32 @@ CONTAINS
           call put_var_nc(nf, nf%ngrids(1)%cosMapRotVarId, fPtr, &
                          &  (/1,1/),  (/nf%ngrids(1)%nx, nf%ngrids(1)%ny/)) 
           if (error)then 
-            call set_error('Failed to write cosine values','open_netcdf_file_o')
+            call set_error('Failed to write cosine values',sub_name)
             return
           endif
           fPtr => fu_sin_map_rot_fld(grid)
           call put_var_nc(nf, nf%ngrids(1)%sinMapRotVarId, fPtr, &
                          & (/1,1/), (/nf%ngrids(1)%nx, nf%ngrids(1)%ny/)) 
           if (error)then 
-            call set_error('Failed to write sine values','open_netcdf_file_o')
+            call set_error('Failed to write sine values',sub_name)
             return
           endif
           fPtr => fu_dy_fld_m(grid)
           call put_var_nc(nf, nf%ngrids(1)%dyMVarId, fPtr, &
                          & (/1,1/), (/nf%ngrids(1)%nx, nf%ngrids(1)%ny/)) 
           if (error)then 
-            call set_error('Failed to write dy values','open_netcdf_file_o')
+            call set_error('Failed to write dy values',sub_name)
             return
           endif
           fPtr => fu_dx_fld_m(grid)
           call put_var_nc(nf, nf%ngrids(1)%dxMVarId, fPtr, &
                          & (/1,1/), (/nf%ngrids(1)%nx, nf%ngrids(1)%ny/)) 
           if (error)then 
-            call set_error('Failed to write dx values','open_netcdf_file_o')
+            call set_error('Failed to write dx values',sub_name)
             return
           endif
         CASE DEFAULT
-          CALL set_error('Unknown gridtype','open_netcdf_file_o')
+          CALL set_error('Unknown gridtype',sub_name)
           RETURN
       END SELECT
    
@@ -1283,7 +1288,7 @@ CONTAINS
          enddo
          call put_var_nc(nf, nf%nlevs%dzVarId,varData(1:iTmp), (/1/),(/iTmp/))
          if (error) then
-           call set_error('Failed to write "dz" values','open_netcdf_file_o')
+           call set_error('Failed to write "dz" values',sub_name)
            return
          endif
       endif
@@ -1300,12 +1305,12 @@ CONTAINS
    
          call put_var_nc(nf, nf%nlevs%aVarId,fPtra(1:iTmp), (/1/),(/iTmp/))
          if (error) then
-           call set_error('Failed to write "a" values','open_netcdf_file_o')
+           call set_error('Failed to write "a" values',sub_name)
            return
          endif
          call put_var_nc(nf, nf%nlevs%bVarId,fPtrb(1:iTmp), (/1/),(/iTmp/))
          if (error) then
-           call set_error('Failed to write "b" values','open_netcdf_file_o')
+           call set_error('Failed to write "b" values',sub_name)
            return
          endif
          if (if_ab_half_needed)then
@@ -1313,22 +1318,22 @@ CONTAINS
             fPtrdb = fPtrbhalf(2:itmp+1)- fPtrbhalf(1:itmp)
             call put_var_nc(nf, nf%nlevs%ahalfVarId,fPtrahalf(1:iTmp+1), (/1/),(/iTmp+1/))
             if (error) then
-              call set_error('Failed to write "a_half" values','open_netcdf_file_o')
+              call set_error('Failed to write "a_half" values',sub_name)
               return
             endif
             call put_var_nc(nf, nf%nlevs%bhalfVarId,fPtrbhalf(1:iTmp+1), (/1/),(/iTmp+1/))
             if (error) then
-              call set_error('Failed to write "b_half" values','open_netcdf_file_o')
+              call set_error('Failed to write "b_half" values',sub_name)
               return
             endif
             call put_var_nc(nf, nf%nlevs%daVarId,fPtrda(1:iTmp), (/1/),(/iTmp/))
             if (error) then
-              call set_error('Failed to write "da" values','open_netcdf_file_o')
+              call set_error('Failed to write "da" values',sub_name)
               return
             endif
             call put_var_nc(nf, nf%nlevs%dbVarId,fPtrdb(1:iTmp), (/1/),(/iTmp/))
             if (error) then
-              call set_error('Failed to write "db" values','open_netcdf_file_o')
+              call set_error('Failed to write "db" values',sub_name)
               return
             endif
          endif
@@ -1344,7 +1349,7 @@ CONTAINS
       ! Put vertical dimension variable
       call put_var_nc(nf, nf%nlevs%levVarId, nf%nlevs%std_z(1:iTmp), (/1/),(/iTmp/))
       if (error) then
-        call set_error('Failed to write lev values','open_netcdf_file_o')
+        call set_error('Failed to write lev values',sub_name)
         return
       endif
       call free_work_array(varData)
@@ -1465,13 +1470,13 @@ CONTAINS
     nf%nTime%last_valid_time = time_missing
     nf%nTime%tDimStart = time_missing
     nf%nTime%analysis_time   = time_missing  
+    nf%ifMPIIO = .false.
 
-    if(len_trim(fName) > 0)then
-      nf%fname = fName
-    else
+    if( .not. len_trim(fName) > 0) then
       call set_error('Filename missing', sub_name)
       return
     endif
+    nf%fname = fName
 
     istat = nf90_open(fname, NF90_NOWRITE, nf%unit_bin)
     if (istat /= 0)then 
@@ -2306,6 +2311,16 @@ CONTAINS
               call msg_warning('Variable with compressed dimensions', sub_name)
                nf%nVars(iVar)%compress = chAtt
                nf%nVars(iVar)%quantity = int_missing   ! Not usable
+            !case('grid_mapping')   !!! FIXME to be implemented tyet
+               !nf%nVars(iVar)%grid_mapping = chAtt
+
+            !!! Here we assume that whatever variable with grid_north_pole_latitude and grid_north_pole_longitude
+            !!! is a grid CF mapping that applies to all variables, so we overrride (SILAM) global attributes 
+            !!! the stuff from  nametable if any
+            case('grid_north_pole_latitude')
+               sPoleLat_tmp = - fAtt(1) 
+            case('grid_north_pole_longitude')
+               sPoleLon_tmp =  mod(fAtt(1)+360., 360.) - 180.
             case default
             end select
           endif
@@ -2527,7 +2542,7 @@ CONTAINS
      !
       endif
       
-    enddo !var
+    enddo ! iVar
 
 
     ! Varid-s for dimvars
@@ -3079,8 +3094,12 @@ CONTAINS
               nf%nGrids(iVal)%lonVarId = nf%nDims(nf%nVars(iVar)%dimIds(iDim))%varId
               nf%nGrids(iVal)%nx = nf%nDims(nf%nVars(iVar)%dimIds(iDim))%dimLen
               nf%nGrids(iVal)%ny = nf%nDims(nf%nVars(iVar)%dimIds(iTmp))%dimLen
-              nf%nGrids(iVal)%sPole_lon = sPoleLon_tmp
-              nf%nGrids(iVal)%sPole_lat = sPoleLat_tmp
+              !if (nf%nVars(iVar)%grid_mapping /= "") then ! in CF Grid mapping is per-variable thing, not global
+              !else 
+                !! Rely on default or global atts
+                nf%nGrids(iVal)%sPole_lon = sPoleLon_tmp
+                nf%nGrids(iVal)%sPole_lat = sPoleLat_tmp
+              !endif
               nf%nGrids(iVal)%defined = silja_true
               nf%nVars(iVar)%nGrid => nf%nGrids(iVal)
               ifFound = .true.
@@ -3613,15 +3632,16 @@ CONTAINS
       call msg("min(field), max(field) after hack1", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
 #endif
        
-!    elseif ( nint(nf%nVars(iVar)%missing_value) == -32767) then  ! BAD! if value is over integger range, arithmetic error comes
-    elseif ( abs(nf%nVars(iVar)%missing_value + 32767) < 1) then
-      ! Too bad... The source was unpacked by someone who was unable to adjust minimal value...
-      ! Just remove negatives and hope for best
-      where(grid_data(1:nx*ny) < 0) grid_data(1:nx*ny) = 0
+    elseif ( nf%nVars(iVar)%missing_value == nf%nVars(iVar)%missing_value ) then  !! Finite missing_value, can be NaN
+      if ( abs(nf%nVars(iVar)%missing_value + 32767) < 1) then
+        ! Too bad... The source was unpacked by someone who was unable to adjust minimal value...
+        ! Just remove negatives and hope for best
+        where(grid_data(1:nx*ny) < 0) grid_data(1:nx*ny) = 0
 #ifdef DEBUG_NC
-      call msg("min(field), max(field) after hack 2", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
+        call msg("min(field), max(field) after hack 2", minval(grid_data(1:nx*ny)), maxval(grid_data(1:nx*ny)))
 #endif
-    endif   ! if integer vars
+      endif   ! if integer vars
+    endif  
   endif  ! conc / vmr / emission quantities
 
  
@@ -4624,20 +4644,26 @@ CONTAINS
 
 
 
+
+    valint_req = fu_accumulation_length(id_req)
     label_pos = nf%ntime%time_label_position
-    select case(label_pos)
-      case(end_of_period, instant_fields)
-         timetmp = fu_valid_time(id_req)
-       case(mid_of_period)
-         timetmp = fu_valid_time(id_req) - fu_accumulation_length(id_req)* 0.5
-       case(start_of_period)
-         timetmp = fu_valid_time(id_req) - fu_accumulation_length(id_req)
-       case default
-         call set_error('Unknown time label position:' + &
-                      & fu_str(nf%ntime%time_label_position), &
-                      & sub_name)
-         return
-    end select
+    if (defined(valint_req)) then
+      select case(label_pos)
+        case(end_of_period, instant_fields)
+           timetmp = fu_valid_time(id_req)
+         case(mid_of_period)
+           timetmp = fu_valid_time(id_req) - valint_req * 0.5
+         case(start_of_period)
+           timetmp = fu_valid_time(id_req) - valint_req
+         case default
+           call set_error('Unknown time label position:' + &
+                        & fu_str(nf%ntime%time_label_position), &
+                        & sub_name)
+           return
+      end select
+    else !!! Requester did not care about accumualtion, neither we do
+        timetmp = fu_valid_time(id_req)
+    endif
 
     !Just find matching time
     do iT = 1,nTimes

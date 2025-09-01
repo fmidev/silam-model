@@ -2201,23 +2201,24 @@ endif
 
             if (model == model_meps .or. model == model_meps1) then
                   if (any(quantity == (/leaf_area_index_flag, &
-                    & leaf_area_indexhv_flag, leaf_area_indexlv_flag/))) then !Kill missing lai
+                    & leaf_area_indexhv_flag, leaf_area_indexlv_flag, fraction_of_ice_flag/))) then !Kill missing lai
                       ifZeroNegatives = .True.
                   endif
             endif
 
-            !MEPS has a nasty habit of using same short name and units for both accumulated and non-accumulated
-            if (fu_accumulated_quantity(quantity) .and. (field_kind /= accumulated_flag)) &
-                                & quantity = int_missing
+!!! This should be handled via definitions!!
+!            !MEPS has a nasty habit of using same short name and units for both accumulated and non-accumulated
+!            if (fu_accumulated_quantity(quantity) .and. (field_kind /= accumulated_flag)) &
+!                                & quantity = int_missing
 
-            ! MEPS albedo is actually ISBA albedo, that is undefined 
-            if (quantity == albedo_flag) quantity = int_missing
-
-            if ( model == model_meps1) then  !! Meps has all kinds of pressures, we need a surface one that has a separate name
-                if (quantity == pressure_flag) then
-                  quantity = int_missing
-                endif
-            endif
+!            ! MEPS albedo is actually ISBA albedo, that is undefined 
+!            if (quantity == albedo_flag) quantity = int_missing
+!
+!            if ( model == model_meps1) then  !! Meps has all kinds of pressures, we need a surface one that has a separate name
+!                if (quantity == pressure_flag) then
+!                  quantity = int_missing
+!                endif
+!            endif
 
       CASE (centre_hirlam, centre_fmi)
 
@@ -2663,7 +2664,7 @@ endif
       if(io_status /= GRIB_SUCCESS) call process_grib_status(io_status,'bottomLevel','fu_grib_level')
       level= fu_set_layer_between_two(layer_btw_2_sigma,fLevel*0.01,fLevelBottom*0.01)
       
-    elseif(chLevType == 'hybrid')then
+    elseif(chLevType == 'hybrid' .or. chLevType == 'hybridPressure')then
       !
       ! ATTENTION !!
       ! Either 2 parameters: a, b for the given level 

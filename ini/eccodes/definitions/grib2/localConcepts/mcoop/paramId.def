@@ -981,6 +981,9 @@
          parameterNumber = 5 ;
          level = 0 ;
          centre = 251 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 11;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
@@ -991,6 +994,8 @@
          parameterCategory = 5 ;
          parameterNumber = 5 ;
          centre = 251 ;
+	 typeOfFirstFixedSurface = 8 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
@@ -1000,7 +1005,35 @@
          discipline = 0 ;
          parameterCategory = 4 ;
          parameterNumber = 9 ;
-         level = 0 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 11;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#Net shortwave radiation flux(atmosph.top, inst)
+'0' = {
+         discipline = 0 ;
+         parameterCategory = 4 ;
+         parameterNumber = 9 ;
+         centre = 251 ;
+	 typeOfFirstFixedSurface = 8 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 1;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#Net shortwave radiation flux (surface, inst)
+'0' = {
+         discipline = 0 ;
+         parameterCategory = 4 ;
+         parameterNumber = 9 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 1;
          centre = 251 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
@@ -1012,6 +1045,9 @@
          parameterCategory = 4 ;
          parameterNumber = 9 ;
          centre = 251 ;
+	 typeOfFirstFixedSurface = 8 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 11;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
@@ -1482,11 +1518,53 @@
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
         }
-#Shortwave radiation flux
+#Shortwave radiation flux (atmosph.top, inst, ignore)
+'0' = {
+         discipline = 0 ;
+         parameterCategory = 4 ;
+         parameterNumber = 7 ;
+         centre = 251 ;
+	 typeOfFirstFixedSurface = 8 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 1;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#Shortwave radiation flux (surface, inst, ignore)
+'0' = {
+         discipline = 0 ;
+         parameterCategory = 4 ;
+         parameterNumber = 7 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 1;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#Shortwave radiation flux (atmosph.top)
+'2512531160' = {
+         discipline = 0 ;
+         parameterCategory = 4 ;
+         parameterNumber = 7 ;
+         centre = 251 ;
+	 typeOfFirstFixedSurface = 8 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 11;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#Shortwave radiation flux (surface)
 '251253116' = {
          discipline = 0 ;
          parameterCategory = 4 ;
          parameterNumber = 7 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+   productDefinitionTemplateNumber = 11;
          centre = 251 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
@@ -1533,7 +1611,7 @@
          subCentre = 255 ;
         }
 #Total cloud cover
-'251253071' = {
+'164' = {
          discipline = 0 ;
          parameterCategory = 6 ;
          parameterNumber = 192 ;
@@ -1973,6 +2051,117 @@
          discipline = 2 ;
          parameterCategory = 0 ;
          parameterNumber = 216 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+### Additions for SILAM
+#
+# 
+#
+
+
+#Skin temperature
+'235' = {
+	 discipline = 0 ;
+	 parameterCategory = 0 ;
+	 parameterNumber = 0 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+	}
+#2 metre specific humidity
+'174096' = {
+	 discipline = 0 ;
+	 parameterCategory = 1 ;
+	 parameterNumber = 0 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 2 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+	}
+#surface pressure
+'134' = {
+	 discipline = 0 ;
+	 parameterCategory = 3 ;
+	 parameterNumber = 0 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+	}
+#msl pressure
+'151' = {
+	 discipline = 0 ;
+	 parameterCategory = 3 ;
+	 parameterNumber = 0 ;
+	 typeOfFirstFixedSurface = 102 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+	}
+#Snow depth water equivalent
+'228141' = {
+	 discipline = 0 ;
+	 parameterCategory = 1 ;
+	 parameterNumber = 60 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 0 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+	}
+#Temperature
+'167' = {
+         discipline = 0 ;
+         parameterCategory = 0 ;
+         parameterNumber = 0 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 2 ;
+   productDefinitionTemplateNumber = 1 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#u-component of wind
+'167' = {
+         discipline = 0 ;
+         parameterCategory = 2 ;
+         parameterNumber = 2 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 10 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+        }
+#v-component of wind
+'166' = {
+         discipline = 0 ;
+         parameterCategory = 2 ;
+         parameterNumber = 3 ;
+	 typeOfFirstFixedSurface = 103 ;
+	 scaleFactorOfFirstFixedSurface = 0 ;
+	 scaledValueOfFirstFixedSurface = 10 ;
          centre = 251 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;

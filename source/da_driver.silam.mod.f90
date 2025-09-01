@@ -43,7 +43,6 @@ module da_driver
   private set_cov_mdl
   private evaluate
   private get_gradient
-  private reload_control
   private fu_next_iter_file
   !  private fu_next_grad_file
   private fu_next_obs_file
@@ -601,9 +600,6 @@ contains
     call msg('Repotring control: control')
     call report(control)
 
-    if(darules%restart_iteration) &
-              & call reload_control(cloud, darules, control, background, int_missing, control_space)
-    if(error)return
     !
     ! Init TLA at the first entry (num_timesteps_prev = -1 at initialization)
     ! or if the number of assimilation timesteps has changed - seemingly, never the case now
@@ -775,91 +771,6 @@ contains
 
   end subroutine update_da_outdir
 
-  
-  !***********************************************************************************
-  
-  subroutine reload_control(cloud, darules, control, background, iter_to_recover, space_switch)
-    !
-    ! Resets the 4D-VAR environment to the last-processed interation, or to the given one
-    !
-    implicit none
-
-    ! Imported parameters
-    type(silam_pollution_cloud), pointer :: cloud
-    type(da_rules), intent(in) :: darules
-    type(da_control), target, intent(inout) :: control
-    type(da_control), intent(in) :: background
-    integer, intent(in) :: iter_to_recover, space_switch
-      
-    integer :: iter, last_iter
-    integer, parameter :: max_iter_to_chk = 500
-    logical :: exist
-    type(da_control), target :: control_phys
-    type(da_control), pointer :: control_ptr
-    character(len=fnlen) :: iterfilename, output_dir
-
-    output_dir = darules%outputdir
-    call msg('Trying to reload control from directory:' + output_dir)
-    if(iter_to_recover == int_missing)then
-      !
-      ! get the last successful one
-      !
-      do iter = 1, max_iter_to_chk
-        iterfilename = fu_next_iter_file(output_dir, 'control_da_', darules%da_begin, iter)
-        inquire(file=iterfilename, exist=exist)
-        if (.not. exist) exit
-      end do
-      if (iter == 1 .or. iter > max_iter_to_chk) then
-        call set_error('reload_control requested but no files found', 'reload_control')
-        return
-      endif
-      last_iter = iter-1
-    else
-      last_iter = iter_to_recover
-    endif
-    !
-    ! Exists? Add GRADS as format and proceed
-    !
-    iterfilename = fu_next_iter_file(output_dir, 'control_da_', darules%da_begin, last_iter) + '.super_ctl'
-    call msg('Checking:' + iterfilename)
-    inquire(file=iterfilename, exist=exist)
-    if (exist) then
-      call msg('Trying to reload_control, iteration from file: ' // trim(iterfilename))
-      iterfilename = 'GRADS ' // trim(iterfilename)
-    else
-      call set_error('reload_control is requested but file not found: '//trim(iterfilename), 'reload_control')
-      return
-    end if
-    !
-    ! use set_background to read the control. If the control is needed in the control space
-    ! use thermodynamic_tools intermediate to read the stores control - that one is in physical space
-    !
-    if(space_switch == control_space)then
-      control_ptr => control_phys
-    elseif(space_switch == physical_space)then
-      control_ptr => control
-    endif
-    call init_control_from_cloud(control_ptr, cloud, darules, physical_space)
-    if (error) return
-    call background_from_files(control_ptr, cloud, &
-                             & iterfilename, .true., real_missing, &    ! initial-condition file
-                             & iterfilename, .true., real_missing, &    ! emission file
-                             & darules%da_begin, darules%ifRandomise)
-    if (any(fu_values_ptr(control_ptr) .eps. real_missing)) then
-      call set_error('Failed setting the control from reload', 'reload_control')
-      return
-    end if
-    if(space_switch == control_space)then
-      ! try to recover it using recover_control
-      call recover_control(control_phys, control, background)
-      call destroy(control_phys)
-    elseif(space_switch == physical_space)then
-      ! just return
-    else
-      call set_error('Unknown space_switch:' + fu_str(space_switch),'reload_control')
-    endif
-      
-  end subroutine reload_control
 
   !************************************************************************************
 

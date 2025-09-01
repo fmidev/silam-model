@@ -35,7 +35,6 @@ MODULE diagnostic_variables
   implicit none
 
   public make_all_diagnostic_fields
-  public fu_ifDiagnosticQuantity
   public fu_if_full_meteo_vertical_needed
   public init_wind_diag
   public set_rules_water_in_soil_model
@@ -1152,39 +1151,6 @@ MODULE diagnostic_variables
       end subroutine check_obstimes
     
   end subroutine make_diagnostic_fields
-
-
-  !******************************************************************
-
-  logical function fu_ifDiagnosticQuantity(qIn, qDiag)
-    !
-    ! Checks if qDiag can be diagnosed directly from qIn
-    !
-    implicit none
-
-    integer, intent(in) :: qIn, qDiag
-
-    if(qIn == qDiag)then        ! Simple things first
-      fu_ifDiagnosticQuantity = .true.
-      return
-    endif
-    !
-    ! Remember that it may happen so that one quantity can be diagnosed from the other but
-    ! not necessarily vise versa. 
-    !
-    select case(qIn)
-      case(concentration_flag)
-        fu_ifDiagnosticQuantity = (qDiag == mass_in_air_flag)
-      case(mass_in_air_flag)
-        fu_ifDiagnosticQuantity = (qDiag == concentration_flag)
-      case(volume_mixing_ratio_flag)
-        fu_ifDiagnosticQuantity = (qDiag == concentration_flag .or. qDiag == mass_in_air_flag)
-      case default
-        fu_ifDiagnosticQuantity = .false.
-    end select
-
-  end function fu_ifDiagnosticQuantity
-
   
   !***************************************************************************************************
   

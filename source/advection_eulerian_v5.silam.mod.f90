@@ -2852,12 +2852,18 @@ if(ifTalk)call msg('Return mass:',(/ix,iy,iLev,iSpecies/))
 
             if (defined(pCnc2m)) then
 !!             ! FIXME Hack: pCnc2m  = 1/Rs
-!            if (ifDryDep) then
-!                   pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  1./mystuff%R_Surf(ispecies) * pXCellSize(indexDisp) * pYCellSize(indexDisp)
-!                  pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  fVd * pXCellSize(iTmp) * pYCellSize(iTmp)
-!            else
-!                    pCnc2m%arM(iSpecies,iSrc,1,ix,iy) = 0
-!            endif
+!              if (ifDryDep) then
+!                    if (mystuff%R_Surf(ispecies) > 0) then
+!                      pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  1./mystuff%R_Surf(ispecies) * pXCellSize(indexDisp) * pYCellSize(indexDisp)
+!                    else
+!                       pCnc2m%arM(iSpecies,iSrc,1,ix,iy) = 999999999999999. * pXCellSize(indexDisp) * pYCellSize(indexDisp)
+!                    endif
+!                  
+!                    
+!                   ! pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  fVd * pXCellSize(ispecies) * pYCellSize(ispecies)
+!              else
+!                      pCnc2m%arM(iSpecies,iSrc,1,ix,iy) = 0
+!              endif
 
               if (.not. (pCnc2m%arM(iSpecies,iSrc,1,ix,iy) >= 0)) then !Achtung!!
                 if(.not. have_negatives)then

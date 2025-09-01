@@ -1547,7 +1547,7 @@ MODULE source_terms_general
 
 !        call msg('Reading the:' + chLabel + '- source from file:' + trim(fname))
 
-        nlSrc => fu_read_namelist(file_unit, .false., 'END_'+chLabel)
+        nlSrc => fu_read_namelist(file_unit, .true., 'END_'+chLabel)
         if(error)return
 
       elseIF (index(line,'END_') > 0) THEN

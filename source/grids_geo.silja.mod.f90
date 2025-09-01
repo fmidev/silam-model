@@ -1174,14 +1174,14 @@ CONTAINS
     !  5. The grid distance
     !     -----------------
 
-    IF (dx_deg.eps.0.) THEN
-      CALL set_error('cannot have dx_deg=0' ,'fu_set_lonlat_grid')
+    IF (.not. dx_deg > 0.) THEN
+      CALL set_error('dx_deg must be positive, got '//trim(fu_str(dx_deg)) ,'fu_set_lonlat_grid')
     ELSE
       grid%lonlat%dx_deg = dx_deg
     END IF
 
-    IF (dy_deg.eps.0.) THEN
-      CALL set_error('cannot have dy_deg=0','fu_set_lonlat_grid')
+    IF (.not. dy_deg > 0.) THEN
+      CALL set_error('dy_deg must be positive got '//trim(fu_str(dy_deg)),'fu_set_lonlat_grid')
     ELSE
       grid%lonlat%dy_deg = dy_deg
     END IF

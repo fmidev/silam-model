@@ -1213,8 +1213,8 @@ MODULE ini_boundary_conditions
 !call msg('mapping mode')                         ! from mapping file
 !call report(b_aerosol_mode)
           do iId = 1, fu_nbr_of_fields(inputContent)
-            if (.not.(fu_quantity(lstId(iId)) == concentration_flag .or. &
-                    & fu_ifDiagnosticQuantity(fu_quantity(lstId(iId)), concentration_flag))) cycle
+            iTmp = fu_quantity(lstId(iId))
+            if (.not. any(iTmp == (/concentration_flag, volume_mixing_ratio_flag/))) cycle
 
             if (.not.(bSubstNm == fu_substance_name(lstId(iId)))) cycle
 !call msg('boundary file mode:')  ! from boundary file

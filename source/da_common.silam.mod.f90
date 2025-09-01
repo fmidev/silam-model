@@ -44,7 +44,6 @@ module da_common
   public fu_isp_initial    !Indices
   public fu_isp_emis_ctrl
   public report_norm
-  public background_from_files
   public set_bgr_cov_ptr
   public get_emis_time_slots
   public fu_num_emis_time_slots
@@ -197,11 +196,6 @@ module da_common
      ! Allow negatives in mass map. Only for 3dvar, which doesn't run the model.
      logical :: allow_negative = .false.
      
-     ! background fields
-     character(len=fnlen) :: initialStateBgrFile = ''
-     character(len=fnlen) :: emissionCorrectionBgrFile = ''
-
-     logical :: have_init_background = .false., have_emis_background = .false.
      integer :: adjointMethod = int_missing
 
      logical :: log_transform = .false.
@@ -212,9 +206,6 @@ module da_common
      ! transformation becomes identity.
      logical :: no_background_term = .false.
      logical :: use_zero_emis_backgr = .false.
-     ! Option to restart iteration: search the last control_??.grads and initialize
-     ! iteration from that.
-     logical :: restart_iteration = .false.
      ! 4Dvar: automatically run forecast after assimilation
      logical :: run_forecast = .true.
 
@@ -1277,276 +1268,6 @@ module da_common
     in_physical = control%transf_state == physical_space
   end function fu_in_physical_space
 
-  !************************************************************************************
-  
-  subroutine background_from_files(control, cloud, &
-                                 & file_initial, if_update_initial, default_initial, &
-                                 & file_emission, if_update_emission, default_emission, &
-                                 & valid_time, ifRandomise)
-    implicit none
-    type(da_control), intent(inout) :: control
-    type(silam_pollution_cloud), intent(in) :: cloud
-    character(len=*), intent(in) :: file_initial, file_emission
-    logical, intent(in) :: if_update_initial, if_update_emission
-    real, intent(in) :: default_initial, default_emission
-    type(silja_time), intent(in) ::valid_time
-    logical, intent(in) :: ifRandomise
-
-    ! Local variables
-    type(Tmass_map_ptr), dimension(1) :: mass_map_ptr_array
-    type(Tmass_map), pointer :: map_c
-    type(Tmass_map), target :: map_cnc
-    integer :: ix, iy, iz, isp, nx, ny, nz, nsp, idim, ind, isp_transp, nFields_updated, &
-             & ind_start, ind_end
-    real, dimension(:), pointer :: init_p, emis_p, arPtr
-    type(silam_species), dimension(:), pointer :: emission_species
-    type(silja_field_id) :: id, idOut
-
-    map_c => fu_concMM_ptr(cloud)
-    
-    nx = map_c%nx
-    ny = map_c%ny
-    nz = map_c%n3d
-    
-    if (iand(fu_mode(control),control_init) /= 0) then 
-      init_p => fu_initial_ptr(control)
-      !if (rules%have_init_background) then
-      if (if_update_initial) then
-        !
-        ! Initial state must come from a file. We borrow the
-        ! concentration map for reading it.
-        ix = index(file_initial,' ')
-        nFields_updated = 0
-        call set_mass_map(map_cnc, concentration_flag, 1, 0, map_c%gridTemplate, map_c%vertTemplate, &
-                        & map_c%species, val=0.0)
-        mass_map_ptr_array(1)%ptrMassMap => map_cnc
-        call update_mass_map_from_file(fu_process_filepath(file_initial(ix+1:)), &
-                                     & fu_input_file_format(file_initial(1:ix)), &  ! file format
-                                     & mass_map_ptr_array,&
-                                     & 1, &
-                                     & valid_time, ifRandomise, &
-                                     & nFields_updated=nFields_updated)
-
-        if(nFields_updated == 0)call msg_warning('DA_INITIAL_STATE: No fields have been red','background_from_files')
-        if (error) return
-        !
-        ! Convert the mass map to the control vector
-        !
-        do isp = 1, control%nsp_init
-          call msg('isp_contr, real(isp_transp)', isp, real(control%ind_species_init(isp)))
-        end do
-        do iy = 1, ny
-          do ix = 1, nx
-            do iz = 1, nz
-              do isp = 1, control%nsp_init
-                isp_transp = control%ind_species_init(isp)
-                ind = (iy-1)*nx*nz*control%nsp_init + (ix-1)*nz*control%nsp_init &
-                    & + (iz-1)*control%nsp_init + isp
-                init_p(ind) = map_cnc%arm(isp_transp, 1, iz, ix, iy)
-              end do
-            end do
-          end do
-        end do
-        call dealloc_mass_map(map_cnc)
-      else
-        init_p = default_initial
-      end if   ! update_intial
-    endif   ! if initial state in control
-
-      !call msg('sum of background init_p', sum(init_p))
-      !call msg('sum of arm', sum(map_cnc%arm))
-    !
-    ! Emission background term
-    !
-    if (iand(fu_mode(control),control_emis_xy) /= 0) then 
-      emis_p => fu_emission_ptr(control)
-      if (if_update_emission) then
-        arPtr => fu_work_array()
-        ix = index(file_emission,' ')
-        !
-        ! get the data from the field to the control. 
-        ! Note the multi-species case
-        !
-        emission_species => fu_species_emission(cloud)
-        nsp = size(emission_species)
-        do isp = 1, nsp
-          id = fu_set_field_id(met_src_missing, ln_emission_scaling_flag, valid_time, zero_interval, &
-                             & dispersion_grid, surface_level, &
-                             & species=emission_species(isp))
-          if(error)return
-          call get_input_field(fu_process_filepath(file_emission(ix+1:)), &  ! file name
-                             & fu_input_file_format(file_emission(1:ix)), &  ! file format
-                             & id, &                  ! The id to search
-                             & arPtr, &               ! data array
-                             & dispersion_gridPtr, &  ! storage grid
-                             & iOutside = nearestPoint, &         ! out of grid interpolation
-                             & iAccuracy = 5, &
-                             & wdr = wdr_missing, & 
-                             & ifAcceptSameMonth = .false., &
-                             & idOut = idOut)         ! output id
-          if(error)return
-          ! species are not consecutive! grids are.
-          ind_start = isp
-          ind_end = ind_start + (fs_dispersion-1)*nsp
-          emis_p(ind_start:ind_end:nsp) = max(arPtr(1:fs_dispersion), 0.0)
-        end do  ! species
-        call free_work_array(arPtr)
-      else
-        emis_p = default_emission
-      end if  ! if_update_emission
-    endif  ! emis_xy
-    !
-    ! Time-height assimilation does not support non-trivial background
-    !
-    if (iand(fu_mode(control),control_emis_zt) /= 0) then
-      emis_p => fu_emission_ptr(control)
-      if (if_update_emission) then
-        call set_error('Cannot update emission_time_height', 'background_from_files')
-      else
-        emis_p = default_emission
-      end if
-    endif
-
-    
-  contains
-
-    !==========================================================================
-    
-    subroutine test_time_hgt_from_file()
-      implicit none
-      integer, parameter :: num_slots = 4, num_levs = 2
-      type(silja_time), dimension(2, num_slots) :: time_slots
-      real, dimension(:), pointer :: p_emis
-      type(silam_species), dimension(1) :: emission_species
-      type(silam_vertical) :: vertical
-      character(len=*), parameter :: file_name = 'tst', sub_name = 'test_time_hgt_from_file'
-      integer :: stat, unit, ind_slot
-      real, dimension(num_levs, num_slots) :: values
-
-      time_slots = reshape((/fu_set_time_utc(2010,1,1,0,0, 0.0), fu_set_time_utc(2010,1,1,12,0,0.0), &
-                          &  fu_set_time_utc(2010,1,1,12,0, 0.0), fu_set_time_utc(2010,1,2,0,0,0.0), &
-                          &  fu_set_time_utc(2010,1,2,0,0, 0.0), fu_set_time_utc(2010,1,2,12,0,0.0), &
-                          &  fu_set_time_utc(2010,1,2,12,0, 0.0), fu_set_time_utc(2010,1,3,0,0,0.0)/), &
-                          & (/2, num_slots/))
-      p_emis => fu_work_array()
-      call set_species(emission_species(1), fu_get_material_ptr('SO2'), in_gas_phase)
-      call set_vertical((/fu_set_level(constant_height, fval1=20.0), &
-                       &  fu_set_level(constant_height, fval1=50.0)/), vertical)
-      if (error) return
-      
-      unit = fu_next_free_unit()
-      open(unit, file=file_name, action='write', form='formatted', iostat=stat)
-      if (fu_fails(stat == 0, 'Cannot open test file', sub_name)) return
-      call random_number(values)
-      do ind_slot = 1, num_slots
-        write(unit, fmt='(A, 1x, A, 2G16.6)') fu_time_to_io_string(time_slots(1, ind_slot)), &
-             & 'SO2_gas', values(1, ind_slot), values(2, ind_slot)
-      end do
-      close(unit)
-      
-      call time_hgt_from_file(file_name, emission_species, time_slots, vertical, p_emis)
-
-      if (.not. all(p_emis(1:num_levs*num_slots) .eps. reshape(values, (/num_levs*num_slots/)))) then
-        call set_error('Values are not same', sub_name)
-      end if
-
-      call free_work_array(p_emis)
-      
-    end subroutine test_time_hgt_from_file
-    
-    !==============================================================
-    
-    subroutine time_hgt_from_file(file_name, emission_species, time_slots, vertical, p_emis)
-      implicit none
-      character(len=*), intent(in) :: file_name
-      type(silam_species), dimension(:), intent(in) :: emission_species
-      type(silja_time), intent(in), dimension(:,:) :: time_slots
-      type(silam_vertical), intent(in) :: vertical
-      real, dimension(:), intent(out) :: p_emis
-
-      integer :: file_unit, stat
-      character(len=fnlen) :: file_name_pr
-      character(len=*), parameter :: sub_name = 'time_hgt_from_file'
-      logical, dimension(size(time_slots, 2), size(emission_species)) :: slot_ok
-      integer :: year, month, day, hour, minute, num_words, quantity, ind_slot, ind_species, ilev, &
-           & ind_time_height, num_levs 
-      real :: sec
-      real, dimension(:), pointer :: values
-      character(len=16), dimension(:), allocatable :: words
-      type(silam_species) :: species
-      logical :: eof
-      character(len=worksize_string) :: species_name, line
-      type(silja_time) :: when
-      character(len=10) :: utc
-      integer :: num_words_expect 
-
-      file_name_pr = fu_process_filepath(file_name, must_exist=.true.)
-      if (error) return
-      file_unit = fu_next_free_unit()
-
-      num_levs = fu_NbrOfLevels(vertical)
-
-      num_words_expect = num_levs + 8
-      allocate(words(num_words_expect), stat=stat) ! 7 words from time + species name
-      if (fu_fails(stat == 0, 'Allocate failed', sub_name)) return
-      call msg('Reading time-height background from ' // trim(file_name_pr))
-      open(file_unit, file=trim(file_name_pr), form='formatted', action='read', iostat=stat)
-      if (fu_fails(stat == 0, 'Error opening time height background file', sub_name)) return
-
-      slot_ok = .false.
-      values => fu_work_array()
-      do
-        call next_line_from_input_file(file_unit, line, eof)
-        if (error) return
-        if (eof) exit
-        read(line, fmt=*, iostat=stat) year, month, day, hour, minute, sec, utc
-        if (fu_fails(stat == 0, 'Failed to read times', sub_name)) return
-        if (fu_fails(utc == 'UTC', 'utc is not UTC', sub_name)) return
-        when = fu_set_time_utc(year, month, day, hour, minute, sec)
-        if (error) return
-        ind_slot = fu_index(when, time_slots(1,:))
-        if (fu_fails(ind_slot /= int_missing, 'Failed to find time slot', sub_name)) return
-        call split_string(line, ' ', words, num_words)
-        
-        if (fu_fails(num_words == num_words_expect, &
-                   & 'Bad number of words in time-height background field', sub_name)) return
-        
-        if (error) return
-        species_name = words(8)
-        ! add cnc_ and use the grads-io subroutine to find species.
-        call decode_id_params_from_io_str('cnc_' // species_name, num_levs > 1, quantity, species, .true.)
-        if (error) return
-        ind_species = fu_index(species, emission_species)
-        if (fu_fails(ind_species /= int_missing, 'Species not found in emission', sub_name)) return
-        do ilev = 1, num_levs
-          ind_time_height = fu_time_height_index(ilev, ind_slot, ind_species, num_levs, &
-                                               & size(emission_species))
-          read(unit=words(8+ilev), fmt=*, iostat=stat) p_emis(ind_time_height)
-          if (fu_fails(stat == 0, 'Failed to parse value', sub_name)) return
-          !p_emis(ind_time_height) = 
-        end do
-        slot_ok(ind_slot, ind_species) = .true.
-      end do
-      
-      call free_work_array(values)
-      
-      if (fu_fails(all(slot_ok), 'Not all timeslots OK', sub_name)) then
-        do ind_slot = 1, size(slot_ok, 1)
-          do ind_species = 1, size(slot_ok, 2)
-            call report(emission_species(ind_species))
-            call msg(fu_str(time_slots(1,ind_slot)))
-            if (slot_ok(ind_slot, ind_species)) then
-              call msg('--> Slot OK')
-            else
-              call msg('--> Slot not OK')
-            end if
-          end do
-        end do
-      end if
-    end subroutine time_hgt_from_file
-
-  end subroutine background_from_files
-
   !*****************************************************************************
   
   integer function fu_time_height_index(ind_lev, ind_slot, ind_species, num_levs, num_species) result(ind)
@@ -2181,26 +1902,6 @@ module da_common
       rules%no_background_term = nl_content == 'yes'
       if (rules%no_background_term) call msg_warning('Background term disabled in cost function!')
 
-      nl_content = fu_content(nlPtr,'initial_state_background_file')
-      if (nl_content /= '') then
-        nl_content = fu_process_filepath(nl_content, must_exist=.true.)
-        rules%have_init_background = .true.
-        if (error) return
-      else
-        rules%have_init_background = .false.
-      end if
-      rules%initialStateBgrFile = nl_content
-
-      nl_content = fu_content(nlptr, 'emission_background_file')
-      if (nl_content /= '') then
-        nl_content = fu_process_filepath(nl_content, must_exist=.true.)
-        rules%have_emis_background = .true.
-        if (error) return
-      else
-        rules%have_emis_background = .false.
-      end if
-      rules%emissionCorrectionBgrFile = nl_content
-
       nl_content = fu_str_l_case(fu_content(nlptr, 'zero_emis_backgr'))
       rules%use_zero_emis_backgr = nl_content == 'yes'
       !
@@ -2222,9 +1923,6 @@ module da_common
         if (error) return        
       end if
     
-      nl_content = fu_str_l_case(fu_content(nlptr, 'restart_iteration'))
-      rules%restart_iteration = nl_content == 'yes'
-
     end subroutine set_xdvar_rules
 
     !=======================================================
@@ -2433,18 +2131,6 @@ module da_common
     else
       call msg('negatives in mass map are allowed')
     endif
-    call msg('initialStateBgrFile = ' // trim(darules%initialStateBgrFile))
-    call msg('emissionCorrectionBgrFile = ' // trim(darules%emissionCorrectionBgrFile))
-    if(darules%have_init_background)then
-      call msg('have_init_background')
-    else
-      call msg('NOT have_init_background')
-    endif
-    if(darules%have_emis_background)then
-      call msg('have_emis_background')
-    else
-      call msg('NOT have_emis_background')
-    endif
     call msg('adjointMethod = ', darules%adjointMethod)
     if(darules%log_transform)then
       call msg('log_transform')
@@ -2460,11 +2146,6 @@ module da_common
       call msg('use_zero_emis_backgr')
     else
       call msg('NOT use_zero_emis_backgr')
-    endif
-    if(darules%restart_iteration)then
-      call msg('restart_iteration')
-    else
-      call msg('NOT restart_iteration')
     endif
     if(darules%run_forecast)then
       call msg('run_forecast')

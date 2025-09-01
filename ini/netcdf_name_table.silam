@@ -183,7 +183,7 @@ LIST = EDGAR
      
 END_LIST = EDGAR
 
-
+###################################################
 
 LIST = IFS_CO2
 
@@ -205,14 +205,56 @@ LIST = IFS_CO2
      
      var     =     CO2nplus    emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nplus      -1     -1     1     0 
      var     =     CO2nminus   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nminus     -1     -1     1     0 
-     var     =     aco2recHrly   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nplus    -1     -1     1     0 
+     var     =     aco2recHrly   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nplus    -1     -1     -1     0 # They count flux towards surface
      var     =     aco2gppHrly   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2nminus    -1     -1     1     0 
      var     =     co2flux_ocean_pos   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2oceminus      -1     -1     1     0  ##Swap them to make sign that of atmosphericCO2
      var     =     co2flux_ocean_neg   emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2oceplus     -1     -1     1     0 
      var     =     emiss_fire  emission_flux  HEIGHT_LYR_FROM_SURF  25  CO2fire     -1     -1     1     0 
 
+    ### Stuff for CATRINE runs
+     var     =     CO2fossilr  emission_rate  HEIGHT_LYR_FROM_SURF  25  CO2fossil     -1     -1     1.      0  ## These came as rate
+     var     =     rnemis  emission_flux  HEIGHT_LYR_FROM_SURF  25  PASSIVE_COCKTAIL   -1    -1    5.7e18   0  #Radon 5.7e18 Bq/kg: Bq to massmap
+     var     =     SF6kgperppt emission_rate  HEIGHT_LYR_FROM_SURF  25  SF6_COCKTAIL    -1     -1     1.      0 ### ppt increment should  come from AS file
+   
+
 END_LIST = IFS_CO2
 
+###################################################
+
+LIST = CATRINE_IC
+
+     title = 
+     title = CATRINE_IC
+
+     ! dims have to be defined to fix the strange hybrid sigma pressure vertical ()
+     dim     =     longitude     x     longitude    *
+     dim     =     latitude      y     latitude    *
+     dim     =     level         z     level      hybrid_lyr
+     dim     =     time     t     time    *
+  
+     aHalfVar    =     level   ap
+     bHalfVar    =     level   bp
+    
+     
+     time_label_position = instant_fields
+     ifCocktails = NO
+
+    ### Stuff for CATRINE runs
+    #volume_mixing_ratio XXX -1 O3 -1 -1 0.6035
+     var     =     CO2      volume_mixing_ratio  XXX -1  CO2bg     -1     -1     1.      0  ## 
+     var     =     sf6p   volume_mixing_ratio  xxx -1  sf6p     -1     -1     1.      0  ## 
+     var     =     sf6nc  volume_mixing_ratio  xxx -1  sf6nc     -1     -1     1.      0  ## 
+     var     =     sf6ng  volume_mixing_ratio  xxx -1  sf6ng     -1     -1     1.      0  ## 
+     var     =     sf6    volume_mixing_ratio  xxx -1  sf6     -1     -1     1.      0  ##
+
+### Hack to cope with reprojection errors: Just give mass in native grid/vertical 
+     var     =     CO2mass    mass_in_air  XXX -1  CO2bg   -1     -1     1.      0  ## 
+     var     =     SF6pmass   mass_in_air  XXX -1  SF6p    -1     -1     1.      0  ## 
+     var     =     SF6ncmass  mass_in_air  XXX -1  SF6nc   -1     -1     1.      0  ## 
+     var     =     SF6ngmass  mass_in_air  XXX -1  SF6ng   -1     -1     1.      0  ## 
+     var     =     SF6mass    mass_in_air  XXX -1  SF6     -1     -1     1.      0  ## 
+
+END_LIST = CATRINE_IC
 ###################################################
 
 LIST = INVSAT
@@ -1475,6 +1517,7 @@ title = MEPS_METNO
      dim     =   height7    z  height7 HEIGHT_FROM_SURF
      dim     =   height8    z  height8 HEIGHT_FROM_SURF
      dim     =   maximum_wind_level z maximum_wind_level HEIGHT_FROM_SURF
+     dim     =   mean_sea_level  z mean_sea_level  HEIGHT_FROM_SURF
      
 ## Missing from thredds, to be inserted separately
      aHalfVar    =     hybrid   a_half
@@ -1547,8 +1590,9 @@ title = MEPS_METNO
      var     =     land_area_fraction      fraction_of_land          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     surface_geopotential    geopotential_surface          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
 
-#Albedo has to be smehow invented...
-#     var     =     ASDIF         albedo                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+#Albedo from radiances via met.no
+     var     =     albedo         albedo                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     smoist        soil_moisture_content       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
 
 
      

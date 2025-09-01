@@ -96,7 +96,7 @@ MODULE natural_constants
   real, parameter, public :: prandtl_nbr = 0.72
   REAL, PARAMETER, PUBLIC :: small_epsilon  = 1.2E-38 ! a very small number, indeed
   REAL, PARAMETER, PUBLIC :: mev_in_joule = 1.6021773349e-13  ! CRC Handbook
-  real, parameter, public :: max_wind_speed = 200.0           ! m/s
+  real, parameter, public :: max_wind_speed_default = 200.0           ! m/s
   real, parameter, public :: SWRad_2_PAR = 2.7e-3 * 0.45 *4.6 ! PAR=0.45*SWR(W/m2)*4.6(microphotons/s per W)
   real, parameter, public :: mode_diam_tolerance = 1e-8 ! 10nm
   real, parameter, public :: wavelength_tolerance = 1e-9 ! 1nm

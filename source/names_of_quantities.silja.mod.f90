@@ -3702,7 +3702,7 @@ CONTAINS
       case(heatsum_cutoff_tempr_flag)
       fMinAlert = 200; fMinForce = 200; fMaxForce = 400; fMaxAlert = 400
       case(end_heatsum_threshold_flag)
-      fMinAlert = 200; fMinForce = 200; fMaxForce = real_missing; fMaxAlert = real_missing
+      fMinAlert = -1; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
       case(heatsum_start_end_diff_flag)
       fMinAlert = -1; fMinForce = 0; fMaxForce = real_missing; fMaxAlert = real_missing
 

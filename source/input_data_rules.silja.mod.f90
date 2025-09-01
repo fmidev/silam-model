@@ -517,9 +517,9 @@ CONTAINS
       CASE ('NWP_ABL')
         wdr%ablh_method= nwp_abl
     CASE default
-      CALL msg_warning('abl-height must be CONSTANT,RICHARDSON,PARCEL,COMBINATION or NWP_ABL',&
+      CALL set_error('abl-height must be CONSTANT,RICHARDSON,PARCEL,COMBINATION or NWP_ABL',&
                      & sub_name)
-      wdr%ablh_method = combination_method
+      return
     END SELECT
 
     ! LAI type
@@ -536,9 +536,8 @@ CONTAINS
       case ('NONE')
          wdr%LAIsrc=int_missing
       CASE default
-         CALL msg_warning('use_lai should be STATIC1 STATIC2 DYNAMIC1 DYNAMIC2 or NONE;  Will use: STATIC1',&
+         CALL set_error('use_lai should be STATIC1 STATIC2 DYNAMIC1 DYNAMIC2 or NONE',&
                         & sub_name)
-         wdr%LAIsrc=LAI_static_1
     END SELECT
 
     ! ABL parameterization method

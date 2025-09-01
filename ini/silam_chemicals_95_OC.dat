@@ -218,7 +218,7 @@ LIST = substance
   #Dissoc_coeff = 0. # Mol/kg
   Wesely_f0 = 0. 
   
-  gas_surf_resistance_over_water = 10.
+  gas_surf_resistance_over_water = 50.  ### Should be higher than nitric acid
   gas_surf_resistance_land_default = 600.
   gas_molecular_diffusivity_in_air   = 1.978e-5 #Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
   gas_molecular_diffusivity_in_water = 6e-10
@@ -435,7 +435,7 @@ LIST = substance
   #Dissoc_coeff = 0. # Mol/kg
   Wesely_f0 = 0. 
   
-  gas_surf_resistance_over_water = 100.   #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: 25.
+  gas_surf_resistance_over_water = 10.  ## Changed to 10: Update was to table 19.1 from SP2006 which has different quantity  #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.  OLD value: 25.
   gas_surf_resistance_land_default = 25.
   gas_molecular_diffusivity_in_air   = 1.16e-5 #RH2018: update. Seinfeld and Pandis: Atm. Chem. & Phys.: D=D_H2O/1.87 = 2.178e-5/1.87
   gas_molecular_diffusivity_in_water = 6e-10
@@ -4478,6 +4478,29 @@ LIST = substance
   gas_molecular_diffusivity_in_water = 6e-10
   washout_coef_rain_ratio_to_SILAM_standard = 0.000001
   washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  
+END_LIST = substance
+
+LIST = substance
+  chemical_name = CO2fossil
+  GRIB2_constituent_type = -1
+  molar_mass = 44.01 g/mole
+  low_concentration_threshold = 1 ng/m3
+  can_be_aerosol = NO
+  can_be_gas = YES
+
+#No scavenging for now
+  Henry_constant_at_298K    =  -777.              # mol/kg/pa   #Set non-depositing
+  Henry_constant_T_dependence_exponent_scale = 0  #Dimension -- Degrees Kelvin 
+  Wesely_f0 = 0. 
+
+  gas_surf_resistance_over_water = -1.
+  gas_surf_resistance_land_default = -1
+  gas_molecular_diffusivity_in_air   = 1.381e-5  #RH2018 update: Massman 1998 "A REVIEW OF THE MOLECULAR DIFFUSIVITIES ..."
+  gas_molecular_diffusivity_in_water = 6e-10
+  washout_coef_rain_ratio_to_SILAM_standard = 0.000001
+  washout_coef_snow_ratio_to_SILAM_standard = 0.000001
+  min_precision_factor = 1024
   
 END_LIST = substance
 

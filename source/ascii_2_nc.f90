@@ -110,15 +110,14 @@ program ascii_2_nc
     real, dimension(:), allocatable :: grid_data
     type(silja_field_id) :: field_id
     type(silam_vertical) :: vertical
-    type(TOutputList), dimension(3) :: OutLst
+    type(TOutputList) :: OutItems
     character(len=*), parameter :: sub_name = 'convert_2_nc'
 
 
 
     call open_ascii_file_i(chInFNm, iUnit)
 
-    allocate(grid_data(worksize), OutLst(1)%ptrItem(1), & 
-       & OutLst(2)%ptrItem(0), OutLst(3)%ptrItem(0), stat=iStat)
+    allocate(grid_data(worksize), OutItems%ptrItem(1),  stat=iStat)
     if (iStat /= 0) then
       call set_error('allocate failed!', sub_name)
       return
@@ -130,19 +129,19 @@ program ascii_2_nc
     call close_ascii_file_i(iUnit)
 
 
-    OutLst(1)%ptrItem(1)%quantity = fu_quantity(field_id)
-    OutLst(1)%ptrItem(1)%AvType = fu_field_kind(field_id)
-    OutLst(1)%ptrItem(1)%AvPeriod = fu_accumulation_length(field_id)
-    OutLst(1)%ptrItem(1)%species = fu_species(field_id)  ! missing if no substance defined
-    OutLst(1)%ptrItem(1)%chSpecies_string = fu_str(fu_species(field_id))  ! just input string
-    OutLst(1)%ptrItem(1)%iSpeciesListType = int_missing  ! can be iNoSubstanceRelation
-    OutLst(1)%ptrItem(1)%iVerticalTreatment = int_missing
-    OutLst(1)%ptrItem(1)%if3D = .false.
+    OutItems%ptrItem(1)%quantity = fu_quantity(field_id)
+    OutItems%ptrItem(1)%AvType = fu_field_kind(field_id)
+    OutItems%ptrItem(1)%AvPeriod = fu_accumulation_length(field_id)
+    OutItems%ptrItem(1)%species = fu_species(field_id)  ! missing if no substance defined
+    OutItems%ptrItem(1)%chSpecies_string = fu_str(fu_species(field_id))  ! just input string
+    OutItems%ptrItem(1)%iSpeciesListType = int_missing  ! can be iNoSubstanceRelation
+    OutItems%ptrItem(1)%iVerticalTreatment = int_missing
+    OutItems%ptrItem(1)%if3D = .false.
 
     call set_vertical(fu_level(field_id), vertical)
 
     iUnit = open_netcdf_file_o(chOutFNm, fu_grid(field_id), vertical, fu_analysis_time(field_id), &
-                                    & OutLst, &
+                                    & (/OutItems/), &
                                     & "", .True., 4, .false., real_missing)
 
     call write_next_field_to_netcdf_file(iUnit, field_id, grid_data)
@@ -172,7 +171,7 @@ program ascii_2_nc
     real, dimension(:), allocatable :: grid_data
     type(silja_field_id) :: field_id
     type(silam_vertical), pointer :: vertical
-    type(TOutputList), dimension(3) :: OutLst
+    type(TOutputList)  :: OutItems
     character(len=*), parameter :: sub_name = 'grads_2_nc'
 
     call init_grads_io(1) !! Only one file needed
@@ -184,8 +183,7 @@ program ascii_2_nc
     nvars = fu_n_gvars(igFile)
 
 
-    allocate(grid_data(worksize), OutLst(1)%ptrItem(nvars), & 
-       & OutLst(2)%ptrItem(0), OutLst(3)%ptrItem(0), stat=iStat)
+    allocate(grid_data(worksize), OutItems%ptrItem(nvars), stat=iStat)
     if (iStat /= 0) then
       call set_error('allocate failed!', sub_name)
       return
@@ -194,14 +192,14 @@ program ascii_2_nc
 
     do iVar = 1,nvars  
         call  get_grads_var_metadata(igFile, iVar, 1, 1, field_id) ! indices: gfile, gvar, glev, gtime; SILAM-id
-        OutLst(1)%ptrItem(iVar)%quantity = fu_quantity(field_id)
-        OutLst(1)%ptrItem(iVar)%AvType = fu_field_kind(field_id)
-        OutLst(1)%ptrItem(iVar)%AvPeriod = fu_accumulation_length(field_id)
-        OutLst(1)%ptrItem(iVar)%species = fu_species(field_id)  ! missing if no substance defined
-        OutLst(1)%ptrItem(iVar)%chSpecies_string = fu_str(fu_species(field_id))  ! just input string
-        OutLst(1)%ptrItem(iVar)%iSpeciesListType = int_missing  ! can be iNoSubstanceRelation
-        OutLst(1)%ptrItem(iVar)%iVerticalTreatment = int_missing
-        OutLst(1)%ptrItem(iVar)%if3D = (fu_n_gVar_levs(igFile,iVar) > 1 ) 
+        OutItems%ptrItem(iVar)%quantity = fu_quantity(field_id)
+        OutItems%ptrItem(iVar)%AvType = fu_field_kind(field_id)
+        OutItems%ptrItem(iVar)%AvPeriod = fu_accumulation_length(field_id)
+        OutItems%ptrItem(iVar)%species = fu_species(field_id)  ! missing if no substance defined
+        OutItems%ptrItem(iVar)%chSpecies_string = fu_str(fu_species(field_id))  ! just input string
+        OutItems%ptrItem(iVar)%iSpeciesListType = int_missing  ! can be iNoSubstanceRelation
+        OutItems%ptrItem(iVar)%iVerticalTreatment = int_missing
+        OutItems%ptrItem(iVar)%if3D = (fu_n_gVar_levs(igFile,iVar) > 1 ) 
     enddo
 
     nTimes = fu_n_gtimes(igFile)
@@ -209,7 +207,7 @@ program ascii_2_nc
     iUnit = open_netcdf_file_o(chOutFNm, fu_silamGrid_of_grads(igFile), &
                                       &  fu_silamVert_of_grads(igFile), &
                                       &  fu_time_of_grads(igFile, 1), & !! First time -- analysis
-                                      & OutLst, &
+                                      & (/ OutItems /), &
                                       & "", .True., 4, .false., real_missing)
 
     do iTime = 1, nTimes                                 

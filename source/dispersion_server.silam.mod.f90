@@ -1647,7 +1647,7 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
     type(grads_template) :: fname_template
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
     type(silam_fformat) :: fform
-    type(silam_sp) :: sp
+    character(len=fnlen) :: sp
     integer :: iFNm, iItem, nItems
 
     ! Check input
@@ -1667,26 +1667,25 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
                    & 'update_mass_map_from_namelist')
       return
     endif
-    sp%sp => fu_work_string()
     
     ! Scan the items and update the mass map values
     do iItem = 1, nItems
       
-      sp%sp = fu_content(ptrItems(iItem))
+      sp = fu_content(ptrItems(iItem))
       fname_template = template_missing
 
-      fform = fu_input_file_format(sp%sp)
+      fform = fu_input_file_format(sp)
       if(error)return
-      sp%sp=adjustl(sp%sp)
-      sp%sp=adjustl(sp%sp(index(sp%sp,' ')+1:))
+      sp=adjustl(sp)
+      sp=adjustl(sp(index(sp,' ')+1:))
       if(fform%iFormat == test_field_value_flag)then
         
-        CALL update_mass_map_from_file(sp%sp, fform, ptrMap, nMaps, &
+        CALL update_mass_map_from_file(sp, fform, ptrMap, nMaps, &
                                      & valid_time, ifRandomise, nFields_updated)
 
       else
         
-        call decode_template_string(sp%sp, fname_template)
+        call decode_template_string(sp, fname_template)
         nullify(fnames)
         call FNm_from_single_template(fname_template, &
                                       & valid_time, fnames, &
@@ -1705,8 +1704,6 @@ call check_mass_moment_point(pMassMap%arM(indSpeciesOut(iSpecies), iSourceId, iL
       endif
 
    end do
-
-   call free_work_array(sp%sp)
 
   end subroutine update_mass_map_from_namelist
 
@@ -2511,17 +2508,19 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
     integer, intent(out) :: conversion
     
     ! Local variables
-    integer :: iMapTmp, iTmp
+    integer :: iMapTmp, iTmp, mmq, idq
     type(Tmass_map), pointer :: pMap
     real :: wave1, wave2
 
     iMap = int_missing
 
-    iMapTmp = 1
-    do while (iMapTmp <= nMaps)
-      ! can the mass map quantity be directly diagnosed from the given one?
-      if(fu_ifDiagnosticQuantity(fu_quantity(id), ptrMap(iMapTmp)%ptrMassMap%quantity))exit
-      iMapTmp  = iMapTmp  +1
+    idq = fu_quantity(id)
+    do iMapTmp = 1, nMaps
+      mmq = ptrMap(iMapTmp)%ptrMassMap%quantity
+      if ( mmq == idq ) exit
+      if ( mmq == mass_in_air_flag) then !mass_in_air can be also deduced form vmr or cnc
+        if (any(idq == (/concentration_flag, volume_mixing_ratio_flag/))) exit
+      endif
     end do
     if(error)return
     if(iMapTmp  > nMaps) return
@@ -2574,7 +2573,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
     do iTmp = 1, fu_nWaves(iSubst,iMode,pMap%mapper)
       wave1 = fu_optical_wave_length(id)
       wave2 = fu_optical_wave_length(pMap%species(fu_iSp(iSubst, iMode, iTmp, pMap%mapper)))
-      if ((wave1 .eps. real_missing) .and. (wave2 .eps. real_missing)) then
+      if ((wave1 == real_missing) .and. (wave2 == real_missing)) then
         iwave = itmp
         exit
       end if
@@ -3943,6 +3942,7 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
     logical :: ifPerDz, ifPerArea, ifPerDensity, ifPerDzDynamic, ifTimestepIntegrated
     type(field_3d_data_ptr), pointer :: dz_past_3d, dz_future_3d, rho_past_3d, rho_future_3d
     real, dimension(:), pointer :: xSize, ySize
+   character (len=*), parameter :: sub_name="start_new_output_period_massmap"
 
     !
     ! Somewhat boring stuff: have to all-again get the scaling and pass it to the mising function.
@@ -3983,24 +3983,24 @@ call msg('Ave of NetCDF, converted:',sum(dataMap(1:fu_number_of_gridpoints(pMap%
                                   & .true., &                     ! Start new period
                                   & rho_past_3d, rho_future_3d, dz_past_3d, dz_future_3d, xSize, ySize)
           case default
-            call set_error('Unknown averaging type in massmap links','start_new_output_period_massmap')
+            call set_error('Unknown averaging type in massmap links', sub_name)
             return
         end select
  
       else
         !
         ! Instant input
-        !
-        select case(MassMapLinks%iAveragingType(iLink))
-          case(iAsIs, iInstant, iCumulative) 
-          case(iMeanLastHrs)
-          case(iAverage)
+
+        if (MassMapLinks%iAveragingType(iLink) /= iCumulative) then
+            !! Reset the output ulness we continue accumulation after the output
+            !!  merge_instant_MMdata always adds, never resets
             MassMapLinks%IntegrationStart(iLink) = now
             MassMapLinks%pMMOut(iLink)%arM = 0.0
-          case default
-            call set_error('Unknown averaging type in massmap links','start_new_output_period_massmap')
-            return
-        end select
+
+            if (MassMapLinks%iAveragingType(iLink) == iMeanLastHrs) then !! I have no means to test/debug this case
+              call msg_warning("This case might need separate handling", sub_name)
+            endif
+        endif
       endif  ! if accumulation quantity
     end do  ! nMassMapLinks
 

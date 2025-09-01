@@ -45,6 +45,7 @@ my %specials = (qr/cbm4_integrator/i => '-O1',
 		qr/netcdf/ => '-O0',
 		qr/fishpack/ => '-fno-fast-math',
     qr/photolysis/ => '-fno-fast-math', ## Caused hardly-trackable FPE  with some setups at puhti
+    qr/aer_dyn_simple/ => '-fno-fast-math', ## Caused hardly-trackable FPE  with some setups at puhti
 #		qr/advection/ => '$(PREPROCESS)',
 #    		qr/globals/ => '$(PREPROCESS)',
 #                qr/diffusion_3d/ => '$(PREPROCESS)'

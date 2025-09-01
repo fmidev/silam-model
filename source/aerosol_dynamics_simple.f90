@@ -28,6 +28,7 @@ MODULE aer_dyn_simple
     real, dimension(:), pointer :: OHaging_rates
     logical :: SSLTmodes4NO3c, SSLTmodes4SO4c
     real :: fParticleSrfRatio, no3_StickingCoeff, so4_StickingCoeff
+    real :: tau
     type(silja_logical) :: defined
   end type Tchem_rules_AerDynSimple
   !
@@ -55,7 +56,7 @@ MODULE aer_dyn_simple
                                & NH3_HNO3_vs_NH4NO3_eq_nRH = 22, &
                                & NH3_HNO3_vs_NH4NO3_eq_Tmin = 149.0
 
-  real, dimension(NH3_HNO3_vs_NH4NO3_eq_nRH), parameter :: RH = (/0., 0.50, 0.54, 0.58, 0.62, 0.66, 0.70, &
+  real, dimension(NH3_HNO3_vs_NH4NO3_eq_nRH), parameter :: RHLUT = (/0., 0.50, 0.54, 0.58, 0.62, 0.66, 0.70, &
        & 0.73, 0.76, 0.79, 0.82,  0.85, 0.87, 0.89, 0.91, 0.93, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0/)
 
   !!!  Lookup table
@@ -91,8 +92,8 @@ MODULE aer_dyn_simple
     c(1:7) = (/  11.208, -5.223,  -6.318,    4.013,   -0.822,   0.0564,  0.0      /)
     
     do iRH = 1, nRh
-      if (RH(iRH) > fu_deliquescence_humidity(fu_get_material_ptr('NH4NO3')))then
-        wetParticle = fu_wet_particle_features(fu_get_material_ptr('NH4NO3'), RH(iRH))
+      if (RHLUT(iRH) > fu_deliquescence_humidity(fu_get_material_ptr('NH4NO3')))then
+        wetParticle = fu_wet_particle_features(fu_get_material_ptr('NH4NO3'), RHLUT(iRH))
         dryVFract = 1./(wetParticle%fGrowthFactor * wetParticle%fGrowthFactor * wetParticle%fGrowthFactor)
         m = fu_dry_part_density(fu_get_material_ptr('NH4NO3')) * dryVFract / &
              & (fu_mole_mass(fu_get_material_ptr('NH4NO3')) * 1000.0 * (1. - dryVFract)) ! molality [mol/kgH2O]
@@ -557,6 +558,12 @@ MODULE aer_dyn_simple
     real, dimension(:), intent(in) :: metdat
     real, dimension(:), pointer :: TLams, TLamn, TLcn ! Save/restore 
     real, intent(in) :: seconds, zenith_cos
+
+    !! local parameters
+    real :: fracLeft
+    real, dimension(size(vMassTrn)) :: vMassTrnWas  
+    real, dimension(size(vMassSl)) :: vMassSlWas
+
     character(len = *), parameter :: sub_name = 'transform_AerDynSimple'
 
     if (associated(TL)) then
@@ -569,6 +576,12 @@ MODULE aer_dyn_simple
       TLamn => null()
       TLcn  => null()
     endif
+    
+    if (rulesAerDynSimple%tau > 0.) then  !! Save the input state
+        vMassTrnWas(:) = vMassTrn(:)
+        vMassSlWas(:) = vMassSl(:)
+    endif
+
  
     !! Aging not related to others. Can be done at any time
     call ocAging(vMassTrn, rulesAerDynSimple, metdat, zenith_cos, seconds)
@@ -576,41 +589,42 @@ MODULE aer_dyn_simple
     !! These should be ordered
     if (seconds > 0) then
         ! Move h2so4 from sort-lived
-
-!      if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("1")
        if (ifso4_h2so4) call so4_h2so4(vMassTrn, vMassSL, seconds)
-!      if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("2")
-
 
        ! Break ammonium nitrate, so sulphates can consume NH3
        if (ifnh4no3) call break_nh4no3(vMassTrn,  seconds)
 
        !SO4 consumes free ammonia (3 TL vlues)
        if (ifso4_nh3) call so4_nh3(vMassTrn, TLams,rulesAerDynSimple, metdat, seconds)
-  !     if (any( (/vMassTrn(iSO4f_aer), vMassTrn(iSO4c_aer)/) < 0)) call ooops("3")
        
        !restore nh4no3 to equilibrium (2 TL values)
        if (ifnh4no3) call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
 
        !create coarse nitrates (1 TL value)
        if (ifno3_to_no3c) call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
-    else
-        if (ifno3_to_no3c) call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
-        !create coarse nitrates (1 TL value)
+    else  !! Same calls in reverse order
+       if (ifno3_to_no3c) call no3_to_no3c(vMassTrn, TLcn, rulesAerDynSimple, metdat, seconds)
+       !create coarse nitrates (1 TL value)
 
-        if (ifnh4no3) call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
-        !restore nh4no3 to equilibrium (2 TL values)
-        
-        if (ifso4_nh3) call so4_nh3(vMassTrn, TLams, rulesAerDynSimple, metdat, seconds)
-        !SO4 consumes free ammonia (3 TL vlues)
+       if (ifnh4no3) call nh3_hno3_to_nh4no3(vMassTrn, TLamn, metdat, seconds )
+       !restore nh4no3 to equilibrium (2 TL values)
+       
+       if (ifso4_nh3) call so4_nh3(vMassTrn, TLams, rulesAerDynSimple, metdat, seconds)
+       !SO4 consumes free ammonia (3 TL vlues)
 
-        if (ifnh4no3) call break_nh4no3(vMassTrn,  seconds)
-        ! Break ammonium nitrate, so sulphates can consume NH3
+       if (ifnh4no3) call break_nh4no3(vMassTrn,  seconds)
+       ! Break ammonium nitrate, so sulphates can consume NH3
 
-        if (ifso4_h2so4) call so4_h2so4(vMassTrn, vMassSL, seconds)
-        ! Move h2so4 from sort-lived
+       if (ifso4_h2so4) call so4_h2so4(vMassTrn, vMassSL, seconds)
+       ! Move h2so4 from sort-lived
     endif
 
+    !! Partial transformation
+    if (rulesAerDynSimple%tau > 0.) then
+        fracLeft = exp( -abs(seconds/rulesAerDynSimple%tau) ) !! Non-reacted fraction
+        vMassTrn(:) =  vMassTrnWas(:) * fracLeft + vMassTrn(:) * (1. - fracLeft) 
+        vMassSl(:)  =   vMassSlWas(:) * fracLeft +  vMassSl(:) * (1. - fracLeft) 
+    endif
   end subroutine transform_AerDynSimple
 
   !***********************************************************************
@@ -630,7 +644,7 @@ MODULE aer_dyn_simple
     integer :: iT, nT, iStat
     type(Tsilam_nl_item_ptr), dimension(:), pointer :: ptrItems
     character(len=fnlen) :: spContent
-    character(len = *), parameter :: sub_name = 'nh3_hno3_nh4no3'
+    character(len = *), parameter :: sub_name = 'set_rules_AerDynSimple'
 
 
     ! 3 modes for secondary stuff (roughly from Seinfeld & Pandis 1997, page 441)
@@ -671,7 +685,7 @@ MODULE aer_dyn_simple
       spContent = fu_content(ptrItems(1))
       read(unit=spContent, iostat=iStat, fmt=*) rulesAerDynSimple%ssltName4NO3c, rulesAerDynSimple%no3_StickingCoeff
       if(iStat /= 0)then
-        call set_error('Invalid make_coarse_no3 line in transformation rules','set_rules_AerDynSimple')
+        call set_error('Invalid make_coarse_no3 line in transformation rules', sub_name)
         call msg('Required format:   make_coarse_no3 = ssltName alpha')
         return
       else
@@ -690,16 +704,31 @@ MODULE aer_dyn_simple
       rulesAerDynSimple%no3_StickingCoeff = -1.0
     else
       ! In future might allow several, to form also on dust ..
-      call set_error('Only one make_coarse_no3 line allowed in transformation rules','set_rules_AerDynSimple')
+      call set_error('Only one make_coarse_no3 line allowed in transformation rules', sub_name)
     endif
     if(error)return
+
+
+    call get_items(nlSetup, 'sad_equilibrium_tau_s', ptrItems, nT)
+    if (nT == 1)then
+      rulesAerDynSimple%tau  = fu_content_real(ptrItems(1))
+      call msg('sad_equilibrium_tau_s = '//trim(fu_str(rulesAerDynSimple%tau)))
+    elseif(nT == 0)then
+      call msg('No sad_equilibrium_tau_s, assuming instant')
+      rulesAerDynSimple%tau = 0.
+    else
+      call set_error('Only one  sad_equilibrium_tau_s line allowed in transformation rules', sub_name)
+    endif
+    if(error)return
+
+
     
     call get_items(nlSetup, 'make_coarse_so4', ptrItems, nT)
     if (nT == 1)then
       spContent = fu_content(ptrItems(1))
       read(unit=spContent, iostat=iStat, fmt=*) rulesAerDynSimple%ssltName4SO4c, rulesAerDynSimple%so4_StickingCoeff
       if(iStat /= 0)then
-        call set_error('Invalid make_coarse_so4 line in transformation rules','set_rules_AerDynSimple')
+        call set_error('Invalid make_coarse_so4 line in transformation rules', sub_name)
         call msg('Required format:   make_coarse_so4 = ssltName alpha')
         return
       else
@@ -718,7 +747,7 @@ MODULE aer_dyn_simple
       rulesAerDynSimple%so4_StickingCoeff = -1.0
     else
       ! In future might allow several ...
-      call set_error('Only one make_coarse_so4 line allowed in transformation rules','set_rules_AerDynSimple')
+      call set_error('Only one make_coarse_so4 line allowed in transformation rules', sub_name)
     endif
     if(error)return
     
@@ -1032,34 +1061,41 @@ MODULE aer_dyn_simple
   real function fu_cequil(T,rh) result(CEQUIL)
     implicit none
     real, intent(in) :: T, rh
-    integer indT, indRH
+    integer :: indT, indRH, iRhu, iRhL
+    real    :: fT, fRh
 
     ! NH3-HNO3-NH4NO3 equilibrium
-    indT = nint(T-NH3_HNO3_vs_NH4NO3_eq_Tmin)
-    if (indT < 1) then
+    fT = T - NH3_HNO3_vs_NH4NO3_eq_Tmin
+    if (.not. fT > 1.) then
       call msg("Temperature below NH4NO3eq lookup table range", T)
       indT = 1
-    elseif (indT > NH3_HNO3_vs_NH4NO3_eq_nT) then
+      fT   = 0. 
+    elseif (fT >= NH3_HNO3_vs_NH4NO3_eq_nT) then
       call msg("Temperature above NH4NO3eq lookup table range", T)
-      indT = NH3_HNO3_vs_NH4NO3_eq_nT
+      indT = NH3_HNO3_vs_NH4NO3_eq_nT - 1
+      fT   = 1.
+    else
+      indT = floor(fT)
+      fT   = mod(fT, 1.)
     endif
 
-    if (rh >= 1.0) then
-        indRH = 22
-    elseif (rh >= 0.95) then
-        indRH = int((rh - 0.775)*100) 
-    elseif (rh >= 0.85) then
-        indRH = int((rh - 0.60)*50) 
-    elseif (rh >= 0.70) then
-        indRH = int((rh - 0.475)*33.333) 
-    elseif (rh >= 0.50) then
-        indRH = int((rh - 0.40)*25)
+    indRh =  count(RHLUT < rh )
+    if (indRh == 0) then
+        indRh = 1
+        fRh   = 0.
+    elseif (indRh == NH3_HNO3_vs_NH4NO3_eq_nRH) then
+        indRh = NH3_HNO3_vs_NH4NO3_eq_nRH - 1 
+        fRh = 1.
     else
-        indRH = 1
+        fRh = (RHLUT(indRh) - rh) / (RHLUT(indRh) - RHLUT(indRh + 1))
     endif
     
     !Species here in concentrations; CEQUIL given for nb**2 partial pressures
-    CEQUIL = NH3_HNO3_vs_NH4NO3_eq(indRH, indT)
+    CEQUIL = (  NH3_HNO3_vs_NH4NO3_eq(indRH + 1, indT+1)*fT     + &
+              & NH3_HNO3_vs_NH4NO3_eq(indRH + 1, indT  )*(1.-fT) )* fRh + &
+             ( NH3_HNO3_vs_NH4NO3_eq(indRH, indT+1)*fT + &
+              & NH3_HNO3_vs_NH4NO3_eq(indRH, indT  )*(1.-fT) )* ( 1. - fRh )
+              
       
   end function fu_cequil
 

@@ -403,30 +403,24 @@ MODULE chem_dep_passive
     ! If basic temperature and corresponding life time are not defined - set the whole story 
     ! to non-existent.
     !
-    if(fu_content(nlSetup,'passive_subst_ref_decay_rate_invSeconds') == '' .or. &
-     & fu_content(nlSetup,'passive_subst_ref_tempr_K') == '')then
-      rulesPassive%basicRate = real_missing
-      rulesPassive%basicTempr = real_missing
-      rulesPassive%DRate_DT = real_missing
-    else
-      !
-      ! Set the reference interval and temperature
-      !
-      rulesPassive%basicRate = fu_content_real(nlSetup,'passive_subst_ref_decay_rate_invSeconds')
+    rulesPassive%basicRate = fu_content_real(nlSetup,'passive_subst_ref_decay_rate_invSeconds')
+    if(error)return
+    rulesPassive%basicTempr = fu_content_real(nlSetup,'passive_subst_ref_tempr_K')
+    if(error)return
+    rulesPassive%DRate_DT = fu_content_real(nlSetup,'passive_subst_dRate_dT_invSecondsK')
       if(error)return
-      rulesPassive%basicTempr = fu_content_real(nlSetup,'passive_subst_ref_tempr_K')
-      if(error)return
-      !
-      ! Derivative of lifetime over temperature
-!      ! Note that we know that this derivative is time/temperature intervals. The fu_set_named_value
-!      ! will return the value in the SI units, i.e., sec/degree_K.
-      !
-      if(fu_content(nlSetup,'passive_subst_dRate_dT_invSecondsK') /= '')then
-        rulesPassive%DRate_DT = fu_content_real(nlSetup,'passive_subst_dRate_dT_invSecondsK')
-!             & fu_set_named_value(fu_content(nlSetup,'passive_subst_dRate_dT_invSecondsK'))
-        if(error)return
+
+    if (rulesPassive%basicRate /= real_missing) then !!! Decay
+      !! Should be both set or both missing
+      if ( (rulesPassive%DRate_DT == real_missing) .neqv. rulesPassive%basicTempr == real_missing ) then
+          call msg("Problem with passive-decay setup temperature")
+          call msg("passive_subst_ref_tempr_K = ", rulesPassive%basicTempr)
+          call msg("passive_subst_dRate_dT_invSecondsK = ", rulesPassive%DRate_DT)
+          call set_error(" should be both valid or both missing", sub_name)
+          return
       else
-        rulesPassive%DRate_DT = 0.0
+          rulesPassive%DRate_DT = 0.
+          rulesPassive%basicTempr = 300.
       endif
     endif  ! decay rate is defined
     !

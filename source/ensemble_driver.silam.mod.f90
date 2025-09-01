@@ -1607,7 +1607,6 @@ module ensemble_driver
       integer, dimension(:), allocatable :: list_q
       logical, dimension(:), allocatable :: if3d
       type(ToutputList) :: output_list
-      type(ToutputList), dimension(3) :: output_lists
       character(len=fnlen), dimension(100) :: names
       
       time_start = simrules_fullrun%startTime
@@ -1645,11 +1644,6 @@ module ensemble_driver
 
         file_units = int_missing
 
-        ! open_netcdf_o needs 3 output lists ("dispersion", "meteo", "mass map"). Missing
-        ! lists don't work, they must be valid but zero-sized.
-        output_lists = (/outputList_missing, outputList_missing, output_list/)
-        allocate(output_lists(1)%ptritem(0), output_lists(2)%ptritem(0), stat=stat)
-        if (fu_fails(stat == 0, 'Allocate failed wtf', subname)) return
         do ind_smtr_step = 1, simrules_fullrun%darules%num_smoother_output_steps
           ind_time = simrules_fullrun%darules%smoother_output_steps(ind_smtr_step)
           ! the first time this smoother step is available:
@@ -1659,7 +1653,7 @@ module ensemble_driver
           call msg('Main out dir:' // main_out_dir)
           file_units(ind_smtr_step) = open_netcdf_file_o(filename_step, &
                & dispersion_grid, dispersion_vertical, & 
-               & time_first_out, output_lists, '', &
+               & time_first_out, (/output_list/), '', &
                & ifAllInOne=.true., ncver=4, &
                & ifMPIIO=.false., fMissingVal=real_missing)
           if (error) return

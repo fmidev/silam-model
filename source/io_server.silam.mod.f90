@@ -353,6 +353,8 @@ CONTAINS
         Qtmp = OutDef%Rules%DispOutLst%ptrItem(i)%quantity
 
         if(.not.fu_known_quantity(Qtmp))cycle
+        if (Qtmp == physiography_field_set_flag ) cycle !! Hack to prevent crash of arrange_buffer
+                                                        !! in dispersion runs with physiography dump
         if ( fu_if_cloud_mass_map_quantity(Qtmp) == silja_true ) cycle 
               !! No need to put it in a buffer: it is a massmap quantity
 

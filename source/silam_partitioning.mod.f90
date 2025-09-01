@@ -41,6 +41,7 @@ MODULE silam_partitioning
   REAL, DIMENSION (max_divisions) :: division_hint = real_missing
   INTEGER, PUBLIC, dimension(max_divisions):: smpi_x_sizes, smpi_y_sizes, smpi_x_offsets, smpi_y_offsets !Only (x|y)-master knows
   INTEGER :: my_x_coord, my_y_coord !Domain number in X or Y dimension 0:n_divisions-1 
+  real, private :: max_wind_speed
 
   LOGICAL, PUBLIC, SAVE :: smpi_use_mpiio_grads
   LOGICAL, PUBLIC, SAVE :: smpi_use_mpiio_netcdf
@@ -469,6 +470,15 @@ CONTAINS
     ELSE
        smpi_use_mpiio_netcdf = .FALSE.
     END IF
+
+   
+    max_wind_speed = fu_content_real(nlPtr, 'max_wind_speed') 
+
+    IF (max_wind_speed == real_missing) THEN
+      max_wind_speed = max_wind_speed_default
+      call msg("Using default max_wind_speed of ", max_wind_speed)
+    END IF
+
 
 #else
     CALL msg('No-MPI run')

@@ -3294,7 +3294,7 @@ MODULE derived_field_quantities
 
        !$omp end workshare
 #ifdef DEBUG                             
-        if (any(layer_thickness(1:fs)< 1.)) then ! Should be at least 1m
+        if (any(layer_thickness(1:fs)< 0.1)) then ! Should be at least 0.1m !Reduced for Berlin case 
                 j = minloc(layer_thickness(1:fs),1) 
                 call msg("Level: index of minimum thickness", i, j)
                 !                call msg("layer_thickness(1:fs)", layer_thickness(1:fs))

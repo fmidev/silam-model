@@ -240,6 +240,7 @@ CONTAINS
 
     ! Local parameters
     integer :: iTmp, iTransf
+    character (len=fnlen) :: chTmp
     character (len=*), parameter :: sub_name="set_deposition_rules"
 
     if(.not.defined(nlSetup))then
@@ -252,7 +253,10 @@ CONTAINS
     !
     ! Scavenging type. May be undefined - then take the default one
     !
-    select case(trim(fu_str_u_case(fu_content(nlSetup,'wet_deposition_scheme'))))
+    !! For some reason MAS added trim here in silam_dev@600123 
+    chTmp = trim(fu_str_u_case(fu_content(nlSetup,'wet_deposition_scheme'))) 
+
+    select case(chTmp)
       case('STANDARD_3D_SCAVENGING')
         rulesDeposition%scavengingType = scavStandard
 
@@ -275,7 +279,7 @@ CONTAINS
         rulesDeposition%scavengingType = scavNoScav
 
       case default
-        call set_error('Unknown scavenging type: "'// trim(fu_content(nlSetup,'wet_deposition_scheme')) // '"',&
+        call set_error('Unknown scavenging type: "'// trim(chTmp) // '"',&
                      & sub_name)
         call msg("Valid values for wet_deposition_scheme are:")
         call msg(" (STANDARD_3D_SCAVENGING|NEW2011_SCAVENGING|NEW2011_SCAVENGING_FAKECLOUD|NO_SCAVENGING|2020_SCAVENGING|2018_SCAVENGING)")
@@ -284,16 +288,21 @@ CONTAINS
         return
     end select
 
-
-    if (trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on'))) == 'HORIZONTAL_WIND') then
+    
+    chTmp = trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on')))
+    if (chTmp == 'HORIZONTAL_WIND') then
       call msg('Max scavenging rate depends on the horizontal wind')
       rulesDeposition%max_scav_rate_depends_on = horiz_wind
-    elseif (trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on'))) == 'CAPE') then
+    elseif (chTmp == 'CAPE') then
       call msg('Max scavenging rate depends on the convective available potential energy')
       rulesDeposition%max_scav_rate_depends_on = cape
-    elseif (trim(fu_str_u_case(fu_content(nlSetup,'max_scav_rate_depends_on'))) == 'CAPE_AND_WIND') then
+    elseif (chTmp == 'CAPE_AND_WIND') then
       call msg('Max scavenging rate depends on the convective available potential energy and the horizontal wind')
       rulesDeposition%max_scav_rate_depends_on = cape_and_wind
+    elseif (len_trim(chTmp) /= 0 ) then
+      call set_error("Unknown  max_scav_rate_depends_on = "//trim(chTmp), sub_name)
+    else
+      call msg('No/empty max_scav_rate_depends_on in control file')
     endif
 
     if (rulesDeposition%max_scav_rate_depends_on == int_missing .neqv. &
@@ -330,7 +339,8 @@ CONTAINS
     ! Dry deposition type. May be undefined - then take the default one.
     !
 !call report(nlSetup)
-    select case(fu_str_u_case(fu_content(nlSetup,'dry_deposition_scheme')))
+    chTmp = fu_str_u_case(fu_content(nlSetup,'dry_deposition_scheme'))
+    select case(chTmp)
 !      case('SIMPLE_DIFFUSION_ONLY')
 !        rulesDeposition%DryDepType = DryD_Rb_only
 !
@@ -367,14 +377,13 @@ CONTAINS
         rulesDeposition%DryDepType = DryD_KS2011_TF
 
       case default
-        call set_error('Unknown dry deposition type:' + &
-                                        & fu_content(nlSetup,'dry_deposition_scheme'), &
-                     & sub_name)
+        call set_error('Unknown dry_deposition_scheme = '//trim(chTmp), sub_name)
         rulesDeposition%defined = silja_false
         return
     end select
 
-    select case(fu_str_u_case(fu_content(nlSetup,'surface_resistance_method')))
+    chTmp = fu_str_u_case(fu_content(nlSetup,'surface_resistance_method'))
+    select case(chTmp)
 
       case('STANDARD')
         rulesDeposition%RsType = DryD_Rs_standard
@@ -389,9 +398,7 @@ CONTAINS
         rulesDeposition%RsType = DryD_Rs_standard
 
       case default
-              call set_error('Unknown Rs methos dry deposition type:' + &
-                                        & fu_content(nlSetup,'surface_resistance_method'), &
-                     & sub_name)
+        call set_error('Unknown surface_resistance_method = '// trim(chTmp), sub_name)
         rulesDeposition%defined = silja_false
         return
     end select
@@ -400,11 +407,13 @@ CONTAINS
     ! In theory, aerosol features depend on humidity. However, in simple cases we can ignore them
     ! just setting the default relative humidity value = 80%
     !
-    if(fu_str_u_case(fu_content(nlSetup,'if_actual_humidity_for_particle_size')) == 'YES')then
+    chTmp = trim(fu_str_u_case(fu_content(nlSetup,'if_actual_humidity_for_particle_size')))
+    if(chTmp == 'YES')then
       rulesDeposition%ifHumidityDependent = .true.
-    elseif(fu_str_u_case(fu_content(nlSetup,'if_actual_humidity_for_particle_size')) == 'NO')then
+    elseif(chTmp == 'NO')then
       rulesDeposition%ifHumidityDependent = .false.
     else
+      call msg_warning("Unknown if_actual_humidity_for_particle_size = "//trim(chTmp), sub_name)
       call set_error('if_actual_humidity_for_particle_size must be YES or NO',sub_name)
       return
     endif

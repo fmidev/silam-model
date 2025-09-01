@@ -1311,8 +1311,11 @@ subroutine analyse_input_content(IC, out_grid, input_list, wdr)
       varPtr = 0
       do k = 1, IC%NbrVars
         if(IC%vars(k)%quantity == q_shop(j)) then
-          if(varPtr == 0) varPtr = k
-          varPtr = fu_compare_vars_quality(IC, k, varPtr)
+          if(varPtr == 0) then
+              varPtr = k  !! Just use it
+            else
+              varPtr = fu_compare_vars_quality(IC, k, varPtr) !!! Is it better?
+            endif
         end if
       end do ! cycle through vars
       if(varPtr == 0)then

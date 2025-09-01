@@ -788,11 +788,13 @@ call msg('Physiography reads:' + fnames(i)%sp)
     logical :: selection_done
     type(silam_vertical) :: vertical
     type(TOutputList) :: MeteoOutLstTmp
+    integer(kind = OMP_lock_kind), dimension(1) :: omp_locks !! Not to be used: no OPM here
+       character (len=*), parameter :: sub_name="write_physiography_output"
     !
     ! Some stupidity check
     !
     if(.not. (ifGrads .or. iNetCDF > 0 .or. iGrib > 0)) then
-      call set_error('Neither GrADS nor GRIB nor NetCDF formats are active', 'write_physiography_output')
+      call set_error('Neither GrADS nor GRIB nor NetCDF formats are active', sub_name)
       return
     endif
     !
@@ -800,11 +802,11 @@ call msg('Physiography reads:' + fnames(i)%sp)
     !
     permStack => fu_stack(meteoMarketPtr, 1)
     if(.not.defined(permStack))then
-      call set_error('Undefined permanent stack','write_physiography_output')
+      call set_error('Undefined permanent stack',sub_name)
       return
     endif
     if(fu_number_of_2d_fields(permStack) < 1)then
-      call set_error('Empty permanent stack','write_physiography_output')
+      call set_error('Empty permanent stack',sub_name)
       return
     endif
 
@@ -851,10 +853,8 @@ call msg('Physiography reads:' + fnames(i)%sp)
       
       iNC = open_netcdf_file_o(chFNm_basic + '_physiography.nc', &  ! name
                              & output_grid, vertical, now, &  ! grid, vertical, valid_time
-                             & (/MeteoOutLstTmp, &     ! Meteo variables to write
-                              & OutputList_missing, &   !OutDef%Rules%DispOutLst, &      ! Dispersion stack variables
-                              & OutputList_missing/), &              ! list of variables
-                             & '', .true., iNetCDF, .false., real_missing)  ! chTemplate, ifAllInOne, nnc version, missingVal
+                             & (/MeteoOutLstTmp/), &     ! Meteo variables to write
+                             & '', .true., iNetCDF, smpi_use_mpiio_netcdf, real_missing)  ! chTemplate, ifAllInOne, nnc version, missingVal
     endif ! iNetCDF
 
     !----------------------------------
@@ -881,41 +881,25 @@ call msg('Physiography reads:' + fnames(i)%sp)
       !
       dataPtr => fu_work_array(fu_number_of_gridpoints(output_grid))
       if(error)return
-      
-      call grid_data_horizontal_select(fu_grid(field_2d), &     ! grid_original
-                                     & fu_grid_data(field_2d),& ! grid_data
-                                     & selection_done, &  ! selection_done
-                                     & output_grid,&     ! grid_new
-                                     & dataPtr, &    ! selected_grid_data
-                                     & ifRandomise, &
-                                     & 5, fu_regridding_method(fu_quantity(field_2d)), &   ! iAccuracy
-                                     & real_missing, & !0.0, &          ! fMissingValue
-                                     & setMissVal)
-      if(selection_done .and. (gridTmp == output_grid))then
-        !
-        ! Actually write the fields
-        !
-        if(iGrib > 0) call write_next_field_to_gribfile(iGrib, grib_funit, idTmp, dataPtr)
-        if(error)return
-        if(ifGrads) call write_next_field_to_gradsfile(grads_funit, idTmp, dataPtr)
-        if(error)return
-        if(iNetCDF > 0)call write_next_field_to_netcdf_file(iNC, idTmp, dataPtr)
-        if(error)return
-      else
-        if(gridTmp == output_grid)then
-          call msg('Failed to reproject the field')
-          call report(fu_id(field_2d))
-          call set_error('Failed to reproject the field','write_physiography_output')
-        else
-          call msg('Failed to reproject the field: new grid is strange')
-          call msg('reprojected grid:')
-          call report(gridTmp)
-          call msg('Requested grid:')
-          call report(output_grid)
-          call set_error('Failed to reproject the field','write_physiography_output')
-        endif
-        call unset_error('write_physiography_output')
-      endif
+
+      call remap_field( fu_grid(field_2d), &     ! grid_original
+                        & fu_grid_data(field_2d),& ! grid_data
+                        & output_grid,&     ! grid_new
+                        & dataPtr, &    ! selected_grid_data
+                        & .FALSE. , &
+                        & 5, fu_regridding_method(fu_quantity(field_2d)), &   ! iAccuracy
+                        & setMissVal, omp_locks)
+      if(fu_fails(.not. error, "remap_field failed", sub_name))return
+
+      !
+      ! Actually write the fields
+      !
+      if(iGrib > 0) call write_next_field_to_gribfile(iGrib, grib_funit, idTmp, dataPtr)
+      if(error)return
+      if(ifGrads) call write_next_field_to_gradsfile(grads_funit, idTmp, dataPtr)
+      if(error)return
+      if(iNetCDF > 0)call write_next_field_to_netcdf_file(iNC, idTmp, dataPtr)
+      if(error)return
       
       call free_work_array(dataPtr)
 

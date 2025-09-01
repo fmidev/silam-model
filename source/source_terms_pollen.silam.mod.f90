@@ -2443,11 +2443,11 @@ endif
       fMassInjected(srcPollen%adaptor%iSp(iSp)) = fMassInjected(srcPollen%adaptor%iSp(iSp)) + &
                                                 & emsAmnt(iSp)
     enddo
-    call msg('Pollen ready to fly:', rdyPollen)
-    if(iSp == srcPollen%indPolAlrg)then
-      call msg('Allergen ready to fly:', rdyAllergen)
-    endif
-    call msg('Pollen left: ', leftPollen)
+!!    call msg('Pollen ready to fly:', rdyPollen)
+!!    if(iSp == srcPollen%indPolAlrg)then
+!!      call msg('Allergen ready to fly:', rdyAllergen)
+!!    endif
+!!    call msg('Pollen left: ', leftPollen)
 
 #ifdef CAMS_DUMP
 PollenLeft_out_ = disp_buf%p2d(indPollenLeft)%present%ptr(iCAMSdisp)
@@ -3123,8 +3123,8 @@ call msg('Updated chill sum. Present and future sum:', sum(disp_buf%p2d(indCS)%p
                                  & fu_analysis_time(disp_buf%p2d(indHS)%present%idPtr))
       call set_validity_length(disp_buf%p2d(indHS)%present%idPtr, aver_interval)  ! until the next update
 
-call msg('Updated heat sum. Present and future sum:', sum(disp_buf%p2d(indHS)%present%ptr)/fs_dispersion, &
-                                                    & sum(disp_buf%p2d(indHS)%future%ptr)/fs_dispersion)
+!call msg('Updated heat sum. Present and future sum:', sum(disp_buf%p2d(indHS)%present%ptr)/fs_dispersion, &
+!                                                    & sum(disp_buf%p2d(indHS)%future%ptr)/fs_dispersion)
 !open (51,file="d:\tmp\heatsum_after.txt")
 !iDisp = 0
 !do iyDsp = 1, ny_dispersion
