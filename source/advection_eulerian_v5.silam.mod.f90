@@ -542,7 +542,7 @@ CONTAINS
     !$OMP        & ifxfirst, m_ind, ifusemassflux, nsrc, nsp, nLev, ifmoments, EulerStuff, &
     !$OMP        & nThreads, itimesign, MPI_stuff, nx_dispersion_mpi, ny_dispersion_mpi, &
     !$OMP        & wing_depth_w, wing_depth_s, wing_depth_e, wing_depth_n, wing_depth, &
-    !$OMP        & nMPIsend, maxWingUsed, neighbours, exchange_buffer, distributor_name)
+    !$OMP        & nMPIsend, maxWingUsed, neighbours, exchange_buffer, distributor_name, run_log_funit)
 
 
     iThread = 0
@@ -1071,12 +1071,28 @@ call msg('Done checking')
                  &    wind_adj(i1d))
           enddo
 
-!          call msg("wind_past  :   ", wind_past(ix:(nx_dispersion_mpi*(ny_dispersion_mpi+1)):nx_dispersion))
-!          call msg("wind_future    :", wind_future(ix:(nx_dispersion_mpi*(ny_dispersion_mpi+1)):nx_dispersion))
-!          call msg("wind_adj       :", wind_adj(ix:(nx_dispersion_mpi*(ny_dispersion_mpi+1)):nx_dispersion))
-!          call msg("cellmass_past  :", cellmass_past(ix:(nx_dispersion_mpi*ny_dispersion_mpi):nx_dispersion))
-!          call msg("cellmass_future:", cellmass_future(ix:(nx_dispersion_mpi*ny_dispersion_mpi):nx_dispersion))
-!
+!          if (ix == 60 .and. iLev == 27) then          
+!             call msg ("Debug adv Y 60_27")
+!              call msg("wind_past  :   ", wind_past(ix:(nx_dispersion*(ny_dispersion+1)):nx_dispersion))
+!              call msg("wind_future    :", wind_future(ix:(nx_dispersion*(ny_dispersion+1)):nx_dispersion))
+!              call msg("wind_adj       :", wind_adj(ix:(nx_dispersion*(ny_dispersion+1)):nx_dispersion))
+!              call msg("cellmass_past  :", cellmass_past(ix:(nx_dispersion*ny_dispersion):nx_dispersion))
+!              call msg("cellmass_future:", cellmass_future(ix:(nx_dispersion*ny_dispersion):nx_dispersion))
+!              call msg("")
+!              call msg("WingsN wind_past",       pDispBuf%wings_N(iPast,     iFlux,iLev,ix,:))
+!              call msg("WingsN wind_future",     pDispBuf%wings_N(iFuture,   iFlux,iLev,ix,:))
+!              call msg("WingsN wind_adj",        pDispBuf%wings_N(iRealTime, iFlux,iLev,ix,:))
+!              call msg("WingsN cellmass_past",   pDispBuf%wings_N(iPast,     iMass,iLev,ix,:))
+!              call msg("WingsN cellmass_future", pDispBuf%wings_N(iFuture,   iMass,iLev,ix,:))
+!              call msg("")
+!              call msg("")
+!              call msg("WingsS wind_past",       pDispBuf%Wings_S(iPast,     iFlux,iLev,ix,:))
+!              call msg("WingsS wind_future",     pDispBuf%Wings_S(iFuture,   iFlux,iLev,ix,:))
+!              call msg("WingsS wind_adj",        pDispBuf%Wings_S(iRealTime, iFlux,iLev,ix,:))
+!              call msg("WingsS cellmass_past",   pDispBuf%Wings_S(iPast,     iMass,iLev,ix,:))
+!              call msg("WingsS cellmass_future", pDispBuf%Wings_S(iFuture,   iMass,iLev,ix,:))
+!              flush(run_log_funit)
+!          endif
 !
 !          mystuff%wind_right(ny_dispersion_mpi + 1) = -1e27 !Should never be used!!!
 !          call msg("Courant number Y:", mystuff%wind_right(1:ny_dispersion_mpi)/mystuff%cellmass(1:ny_dispersion_mpi)*seconds)
@@ -2023,7 +2039,10 @@ nPass = 0
                            & wing_depth_r, n_dispersion, NinL, nInR)
 
          implicit none
-         ! Check how many their cells are advected into our domain
+         ! Check how many neighbour's wing cells are advected into our domain
+         ! Triggers crash if the depth of a neighbours wing is insufficient
+         ! to produce these incoming cells. 
+         ! Too low max_wind_speed causes the crash
          real(r8k), intent(in) :: lb_advected,  rb_advected !domain boundaries
          real(r8k), dimension(0:), intent(in) :: rb !cellboundaries of Whole line
          real(r8k) :: tolerance !! epsilon to accomodate minor differences between 
@@ -2031,34 +2050,26 @@ nPass = 0
          integer, intent(in) :: wing_depth_l, wing_depth_r, n_dispersion
          integer, intent(out) :: NinL, NinR !Counters to increment
          integer :: iwing
+         character (len=*), parameter :: sub_name="count_incoming_cells"
 
          !! Double precision at max line excl. wings
          tolerance = 1e-12 * (rb(wing_depth_l + n_dispersion) - rb(wing_depth_l))   
 
-         
          nInL = 0 
          if (wing_depth_l > 0) then
-           do iwing = 0, wing_depth_l
-                if( lb_advected + tolerance < rb(wing_depth_l+iwing)) then
-                  nInL = iwing
-                  exit
-               endif
-           enddo
-           if (iwing > wing_depth_l) call set_error("Incoming from Left beyond the wing", &
-                                   &                "count_incoming_cells")
+           nInL = count(lb_advected + tolerance > rb(wing_depth_l:2*wing_depth_l+1) ) 
+           if (nInL > wing_depth_l) call set_error(&
+              & "Incoming from Left beyond the neighbours wing, check max_wind_speed", sub_name)
          endif
 
          nInR = 0 
          if (wing_depth_r > 0) then
-           do iwing = 0, wing_depth_r
-               if(rb_advected - tolerance > rb(wing_depth_l + n_dispersion - iwing)) then
-                  nInR = iwing
-                  exit
-               endif
-            enddo
-            if (iwing > wing_depth_r) call set_error("Incoming from Right beyond the wing", &
-                                   &                "count_incoming_cells")
+           iwing = wing_depth_l + n_dispersion !! The last cell of our domain
+           nInR  = count(rb_advected - tolerance < rb(iwing-wing_depth_r-1:iwing) )
+           if (nInR > wing_depth_r) call set_error(&
+               &"Incoming from Right beyond the neighbours wing, check max_wind_speed", sub_name)
          endif
+
    end subroutine count_incoming_cells
   
   

@@ -840,9 +840,19 @@ CONTAINS
     fs_global = output_decomposition%globalNx * output_decomposition%globalNy
 
     local_datasize8 = 1
-    local_datasize8 = local_datasize8 * fieldsize_decomp * nflds
+    local_datasize8 = local_datasize8 * fieldsize_decomp * nflds !! in 4-byte words
 
-    IF (fu_fails(local_datasize8  < MAX_INT32,'(local_datasize < MAX_INT32) failed', sub_name)) RETURN
+    IF (local_datasize8 > MAX_INT32 / 4) then !! Looks like size in bytes should fit int32...
+      call msg("mpi_file_read_all size(grid_data)", size(grid_data,1), size(grid_data,2) )
+      call msg("fieldsize, nflds", fieldsize, nflds)
+
+      call msg("local_datasize,",int(local_datasize/1000), int(mod(local_datasize,1000)))
+      call msg("local_datasize8,",int(local_datasize8/1000), int(mod(local_datasize8,1000)))
+      call msg("byteoffset",  int(byteoffset/1000), int(mod(byteoffset,1000)))
+      call set_error("(local_datasize <= MAX_INT32/4) failed", sub_name)
+      return
+    endif
+
     local_datasize = local_datasize8
 
     IF (fu_fails(fieldsize_decomp == fieldsize, 'Fieldsizes do not match!', sub_name)) RETURN

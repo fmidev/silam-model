@@ -205,9 +205,11 @@ MODULE source_term_fires
 
     type(silja_time) :: start_time, end_time !!! Actually date-time
 
+    real :: forceFrpPlumeRise, forceFrpAmount !! Override whatever comes from FRPdatasets, in W
+
     !! FRPset-specific stuff (V1 source)
     integer :: nFRPdatasets
-    type(TFRP_dataset), dimension(:), allocatable :: FRPset  ! (nFRPsubsets)
+    type(TFRP_dataset), dimension(:), allocatable :: FRPset  ! (nFRPdatasets)
 
     !! FIRElist-specific stuff (V2 source)
     integer :: nFireLists 
@@ -325,6 +327,17 @@ CONTAINS
       return
     endif
 
+    fs%forceFrpPlumeRise = fu_content_real(nlSetup, 'force_FRP_for_plumerise_MW')
+    if (fs%forceFrpPlumeRise /= real_missing) then
+      call msg("force_FRP_for_plumerise_MW set to MW", fs%forceFrpPlumeRise)
+      fs%forceFrpPlumeRise = fs%forceFrpPlumeRise * 1e6
+    endif
+
+    fs%forceFrpAmount = fu_content_real(nlSetup, 'force_FRP_for_amount_MW')
+    if (fs%forceFrpAmount /= real_missing) then
+      call msg("force_FRP_for_amount_MW set to MW", fs%forceFrpAmount)
+      fs%forceFrpAmount = fs%forceFrpAmount * 1e6
+    endif
 
     if (fs%version== 'V1') then
       !
@@ -415,13 +428,18 @@ CONTAINS
                        & 'fill_fire_src_from_namelist')
             exit
         endif
+        if (fs%forceFrpPlumeRise /= real_missing) then
+              fs%FireList(itmp)%frpPlumeRise(:) = fs%forceFrpPlumeRise
+        endif
+        if (fs%forceFrpAmount /= real_missing) then
+              fs%FireList(itmp)%frpEmsAmt(:) = fs%forceFrpAmount
+        endif
+
       end do  ! firelists
       deallocate(pitems)
     else
       call set_error("Unknown fire source version '"//trim(fs%version)//"'", sub_name)
     endif
-    
-
     
     fs%ifGeoCoord = .true.
     fs%defined = silja_true

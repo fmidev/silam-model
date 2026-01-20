@@ -4368,7 +4368,6 @@ CONTAINS
          & emission_mask_flag, &
          & soil_moisture_vol_frac_nwp_flag, &
          & dust_emis_0_flag, &
-         & irrigated_area_flag, &
          & FDI_KBDI_moisture_deficit_flag, &
          & FDI_KBDI_drought_factor_flag, &
          & FDI_SDI_fire_danger_flag, &
@@ -4392,6 +4391,7 @@ CONTAINS
         fu_regridding_method = summation  ! this is total-cell flux. Must be summed up
 
       case(timezone_index_flag, pollen_left_relative_flag, & !! Sic!  
+         & irrigated_area_flag, &
          & leaf_area_indexhv_flag, &
          & leaf_area_indexlv_flag, &
          & fraction_hv_flag, &

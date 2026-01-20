@@ -219,7 +219,7 @@ MODULE globals
   REAL(r8k), PARAMETER, PUBLIC :: D_NAN =  TRANSFER(-2251799813685248_int64,1.0_r8k)
   real, PARAMETER, PUBLIC :: F_EPS = EPSILON(real_missing)
 
-  integer(kind=8), parameter, PUBLIC :: MAX_INT32 = 2**30+(2*30-1)
+  integer(kind=8), parameter, PUBLIC :: MAX_INT32 = 2**30+(2**30-1)
 #ifdef DOUBLE_PRECISION
   REAL(r8k), PARAMETER :: CONST_NAN = D_NAN
   INTEGER, PARAMETER :: DEFAULT_REAL_KIND = r8k

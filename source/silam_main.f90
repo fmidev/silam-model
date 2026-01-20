@@ -258,6 +258,7 @@ use tangent_linear
      close(run_log_funit)
     endif
   endif
+  run_log_funit = int_missing
 
   if (smpi_is_mpi_version()) then
     if (had_error) then
@@ -318,17 +319,19 @@ use tangent_linear
  subroutine die_gracefully(reason)
     character(len=*), intent(in) :: reason
      !$omp master
-     if (smpi_global_tasks > 1) then 
-       call msg(trim(reason)//", sleeping before setting error. rank=", smpi_global_rank)
-       call sleep(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
-       ! Slurm waits up to 32 seconds on timeout after sighup before killing 
-       write (6, '(a,x,i4)') "backtrace from rank",smpi_global_rank
-       flush (6) !
-       call backtrace_md()
+     if (run_log_funit > 0) then
+       if (smpi_global_tasks > 1) then 
+         call msg(trim(reason)//", sleeping before setting error. rank=", smpi_global_rank)
+         call sleep(smpi_global_rank*20/smpi_global_tasks) !no more than 10s in totoal
+         ! Slurm waits up to 32 seconds on timeout after sighup before killing 
+         write (6, '(a,x,i4)') "backtrace from rank",smpi_global_rank
+         flush (6) !
+         call backtrace_md()
+       endif
+       flush (run_log_funit) !make sure that last message is there
+       call set_error(reason,"warning_sigusr1")
+       flush (run_log_funit) !make sure that the error messgae is there
      endif
-     flush (run_log_funit) !make sure that last message is there
-     call set_error(reason,"warning_sigusr1")
-     flush (run_log_funit) !make sure that the error messgae is there
      !$omp end master
  end subroutine die_gracefully
 

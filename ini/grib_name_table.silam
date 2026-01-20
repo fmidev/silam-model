@@ -112,6 +112,7 @@ var     =   *          sd_meps                 *                                
 var     =   *          soilmoisture_lv         *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
 var     =   260665     vsw20                   *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  #DE330 Volumetric soil moisture top 20 cm  m**3 m**-3
 #var     =   260666     vsw100                   *                                           soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  #DE330 Volumetric soil moisture top 100 cm  m**3 m**-3
+var     =   260199      vsw                    *                                            soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  ## DE330 2026-01-20 Volumetric soil moisture
 var     =   *          swavrs                  *                                           surf_sw_down_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
 var     =   *          nswrs                   *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  
 var     =   176        ssr                     *                                           surf_sw_net_radiation_ac         undefined   SURFACE_LEVEL       -1     1  #DE330 ALARO

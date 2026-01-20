@@ -861,8 +861,8 @@ CONTAINS
          if (nx /= gnx .or. ny /= gny) then !! Makes sense to read fields to the buffer
            gf%ifBuffered = .true.
 
-           !! Make sure that the buffer can be indexed with int32
-           nFlds = min(fu_get_default_mpi_buf_size(), MAX_INT32 / iTmp8 ) 
+           !! Make sure that the buffer _bytes_ can be indexed with int32
+           nFlds = min(fu_get_default_mpi_buf_size(), MAX_INT32 / iTmp8 / 4 ) 
 
            call init_grads_buffer(gf%gradsbuf, nx*ny, nFlds)
 
