@@ -7492,7 +7492,7 @@ call msg('Suggestion with relief:',i)
 
       CASE(layer_btw_2_hybrid)
         IF (level%hybrid_coeff_known) THEN
-          WRITE(str,fmt = '(A, 2(I4, F10.2, F12.7 F10.2))')&
+          WRITE(str,fmt = '(A, 2(I4, F10.2, F12.7, F10.2))')&
                 & ' Layer btw 2 hybrid: nbr, a, b, stdpress: ',&
                 & level%number, level%a, level%b, level%a + level%b * std_pressure_sl, &
                 & level%number2, level%a2, level%b2, level%a2 + level%b2 * std_pressure_sl

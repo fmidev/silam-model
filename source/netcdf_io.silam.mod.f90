@@ -3836,38 +3836,39 @@ CONTAINS
       if(defined(nf%nvars(nVar)%species)) chTmp1=fu_str(nf%nvars(nVar)%species)
 
       !Try to construct reasonable GRADS name
-         if(len(trim(chTmp1))>0) then !Species exist
-               chTmp =  trim(fu_quantity_short_string(nf%nvars(nVar)%quantity))
-               jTmp  = min(len_trim(chTmp),10)  !Cut quantity length
-               iTmp = index(chTmp1,"POLLEN_") 
-               if (iTmp>0) then !Get taxon name
-                  chTmp1=chTmp1(iTmp+7:)
-                  !Cut if needed short_name + taxon
-                  if (chTmp1(5:5) >= '0' .and. chTmp1(5:5) <= '9') then !! Dirty hack for MUGW1 - MUGW5
-                      !Fifth letter of taxon is digit
-                     chTmp = chTmp(1:jTmp)//'_p'//chTmp1(1:2)//chTmp1(5:5)
-                  else
-                      !Fifth letter of taxon is NOT digit
-                      chTmp = chTmp(1:jTmp)//'_p'//chTmp1(1:3)
-                  endif
-            elseif (index(chTmp1,"APHIDS")>0) then !!Aphids. Yes. Ugly solution for ugly problem
-                   chTmp = chTmp(1:jTmp)+'_pAPH'  !! Pretend it is also pollen
-               else !No pollen
-                  iTmp = index(chTmp1,"NH415SO4")
-                  if (iTmp>0) then
-                      chTmp = chTmp(1:jTmp)+'_AmS'+chTmp1(9:) !_mode
-                  else
-                      ! By default -- cut quantity and hope for the best
-                      chTmp = chTmp(1:jTmp)+'_'+chTmp1 
-                  endif
-               endif
+      if(len(trim(chTmp1))>0) then !Species exist
+         chTmp =  trim(fu_quantity_short_string(nf%nvars(nVar)%quantity))
+         jTmp  = min(len_trim(chTmp),10)  !Cut quantity length
+         iTmp = index(chTmp1,"POLLEN_") 
+         if (iTmp>0) then !Get taxon name
+           iTmp = min(iTmp+7, len(chTmp1) + 1)
+           chTmp2(1:len(chTmp1) - iTmp +1)=chTmp1(iTmp:)
+           !Cut if needed short_name + taxon
+           if (chTmp2(5:5) >= '0' .and. chTmp2(5:5) <= '9') then !! Dirty hack for MUGW1 - MUGW5
+               !Fifth letter of taxon is digit
+              chTmp = chTmp(1:jTmp)//'_p'//chTmp2(1:2)//chTmp2(5:5)
+           else
+               !Fifth letter of taxon is NOT digit
+               chTmp = chTmp(1:jTmp)//'_p'//chTmp2(1:3)
+           endif
+         elseif (index(chTmp1,"APHIDS")>0) then !!Aphids. Yes. Ugly solution for ugly problem
+                chTmp = chTmp(1:jTmp)+'_pAPH'  !! Pretend it is also pollen
+         else !No pollen
+           iTmp = index(chTmp1,"NH415SO4")
+           if (iTmp>0) then
+               chTmp = chTmp(1:jTmp)+'_AmS'+chTmp1(9:) !_mode
+           else
+               ! By default -- cut quantity and hope for the best
+               chTmp = chTmp(1:jTmp)+'_'+chTmp1 
+           endif
          endif
+      endif
 
       if (len(trim(chTmp))> 15) then 
          chTmp =  chTmp(1:15) !Jus cut it in any case
       endif
 
-      
+
       if (nf%nvars(nVAr)%if3D) then
         WRITE(iCtlUnit,'(A60,X,I3,X,A,X,A,X,A)') nf%nvars(nVar)%chVarNm+'=>'+chTmp, nf%n_levs, " t,z,y,x ", &
                & trim(fu_quantity_string(nf%nvars(nVar)%quantity)), trim(chTmp1)

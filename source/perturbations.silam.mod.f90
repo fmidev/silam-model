@@ -1212,7 +1212,7 @@ CONTAINS
        L_row(:) = L(:,k)
 
        !$OMP PARALLEL DO default(none) private(i) &
-       !$OMP & shared(cov, n, L, L_row, k)
+       !$OMP & shared(cov, n, L, L_row, k, start, end)
        do i = start, end
           L_row(i)  = (cov(i,k) - dot_product(L(i,1:k-1),L(k,1:k-1)) ) / L(k,k)
        end do

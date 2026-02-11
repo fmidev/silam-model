@@ -939,7 +939,7 @@ CONTAINS
              & species%wavelength*1e9
       else if (species%mode%distr_type == fixed_diameter_flag .or. &
              & species%mode%distr_type == moving_diameter_flag) then
-        write(line%sp,fmt='("Material: ",A, ", mode ", A, " fixed/moving diam mode:",4F6.2, ", solubility:",I7, ", wavelength (nm):" F6.1)') &
+        write(line%sp,fmt='("Material: ",A, ", mode ", A, " fixed/moving diam mode:",4F6.2, ", solubility:",I7, ", wavelength (nm):", F6.1)') &
              & trim(fu_name(species%material)),&
              & trim(species%mode%name),  &
              & species%mode%fp1*1e6,  &
@@ -964,7 +964,7 @@ CONTAINS
              & trim(fu_name(species%material)), &
              & trim(species%mode%name)
       else
-        write(line%sp,fmt='("Material: ", A, ", mode ", A, " UNKNOWN mode, solubility:", I7, ", wavelength (nm):" F6.1)') &
+        write(line%sp,fmt='("Material: ", A, ", mode ", A, " UNKNOWN mode, solubility:", I7, ", wavelength (nm):", F6.1)') &
              & trim(fu_name(species%material)), &
              & trim(species%mode%name), &
              & species%mode%solubility, &
