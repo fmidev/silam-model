@@ -511,6 +511,7 @@
          centre = 251 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
+         typeOfStatisticalProcessing = 1 ;
          subCentre = 255 ;
         }
 #Specific graupel
@@ -634,7 +635,7 @@
          subCentre = 255 ;
         }
 #Ice cover (1=land, 0=sea)
-'icec' = {
+'ci' = {
          discipline = 10 ;
          parameterCategory = 2 ;
          parameterNumber = 0 ;
@@ -683,7 +684,23 @@
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
         }
-#Leaf area index
+#Leaf area index lv
+'lai_lv' = {
+         discipline = 2 ;
+         parameterCategory = 0 ;
+         parameterNumber = 55 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+        }
+#Leaf area index hv
+'lai_hv' = {
+         discipline = 2 ;
+         parameterCategory = 0 ;
+         parameterNumber = 56 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+        }
+#Leaf area index 
 'lai' = {
          discipline = 2 ;
          parameterCategory = 0 ;
@@ -1195,6 +1212,7 @@
          centre = 251 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
+         typeOfStatisticalProcessing = 1 ;
          subCentre = 255 ;
         }
 #Specific rain water content
@@ -1420,6 +1438,7 @@
          centre = 251 ;
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
+         typeOfStatisticalProcessing = 1 ;
          subCentre = 255 ;
         }
 #Specific snow water content
@@ -1557,6 +1576,17 @@
          editionNumber = 2 ;
          interpretationOfNumberOfPoints = 0 ;
          subCentre = 255 ;
+        }
+#Cloud cover
+'cc' = {
+         discipline = 0 ;
+         parameterCategory = 6 ;
+         parameterNumber = 192 ;
+         centre = 251 ;
+         editionNumber = 2 ;
+         interpretationOfNumberOfPoints = 0 ;
+         subCentre = 255 ;
+         typeOfFirstFixedSurface = 105 ;
         }
 #Total cloud cover
 'tcc' = {

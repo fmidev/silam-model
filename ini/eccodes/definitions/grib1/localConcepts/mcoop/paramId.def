@@ -383,8 +383,8 @@
          indicatorOfParameter = 5 ;
         }
 #Ice cover (1=land, 0=sea)
-'251253091' = {
-         table2Version = 253 ;
+'31' = {
+         table2Version = 1 ;
          indicatorOfParameter = 91 ;
         }
 #Ice divergence
@@ -831,6 +831,20 @@
 '251253182' = {
          table2Version = 253 ;
          indicatorOfParameter = 182 ;
+        }
+#Surface roughness (SFX)
+'244' = {
+         table2Version = 1 ;
+         indicatorOfParameter = 83 ;
+         indicatorOfTypeOfLevel=105 ;
+         level = 810 ;
+        }
+#Surface roughness heat (SFX)
+'231063' = {
+         table2Version = 1 ;
+         indicatorOfParameter = 83 ;
+         indicatorOfTypeOfLevel=105 ;
+         level = 811 ;
         }
 #Surface roughness * g
 '251253083' = {

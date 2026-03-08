@@ -529,8 +529,8 @@
          indicatorOfParameter = 5 ;
         }
 #Ice cover (1=land, 0=sea)
-'icec' = {
-         table2Version = 253 ;
+'ci' = {
+         table2Version = 1 ;
          indicatorOfParameter = 91 ;
         }
 #Ice divergence
@@ -977,6 +977,20 @@
 'srain' = {
          table2Version = 253 ;
          indicatorOfParameter = 182 ;
+        }
+#Surface roughness (SFX)
+'fsr' = {
+         table2Version = 1 ;
+         indicatorOfParameter = 83 ;
+         indicatorOfTypeOfLevel=105 ;
+         level = 810 ;
+        }
+#Surface roughness heat (SFX)
+'srhe' = {
+         table2Version = 1 ;
+         indicatorOfParameter = 83 ;
+         indicatorOfTypeOfLevel=105 ;
+         level = 811 ;
         }
 #Surface roughness * g
 'srg' = {

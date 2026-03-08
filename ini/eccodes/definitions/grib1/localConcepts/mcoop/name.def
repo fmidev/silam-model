@@ -384,7 +384,7 @@
         }
 #Ice cover (1=land, 0=sea)
 'Ice cover (1=land, 0=sea)' = {
-         table2Version = 253 ;
+         table2Version = 1 ;
          indicatorOfParameter = 91 ;
         }
 #Ice divergence
@@ -831,6 +831,20 @@
 'Stratiform rain' = {
          table2Version = 253 ;
          indicatorOfParameter = 182 ;
+        }
+#Surface roughness (SFX)
+'Surface roughness' = {
+         table2Version = 1 ;
+         indicatorOfParameter = 83 ;
+         indicatorOfTypeOfLevel=105 ;
+         level = 810 ;
+        }
+#Surface roughness heat (SFX)
+'Surface roughness heat' = {
+         table2Version = 1 ;
+         indicatorOfParameter = 83 ;
+         indicatorOfTypeOfLevel=105 ;
+         level = 811 ;
         }
 #Surface roughness * g
 'Surface roughness * g' = {
