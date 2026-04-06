@@ -748,8 +748,8 @@ CONTAINS
 
 
       !! Grid at least 2x2 and >100m step...
-      if (dx< 1e-5 .or. dy < 1e-5 .or. nx < 2 .or. ny < 2 ) then
-        call set_error("dx< 1e-5 .or. dy < 1e-5 .or. nx < 2 .or. ny < 2 ", sub_name)
+      if (dx< 1e-6 .or. dy < 1e-6 .or. nx < 2 .or. ny < 2 ) then
+        call set_error("dx< 1e-6 .or. dy < 1e-6 .or. nx < 2 .or. ny < 2 ", sub_name)
         return
       endif
 

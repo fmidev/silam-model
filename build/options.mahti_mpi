@@ -7,7 +7,7 @@ F90C = mpif90 #gfortran
 # Flags for optimization, etc.
 #
 SANITIZE= ###-fsanitize=address -fsanitize=alignment -fsanitize=unreachable -fsanitize=vla-bound -lasan -lubsan
-OPTIMIZATION = -fopenmp -O3 -ffast-math  $(SANITIZE)
+OPTIMIZATION = -fopenmp -O3 #-ffast-math  $(SANITIZE)
 
 DEBUG = -g -fbacktrace #-fcheck=all  #-DDEBUG
 #DEBUG =  -g  -fbacktrace   -finit-real=snan   -fcheck=all -finit-integer=-88888888 -ffpe-trap=invalid,zero,overflow -DDEBUG  #-DDEBUG_OBS ##-ffpe-trap causes trouble

@@ -1949,12 +1949,14 @@ fMassInjected_out_ = 0
         ! For adjoint, this all is not needed
         !
         ! Outside the season? Then zero everything
-        if(.not. fu_if_season(iDayInYear, nint(disp_buf%p2d(indStartDay)%present%ptr(iDisp)), &
-                                        & nint(disp_buf%p2d(indEndDay)%present%ptr(iDisp))))then
-          disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0  ! no heatsum outside the season
-          disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 1.0  ! reset to prepare to the next season
-          disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp) = 0.0  ! reset
-          cycle
+        if (indStartDay > 0 ) then !! Only if that thing is relevant....
+          if(.not. fu_if_season(iDayInYear, nint(disp_buf%p2d(indStartDay)%present%ptr(iDisp)), &
+                                          & nint(disp_buf%p2d(indEndDay)%present%ptr(iDisp))))then
+            disp_buf%p2d(indHS)%future%ptr(iDisp) = 0.0  ! no heatsum outside the season
+            disp_buf%p2d(indPollenLeft)%future%ptr(iDisp) = 1.0  ! reset to prepare to the next season
+            disp_buf%p2d(indPollenRdyToFly)%future%ptr(iDisp) = 0.0  ! reset
+            cycle
+          endif
         endif
 
 !        if(.not.ifAdjoint)then

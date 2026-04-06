@@ -174,7 +174,7 @@ module silam_units
       return
 
     elseif(iLen == 1)then
-      chLast = chUnit
+      chLast = chUnit(1:1)
       if(chLast == 'm')then
         unit_type = size_unit
       elseif(chLast == 'g' .or. chLast == 't')then

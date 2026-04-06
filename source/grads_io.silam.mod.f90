@@ -1866,7 +1866,7 @@ CONTAINS
   ! ****************************************************************
 
 
-  SUBROUTINE  wr_n_fld_2_gf_from_id_and_data (igf, field_id, grid_data, forced_valid_time, &
+  SUBROUTINE  wr_n_fld_2_gf_from_id_and_data(igf, field_id, grid_data, forced_valid_time, &
                                             & if_regular_output_times)
     !
     ! Checks and writes the requested field to the GrADS file with
@@ -1899,16 +1899,17 @@ CONTAINS
     LOGICAL :: if_corner_in_geo_coord, if_south_pole, ifTimeOK, ifLevelOK
 !    TYPE(silja_field), POINTER :: fieldptr ! Field to write to the file
     TYPE(grads_file), POINTER :: gf ! Pointer to the selected GrADS file
+    character (len=*), parameter :: sub_name="wr_n_fld_2_gf_from_id_and_data"
 
 !    fieldptr => field
 
     if(igf == int_missing)then
-      call set_error('Undefined index of GrADS file','wr_n_fld_2_gf_from_id_and_data')
+      call set_error('Undefined index of GrADS file',sub_name)
       return
     endif
     if(igf < 1 .or. igf > size(gfile))then
       call msg('Index of GrADS file:',igf)
-      call set_error('Strange index of GrADS file','wr_n_fld_2_gf_from_id_and_data')
+      call set_error('Strange index of GrADS file',sub_name)
       return
     endif
 
@@ -1928,7 +1929,7 @@ CONTAINS
     ! Check trivial stuff: that the file exists and the grids match
     !
     IF(gf%unit_bin < 1)THEN
-      CALL set_error('Wrong GrADS file index',' wr_n_fld_2_gf_from_id_and_data')
+      CALL set_error('Wrong GrADS file index',sub_name)
       RETURN
     END IF
       
@@ -1951,7 +1952,7 @@ CONTAINS
         ! Grids do not match exactly but, may be, they are Arakawa-corresponding?
         ! FORBIDDEN now. 2017.04.03
         !
-!        call msg_warning('Grids do not match, trying Arakawa','wr_n_fld_2_gf_from_id_and_data')
+!        call msg_warning('Grids do not match, trying Arakawa',sub_name)
         !if(.not. fu_grids_arakawa_correspond(fu_grid(field_id), &
         !                                   & fu_set_lonlat_grid ('', &
         !                                                       & gf%ggrid%x_start,&
@@ -1970,7 +1971,7 @@ CONTAINS
           call msg('GrADS grid ny:', gf%ggrid%ny)
           call msg('GrADS grid xStep:', gf%ggrid%x_step)
           call msg('GrADS grid yStep:', gf%ggrid%y_step)
-          CALL set_error('Grids do not match',' wr_n_fld_2_gf_from_id_and_data')
+          CALL set_error('Grids do not match',sub_name)
           RETURN
 !        endif
       END IF
@@ -1990,12 +1991,12 @@ CONTAINS
         call msg('GrADS grid ny:', gf%ggrid%ny)
         call msg('GrADS grid xStep:', gf%ggrid%x_step)
         call msg('GrADS grid yStep:', gf%ggrid%y_step)
-        CALL set_error('Grids do not match',' wr_n_fld_2_gf_from_id_and_data')
+        CALL set_error('Grids do not match', sub_name)
         RETURN
       endif
 
     case default
-      call set_error('Only for lonlat  and anygrids this far','wr_n_fld_2_gf_from_id_and_data')
+      call set_error('Only for lonlat  and anygrids this far',sub_name)
     end select
 
 
@@ -2048,7 +2049,7 @@ CONTAINS
       END IF
     endif  ! if forced timeOK
 
-    if(.not.ifTimeOK) call set_error('Time mis-matched','wr_n_fld_2_gf_from_id_and_data')
+    if(.not.ifTimeOK) call set_error('Time mis-matched',sub_name)
     ! Check time
     IF(ifTimeOK)THEN
 
@@ -2076,7 +2077,7 @@ CONTAINS
             endif
           endif
         END IF
-        if(.not.ifLevelOK) call set_error('Level mis-matched','wr_n_fld_2_gf_from_id_and_data')
+        if(.not.ifLevelOK) call set_error('Level mis-matched',sub_name)
         IF(ifLevelOK)THEN
 
           !----------------------------------------------------------------
@@ -2131,6 +2132,10 @@ CONTAINS
             ! One of 2D-type variables
             !
             gf%var_nbr = gf%var_nbr + 1
+            if (gf%var_nbr > size(gf%gvars,1)) then 
+              call set_error("Too many variables to the output "//trim(fu_str(size(gf%gvars,1))), sub_name )
+              return
+            endif
             gf%lev_nbr = 1
             IF(gf%time_nbr == 1) RETURN !- For the first time period lists are incomplete
             IF(gf%gvars(gf%var_nbr)%quantity < 0)THEN ! The next time period
@@ -2147,7 +2152,7 @@ CONTAINS
         END IF ! If levels match
       else
            call set_error("Quantity or species mismatched", &
-                        & "wr_n_fld_2_gf_from_id_and_data")
+                        & sub_name)
       END IF ! If quantities match
     END IF ! If time periods match
 
@@ -2171,12 +2176,12 @@ CONTAINS
       call msg('2D var')
     ELSE
       call set_error('Unknown vertical features of the variable' &
-         & + fu_str(gf%gvars(gf%var_nbr)%iVerticalFeature),'wr_n_fld_2_gf_from_id_and_data')
+         & + fu_str(gf%gvars(gf%var_nbr)%iVerticalFeature),sub_name)
     END IF
     call msg(fu_quantity_string(gf%gvars(gf%var_nbr)%quantity) + '_' + &
            & fu_str(gf%gvars(gf%var_nbr)%species))
 
-    CALL set_error('Field does not match',' wr_n_fld_2_gf_from_id_and_data')
+    CALL set_error('Field does not match', sub_name)
 
   END SUBROUTINE  wr_n_fld_2_gf_from_id_and_data
 
@@ -2225,11 +2230,12 @@ CONTAINS
     ! Local variables
     INTEGER :: iTmp
     LOGICAL :: ifSurface, ifTimeStart
+    character (len=*), parameter :: sub_name="fill_structures"
     !-----------------------------------------------------
     ! If something has not matched during the second time period => error
     !
     IF(gf%time_nbr > 1)THEN
-      CALL set_error('Wrong field','fill_structures')
+      CALL set_error('Wrong field',sub_name)
       RETURN
     END IF
 
@@ -2326,7 +2332,7 @@ CONTAINS
             call msg('Expected level in structure:',gf%lev_nbr)
             call report(gf%silamVertical,.true.)
             call report(field_id)
-            call set_error('Next variable has arrived but levels do not match','fill_structures')
+            call set_error('Next variable has arrived but levels do not match',sub_name)
             return
           endif
           gf%gvars(gf%var_nbr)%n_levs = gf%lev_nbr
@@ -2339,12 +2345,12 @@ CONTAINS
           IF(gf%gvars(gf%var_nbr)%iVerticalFeature /= level_3d_type_flag)THEN
             call msg('')
             call report(field_id)
-            CALL set_error('2D var claims to have several levels','fill_structures')
+            CALL set_error('2D var claims to have several levels',sub_name)
             RETURN
           END IF
           IF(fu_get_glevel(fu_level(field_id),gf%levType) <= gf%glevs%levels(gf%lev_nbr-1).and. &
            & fu_get_glevel(fu_level(field_id),gf%levType) > gf%glevs%levels(1))THEN
-            CALL set_error('Intermediate level found','fill_structures')
+            CALL set_error('Intermediate level found',sub_name)
             RETURN
           END IF
 !          call msg('Adding level to vertical:')
@@ -2380,7 +2386,7 @@ CONTAINS
             CALL set_error('Duplicated variable:' + &
                          & fu_quantity_short_string(gf%gvars(iTmp)%quantity)  + '_' + &
                          & fu_str(gf%gvars(iTmp)%species), &
-                         & 'fill_structures')
+                         & sub_name)
             RETURN
           END IF
         END DO
@@ -2401,6 +2407,10 @@ CONTAINS
         ! Start new variable
         !
         gf%n_vars = gf%n_vars + 1
+        if (gf%n_vars > size(gf%gvars,1)) then 
+          call set_error("Too many variables to the output "//trim(fu_str(size(gf%gvars,1))), sub_name )
+          return
+        endif
         gf%var_nbr = gf%n_vars
         gf%lev_nbr = 1
         gf%gvars(gf%var_nbr)%quantity = fu_quantity(field_id)

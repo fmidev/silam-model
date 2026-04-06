@@ -4733,7 +4733,7 @@ CONTAINS
     elseif(trim(chQuantity) == "mean_ann_precip")then
       iQ = mean_annual_precipitation_flag 
 
-    elseif(trim(chQuantity) == "u_10m" .or. trim(chQuantity) == "V_wind_10m")then
+    elseif(trim(chQuantity) == "u_10m" .or. trim(chQuantity) == "U_wind_10m")then
       iQ = u_10m_flag 
 
     elseif(trim(chQuantity) == "v_10m" .or. trim(chQuantity) == "V_wind_10m")then
