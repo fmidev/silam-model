@@ -21,7 +21,7 @@ Compile the binary
 
 `$ make`
 
-The latter command might requre a second try. Finally it should create a binary in ../bin,
+The latter command might require a second try. Finally, it should create a binary in ../bin,
 that can be launched as:
 
 `$ ../bin/silam_v6_1pub.gnu`
@@ -43,7 +43,7 @@ have headers in a location specific for "module version", where gfortran can't f
 
 `/usr/lib/x86_64-linux-gnu/fortran/gfortran-mod-15/`
 
-others have them in gfortran-version-specific locarion
+Others have them in gfortran-version-specific location
 
 `/usr/lib/gcc/x86_64-linux-gnu/10/finclude/`
 
@@ -51,7 +51,7 @@ or
 
 `/usr/lib/gcc/x86_64-linux-gnu/19/finclude/`
 
-A workaround would be to either explicitly call fortran with `-I
+A workaround would be to either explicitly call FORTRAN with `-I
 /usr/lib/x86_64-linux-gnu/fortran/gfortran-mod-15` (by adding this option to
 FFLAGS  in build/options.gnu).
 
@@ -64,11 +64,11 @@ or
 
 `# ln -s /usr/lib/x86_64-linux-gnu/fortran/gfortran-mod-15/grib_api.mod /usr/lib/gcc/x86_64-linux-gnu/9/finclude/`
 
-Exact command depends on your gcc version, which can be checked with 
+The exact command depends on your gcc version, which can be checked with 
 `$ gfortran -v`
 
 The issue has been reported at
-https://bugs.launchpad.net/ubuntu/+source/gcc-defaults/+bug/1883855 .
+https://bugs.launchpad.net/ubuntu/+source/gcc-defaults/+bug/1883855.
 Please consider confirming the bug if it affects you.
 
 
