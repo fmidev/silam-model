@@ -60,12 +60,12 @@ var     =         *     q                       *                               
 var     =         *     sde            lwe_thickness_of_surface_snow_amount                  weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## icon
 var     =         *     sd            lwe_thickness_of_surface_snow_amount                   weq_snow_depth             undefined   SURFACE_LEVEL       -1      1    ## ecmwf
 var     =         *     sd                      *                                            weq_snow_depth             undefined   SURFACE_LEVEL       -1    1e-3  ## ecmwf/CESM kg/m2 -> m
-var     =    228039     sm                      *                                            soil_moisture              undefined   SURFACE_LEVEL       -1    1e-3  ###kg/m3 -> m3/m3
-var     =    260210     liqvsm                  *                                            soil_moisture              undefined   SURFACE_LEVEL       -1     1 
+var     =    228039     sm                      *                                            soil_moisture_srf              undefined   SURFACE_LEVEL       -1    1e-3  ###kg/m3 -> m3/m3
+var     =    260210     liqvsm                  *                                            soil_moisture_srf              undefined   SURFACE_LEVEL       -1     1 
 var     =         *     skt                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1       ## skin temperature, ground temperature is not used in SILAM
-var     =         *     slhf                    *                                            nwp_latent_heatflux        undefined   SURFACE_LEVEL       -1     1
+var     =         *     slhf                    *                                            nwp_latent_heatflux_ac        undefined   SURFACE_LEVEL       -1     -1  ###  They count it to surface
 var     =         *     sp                      *                                            ground_pressure            undefined   SURFACE_LEVEL       -1     1
-var     =         *     sshf                    *                                            nwp_sensible_heatflux      undefined   SURFACE_LEVEL       -1     1
+var     =         *     sshf                    *                                            nwp_sensible_heatflux_ac      undefined   SURFACE_LEVEL       -1     -1 ### They count it to surface
 var     =         *     sst                     *                                            water_surface_temp         undefined   SURFACE_LEVEL       -1     1
 var     =       130     t                       *                                            temperature                undefined   XXX                 -1     1
 var     =       164     tcc                     *                                            total_cloud_cover          undefined   SURFACE_LEVEL       -1     1       ## 0-1
@@ -80,7 +80,7 @@ var     =         *     frac_hv                 *                               
 var     =         *     frac_lv                 *                                            frac_lv                    undefined   SURFACE_LEVEL       -1     1
 var     =         *     cvh                     *                                            frac_hv                    undefined   SURFACE_LEVEL       -1     1
 var     =         *     cvl                     *                                            frac_lv                    undefined   SURFACE_LEVEL       -1     1
-var     =        39   swvl1                   *                                         soil_moisture_content         undefined   SURFACE_LEVEL       -1     1  
+var     =        39   swvl1                   *                                         soil_moisture_srf         undefined   SURFACE_LEVEL       -1     1  
 var     =       206    tco3                   *                                             met_o3_col                undefined   SURFACE_LEVEL       -1     1 ## Total column ozone, kg m-2
 #     var     =     mtdch                   *                                            mtdch                      undefined   SURFACE_LEVEL       -1      1      
 
@@ -88,7 +88,7 @@ var     =        59   cape                    *                                 
 
 #     var     =      flsr     undefined   SURFACE_LEVEL       -1                     SURFACE_LEVEL       -1      XXX     -1     -1     1     0   # Forecast logarithm of surface roughness for heat
 #     var     =     ACSNOW     weq_snow_depth             SURFACE_LEVEL       -1      undefined   SURFACE_LEVEL       -1     -1     -1     1e-3     0
-#     var     =     SMOIS      soil_moisture_content      SURFACE_LEVEL       -1      undefined   SURFACE_LEVEL       -1     -1     -1     1     0
+#     var     =     SMOIS      soil_moisture_srf     SURFACE_LEVEL       -1      undefined   SURFACE_LEVEL       -1     -1     -1     1     0
 
 #ICON Ground temperature (temperature at sfc-atm interface)
 var     =   *  HSURF                   *                                            relief_height              undefined   SURFACE_LEVEL       -1     1

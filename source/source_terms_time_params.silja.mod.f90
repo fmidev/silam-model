@@ -1929,7 +1929,9 @@ endif
     enddo
 
     if (fBVFreq2 < 0) then
-        call set_error("FailedBV", sub_name)
+        fBVFreq2 = 0.
+        ! call set_error("FailedBV", sub_name)
+        call msg("Resetting FailedBV to zero in "//sub_name)
     endif
     call IS4FIRES_vertical_profile(FRP, fABL_height, fBVFreq2, &
                                      & ifOneStepProcedure,  fHatBottom, fHatTop)

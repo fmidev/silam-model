@@ -1276,6 +1276,8 @@ CONTAINS
     !!! max_variables to  be replaced with something more meaningful
     allocate(gfile(iFile)%gvars(max_variables))
     gfile(iFile)%gvars(:) = grads_variable_missing
+    gfile(iFile)%rec = 1 !! reset binary
+    gfile(iFile)%gtime = grads_time_missing !! Make fill_structures happy
 
     open_gradsfile_o = iFile
       
@@ -3978,7 +3980,7 @@ CONTAINS
                            & pole_x, pole_y, & 
                            & gf%ggrid%x_step, gf%ggrid%y_step)
       CASE DEFAULT
-        CALL set_error('Only latlon grids so far','open_grads_file_o')
+        CALL set_error('Only latlon grids so far','fill_structures_for_grib')
         RETURN
       END SELECT
       gf%defined = silja_true
@@ -4257,6 +4259,7 @@ CONTAINS
 
     if (allocated(gf%gvars))  deallocate (gf%gvars)
     if (allocated(gf%first_field_offset_in_tstep))  deallocate (gf%first_field_offset_in_tstep)
+    gf%unit_bin = -1  !! Actually used in fu_next_free_grads_structure
 
     gf%defined = silja_false
 

@@ -678,7 +678,7 @@ CONTAINS
       iTmp = fu_merge_integer_to_array(surface_roughness_meteo_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(fraction_of_land_flag, q_met_st)
       iTmp = fu_merge_integer_to_array(total_precipitation_int_flag, q_met_st)
-      iTmp = fu_merge_integer_to_array(SILAM_sensible_heat_flux_flag, q_met_dyn)
+      iTmp = fu_merge_integer_to_array(NWP_sensible_heatflux_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(total_cloud_cover_flag, q_met_dyn)
       iTmp = fu_merge_integer_to_array(fraction_of_ice_flag, q_met_dyn)
     endif
@@ -1192,9 +1192,9 @@ CONTAINS
 ! call msg('**DEP**: soil_moisture_vol_frac_nwp_flag')
 
 
-       case(SILAM_sensible_heat_flux_flag)
+       case(NWP_sensible_heatflux_flag)
            pMetSensHF => buf%p2d(indexQ)%present%ptr
-! call msg('**DEP**: SILAM_sensible_heat_flux_flag')
+! call msg('**DEP**: NWP_sensible_heatflux_flag')
 
         case(leaf_area_index_flag)
                 pMetLAI => buf%p2d(indexQ)%present%ptr

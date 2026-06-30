@@ -334,8 +334,18 @@ CONTAINS
                                     & 1-nXBorder:nx+nXBorder, 1-nYBorder:ny+nYBorder), &
            &  MassMap%ifGridValid(1-n3DBorder:n3D+n3DBorder, 1-nSrcBorder:nSrc+nSrcBorder), stat=iTmp)
     if(iTmp /= 0)then
-      call msg('Failed to allocate memory for map with size:', nx * ny * n3D)
-      call set_error('Failed to allocate memory for map','fu_set_mass_map_from_basic_par')
+      !call msg('Failed to allocate memory. Size, kB :', nSpecies * nSrc* nx * ny * n3D)
+      
+      call msg('Failed to allocate memory. Size, kB :', &
+         nSpecies * nSrc * nx * ny * n3D * 4 / 1024)
+      call msg('nSpecies :', nSpecies)
+      call msg('nSrc     :', nSrc)
+      call msg('nx       :', nx)
+      call msg('ny       :', ny)
+      call msg('n3D      :', n3D)
+      
+      !call msg('Failed to allocate memory. Array dimensions nSpecies, nSrc, nx, ny, n3D :', (/ nSpecies, nSrc, nx , ny , n3D/ ))
+      call set_error('Failed to allocate memory for map. See above for details.','fu_set_mass_map_from_basic_par')
       return
     endif
 

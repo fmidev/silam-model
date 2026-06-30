@@ -19,4 +19,4 @@ GRDIR =
 # Libraries passed to ifort
 SILAM_LIBS = 
 # Libraries given as linker options
-LFLAGS = -fopenmp -llapack -lblas -llapack -leccodes  -leccodes_f90 -lnetcdff -lnetcdf -lpnetcdf -lbz2 -lproj
+LFLAGS = -flto -Wl,-z,noexecstack -fopenmp -llapack -lblas -llapack -leccodes  -leccodes_f90 -lnetcdff -lnetcdf -lpnetcdf -lbz2 -lproj

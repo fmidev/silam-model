@@ -1558,8 +1558,8 @@ title = MEPS_METNO
      var     =     atmosphere_boundary_layer_thickness        nwp_abl_height_m          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     cloud_area_fraction        total_cloud_cover          SURFACE_LEVEL       -1      XXX     -1     -1     1     0
      var     =     liquid_water_content_of_surface_snow      weq_snow_depth    SURFACE_LEVEL       -1      XXX     -1     -1     1     0
-     var     =     integral_of_surface_downward_sensible_heat_flux_wrt_time        nwp_sensible_heatflux     SURFACE_LEVEL       -1      XXX     -1     -1     1     0
-     var     =     integral_of_surface_downward_latent_heat_flux_wrt_time        nwp_latent_heatflux       SURFACE_LEVEL       -1      XXX     -1     -1     1     0
+     var     =     integral_of_surface_downward_sensible_heat_flux_wrt_time      nwp_sensible_heatflux_ac     SURFACE_LEVEL       -1      XXX     -1     -1     -1     0
+     var     =     integral_of_surface_downward_latent_heat_flux_wrt_time        nwp_latent_heatflux_ac       SURFACE_LEVEL       -1      XXX     -1     -1     -1     0
                          
 #     var     =     PRECC         convective_accum_rain      SURFACE_LEVEL       -1      XXX     -1     -1     1     0  #
      var     =     precipitation_amount_acc         total_precipitation     SURFACE_LEVEL       -1      XXX     -1     -1     1     0  #

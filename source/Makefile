@@ -27,25 +27,10 @@ gnumpi:
 	echo "SE=gnumpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
-craygnu_mpi:
-	echo "SE=craygnu_mpi" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)`
-
-craygnu_debug:
-	echo "SE=craygnu_debug" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)`
-
-craygnu:
-	echo "SE=craygnu" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)`
-
-craygnu_mpi_debug:
-	echo "SE=craygnu_mpi_debug" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)`
-
 gnu_debug:
 	echo "SE=gnu_debug" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
+
 gnumpi_debug:
 	echo "SE=gnumpi_debug" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
@@ -54,20 +39,20 @@ gnu:
 	echo "SE=gnu" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
-newcray:
-	echo "SE=newcray" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)`
-
-newcray_mpi:
-	echo "SE=newcray_mpi" > $(DefaultSetup)
-	echo Switching make to `cat $(DefaultSetup)`
-
 lumimpi:
 	echo "SE=lumimpi" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
 lumi:
 	echo "SE=lumi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+roihu_mpi:
+	echo "SE=roihu_mpi" > $(DefaultSetup)
+	echo Switching make to `cat $(DefaultSetup)`
+
+roihu:
+	echo "SE=roihu" > $(DefaultSetup)
 	echo Switching make to `cat $(DefaultSetup)`
 
 mahti_mpi:

@@ -2737,12 +2737,11 @@ if(ifTalk)call msg('Starting vertical diffusion:',(/ix,iy,iLev,iSpecies/))
                   ftmp = max(ftmp,0.005)  ! half-centimiter min value
 
                   if (defined(pCnc2m)) then
-                     iVd2m = real_missing 
-                  else 
                      iVd2m = 0
+                  else 
+                     iVd2m = real_missing
                   endif
                       
-
                   fVd =   fu_get_vd(fTmp,  & ! Reference height in meters
                                   & pDispFlds%species(ispecies), & ! what to deposit
                                   & indexMeteo, weight_past, &  ! position in space and time
@@ -2865,7 +2864,8 @@ if(ifTalk)call msg('Return mass:',(/ix,iy,iLev,iSpecies/))
 !!             ! FIXME Hack: pCnc2m  = 1/Rs
 !              if (ifDryDep) then
 !                    if (mystuff%R_Surf(ispecies) > 0) then
-!                      pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  1./mystuff%R_Surf(ispecies) * pXCellSize(indexDisp) * pYCellSize(indexDisp)
+!                      !!pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  1./mystuff%R_Surf(ispecies) * pXCellSize(indexDisp) * pYCellSize(indexDisp)
+!                      pCnc2m%arM(iSpecies,iSrc,1,ix,iy) =  fVd * pXCellSize(indexDisp) * pYCellSize(indexDisp)
 !                    else
 !                       pCnc2m%arM(iSpecies,iSrc,1,ix,iy) = 999999999999999. * pXCellSize(indexDisp) * pYCellSize(indexDisp)
 !                    endif
@@ -2878,6 +2878,7 @@ if(ifTalk)call msg('Return mass:',(/ix,iy,iLev,iSpecies/))
 
               if (.not. (pCnc2m%arM(iSpecies,iSrc,1,ix,iy) >= 0)) then !Achtung!!
                 if(.not. have_negatives)then
+!$OMP CRITICAL (bark_2m)
                   call msg("Strange Cnc2m:  pCnc2m%arM(iSpecies,iSrc,1,ix,iy):", &
                       & pCnc2m%arM(iSpecies,iSrc,1,ix,iy) ) 
                   call msg("Resulting concentration (/m3)", &
@@ -2890,6 +2891,7 @@ if(ifTalk)call msg('Return mass:',(/ix,iy,iLev,iSpecies/))
                   call msg("Rs", mystuff%R_Surf(iSpecies))
                   call msg("ix, iy", ix,iy)
                   call set_error("cnc_2m", "advV4vert")
+!$OMP END CRITICAL(bark_2m)
                   cycle
                 endif
               endif
